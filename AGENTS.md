@@ -6,6 +6,7 @@ Svelte 5 frontend with xterm.js.
 ## Build & Check
 
 ```sh
+mise run dev            # backend + frontend dev servers (parallel)
 mise run build          # frontend + server (release)
 mise run check          # cargo check + svelte-check + tsc
 mise run test           # all tests (vitest + cargo test)

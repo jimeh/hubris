@@ -15,13 +15,17 @@ depends = ["build:frontend"]
 run = "cargo build --release"
 description = "Build server binary (release)"
 
+[tasks."dev:server"]
+run = "cd crates/server && cargo run"
+description = "Run backend dev server"
+
+[tasks."dev:frontend"]
+run = "cd frontend && bun dev"
+description = "Run frontend dev server"
+
 [tasks.dev]
-description = "Print dev server instructions"
-run = """
-echo "Run in separate terminals:"
-echo "  cd crates/server && cargo run"
-echo "  cd frontend && bun dev"
-"""
+description = "Run backend + frontend dev servers"
+run = [{ tasks = ["dev:server", "dev:frontend"] }]
 
 [tasks.check]
 description = "Run type/lint checks"
