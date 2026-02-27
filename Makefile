@@ -3,7 +3,7 @@
 build: build-frontend build-server
 
 build-frontend:
-	cd frontend && pnpm install && pnpm build
+	cd frontend && bun install && bun run build
 
 build-server: build-frontend
 	cargo build --release
@@ -11,11 +11,11 @@ build-server: build-frontend
 dev:
 	@echo "Run in separate terminals:"
 	@echo "  cd crates/server && cargo run"
-	@echo "  cd frontend && pnpm dev"
+	@echo "  cd frontend && bun dev"
 
 check:
 	cargo check
-	cd frontend && pnpm check
+	cd frontend && bun run check
 
 clean:
 	cargo clean

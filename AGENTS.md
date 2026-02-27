@@ -8,11 +8,11 @@ Svelte 5 frontend with xterm.js.
 ```sh
 make build          # frontend + server (release)
 make check          # cargo check + svelte-check + tsc
-cd frontend && pnpm test   # vitest
+cd frontend && bun run test   # vitest
 cd crates/server && cargo test  # integration tests
 ```
 
-Package managers: Cargo (backend), pnpm (frontend).
+Package managers: Cargo (backend), bun (frontend).
 
 ## Domain Concepts
 
