@@ -35,20 +35,13 @@ mod inner {
         )
     }
 
-    fn file_response(
-        file: &rust_embed::EmbeddedFile,
-        req_headers: &HeaderMap,
-    ) -> Response {
+    fn file_response(file: &rust_embed::EmbeddedFile, req_headers: &HeaderMap) -> Response {
         let etag_value = etag(file);
 
         // If client has matching ETag, return 304.
         if let Some(if_none_match) = req_headers.get(header::IF_NONE_MATCH) {
             if if_none_match.as_bytes() == etag_value.as_bytes() {
-                return (
-                    StatusCode::NOT_MODIFIED,
-                    [(header::ETAG, etag_value)],
-                )
-                    .into_response();
+                return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag_value)]).into_response();
             }
         }
 

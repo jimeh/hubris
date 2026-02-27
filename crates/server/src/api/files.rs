@@ -40,14 +40,13 @@ pub async fn list_files(
         _ => home.clone().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
     };
 
-    let dir =
-        tokio::fs::canonicalize(&dir)
-            .await
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
-                std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            })?;
+    let dir = tokio::fs::canonicalize(&dir)
+        .await
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+            std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
 
     let meta = tokio::fs::metadata(&dir)
         .await
@@ -56,12 +55,12 @@ pub async fn list_files(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let mut read_dir = tokio::fs::read_dir(&dir).await.map_err(|e| match e
-        .kind()
-    {
-        std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
-        _ => StatusCode::INTERNAL_SERVER_ERROR,
-    })?;
+    let mut read_dir = tokio::fs::read_dir(&dir)
+        .await
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
 
     let mut entries = Vec::new();
 

@@ -24,14 +24,11 @@ enum ControlMessage {
     Resize { cols: u16, rows: u16 },
 }
 
-async fn load_projects(
-    state: &AppState,
-) -> Result<Vec<Project>, std::io::Error> {
+async fn load_projects(state: &AppState) -> Result<Vec<Project>, std::io::Error> {
     let path = state.projects_file();
     match tokio::fs::read_to_string(&path).await {
         Ok(contents) => {
-            let projects: Vec<Project> =
-                serde_json::from_str(&contents).unwrap_or_default();
+            let projects: Vec<Project> = serde_json::from_str(&contents).unwrap_or_default();
             Ok(projects)
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
@@ -71,8 +68,7 @@ async fn handle_terminal(socket: WebSocket, cwd: String, _state: AppState) {
         }
     };
 
-    let shell =
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     let mut cmd = CommandBuilder::new(&shell);
     cmd.cwd(&cwd);
     cmd.env("TERM", "xterm-256color");
@@ -123,8 +119,7 @@ async fn handle_terminal(socket: WebSocket, cwd: String, _state: AppState) {
             } else {
                 // Larger output: batch with short timer
                 let mut batch = data;
-                let deadline =
-                    tokio::time::sleep(std::time::Duration::from_millis(4));
+                let deadline = tokio::time::sleep(std::time::Duration::from_millis(4));
                 tokio::pin!(deadline);
                 loop {
                     tokio::select! {
@@ -141,8 +136,7 @@ async fn handle_terminal(socket: WebSocket, cwd: String, _state: AppState) {
                         }
                     }
                 }
-                if ws_sender.send(Message::Binary(batch.into())).await.is_err()
-                {
+                if ws_sender.send(Message::Binary(batch.into())).await.is_err() {
                     break;
                 }
             }
@@ -159,8 +153,7 @@ async fn handle_terminal(socket: WebSocket, cwd: String, _state: AppState) {
                 }
             }
             Message::Text(text) => {
-                if let Ok(ctrl) = serde_json::from_str::<ControlMessage>(&text)
-                {
+                if let Ok(ctrl) = serde_json::from_str::<ControlMessage>(&text) {
                     match ctrl {
                         ControlMessage::Resize { cols, rows } => {
                             let _ = master_for_resize.resize(PtySize {
