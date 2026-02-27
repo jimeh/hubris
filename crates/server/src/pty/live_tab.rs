@@ -19,6 +19,7 @@ pub struct TabInfo {
     pub label: String,
     #[serde(rename = "type")]
     pub tab_type: String,
+    pub created_at: u64,
 }
 
 /// A live terminal tab with its PTY, scrollback buffer,

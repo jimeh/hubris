@@ -10,6 +10,7 @@ export interface Tab {
   project_id: string;
   label: string;
   type: 'terminal';
+  created_at: number;
 }
 
 export interface DirEntry {

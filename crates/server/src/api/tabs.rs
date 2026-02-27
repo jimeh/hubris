@@ -1,5 +1,6 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -21,11 +22,12 @@ pub struct CreateTabRequest {
 pub async fn list_tabs(
     State(state): State<AppState>,
 ) -> Json<Vec<TabInfo>> {
-    let tabs: Vec<TabInfo> = state
+    let mut tabs: Vec<TabInfo> = state
         .tabs
         .iter()
         .map(|entry| entry.value().info.clone())
         .collect();
+    tabs.sort_by_key(|t| t.created_at);
     Json(tabs)
 }
 
@@ -47,12 +49,18 @@ pub async fn create_tab(
         .next_tab_num
         .fetch_add(1, Ordering::Relaxed);
 
+    let created_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
     let info = TabInfo {
         id: uuid::Uuid::new_v4().to_string(),
         session_id: "default".to_string(),
         project_id: req.project_id.clone(),
         label: format!("Terminal {}", tab_num),
         tab_type: "terminal".to_string(),
+        created_at,
     };
 
     let pty_system = NativePtySystem::default();

@@ -174,6 +174,7 @@ describe('API client', () => {
           project_id: 'p1',
           label: 'Terminal 1',
           type: 'terminal',
+          created_at: 1700000000000,
         },
       ];
       vi.stubGlobal(
@@ -198,6 +199,7 @@ describe('API client', () => {
         project_id: 'p1',
         label: 'Terminal 1',
         type: 'terminal',
+        created_at: 1700000000000,
       };
       vi.stubGlobal(
         'fetch',

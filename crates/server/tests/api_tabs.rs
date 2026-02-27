@@ -72,6 +72,7 @@ async fn test_create_tab() {
     assert_eq!(body["project_id"], project_id);
     assert_eq!(body["label"], "Terminal 1");
     assert_eq!(body["type"], "terminal");
+    assert!(body["created_at"].is_u64());
 }
 
 #[tokio::test]
@@ -193,4 +194,48 @@ async fn test_tab_labels_increment() {
     assert_eq!(labels[0], "Terminal 1");
     assert_eq!(labels[1], "Terminal 2");
     assert_eq!(labels[2], "Terminal 3");
+}
+
+#[tokio::test]
+async fn test_list_tabs_sorted_by_created_at() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let project_id =
+        create_project(&client, &base).await;
+
+    // Create 3 tabs sequentially
+    for _ in 0..3 {
+        client
+            .post(format!("{}/api/tabs", base))
+            .json(&serde_json::json!({
+                "project_id": project_id
+            }))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // List should return them sorted by created_at
+    let res = client
+        .get(format!("{}/api/tabs", base))
+        .send()
+        .await
+        .unwrap();
+    let body: Vec<Value> = res.json().await.unwrap();
+    assert_eq!(body.len(), 3);
+
+    let timestamps: Vec<u64> = body
+        .iter()
+        .map(|t| t["created_at"].as_u64().unwrap())
+        .collect();
+    assert!(
+        timestamps.windows(2).all(|w| w[0] <= w[1]),
+        "tabs should be sorted by created_at: {:?}",
+        timestamps
+    );
+
+    // Labels should also be in order
+    assert_eq!(body[0]["label"], "Terminal 1");
+    assert_eq!(body[1]["label"], "Terminal 2");
+    assert_eq!(body[2]["label"], "Terminal 3");
 }
