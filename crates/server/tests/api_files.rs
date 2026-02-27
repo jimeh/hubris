@@ -1,4 +1,4 @@
-use hubris_server::{build_router, AppState};
+use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
 
@@ -7,10 +7,7 @@ async fn start_test_server() -> (String, tempfile::TempDir) {
     let state = AppState::new(tmp.path().to_path_buf());
     let app = build_router(state);
 
-    let listener =
-        tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
@@ -48,18 +45,12 @@ async fn test_list_files_explicit_path() {
     std::fs::create_dir(&git_dir).unwrap();
     std::fs::create_dir(git_dir.join(".git")).unwrap();
     // Hidden dir (should be excluded by default)
-    std::fs::create_dir(tmp.path().join(".hidden"))
-        .unwrap();
+    std::fs::create_dir(tmp.path().join(".hidden")).unwrap();
     // Regular file (should be excluded)
-    std::fs::write(tmp.path().join("file.txt"), "hi")
-        .unwrap();
+    std::fs::write(tmp.path().join("file.txt"), "hi").unwrap();
 
     let res = client
-        .get(format!(
-            "{}/api/files?path={}",
-            base,
-            tmp.path().display()
-        ))
+        .get(format!("{}/api/files?path={}", base, tmp.path().display()))
         .send()
         .await
         .unwrap();
@@ -79,16 +70,10 @@ async fn test_list_files_explicit_path() {
     assert!(names.contains(&"myrepo"));
 
     // myrepo should be detected as git repo
-    let myrepo = entries
-        .iter()
-        .find(|e| e["name"] == "myrepo")
-        .unwrap();
+    let myrepo = entries.iter().find(|e| e["name"] == "myrepo").unwrap();
     assert_eq!(myrepo["is_git_repo"], true);
 
-    let mydir = entries
-        .iter()
-        .find(|e| e["name"] == "mydir")
-        .unwrap();
+    let mydir = entries.iter().find(|e| e["name"] == "mydir").unwrap();
     assert_eq!(mydir["is_git_repo"], false);
 }
 
@@ -97,10 +82,8 @@ async fn test_list_files_show_hidden() {
     let (base, tmp) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    std::fs::create_dir(tmp.path().join(".hidden"))
-        .unwrap();
-    std::fs::create_dir(tmp.path().join("visible"))
-        .unwrap();
+    std::fs::create_dir(tmp.path().join(".hidden")).unwrap();
+    std::fs::create_dir(tmp.path().join("visible")).unwrap();
 
     let res = client
         .get(format!(
@@ -129,10 +112,7 @@ async fn test_list_files_nonexistent_path() {
     let client = reqwest::Client::new();
 
     let res = client
-        .get(format!(
-            "{}/api/files?path=/nonexistent_xyz_12345",
-            base,
-        ))
+        .get(format!("{}/api/files?path=/nonexistent_xyz_12345", base,))
         .send()
         .await
         .unwrap();
@@ -148,11 +128,7 @@ async fn test_list_files_path_is_file() {
     std::fs::write(&file_path, "content").unwrap();
 
     let res = client
-        .get(format!(
-            "{}/api/files?path={}",
-            base,
-            file_path.display()
-        ))
+        .get(format!("{}/api/files?path={}", base, file_path.display()))
         .send()
         .await
         .unwrap();
@@ -169,11 +145,7 @@ async fn test_list_files_sorted_alphabetically() {
     std::fs::create_dir(tmp.path().join("Beta")).unwrap();
 
     let res = client
-        .get(format!(
-            "{}/api/files?path={}",
-            base,
-            tmp.path().display()
-        ))
+        .get(format!("{}/api/files?path={}", base, tmp.path().display()))
         .send()
         .await
         .unwrap();

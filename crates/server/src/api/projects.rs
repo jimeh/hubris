@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::state::AppState;
@@ -26,13 +26,10 @@ async fn load_projects(
     match tokio::fs::read_to_string(&path).await {
         Ok(contents) => {
             let projects: Vec<Project> =
-                serde_json::from_str(&contents)
-                    .unwrap_or_default();
+                serde_json::from_str(&contents).unwrap_or_default();
             Ok(projects)
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            Ok(vec![])
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
         Err(e) => Err(e),
     }
 }
@@ -43,9 +40,7 @@ async fn save_projects(
 ) -> Result<(), std::io::Error> {
     let path = state.projects_file();
     let contents = serde_json::to_string_pretty(projects)
-        .map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e)
-        })?;
+        .map_err(std::io::Error::other)?;
     tokio::fs::write(&path, contents).await
 }
 
@@ -76,8 +71,7 @@ pub async fn add_project(
         name,
         path: req.path,
     };
-    let mut projects =
-        load_projects(&state).await.unwrap_or_default();
+    let mut projects = load_projects(&state).await.unwrap_or_default();
     projects.push(project.clone());
     save_projects(&state, &projects)
         .await
@@ -89,8 +83,7 @@ pub async fn delete_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> StatusCode {
-    let mut projects =
-        load_projects(&state).await.unwrap_or_default();
+    let mut projects = load_projects(&state).await.unwrap_or_default();
     let before = projects.len();
     projects.retain(|p| p.id != id);
     if projects.len() == before {

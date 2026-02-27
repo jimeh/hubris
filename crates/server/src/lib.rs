@@ -3,10 +3,10 @@ mod embedded;
 pub mod pty;
 pub mod state;
 
+use axum::Router;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderValue, Method};
 use axum::routing::{delete, get};
-use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -25,16 +25,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/terminal/ws", get(ws_handler));
 
     let cors = CorsLayer::new()
-        .allow_origin(
-            "http://localhost:5173"
-                .parse::<HeaderValue>()
-                .unwrap(),
-        )
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::DELETE,
-        ])
+        .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
+        .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_headers([CONTENT_TYPE]);
 
     Router::new()

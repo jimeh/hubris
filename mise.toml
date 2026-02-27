@@ -12,7 +12,7 @@ description = "Install deps and build frontend"
 
 [tasks."build:server"]
 depends = ["build:frontend"]
-run = "cargo build --release"
+run = "cargo build --release --features embed-frontend"
 description = "Build server binary (release)"
 
 [tasks."dev:server"]
@@ -28,10 +28,10 @@ description = "Run backend + frontend dev servers"
 run = [{ tasks = ["dev:server", "dev:frontend"] }]
 
 [tasks.check]
-depends = ["build:frontend"]
 description = "Run type/lint checks"
 run = [
   "cargo check",
+  "cargo clippy --all-targets -- -D warnings",
   "cd frontend && bun run check",
 ]
 
