@@ -6,12 +6,12 @@ Svelte 5 frontend with xterm.js.
 ## Build & Check
 
 ```sh
-make build          # frontend + server (release)
-make check          # cargo check + svelte-check + tsc
-cd frontend && bun run test   # vitest
-cd crates/server && cargo test  # integration tests
+mise run build          # frontend + server (release)
+mise run check          # cargo check + svelte-check + tsc
+mise run test           # all tests (vitest + cargo test)
 ```
 
+Tool versions managed by mise (see `mise.toml`).
 Package managers: Cargo (backend), bun (frontend).
 
 ## Domain Concepts
