@@ -8,8 +8,7 @@ use hubris_server::{AppState, build_router};
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::from_default_env()
-                .add_directive("hubris_server=debug".parse().unwrap()),
+            EnvFilter::from_default_env().add_directive("hubris_server=debug".parse().unwrap()),
         )
         .init();
 
