@@ -1,20 +1,19 @@
 pub mod api;
+mod embedded;
 pub mod pty;
 pub mod state;
-
-use std::path::PathBuf;
 
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderValue, Method};
 use axum::routing::{delete, get};
 use axum::Router;
 use tower_http::cors::CorsLayer;
-use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
 use api::files::list_files;
 use api::projects::{add_project, delete_project, list_projects};
 use api::terminal::ws_handler;
+use embedded::spa_handler;
 pub use state::AppState;
 
 /// Build the API router for a given AppState.
@@ -38,19 +37,10 @@ pub fn build_router(state: AppState) -> Router {
         ])
         .allow_headers([CONTENT_TYPE]);
 
-    let mut app = Router::new()
+    Router::new()
         .nest("/api", api)
+        .fallback(spa_handler)
         .layer(cors)
-        .layer(TraceLayer::new_for_http());
-
-    // In production, serve frontend from dist/
-    let frontend_dist = PathBuf::from("frontend/dist");
-    if frontend_dist.is_dir() {
-        let spa = ServeDir::new(&frontend_dist).fallback(
-            ServeFile::new(frontend_dist.join("index.html")),
-        );
-        app = app.fallback_service(spa);
-    }
-
-    app.with_state(state)
+        .layer(TraceLayer::new_for_http())
+        .with_state(state)
 }
