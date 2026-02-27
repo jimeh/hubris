@@ -28,6 +28,7 @@ description = "Run backend + frontend dev servers"
 run = [{ tasks = ["dev:server", "dev:frontend"] }]
 
 [tasks.check]
+depends = ["build:frontend"]
 description = "Run type/lint checks"
 run = [
   "cargo check",
