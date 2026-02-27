@@ -7,8 +7,13 @@ vi.stubGlobal('location', {
 });
 
 // Import after mocking globals
-const { listProjects, addProject, deleteProject, terminalWsUrl } =
-  await import('./api');
+const {
+  listProjects,
+  addProject,
+  deleteProject,
+  terminalWsUrl,
+  listFiles,
+} = await import('./api');
 
 describe('API client', () => {
   beforeEach(() => {
@@ -82,6 +87,77 @@ describe('API client', () => {
       expect(fetch).toHaveBeenCalledWith(
         '/api/projects/abc-123',
         { method: 'DELETE' },
+      );
+    });
+  });
+
+  describe('listFiles', () => {
+    it('fetches from /api/files with default params', async () => {
+      const mockResponse = {
+        path: '/home/user',
+        entries: [
+          { name: 'projects', is_git_repo: false },
+        ],
+        home_dir: '/home/user',
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockResponse),
+        }),
+      );
+
+      const result = await listFiles();
+      expect(fetch).toHaveBeenCalledWith('/api/files?');
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('passes path and show_hidden params', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              path: '/tmp',
+              entries: [],
+              home_dir: '/home/user',
+            }),
+        }),
+      );
+
+      await listFiles('/tmp', true);
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/files?path=%2Ftmp&show_hidden=true',
+      );
+    });
+
+    it('throws readable error for 404', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+        }),
+      );
+
+      await expect(listFiles('/nope')).rejects.toThrow(
+        'Directory not found',
+      );
+    });
+
+    it('throws readable error for 403', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 403,
+        }),
+      );
+
+      await expect(listFiles('/secret')).rejects.toThrow(
+        'Permission denied',
       );
     });
   });

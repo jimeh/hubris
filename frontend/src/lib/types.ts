@@ -9,3 +9,14 @@ export interface Tab {
   label: string;
   type: 'terminal';
 }
+
+export interface DirEntry {
+  name: string;
+  is_git_repo: boolean;
+}
+
+export interface ListFilesResponse {
+  path: string;
+  entries: DirEntry[];
+  home_dir: string | null;
+}

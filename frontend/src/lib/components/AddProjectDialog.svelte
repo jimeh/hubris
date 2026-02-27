@@ -1,6 +1,9 @@
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Separator } from '$lib/components/ui/separator/index.js';
+  import FileBrowser from './FileBrowser.svelte';
 
   let {
     onAdd,
@@ -26,6 +29,11 @@
       submitting = false;
     }
   }
+
+  function handleSelect(selectedPath: string) {
+    path = selectedPath;
+    submit();
+  }
 </script>
 
 <Dialog.Root
@@ -34,28 +42,37 @@
     if (!open) onClose();
   }}
 >
-  <Dialog.Content class="sm:max-w-md">
+  <Dialog.Content class="sm:max-w-2xl">
     <Dialog.Header>
       <Dialog.Title>Add Project</Dialog.Title>
       <Dialog.Description>
-        Enter the path to a local repository.
+        Browse to a directory or enter a path manually.
       </Dialog.Description>
     </Dialog.Header>
-    <div class="grid gap-4 py-4">
-      <input
-        type="text"
-        bind:value={path}
-        placeholder="/home/user/repos/myproject"
-        disabled={submitting}
-        class="flex h-9 w-full rounded-md border border-input
-               bg-transparent px-3 py-1 text-sm shadow-sm
-               placeholder:text-muted-foreground
-               focus-visible:outline-none focus-visible:ring-1
-               focus-visible:ring-ring disabled:opacity-50"
-        onkeydown={(e) => {
-          if (e.key === 'Enter') submit();
-        }}
+    <div class="grid gap-3 py-3">
+      <FileBrowser
+        bind:currentPath={path}
+        onSelect={handleSelect}
       />
+      <Separator />
+      <div class="flex items-center gap-2">
+        <Input
+          type="text"
+          bind:value={path}
+          placeholder="/home/user/repos/myproject"
+          disabled={submitting}
+          onkeydown={(e: KeyboardEvent) => {
+            if (e.key === 'Enter') submit();
+          }}
+          class="flex-1"
+        />
+        <Button
+          onclick={submit}
+          disabled={submitting || !path.trim()}
+        >
+          Add
+        </Button>
+      </div>
       {#if error}
         <p class="text-sm text-destructive">{error}</p>
       {/if}
@@ -67,12 +84,6 @@
         disabled={submitting}
       >
         Cancel
-      </Button>
-      <Button
-        onclick={submit}
-        disabled={submitting || !path.trim()}
-      >
-        Add
       </Button>
     </Dialog.Footer>
   </Dialog.Content>
