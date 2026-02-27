@@ -41,6 +41,18 @@ run = [
   "cd crates/server && cargo test",
 ]
 
+[tasks."setup:frontend"]
+run = "cd frontend && bun install"
+description = "Install frontend dependencies"
+
+[tasks."setup:server"]
+run = "cargo build"
+description = "Build backend and fetch dependencies"
+
+[tasks.setup]
+depends = ["setup:frontend", "setup:server"]
+description = "Install all dependencies"
+
 [tasks.clean]
 description = "Remove build artifacts"
 run = [
