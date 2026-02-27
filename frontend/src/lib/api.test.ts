@@ -13,6 +13,9 @@ const {
   deleteProject,
   terminalWsUrl,
   listFiles,
+  listTabs,
+  createTab,
+  deleteTab,
 } = await import('./api');
 
 describe('API client', () => {
@@ -162,11 +165,78 @@ describe('API client', () => {
     });
   });
 
+  describe('listTabs', () => {
+    it('fetches from /api/tabs and returns JSON', async () => {
+      const mockTabs = [
+        {
+          id: '1',
+          session_id: 'default',
+          project_id: 'p1',
+          label: 'Terminal 1',
+          type: 'terminal',
+        },
+      ];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockTabs),
+        }),
+      );
+
+      const result = await listTabs();
+      expect(fetch).toHaveBeenCalledWith('/api/tabs');
+      expect(result).toEqual(mockTabs);
+    });
+  });
+
+  describe('createTab', () => {
+    it('sends POST with project_id', async () => {
+      const mockTab = {
+        id: '2',
+        session_id: 'default',
+        project_id: 'p1',
+        label: 'Terminal 1',
+        type: 'terminal',
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockTab),
+        }),
+      );
+
+      const result = await createTab('p1');
+      expect(fetch).toHaveBeenCalledWith('/api/tabs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: 'p1' }),
+      });
+      expect(result).toEqual(mockTab);
+    });
+  });
+
+  describe('deleteTab', () => {
+    it('sends DELETE to /api/tabs/:id', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true }),
+      );
+
+      await deleteTab('tab-1');
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/tabs/tab-1',
+        { method: 'DELETE' },
+      );
+    });
+  });
+
   describe('terminalWsUrl', () => {
-    it('constructs ws:// URL for http: protocol', () => {
-      const url = terminalWsUrl('proj-1');
+    it('constructs ws:// URL with tab_id param', () => {
+      const url = terminalWsUrl('tab-1');
       expect(url).toBe(
-        'ws://localhost:5173/api/terminal/ws?project_id=proj-1',
+        'ws://localhost:5173/api/terminal/ws?tab_id=tab-1',
       );
     });
 
@@ -176,11 +246,9 @@ describe('API client', () => {
         host: 'example.com',
       });
 
-      // Re-import to pick up new location
-      // terminalWsUrl reads location at call time, so it picks up the stub
-      const url = terminalWsUrl('proj-2');
+      const url = terminalWsUrl('tab-2');
       expect(url).toBe(
-        'wss://example.com/api/terminal/ws?project_id=proj-2',
+        'wss://example.com/api/terminal/ws?tab_id=tab-2',
       );
     });
   });

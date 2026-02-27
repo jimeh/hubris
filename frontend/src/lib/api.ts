@@ -1,4 +1,8 @@
-import type { ListFilesResponse, Project } from './types';
+import type {
+  ListFilesResponse,
+  Project,
+  Tab,
+} from './types';
 
 const BASE = '/api';
 
@@ -50,8 +54,35 @@ export async function listFiles(
   return res.json();
 }
 
-export function terminalWsUrl(projectId: string): string {
+export async function listTabs(): Promise<Tab[]> {
+  const res = await fetch(`${BASE}/tabs`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function createTab(
+  projectId: string,
+): Promise<Tab> {
+  const res = await fetch(`${BASE}/tabs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: projectId }),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function deleteTab(
+  id: string,
+): Promise<void> {
+  const res = await fetch(`${BASE}/tabs/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+}
+
+export function terminalWsUrl(tabId: string): string {
   const proto =
     location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${location.host}/api/terminal/ws?project_id=${projectId}`;
+  return `${proto}//${location.host}/api/terminal/ws?tab_id=${tabId}`;
 }

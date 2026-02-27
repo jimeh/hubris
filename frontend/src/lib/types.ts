@@ -6,6 +6,8 @@ export interface Project {
 
 export interface Tab {
   id: string;
+  session_id: string;
+  project_id: string;
   label: string;
   type: 'terminal';
 }
