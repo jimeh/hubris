@@ -1207,161 +1207,161 @@ polish.
 
 #### 1a. Workspace & project scaffold
 
-- [ ] Create root `Cargo.toml` (workspace, resolver=2, members=["crates/*"])
-- [ ] Create `crates/server/Cargo.toml` with all dependencies
-- [ ] Create `crates/server/src/main.rs` — minimal Axum "hello world" on :3001
-- [ ] Create root `.gitignore` (`/target/`, `/data/`, `/frontend/node_modules/`,
+- [x] Create root `Cargo.toml` (workspace, resolver=2, members=["crates/*"])
+- [x] Create `crates/server/Cargo.toml` with all dependencies
+- [x] Create `crates/server/src/main.rs` — minimal Axum "hello world" on :3001
+- [x] Create root `.gitignore` (`/target/`, `/data/`, `/frontend/node_modules/`,
   `/frontend/dist/`, `.DS_Store`)
-- [ ] Verify `cargo build` succeeds and server starts
+- [x] Verify `cargo build` succeeds and server starts
 
 #### 1b. AppState & data directory
 
-- [ ] Create `crates/server/src/state.rs` — `AppState` struct with
+- [x] Create `crates/server/src/state.rs` — `AppState` struct with
   `DashMap<SessionId, PtySession>` and `data_dir: PathBuf`
-- [ ] Implement dev/release data dir logic (`cfg!(debug_assertions)` →
+- [x] Implement dev/release data dir logic (`cfg!(debug_assertions)` →
   `./data/` vs `~/.hubris/`)
-- [ ] Create `data_dir` on startup with `tokio::fs::create_dir_all`
-- [ ] Wire `AppState` into Axum `.with_state()`
+- [x] Create `data_dir` on startup with `tokio::fs::create_dir_all`
+- [x] Wire `AppState` into Axum `.with_state()`
 
 #### 1c. Project CRUD API
 
-- [ ] Create `crates/server/src/api/mod.rs` (re-exports)
-- [ ] Create `crates/server/src/api/projects.rs` — `Project` struct,
+- [x] Create `crates/server/src/api/mod.rs` (re-exports)
+- [x] Create `crates/server/src/api/projects.rs` — `Project` struct,
   `AddProjectRequest` struct
-- [ ] Implement `load_projects()` / `save_projects()` file I/O helpers
-- [ ] Implement `GET /api/projects` → `list_projects` handler
-- [ ] Implement `POST /api/projects` → `add_project` handler (validate dir
+- [x] Implement `load_projects()` / `save_projects()` file I/O helpers
+- [x] Implement `GET /api/projects` → `list_projects` handler
+- [x] Implement `POST /api/projects` → `add_project` handler (validate dir
   exists, generate uuid, derive name from basename)
-- [ ] Implement `DELETE /api/projects/{id}` → `delete_project` handler
-- [ ] Wire routes into Axum router nested under `/api`
-- [ ] Add CORS layer allowing `http://localhost:5173`
-- [ ] Add `TraceLayer` for request logging
-- [ ] Test with curl: create, list, delete projects
+- [x] Implement `DELETE /api/projects/{id}` → `delete_project` handler
+- [x] Wire routes into Axum router nested under `/api`
+- [x] Add CORS layer allowing `http://localhost:5173`
+- [x] Add `TraceLayer` for request logging
+- [x] Test with curl: create, list, delete projects
 
 #### 1d. PTY session manager
 
-- [ ] Create `crates/server/src/pty/mod.rs` (re-exports)
-- [ ] Create `crates/server/src/pty/session.rs` — `PtySession` struct
+- [x] Create `crates/server/src/pty/mod.rs` (re-exports)
+- [x] Create `crates/server/src/pty/session.rs` — `PtySession` struct
 
 #### 1e. Terminal WebSocket handler
 
-- [ ] Create `crates/server/src/api/terminal.rs` — `TerminalParams` query
+- [x] Create `crates/server/src/api/terminal.rs` — `TerminalParams` query
   struct, `ws_handler` function
-- [ ] Implement `handle_terminal`: spawn PTY via portable-pty in project's cwd
-- [ ] Use `$SHELL` env var for shell, fallback to `/bin/sh`
-- [ ] Set `TERM=xterm-256color` env on spawned shell
-- [ ] PTY reader → bounded mpsc channel (capacity 8) via `spawn_blocking`
-- [ ] Channel → WebSocket sender with adaptive batching (immediate < 128 bytes,
+- [x] Implement `handle_terminal`: spawn PTY via portable-pty in project's cwd
+- [x] Use `$SHELL` env var for shell, fallback to `/bin/sh`
+- [x] Set `TERM=xterm-256color` env on spawned shell
+- [x] PTY reader → bounded mpsc channel (capacity 8) via `spawn_blocking`
+- [x] Channel → WebSocket sender with adaptive batching (immediate < 128 bytes,
   4ms timer for high throughput)
-- [ ] WebSocket → PTY writer: binary frames as raw terminal data
-- [ ] WebSocket → PTY writer: text frames parsed as JSON control messages
+- [x] WebSocket → PTY writer: binary frames as raw terminal data
+- [x] WebSocket → PTY writer: text frames parsed as JSON control messages
   (handle `{"type":"resize","cols":N,"rows":N}`)
-- [ ] Implement PTY resize on resize messages
-- [ ] Cleanup on WebSocket close: drop writer, drop master, abort tasks
-- [ ] Wire `/api/terminal/ws` route
-- [ ] Test with websocat or browser devtools: connect, type, verify shell output
+- [x] Implement PTY resize on resize messages
+- [x] Cleanup on WebSocket close: drop writer, drop master, abort tasks
+- [x] Wire `/api/terminal/ws` route
+- [ ] Test with browser: connect, type, verify shell output
 
 ### Phase 2: Frontend
 
 #### 2a. Vite + Svelte scaffold
 
-- [ ] Run `pnpm create vite frontend --template svelte-ts`
-- [ ] Configure `$lib` alias in `tsconfig.json` (baseUrl + paths)
-- [ ] Configure `$lib` alias in `vite.config.ts` (resolve.alias)
-- [ ] Configure Vite proxy: `/api` → `http://localhost:3001` with `ws: true`
-- [ ] Verify `pnpm dev` starts and shows default Svelte page
+- [x] Run `pnpm create vite frontend --template svelte-ts`
+- [x] Configure `$lib` alias in `tsconfig.json` (baseUrl + paths)
+- [x] Configure `$lib` alias in `vite.config.ts` (resolve.alias)
+- [x] Configure Vite proxy: `/api` → `http://localhost:3001` with `ws: true`
+- [x] Verify `pnpm dev` starts and shows default Svelte page
 
 #### 2b. Tailwind + shadcn-svelte setup
 
-- [ ] Run `pnpm dlx sv add tailwindcss` (Tailwind v4)
-- [ ] Run `pnpm dlx shadcn-svelte@latest init` (choose Slate base color)
-- [ ] Add shadcn-svelte components: `button`, `dialog`, `sidebar`,
+- [x] Run `pnpm dlx sv add tailwindcss` (Tailwind v4)
+- [x] Run `pnpm dlx shadcn-svelte@latest init` (choose Slate base color)
+- [x] Add shadcn-svelte components: `button`, `dialog`, `sidebar`,
   `scroll-area`
-- [ ] Set `class="dark"` on `<html>` in `index.html` for default dark mode
-- [ ] Set `class="min-h-screen bg-background text-foreground antialiased"` on
+- [x] Set `class="dark"` on `<html>` in `index.html` for default dark mode
+- [x] Set `class="min-h-screen bg-background text-foreground antialiased"` on
   `<body>`
-- [ ] Set `class="h-screen"` on `#app` div
-- [ ] Verify shadcn-svelte components render correctly (test a Button)
+- [x] Set `class="h-screen"` on `#app` div
+- [x] Verify shadcn-svelte components render correctly (test a Button)
 
 #### 2c. Shared types & API client
 
-- [ ] Create `frontend/src/lib/types.ts` — `Project`, `Tab` interfaces
-- [ ] Create `frontend/src/lib/api.ts` — `listProjects`, `addProject`,
+- [x] Create `frontend/src/lib/types.ts` — `Project`, `Tab` interfaces
+- [x] Create `frontend/src/lib/api.ts` — `listProjects`, `addProject`,
   `deleteProject`, `terminalWsUrl` functions
 
 #### 2d. Stores
 
-- [ ] Create `frontend/src/lib/stores/projects.svelte.ts` — module-level
+- [x] Create `frontend/src/lib/stores/projects.svelte.ts` — module-level
   `$state` runes, `getProjectStore()` returning reactive accessors +
   `refresh`, `add`, `remove`, `select` methods
-- [ ] Create `frontend/src/lib/stores/tabs.svelte.ts` — module-level
+- [x] Create `frontend/src/lib/stores/tabs.svelte.ts` — module-level
   `$state` runes, `getTabStore()` returning `tabs`, `activeTabId`,
   `addTerminal`, `close`, `activate`, `reset`
 
 #### 2e. Sidebar & project management
 
-- [ ] Install `lucide-svelte` if not already present (shadcn-svelte dep)
-- [ ] Create `AppSidebar.svelte` using `Sidebar.*` components
+- [x] Install `lucide-svelte` if not already present (shadcn-svelte dep)
+- [x] Create `AppSidebar.svelte` using `Sidebar.*` components
   (Root/Header/Content/Group/Menu/MenuItem/MenuButton/Footer)
-- [ ] Wire project list rendering in sidebar menu items
-- [ ] Highlight active/selected project via `isActive` prop
-- [ ] Add "Add Project" button in sidebar footer using shadcn `Button`
-- [ ] Create `AddProjectDialog.svelte` using `Dialog.*` components
+- [x] Wire project list rendering in sidebar menu items
+- [x] Highlight active/selected project via `isActive` prop
+- [x] Add "Add Project" button in sidebar footer using shadcn `Button`
+- [x] Create `AddProjectDialog.svelte` using `Dialog.*` components
   (Root/Content/Header/Title/Description/Footer)
-- [ ] Wire dialog open/close state from AppSidebar
-- [ ] Wire form submission → `store.add(path)` → close dialog
-- [ ] Show validation error in dialog on failure
+- [x] Wire dialog open/close state from AppSidebar
+- [x] Wire form submission → `store.add(path)` → close dialog
+- [x] Show validation error in dialog on failure
 
 #### 2f. App root layout
 
-- [ ] Create `App.svelte` — `Sidebar.Provider` wrapper, `AppSidebar`, main
+- [x] Create `App.svelte` — `Sidebar.Provider` wrapper, `AppSidebar`, main
   content area
-- [ ] Show "Select a project" empty state when nothing selected
-- [ ] Show `ProjectView` when a project is selected
-- [ ] Update `main.ts` to mount `App.svelte` and import `app.css`
+- [x] Show "Select a project" empty state when nothing selected
+- [x] Show `ProjectView` when a project is selected
+- [x] Update `main.ts` to mount `App.svelte` and import `app.css`
 
 #### 2g. Terminal adapter & xterm.js
 
-- [ ] Create `frontend/src/lib/terminal/adapter.ts` — `TerminalAdapter`
+- [x] Create `frontend/src/lib/terminal/adapter.ts` — `TerminalAdapter`
   interface
-- [ ] Create `frontend/src/lib/terminal/xterm.ts` — `createXtermAdapter()`
+- [x] Create `frontend/src/lib/terminal/xterm.ts` — `createXtermAdapter()`
   factory function
-- [ ] Import and apply xterm.js CSS
-- [ ] Configure Terminal options (fontSize, fontFamily, theme, cursorBlink,
+- [x] Import and apply xterm.js CSS
+- [x] Configure Terminal options (fontSize, fontFamily, theme, cursorBlink,
   scrollback)
-- [ ] Load FitAddon, WebLinksAddon, WebglAddon (with context loss fallback)
+- [x] Load FitAddon, WebLinksAddon, WebglAddon (with context loss fallback)
 
 #### 2h. TerminalTab component
 
-- [ ] Create `TerminalTab.svelte` — container div with `bind:this`
-- [ ] On mount: create adapter, open in container
-- [ ] On mount: open WebSocket to `terminalWsUrl(projectId)` with
+- [x] Create `TerminalTab.svelte` — container div with `bind:this`
+- [x] On mount: create adapter, open in container
+- [x] On mount: open WebSocket to `terminalWsUrl(projectId)` with
   `binaryType = 'arraybuffer'`
-- [ ] On WS open: send initial resize message, focus terminal
-- [ ] On WS message: write binary data to terminal adapter
-- [ ] On WS close: write "[Connection closed]" message
-- [ ] On terminal data: send as binary via WS
-- [ ] Add ResizeObserver on container: fit terminal + send resize message
-- [ ] Add `$effect` to re-fit when `visible` prop becomes true
-- [ ] On destroy: close WS, dispose terminal
+- [x] On WS open: send initial resize message, focus terminal
+- [x] On WS message: write binary data to terminal adapter
+- [x] On WS close: write "[Connection closed]" message
+- [x] On terminal data: send as binary via WS
+- [x] Add ResizeObserver on container: fit terminal + send resize message
+- [x] Add `$effect` to re-fit when `visible` prop becomes true
+- [x] On destroy: close WS, dispose terminal
 
 #### 2i. ProjectView with tabs
 
-- [ ] Create `ProjectView.svelte` — custom tab bar + terminal content area
-- [ ] Render tab buttons with active state styling (Tailwind classes)
-- [ ] Add close (X) button on each tab
-- [ ] Add "+" button to create new terminal tab
-- [ ] Render tab content panes as `absolute inset-0` overlays
-- [ ] Use `class:hidden` to show/hide panes (keep alive, don't destroy)
-- [ ] Show "Click + to open a terminal" empty state when no tabs
-- [ ] Reset tabs via `$effect` when project prop changes
+- [x] Create `ProjectView.svelte` — custom tab bar + terminal content area
+- [x] Render tab buttons with active state styling (Tailwind classes)
+- [x] Add close (X) button on each tab
+- [x] Add "+" button to create new terminal tab
+- [x] Render tab content panes as `absolute inset-0` overlays
+- [x] Use `class:hidden` to show/hide panes (keep alive, don't destroy)
+- [x] Show "Click + to open a terminal" empty state when no tabs
+- [x] Reset tabs via `$effect` when project prop changes
 
 ### Phase 3: Integration & Build
 
 #### 3a. Dev workflow verification
 
-- [ ] Start backend (`cargo run` from `crates/server/`)
-- [ ] Start frontend (`pnpm dev` from `frontend/`)
+- [x] Start backend (`cargo run` from `crates/server/`)
+- [x] Start frontend (`pnpm dev` from `frontend/`)
 - [ ] Verify full flow: add project → select → open terminal → type commands
 - [ ] Verify multiple terminals per project work
 - [ ] Verify tab switching preserves terminal state
@@ -1370,11 +1370,11 @@ polish.
 
 #### 3b. Production build
 
-- [ ] Create `Makefile` with `build`, `build-frontend`, `build-server`, `dev`,
+- [x] Create `Makefile` with `build`, `build-frontend`, `build-server`, `dev`,
   `clean` targets
-- [ ] Add SPA fallback to `main.rs` — serve `frontend/dist/` via `ServeDir`
+- [x] Add SPA fallback to `main.rs` — serve `frontend/dist/` via `ServeDir`
   when directory exists
-- [ ] Run `make build` and verify the server serves both API and frontend on
+- [x] Run `make build` and verify the server serves both API and frontend on
   a single port
 - [ ] Verify terminal WebSocket works through the same-origin setup
 
@@ -1382,21 +1382,21 @@ polish.
 
 #### 4a. Backend integration tests
 
-- [ ] Add `tempfile` and test HTTP client to dev-dependencies
-- [ ] Write test: add project with valid temp dir → 201 + project returned
-- [ ] Write test: add project with nonexistent path → 400
-- [ ] Write test: list projects returns previously added projects
-- [ ] Write test: delete project → 204, subsequent list omits it
-- [ ] Write test: delete nonexistent project → 404
-- [ ] Run `cargo test` and verify all pass
+- [x] Add `tempfile` and test HTTP client to dev-dependencies
+- [x] Write test: add project with valid temp dir → 201 + project returned
+- [x] Write test: add project with nonexistent path → 400
+- [x] Write test: list projects returns previously added projects
+- [x] Write test: delete project → 204, subsequent list omits it
+- [x] Write test: delete nonexistent project → 404
+- [x] Run `cargo test` and verify all pass
 
 #### 4b. Frontend smoke tests
 
-- [ ] Add Vitest config to `frontend/`
-- [ ] Write test: `listProjects` calls correct URL, handles errors
-- [ ] Write test: `addProject` sends correct body, returns project
-- [ ] Write test: `terminalWsUrl` constructs correct ws/wss URL
-- [ ] Run `pnpm test` and verify all pass
+- [x] Add Vitest config to `frontend/`
+- [x] Write test: `listProjects` calls correct URL, handles errors
+- [x] Write test: `addProject` sends correct body, returns project
+- [x] Write test: `terminalWsUrl` constructs correct ws/wss URL
+- [x] Run `pnpm test` and verify all pass
 
 #### 4c. Manual test checklist
 

@@ -1,0 +1,8 @@
+/target/
+/data/
+/crates/server/data/
+/frontend/node_modules/
+/frontend/dist/
+*.swp
+*.swo
+.DS_Store
