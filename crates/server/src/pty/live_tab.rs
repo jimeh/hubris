@@ -35,6 +35,7 @@ pub struct LiveTab {
     child: Mutex<Box<dyn Child + Send + Sync>>,
     pub scrollback: Arc<Mutex<VecDeque<u8>>>,
     pub output_tx: broadcast::Sender<Vec<u8>>,
+    pub close_tx: broadcast::Sender<()>,
     _reader_handle: JoinHandle<()>,
 }
 
@@ -50,12 +51,14 @@ impl LiveTab {
         let writer = master.take_writer().unwrap();
 
         let (output_tx, _) = broadcast::channel::<Vec<u8>>(64);
+        let (close_tx, _) = broadcast::channel::<()>(1);
         let scrollback = Arc::new(Mutex::new(
             VecDeque::with_capacity(MAX_SCROLLBACK),
         ));
 
         let tx = output_tx.clone();
         let sb = scrollback.clone();
+        let close_tx_reader = close_tx.clone();
 
         let reader_handle =
             tokio::task::spawn_blocking(move || {
@@ -87,6 +90,8 @@ impl LiveTab {
                         Err(_) => break,
                     }
                 }
+                // Shell exited — notify attached clients
+                let _ = close_tx_reader.send(());
             });
 
         Self {
@@ -96,6 +101,7 @@ impl LiveTab {
             child: Mutex::new(child),
             scrollback,
             output_tx,
+            close_tx,
             _reader_handle: reader_handle,
         }
     }
@@ -107,11 +113,23 @@ impl LiveTab {
     /// guarantees no output is missed or duplicated.
     pub fn attach(
         &self,
-    ) -> (Vec<u8>, broadcast::Receiver<Vec<u8>>) {
+    ) -> (
+        Vec<u8>,
+        broadcast::Receiver<Vec<u8>>,
+        broadcast::Receiver<()>,
+    ) {
         let sb = self.scrollback.lock().unwrap();
         let rx = self.output_tx.subscribe();
-        let snapshot: Vec<u8> = sb.iter().copied().collect();
-        (snapshot, rx)
+        let close_rx = self.close_tx.subscribe();
+        let snapshot: Vec<u8> =
+            sb.iter().copied().collect();
+        (snapshot, rx, close_rx)
+    }
+
+    /// Notify all attached clients that this tab is
+    /// closing.
+    pub fn notify_close(&self) {
+        let _ = self.close_tx.send(());
     }
 
     /// Kill the child process. The reader task ends

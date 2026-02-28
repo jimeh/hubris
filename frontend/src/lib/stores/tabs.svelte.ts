@@ -34,10 +34,9 @@ export function getTabStore() {
     return tab;
   }
 
-  /** Close a tab (kills the PTY on the server). */
-  async function close(id: string) {
+  /** Remove tab from local state (shared logic). */
+  function removeFromState(id: string) {
     const tab = tabs.find((t) => t.id === id);
-    await deleteTab(id);
     tabs = tabs.filter((t) => t.id !== id);
     if (activeTabId === id) {
       const projectId = tab?.project_id;
@@ -51,6 +50,22 @@ export function getTabStore() {
           activeTabId ?? '';
       }
     }
+  }
+
+  /** Remove tab locally (server already closed it). */
+  function removeLocal(id: string) {
+    removeFromState(id);
+  }
+
+  /** Close a tab (tells server to kill PTY). */
+  async function close(id: string) {
+    if (!tabs.find((t) => t.id === id)) return;
+    try {
+      await deleteTab(id);
+    } catch {
+      // Already gone (shell exited, other browser)
+    }
+    removeFromState(id);
   }
 
   function activate(id: string) {
@@ -97,6 +112,7 @@ export function getTabStore() {
     refresh,
     addTerminal,
     close,
+    removeLocal,
     activate,
     tabsForProject,
     switchToProject,

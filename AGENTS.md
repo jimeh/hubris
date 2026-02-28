@@ -24,8 +24,9 @@ Package managers: Cargo (backend), bun (frontend).
   `session_id` (always `"default"` for now) for future multi-session
   support.
 - **LiveTab** — server-side PTY that outlives WebSocket connections.
-  Holds a scrollback buffer and broadcast channel for output fan-out.
-  PTY is killed only on explicit tab deletion (or project deletion).
+  Holds a scrollback buffer, broadcast channel for output fan-out, and
+  a close notification channel (`close_tx`). PTY is killed on explicit
+  tab deletion, project deletion, or shell process exit.
 
 ## Backend (Rust / Axum)
 
@@ -37,7 +38,8 @@ Package managers: Cargo (backend), bun (frontend).
   kills PTY, `GET /api/tabs` lists all tabs.
 - WebSocket protocol: `GET /api/terminal/ws?tab_id=<id>` attaches to
   an existing tab. Binary output (PTY → client), JSON control messages
-  (client → server, e.g. `type: "resize"`). WS disconnect = detach
+  (client → server, e.g. `type: "resize"`); server→client text frame
+  `{"type":"tab_closed"}` signals tab removal. WS disconnect = detach
   only, PTY stays alive. Reconnection replays scrollback buffer.
 - PTY spawning: portable-pty, shell from `$SHELL` or `/bin/sh`.
 - Arc<LiveTab> pattern: clone Arc from DashMap before await points to

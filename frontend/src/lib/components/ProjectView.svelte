@@ -81,6 +81,7 @@
           <TerminalTab
             tabId={tab.id}
             visible={tab.id === tabStore.activeTabId}
+            onclosed={() => tabStore.removeLocal(tab.id)}
           />
         {/if}
       </div>

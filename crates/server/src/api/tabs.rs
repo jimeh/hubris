@@ -90,7 +90,19 @@ pub async fn create_tab(
 
     let live_tab =
         LiveTab::spawn(info.clone(), pair.master, child);
-    state.tabs.insert(info.id.clone(), Arc::new(live_tab));
+    let mut close_rx = live_tab.close_tx.subscribe();
+    let tab = Arc::new(live_tab);
+    state.tabs.insert(info.id.clone(), tab);
+
+    // Auto-remove tab from map when shell exits
+    {
+        let tabs = state.tabs.clone();
+        let id = info.id.clone();
+        tokio::spawn(async move {
+            let _ = close_rx.recv().await;
+            tabs.remove(&id);
+        });
+    }
 
     Ok((StatusCode::CREATED, Json(info)))
 }
@@ -101,7 +113,10 @@ pub async fn delete_tab(
     Path(id): Path<String>,
 ) -> StatusCode {
     match state.tabs.remove(&id) {
-        Some(_) => StatusCode::NO_CONTENT,
+        Some((_, tab)) => {
+            tab.notify_close();
+            StatusCode::NO_CONTENT
+        }
         None => StatusCode::NOT_FOUND,
     }
 }
