@@ -128,6 +128,25 @@ describe('EventClient', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it('skips events with missing data field', () => {
+    const client = new EventClient();
+    const handler = vi.fn();
+    const warnSpy = vi
+      .spyOn(console, 'warn')
+      .mockImplementation(() => {});
+    client.on('tab_created', handler);
+    client.connect();
+
+    mockEs.simulateEvent('tab_created', {
+      type: 'tab_created',
+      // no data field
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it('disconnect() closes EventSource', () => {
     const client = new EventClient();
     client.connect();

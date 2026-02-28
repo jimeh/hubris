@@ -94,5 +94,5 @@ export async function updateTab(
 export function terminalWsUrl(tabId: string): string {
   const proto =
     location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${location.host}/api/terminal/ws?tab_id=${tabId}`;
+  return `${proto}//${location.host}/api/terminal/ws?tab_id=${encodeURIComponent(tabId)}`;
 }

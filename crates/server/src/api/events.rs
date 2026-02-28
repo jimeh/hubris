@@ -36,41 +36,26 @@ pub async fn event_stream(
         ));
 
         loop {
-            tokio::select! {
-                result = rx.recv() => {
-                    match result {
-                        Ok(event) => {
-                            if event_matches_session(
-                                &event, &session_id,
-                            ) {
-                                yield Ok(
-                                    to_sse_event(&event),
-                                );
-                            }
-                        }
-                        Err(broadcast::error::RecvError::Lagged(n)) => {
-                            tracing::warn!(
-                                "SSE client lagged, \
-                                 missed {} events",
-                                n
-                            );
-                            yield Ok(
-                                build_snapshot_event(
-                                    &state, &session_id,
-                                ),
-                            );
-                        }
-                        Err(broadcast::error::RecvError::Closed) => {
-                            break;
-                        }
+            match rx.recv().await {
+                Ok(event) => {
+                    if event_matches_session(
+                        &event, &session_id,
+                    ) {
+                        yield Ok(to_sse_event(&event));
                     }
                 }
-                // Keep-alive every 30s
-                _ = tokio::time::sleep(Duration::from_secs(30)) => {
-                    yield Ok(
-                        sse::Event::default()
-                            .comment("keep-alive")
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(
+                        "SSE client lagged, \
+                         missed {} events",
+                        n
                     );
+                    yield Ok(build_snapshot_event(
+                        &state, &session_id,
+                    ));
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    break;
                 }
             }
         }

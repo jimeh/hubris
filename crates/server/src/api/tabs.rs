@@ -131,8 +131,11 @@ pub async fn create_tab(
         let id = info.id.clone();
         tokio::spawn(async move {
             let _ = close_rx.recv().await;
-            tabs.remove(&id);
-            events.emit(EventKind::TabClosed { tab_id: id });
+            // Only emit if we're the one removing the tab.
+            // delete_tab/delete_project may have already done it.
+            if tabs.remove(&id).is_some() {
+                events.emit(EventKind::TabClosed { tab_id: id });
+            }
         });
     }
 

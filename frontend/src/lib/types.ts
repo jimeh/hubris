@@ -24,30 +24,3 @@ export interface ListFilesResponse {
   entries: DirEntry[];
   home_dir: string | null;
 }
-
-// SSE event payloads
-export interface SnapshotEvent {
-  type: 'snapshot';
-  data: { tabs: Tab[] };
-}
-
-export interface TabCreatedEvent {
-  type: 'tab_created';
-  data: Tab;
-}
-
-export interface TabClosedEvent {
-  type: 'tab_closed';
-  data: { tab_id: string };
-}
-
-export interface TabUpdatedEvent {
-  type: 'tab_updated';
-  data: Tab;
-}
-
-export type SyncEvent =
-  | SnapshotEvent
-  | TabCreatedEvent
-  | TabClosedEvent
-  | TabUpdatedEvent;

@@ -32,9 +32,14 @@ export class EventClient {
         const parsed = JSON.parse(
           (e as MessageEvent).data,
         );
-        // Server wraps in {type, data} envelope.
-        // Dispatch the inner data payload.
-        this.dispatch(name, parsed.data ?? parsed);
+        if (parsed.data === undefined) {
+          console.warn(
+            `SSE event "${name}" missing data field`,
+            parsed,
+          );
+          return;
+        }
+        this.dispatch(name, parsed.data);
       });
     }
 

@@ -12,7 +12,12 @@ mise run check    # cargo check + clippy + svelte-check + tsc
 mise run test     # vitest + cargo test
 ```
 
-Tools: mise (see `mise.toml`). Packages: Cargo (backend), bun (frontend).
+Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (frontend).
+
+**IMPORTANT: The frontend uses bun, NOT npm or pnpm.** All frontend commands
+must use `bun` (e.g., `bun install`, `bun run test`, `bun run check`).
+The `frontend/` directory has a `bun.lock` — there is no `package-lock.json`
+or `pnpm-lock.yaml`. Using npm or pnpm will fail or create wrong lockfiles.
 
 ## Domain Concepts
 
