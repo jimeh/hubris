@@ -23,10 +23,6 @@ description = "Run backend dev server"
 run = "cd frontend && bun dev"
 description = "Run frontend dev server"
 
-[tasks.dev]
-description = "Run backend + frontend dev servers"
-run = [{ tasks = ["dev:server", "dev:frontend"] }]
-
 [tasks.check]
 description = "Run type/lint checks"
 run = [

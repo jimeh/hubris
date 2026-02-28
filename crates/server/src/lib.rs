@@ -6,7 +6,7 @@ pub mod state;
 
 use axum::Router;
 use axum::http::header::CONTENT_TYPE;
-use axum::http::{HeaderValue, Method};
+use axum::http::Method;
 use axum::routing::{delete, get};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -19,6 +19,54 @@ use api::terminal::ws_handler;
 use embedded::spa_handler;
 pub use state::AppState;
 
+/// Try binding to `host:start_port`, incrementing port up
+/// to `max_attempts` times if already in use.
+pub async fn bind_with_port_fallback(
+    host: &str,
+    start_port: u16,
+    max_attempts: u16,
+) -> std::io::Result<tokio::net::TcpListener> {
+    for offset in 0..max_attempts {
+        let port = start_port + offset;
+        let addr: std::net::SocketAddr =
+            format!("{host}:{port}").parse().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "invalid address {host}:{port}: {e}"
+                    ),
+                )
+            })?;
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => {
+                if offset > 0 {
+                    tracing::info!(
+                        "port {} in use, using {} instead",
+                        start_port,
+                        port,
+                    );
+                }
+                return Ok(listener);
+            }
+            Err(e)
+                if e.kind()
+                    == std::io::ErrorKind::AddrInUse =>
+            {
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AddrInUse,
+        format!(
+            "no available port (tried {}–{})",
+            start_port,
+            start_port + max_attempts - 1,
+        ),
+    ))
+}
+
 /// Build the API router for a given AppState.
 pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
@@ -30,10 +78,28 @@ pub fn build_router(state: AppState) -> Router {
         .route("/events", get(event_stream))
         .route("/terminal/ws", get(ws_handler));
 
-    let cors = CorsLayer::new()
-        .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
-        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
-        .allow_headers([CONTENT_TYPE]);
+    let cors = if cfg!(debug_assertions) {
+        CorsLayer::new()
+            .allow_origin(tower_http::cors::Any)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::DELETE,
+                Method::PATCH,
+            ])
+            .allow_headers([CONTENT_TYPE])
+    } else {
+        // Production: no CORS needed, frontend is embedded
+        // and served from the same origin.
+        CorsLayer::new()
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::DELETE,
+                Method::PATCH,
+            ])
+            .allow_headers([CONTENT_TYPE])
+    };
 
     Router::new()
         .nest("/api", api)
