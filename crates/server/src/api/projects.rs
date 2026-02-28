@@ -5,6 +5,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
+use crate::events::EventKind;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,18 +20,6 @@ pub struct AddProjectRequest {
     pub path: String,
 }
 
-async fn load_projects(state: &AppState) -> Result<Vec<Project>, std::io::Error> {
-    let path = state.projects_file();
-    match tokio::fs::read_to_string(&path).await {
-        Ok(contents) => {
-            let projects: Vec<Project> = serde_json::from_str(&contents).unwrap_or_default();
-            Ok(projects)
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
-        Err(e) => Err(e),
-    }
-}
-
 async fn save_projects(state: &AppState, projects: &[Project]) -> Result<(), std::io::Error> {
     let path = state.projects_file();
     let contents = serde_json::to_string_pretty(projects).map_err(std::io::Error::other)?;
@@ -40,7 +29,8 @@ async fn save_projects(state: &AppState, projects: &[Project]) -> Result<(), std
 pub async fn list_projects(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Project>>, StatusCode> {
-    let projects = load_projects(&state)
+    let projects = state
+        .load_projects()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(projects))
@@ -64,7 +54,7 @@ pub async fn add_project(
         name,
         path: req.path,
     };
-    let mut projects = load_projects(&state).await.unwrap_or_default();
+    let mut projects = state.load_projects().await.unwrap_or_default();
     projects.push(project.clone());
     save_projects(&state, &projects)
         .await
@@ -73,12 +63,27 @@ pub async fn add_project(
 }
 
 pub async fn delete_project(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {
-    let mut projects = load_projects(&state).await.unwrap_or_default();
+    let mut projects = state.load_projects().await.unwrap_or_default();
     let before = projects.len();
     projects.retain(|p| p.id != id);
     if projects.len() == before {
         return StatusCode::NOT_FOUND;
     }
     save_projects(&state, &projects).await.unwrap_or(());
+
+    // Kill all tabs belonging to the deleted project
+    let tab_ids: Vec<String> = state
+        .tabs
+        .iter()
+        .filter(|e| e.value().info().project_id == id)
+        .map(|e| e.key().clone())
+        .collect();
+    for tid in tab_ids {
+        if let Some((_, tab)) = state.tabs.remove(&tid) {
+            tab.notify_close();
+            state.events.emit(EventKind::TabClosed { tab_id: tid });
+        }
+    }
+
     StatusCode::NO_CONTENT
 }

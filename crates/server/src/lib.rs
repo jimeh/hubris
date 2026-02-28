@@ -1,5 +1,6 @@
 pub mod api;
 mod embedded;
+pub mod events;
 pub mod pty;
 pub mod state;
 
@@ -10,8 +11,10 @@ use axum::routing::{delete, get};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+use api::events::event_stream;
 use api::files::list_files;
 use api::projects::{add_project, delete_project, list_projects};
+use api::tabs::{create_tab, delete_tab, list_tabs, update_tab};
 use api::terminal::ws_handler;
 use embedded::spa_handler;
 pub use state::AppState;
@@ -22,11 +25,14 @@ pub fn build_router(state: AppState) -> Router {
         .route("/files", get(list_files))
         .route("/projects", get(list_projects).post(add_project))
         .route("/projects/{id}", delete(delete_project))
+        .route("/tabs", get(list_tabs).post(create_tab))
+        .route("/tabs/{id}", delete(delete_tab).patch(update_tab))
+        .route("/events", get(event_stream))
         .route("/terminal/ws", get(ws_handler));
 
     let cors = CorsLayer::new()
         .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
-        .allow_methods([Method::GET, Method::POST, Method::DELETE])
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
         .allow_headers([CONTENT_TYPE]);
 
     Router::new()
