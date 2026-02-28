@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as Sidebar from '$lib/components/ui/sidebar/index.js';
-  import { Separator } from '$lib/components/ui/separator/index.js';
+
   import AddProjectDialog from './AddProjectDialog.svelte';
   import { Plus } from '@lucide/svelte';
 
@@ -31,9 +31,9 @@
     </Sidebar.Group>
   </Sidebar.Content>
   <Sidebar.Footer class="p-0">
-    <Separator />
     <button
-      class="flex w-full items-center gap-2 px-4 py-2.5 text-sm
+      class="flex w-full items-center gap-2 border-t border-sidebar-border
+             px-4 py-2.5 text-sm
              text-muted-foreground hover:text-sidebar-accent-foreground
              hover:bg-sidebar-accent transition-colors"
       onclick={() => (showDialog = true)}

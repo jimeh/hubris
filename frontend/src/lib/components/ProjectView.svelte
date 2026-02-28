@@ -18,7 +18,7 @@
 </script>
 
 <div class="flex h-full flex-col">
-  <div class="flex items-stretch border-b bg-muted/30">
+  <div class="flex min-h-9 items-stretch border-b bg-muted/30">
     {#if projectTabs.length > 0}
       <div
         class="flex items-stretch overflow-x-auto"
@@ -30,8 +30,8 @@
             <div class="my-2 w-px bg-border"></div>
           {/if}
           <div
-            class="relative inline-flex cursor-pointer items-center
-                   gap-1.5 px-4 py-2 text-sm
+            class="relative inline-flex items-center
+                   gap-1.5 pl-4 pr-3 py-2 text-sm
                    transition-colors select-none
                    {tab.id === tabStore.activeTabId
               ? 'text-foreground bg-background'
@@ -46,8 +46,9 @@
           >
             {tab.label}
             <button
-              class="ml-1 opacity-50
-                     hover:opacity-100 transition-opacity"
+              class="ml-1 rounded p-0.5 opacity-50
+                     hover:opacity-100 hover:bg-muted
+                     transition-all"
               onclick={(e) => {
                 e.stopPropagation();
                 tabStore.close(tab.id);
@@ -64,7 +65,7 @@
     {/if}
     <div class="my-2 w-px bg-border"></div>
     <button
-      class="inline-flex items-center justify-center px-3
+      class="inline-flex items-center justify-center px-3 py-2
              text-muted-foreground hover:text-foreground
              hover:bg-muted/50 transition-colors shrink-0"
       onclick={() => tabStore.addTerminal(project.id)}
