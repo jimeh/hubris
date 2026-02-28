@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#MISE description="Run backend + frontend dev servers"
+set -euo pipefail
+
+TMP_DIR="$(pwd)/tmp"
+mkdir -p "$TMP_DIR"
+
+# Generate random 8-char hex ID (POSIX-portable,
+# no dependency on uuidgen).
+DEV_ID=$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')
+export HUBRIS_DEV_ID="$DEV_ID"
+export HUBRIS_DEV_TMP="$TMP_DIR"
+
+echo "Dev instance: $DEV_ID"
+
+# Start both servers — frontend waits for backend
+# internally via async Vite config.
+mise run dev:server &
+BACKEND_PID=$!
+mise run dev:frontend &
+FRONTEND_PID=$!
+
+cleanup() {
+  kill "$BACKEND_PID" "$FRONTEND_PID" \
+    2>/dev/null || true
+  rm -f "$TMP_DIR/dev-${DEV_ID}."*
+}
+trap cleanup EXIT INT TERM
+
+wait

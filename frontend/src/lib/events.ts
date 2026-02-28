@@ -29,14 +29,9 @@ export class EventClient {
 
     for (const name of SSE_EVENT_NAMES) {
       this.es.addEventListener(name, (e) => {
-        const parsed = JSON.parse(
-          (e as MessageEvent).data,
-        );
+        const parsed = JSON.parse((e as MessageEvent).data);
         if (parsed.data === undefined) {
-          console.warn(
-            `SSE event "${name}" missing data field`,
-            parsed,
-          );
+          console.warn(`SSE event "${name}" missing data field`, parsed);
           return;
         }
         this.dispatch(name, parsed.data);
@@ -58,25 +53,16 @@ export class EventClient {
    * Register a handler for an event type. Returns an
    * unsubscribe function.
    */
-  on<T = unknown>(
-    event: string,
-    handler: EventHandler<T>,
-  ): () => void {
+  on<T = unknown>(event: string, handler: EventHandler<T>): () => void {
     if (!this.handlers.has(event)) {
       this.handlers.set(event, new Set());
     }
-    this.handlers
-      .get(event)!
-      .add(handler as EventHandler);
-    return () =>
-      this.handlers
-        .get(event)
-        ?.delete(handler as EventHandler);
+    this.handlers.get(event)!.add(handler as EventHandler);
+    return () => this.handlers.get(event)?.delete(handler as EventHandler);
   }
 
   private dispatch(event: string, data: unknown): void {
-    for (const handler of this.handlers.get(event) ??
-      []) {
+    for (const handler of this.handlers.get(event) ?? []) {
       handler(data);
     }
   }

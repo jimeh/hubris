@@ -8,9 +8,7 @@ export async function listProjects(): Promise<Project[]> {
   return res.json();
 }
 
-export async function addProject(
-  path: string,
-): Promise<Project> {
+export async function addProject(path: string): Promise<Project> {
   const res = await fetch(`${BASE}/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -20,9 +18,7 @@ export async function addProject(
   return res.json();
 }
 
-export async function deleteProject(
-  id: string,
-): Promise<void> {
+export async function deleteProject(id: string): Promise<void> {
   const res = await fetch(`${BASE}/projects/${id}`, {
     method: 'DELETE',
   });
@@ -37,14 +33,10 @@ export async function listFiles(
   if (path) params.set('path', path);
   if (showHidden) params.set('show_hidden', 'true');
 
-  const res = await fetch(
-    `${BASE}/files?${params.toString()}`,
-  );
+  const res = await fetch(`${BASE}/files?${params.toString()}`);
   if (!res.ok) {
-    if (res.status === 404)
-      throw new Error('Directory not found');
-    if (res.status === 403)
-      throw new Error('Permission denied');
+    if (res.status === 404) throw new Error('Directory not found');
+    if (res.status === 403) throw new Error('Permission denied');
     throw new Error(`${res.status}`);
   }
   return res.json();
@@ -56,9 +48,7 @@ export async function listTabs(): Promise<Tab[]> {
   return res.json();
 }
 
-export async function createTab(
-  projectId: string,
-): Promise<Tab> {
+export async function createTab(projectId: string): Promise<Tab> {
   const res = await fetch(`${BASE}/tabs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -68,14 +58,11 @@ export async function createTab(
   return res.json();
 }
 
-export async function deleteTab(
-  id: string,
-): Promise<void> {
+export async function deleteTab(id: string): Promise<void> {
   const res = await fetch(`${BASE}/tabs/${id}`, {
     method: 'DELETE',
   });
-  if (!res.ok && res.status !== 404)
-    throw new Error(`${res.status}`);
+  if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
 }
 
 export async function updateTab(
@@ -92,7 +79,6 @@ export async function updateTab(
 }
 
 export function terminalWsUrl(tabId: string): string {
-  const proto =
-    location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${location.host}/api/terminal/ws?tab_id=${encodeURIComponent(tabId)}`;
 }

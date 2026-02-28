@@ -1,8 +1,4 @@
-import {
-  listProjects,
-  addProject,
-  deleteProject,
-} from '$lib/api';
+import { listProjects, addProject, deleteProject } from '$lib/api';
 import type { Project } from '$lib/types';
 
 let projects = $state<Project[]>([]);

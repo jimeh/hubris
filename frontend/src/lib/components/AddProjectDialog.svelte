@@ -50,10 +50,7 @@
       </Dialog.Description>
     </Dialog.Header>
     <div class="grid gap-3 py-3">
-      <FileBrowser
-        bind:currentPath={path}
-        onSelect={handleSelect}
-      />
+      <FileBrowser bind:currentPath={path} onSelect={handleSelect} />
       <Separator />
       <div class="flex items-center gap-2">
         <Input
@@ -66,10 +63,7 @@
           }}
           class="flex-1"
         />
-        <Button
-          onclick={submit}
-          disabled={submitting || !path.trim()}
-        >
+        <Button onclick={submit} disabled={submitting || !path.trim()}>
           Add
         </Button>
       </div>
@@ -78,11 +72,7 @@
       {/if}
     </div>
     <Dialog.Footer>
-      <Button
-        variant="outline"
-        onclick={onClose}
-        disabled={submitting}
-      >
+      <Button variant="outline" onclick={onClose} disabled={submitting}>
         Cancel
       </Button>
     </Dialog.Footer>

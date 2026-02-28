@@ -4,10 +4,7 @@ import { EventClient } from './events';
 // Mock EventSource
 class MockEventSource {
   url: string;
-  listeners = new Map<
-    string,
-    ((e: MessageEvent) => void)[]
-  >();
+  listeners = new Map<string, ((e: MessageEvent) => void)[]>();
   onerror: (() => void) | null = null;
   closeCalled = false;
 
@@ -15,10 +12,7 @@ class MockEventSource {
     this.url = url;
   }
 
-  addEventListener(
-    name: string,
-    handler: (e: MessageEvent) => void,
-  ) {
+  addEventListener(name: string, handler: (e: MessageEvent) => void) {
     if (!this.listeners.has(name)) {
       this.listeners.set(name, []);
     }
@@ -54,6 +48,7 @@ describe('EventClient', () => {
         constructor(url: string) {
           super(url);
           constructorCalls.push(url);
+          // eslint-disable-next-line @typescript-eslint/no-this-alias
           mockEs = this;
         }
       },
@@ -64,9 +59,7 @@ describe('EventClient', () => {
     const client = new EventClient();
     client.connect('default');
 
-    expect(constructorCalls).toEqual([
-      '/api/events?session_id=default',
-    ]);
+    expect(constructorCalls).toEqual(['/api/events?session_id=default']);
   });
 
   it('connect() is idempotent', () => {
@@ -131,9 +124,7 @@ describe('EventClient', () => {
   it('skips events with missing data field', () => {
     const client = new EventClient();
     const handler = vi.fn();
-    const warnSpy = vi
-      .spyOn(console, 'warn')
-      .mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     client.on('tab_created', handler);
     client.connect();
 
@@ -162,8 +153,6 @@ describe('EventClient', () => {
     client.connect('other');
 
     expect(constructorCalls).toHaveLength(2);
-    expect(mockEs.url).toBe(
-      '/api/events?session_id=other',
-    );
+    expect(mockEs.url).toBe('/api/events?session_id=other');
   });
 });

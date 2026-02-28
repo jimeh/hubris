@@ -1,6 +1,7 @@
 /target/
 /data/
 /crates/server/data/
+/tmp/
 /frontend/node_modules/
 /frontend/dist/
 *.swp

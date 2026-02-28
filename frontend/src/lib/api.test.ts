@@ -26,9 +26,7 @@ describe('API client', () => {
 
   describe('listProjects', () => {
     it('fetches from /api/projects and returns JSON', async () => {
-      const mockProjects = [
-        { id: '1', name: 'test', path: '/test' },
-      ];
+      const mockProjects = [{ id: '1', name: 'test', path: '/test' }];
       vi.stubGlobal(
         'fetch',
         vi.fn().mockResolvedValue({
@@ -82,16 +80,12 @@ describe('API client', () => {
 
   describe('deleteProject', () => {
     it('sends DELETE to /api/projects/:id', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockResolvedValue({ ok: true }),
-      );
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
 
       await deleteProject('abc-123');
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/projects/abc-123',
-        { method: 'DELETE' },
-      );
+      expect(fetch).toHaveBeenCalledWith('/api/projects/abc-123', {
+        method: 'DELETE',
+      });
     });
   });
 
@@ -99,9 +93,7 @@ describe('API client', () => {
     it('fetches from /api/files with default params', async () => {
       const mockResponse = {
         path: '/home/user',
-        entries: [
-          { name: 'projects', is_git_repo: false },
-        ],
+        entries: [{ name: 'projects', is_git_repo: false }],
         home_dir: '/home/user',
       };
       vi.stubGlobal(
@@ -146,9 +138,7 @@ describe('API client', () => {
         }),
       );
 
-      await expect(listFiles('/nope')).rejects.toThrow(
-        'Directory not found',
-      );
+      await expect(listFiles('/nope')).rejects.toThrow('Directory not found');
     });
 
     it('throws readable error for 403', async () => {
@@ -160,18 +150,14 @@ describe('API client', () => {
         }),
       );
 
-      await expect(listFiles('/secret')).rejects.toThrow(
-        'Permission denied',
-      );
+      await expect(listFiles('/secret')).rejects.toThrow('Permission denied');
     });
   });
 
   describe('terminalWsUrl', () => {
     it('constructs ws:// URL with tab_id param', () => {
       const url = terminalWsUrl('tab-1');
-      expect(url).toBe(
-        'ws://localhost:5173/api/terminal/ws?tab_id=tab-1',
-      );
+      expect(url).toBe('ws://localhost:5173/api/terminal/ws?tab_id=tab-1');
     });
 
     it('constructs wss:// URL for https: protocol', () => {
@@ -181,9 +167,7 @@ describe('API client', () => {
       });
 
       const url = terminalWsUrl('tab-2');
-      expect(url).toBe(
-        'wss://example.com/api/terminal/ws?tab_id=tab-2',
-      );
+      expect(url).toBe('wss://example.com/api/terminal/ws?tab_id=tab-2');
     });
   });
 
