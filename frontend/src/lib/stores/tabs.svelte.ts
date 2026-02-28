@@ -4,15 +4,11 @@ import type { Tab } from '$lib/types';
 
 let tabs = $state<Tab[]>([]);
 let activeTabId = $state<string | null>(null);
-let activeTabByProject = $state<Record<string, string>>(
-  {},
-);
+const activeTabByProject = $state<Record<string, string>>({});
 let initialized = false;
 
 function sortedTabs(list: Tab[]): Tab[] {
-  return [...list].sort(
-    (a, b) => a.position - b.position,
-  );
+  return [...list].sort((a, b) => a.position - b.position);
 }
 
 export function getTabStore() {
@@ -23,10 +19,7 @@ export function getTabStore() {
     events.on<{ tabs: Tab[] }>('snapshot', (data) => {
       tabs = sortedTabs(data.tabs);
       // Validate activeTabId still exists
-      if (
-        activeTabId &&
-        !tabs.find((t) => t.id === activeTabId)
-      ) {
+      if (activeTabId && !tabs.find((t) => t.id === activeTabId)) {
         activeTabId = null;
       }
     });
@@ -37,17 +30,12 @@ export function getTabStore() {
       }
     });
 
-    events.on<{ tab_id: string }>(
-      'tab_closed',
-      ({ tab_id }) => {
-        removeFromState(tab_id);
-      },
-    );
+    events.on<{ tab_id: string }>('tab_closed', ({ tab_id }) => {
+      removeFromState(tab_id);
+    });
 
     events.on<Tab>('tab_updated', (tab) => {
-      tabs = sortedTabs(
-        tabs.map((t) => (t.id === tab.id ? tab : t)),
-      );
+      tabs = sortedTabs(tabs.map((t) => (t.id === tab.id ? tab : t)));
     });
   }
 
@@ -59,11 +47,9 @@ export function getTabStore() {
       const remaining = projectId
         ? tabs.filter((t) => t.project_id === projectId)
         : tabs;
-      activeTabId =
-        remaining[remaining.length - 1]?.id ?? null;
+      activeTabId = remaining[remaining.length - 1]?.id ?? null;
       if (projectId) {
-        activeTabByProject[projectId] =
-          activeTabId ?? '';
+        activeTabByProject[projectId] = activeTabId ?? '';
       }
     }
   }
@@ -74,9 +60,7 @@ export function getTabStore() {
   }
 
   /** Create a new terminal tab for a project. */
-  async function addTerminal(
-    projectId: string,
-  ): Promise<Tab> {
+  async function addTerminal(projectId: string): Promise<Tab> {
     const tab = await createTab(projectId);
     // Optimistic: add immediately, SSE event deduplicates
     if (!tabs.find((t) => t.id === tab.id)) {
@@ -109,9 +93,7 @@ export function getTabStore() {
 
   /** Get tabs for a specific project. */
   function tabsForProject(projectId: string): Tab[] {
-    return tabs.filter(
-      (t) => t.project_id === projectId,
-    );
+    return tabs.filter((t) => t.project_id === projectId);
   }
 
   /**
@@ -121,10 +103,7 @@ export function getTabStore() {
   function switchToProject(projectId: string) {
     const projectTabs = tabsForProject(projectId);
     const remembered = activeTabByProject[projectId];
-    if (
-      remembered &&
-      projectTabs.find((t) => t.id === remembered)
-    ) {
+    if (remembered && projectTabs.find((t) => t.id === remembered)) {
       activeTabId = remembered;
     } else if (projectTabs.length > 0) {
       activeTabId = projectTabs[0].id;

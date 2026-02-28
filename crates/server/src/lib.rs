@@ -5,8 +5,8 @@ pub mod pty;
 pub mod state;
 
 use axum::Router;
-use axum::http::header::CONTENT_TYPE;
 use axum::http::Method;
+use axum::http::header::CONTENT_TYPE;
 use axum::routing::{delete, get};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -28,30 +28,20 @@ pub async fn bind_with_port_fallback(
 ) -> std::io::Result<tokio::net::TcpListener> {
     for offset in 0..max_attempts {
         let port = start_port + offset;
-        let addr: std::net::SocketAddr =
-            format!("{host}:{port}").parse().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!(
-                        "invalid address {host}:{port}: {e}"
-                    ),
-                )
-            })?;
+        let addr: std::net::SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid address {host}:{port}: {e}"),
+            )
+        })?;
         match tokio::net::TcpListener::bind(addr).await {
             Ok(listener) => {
                 if offset > 0 {
-                    tracing::info!(
-                        "port {} in use, using {} instead",
-                        start_port,
-                        port,
-                    );
+                    tracing::info!("port {} in use, using {} instead", start_port, port,);
                 }
                 return Ok(listener);
             }
-            Err(e)
-                if e.kind()
-                    == std::io::ErrorKind::AddrInUse =>
-            {
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                 continue;
             }
             Err(e) => return Err(e),
@@ -81,23 +71,13 @@ pub fn build_router(state: AppState) -> Router {
     let cors = if cfg!(debug_assertions) {
         CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::DELETE,
-                Method::PATCH,
-            ])
+            .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
             .allow_headers([CONTENT_TYPE])
     } else {
         // Production: no CORS needed, frontend is embedded
         // and served from the same origin.
         CorsLayer::new()
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::DELETE,
-                Method::PATCH,
-            ])
+            .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
             .allow_headers([CONTENT_TYPE])
     };
 

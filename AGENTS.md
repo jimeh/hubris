@@ -6,13 +6,21 @@ sessions, Svelte 5 frontend with xterm.js.
 ## Build & Run
 
 ```sh
-mise run setup    # install all deps
-mise run dev      # backend (3001) + frontend (5173) dev servers
-mise run check    # cargo check + clippy + svelte-check + tsc
-mise run test     # vitest + cargo test
+mise run setup     # install all deps
+mise run dev       # backend + frontend dev servers
+mise run check     # format check + lint + type check (all)
+mise run format    # auto-format all code
+mise run test      # vitest + cargo test
 ```
 
+Sub-tasks: `check:backend`, `check:frontend`, `format:backend`,
+`format:frontend`. `lint` is an alias for `check`.
+
 Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (frontend).
+
+**IMPORTANT: Always run `mise run check` before committing or opening PRs.**
+CI runs the same checks — format (`cargo fmt`, `prettier`), lint (`clippy`,
+`eslint`), and type check (`svelte-check`, `tsc`).
 
 **IMPORTANT: The frontend uses bun, NOT npm or pnpm.** All frontend commands
 must use `bun` (e.g., `bun install`, `bun run test`, `bun run check`).
@@ -43,7 +51,7 @@ reconciliation — drift corrects on reconnect.
 
 ### Backend (Rust / Axum)
 - State: grep for `AppState` — DashMap for tabs, EventBus for SSE
-- Persistence: JSON file. Dev: `./data/`, prod: `~/.hubris/`
+- Persistence: JSON file. Dev: `~/.hubris-dev/`, prod: `~/.hubris/`
 - PTY: portable-pty, shell from `$SHELL` or `/bin/sh`
 - WS protocol: binary (PTY output), JSON control (`type: "resize"`)
 - SSE events: snapshot, tab_created, tab_closed, tab_updated
@@ -55,7 +63,7 @@ reconciliation — drift corrects on reconnect.
 - UI primitives: shadcn-svelte (Bits UI) — grep `components/ui/`
 - Terminal: adapter pattern — grep `TerminalAdapter`, `XtermAdapter`
 - Theme: Catppuccin via Tailwind, defined in `app.css`
-- Dev proxy: port 5173 proxies `/api` → backend 3001
+- Dev proxy: port 3001 proxies `/api` → backend 3101
 
 ## Conventions
 

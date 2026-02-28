@@ -5,14 +5,13 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalAdapter } from './adapter';
 
-export function createXtermAdapter(
-  opts?: { fontSize?: number; fontFamily?: string },
-): TerminalAdapter {
+export function createXtermAdapter(opts?: {
+  fontSize?: number;
+  fontFamily?: string;
+}): TerminalAdapter {
   const term = new Terminal({
     fontSize: opts?.fontSize ?? 14,
-    fontFamily:
-      opts?.fontFamily ??
-      "'JetBrains Mono', 'Fira Code', monospace",
+    fontFamily: opts?.fontFamily ?? "'JetBrains Mono', 'Fira Code', monospace",
     theme: {
       background: '#1e1e2e',
       foreground: '#cdd6f4',

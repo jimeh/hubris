@@ -16,27 +16,20 @@ async function waitForBackendState(
 ): Promise<{ pid: number; port: number } | null> {
   if (!devId || !devTmp) return null;
 
-  const stateFile = path.join(
-    devTmp,
-    `dev-${devId}.backend.json`,
-  );
+  const stateFile = path.join(devTmp, `dev-${devId}.backend.json`);
   const start = Date.now();
 
   console.log('Waiting for backend...');
   while (Date.now() - start < timeoutMs) {
     try {
-      const data = JSON.parse(
-        fs.readFileSync(stateFile, 'utf-8'),
-      );
+      const data = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
       if (data.port) return data;
     } catch {
       // File doesn't exist yet or is incomplete.
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error(
-    'Backend did not start within timeout',
-  );
+  throw new Error('Backend did not start within timeout');
 }
 
 /**
@@ -53,10 +46,7 @@ function devInstancePlugin(): Plugin {
         const addr = server.httpServer!.address();
         if (typeof addr === 'object' && addr) {
           fs.writeFileSync(
-            path.join(
-              devTmp,
-              `dev-${devId}.frontend.json`,
-            ),
+            path.join(devTmp, `dev-${devId}.frontend.json`),
             JSON.stringify({
               pid: process.pid,
               port: addr.port,
@@ -74,22 +64,13 @@ export default defineConfig(async () => {
   const backendPort = backend?.port ?? 3101;
 
   if (backend) {
-    console.log(
-      `Backend ready on port ${backendPort}`,
-    );
+    console.log(`Backend ready on port ${backendPort}`);
   }
 
-  const port = parseInt(
-    process.env.HUBRIS_PORT || '3001',
-    10,
-  );
+  const port = parseInt(process.env.HUBRIS_PORT || '3001', 10);
 
   return {
-    plugins: [
-      svelte(),
-      tailwindcss(),
-      devInstancePlugin(),
-    ],
+    plugins: [svelte(), tailwindcss(), devInstancePlugin()],
     resolve: {
       alias: {
         $lib: path.resolve('./src/lib'),

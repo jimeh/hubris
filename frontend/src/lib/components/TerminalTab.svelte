@@ -4,7 +4,11 @@
   import { terminalWsUrl } from '$lib/api';
   import type { TerminalAdapter } from '$lib/terminal/adapter';
 
-  let { tabId, visible, onclosed }: {
+  let {
+    tabId,
+    visible,
+    onclosed,
+  }: {
     tabId: string;
     visible: boolean;
     onclosed?: () => void;

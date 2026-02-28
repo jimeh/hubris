@@ -13,19 +13,14 @@
     tabStore.switchToProject(project.id);
   });
 
-  let projectTabs = $derived(
-    tabStore.tabsForProject(project.id),
-  );
+  let projectTabs = $derived(tabStore.tabsForProject(project.id));
 </script>
 
 <div class="flex h-full flex-col">
   <div class="flex items-center border-b bg-muted/40 px-2">
     {#if projectTabs.length > 0}
-      <div
-        class="flex items-center gap-1 overflow-x-auto py-1"
-      >
+      <div class="flex items-center gap-1 overflow-x-auto py-1">
         {#each projectTabs as tab (tab.id)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="inline-flex cursor-pointer items-center
                    gap-1.5 rounded-md px-3 py-1.5 text-sm

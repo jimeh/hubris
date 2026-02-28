@@ -23,13 +23,37 @@ description = "Run backend dev server"
 run = "cd frontend && bun dev"
 description = "Run frontend dev server"
 
-[tasks.check]
-description = "Run type/lint checks"
+[tasks."check:backend"]
+description = "Rust format check + clippy"
 run = [
+  "cargo fmt --all --check",
   "cargo check",
   "cargo clippy --all-targets -- -D warnings",
-  "cd frontend && bun run check",
 ]
+
+[tasks."check:frontend"]
+description = "Frontend lint + format check + type check"
+run = "cd frontend && bun run lint && bun run format:check && bun run check"
+
+[tasks.check]
+description = "Run all checks"
+depends = ["check:backend", "check:frontend"]
+
+[tasks.lint]
+description = "Alias for check"
+depends = ["check"]
+
+[tasks."format:backend"]
+description = "Format Rust code"
+run = "cargo fmt --all"
+
+[tasks."format:frontend"]
+description = "Format frontend code"
+run = "cd frontend && bun run format"
+
+[tasks.format]
+description = "Format all code"
+depends = ["format:backend", "format:frontend"]
 
 [tasks.test]
 description = "Run all tests"

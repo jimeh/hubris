@@ -72,8 +72,7 @@
   }
 
   function navigateToParent() {
-    const parent =
-      browsedPath.replace(/\/[^/]+\/?$/, '') || '/';
+    const parent = browsedPath.replace(/\/[^/]+\/?$/, '') || '/';
     navigateTo(parent);
   }
 
@@ -101,7 +100,7 @@
   // Watch showHidden toggle — re-fetch, skip initial run
   let showHiddenInitialized = false;
   $effect(() => {
-    showHidden;
+    void showHidden;
     if (!showHiddenInitialized) {
       showHiddenInitialized = true;
       return;
@@ -117,10 +116,7 @@
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        focusedIndex = Math.min(
-          focusedIndex + 1,
-          entries.length - 1,
-        );
+        focusedIndex = Math.min(focusedIndex + 1, entries.length - 1);
         break;
       case 'ArrowUp':
         e.preventDefault();
@@ -150,15 +146,15 @@
   <button
     class="shrink-0 px-1 hover:text-foreground
            transition-colors"
-    onclick={() => navigateTo('/')}
-  >/</button>
-  {#each pathSegments as segment}
+    onclick={() => navigateTo('/')}>/</button
+  >
+  {#each pathSegments as segment (segment.path)}
     <button
       class="shrink-0 truncate max-w-[140px] px-0.5
              hover:text-foreground hover:underline
              underline-offset-2 transition-colors"
-      onclick={() => navigateTo(segment.path)}
-    >{segment.name}</button>
+      onclick={() => navigateTo(segment.path)}>{segment.name}</button
+    >
     <span class="shrink-0 opacity-40">/</span>
   {/each}
 </div>
@@ -197,9 +193,7 @@
     size="icon-sm"
     onclick={() => (showHidden = !showHidden)}
     class={showHidden ? 'text-foreground' : ''}
-    title={showHidden
-      ? 'Hide dotfiles'
-      : 'Show dotfiles'}
+    title={showHidden ? 'Hide dotfiles' : 'Show dotfiles'}
   >
     {#if showHidden}
       <EyeOff class="h-3.5 w-3.5" />
@@ -211,15 +205,9 @@
 
 <!-- Directory listing -->
 <ScrollArea.Root class="h-[280px] rounded-md border">
-  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div
-    class="p-1"
-    role="listbox"
-    tabindex="0"
-    onkeydown={handleKeydown}
-  >
+  <div class="p-1" role="listbox" tabindex="0" onkeydown={handleKeydown}>
     {#if loading}
-      {#each Array(6) as _}
+      {#each Array(6) as _, i (i)}
         <div class="flex items-center gap-2 px-2 py-1.5">
           <Skeleton class="h-4 w-4 rounded" />
           <Skeleton class="h-4 w-32 rounded" />
@@ -253,26 +241,20 @@
                  rounded-sm px-2 py-1 text-sm
                  text-left transition-colors
                  hover:bg-accent/50
-                 {i === focusedIndex
-            ? 'bg-accent text-accent-foreground'
-            : ''}
+                 {i === focusedIndex ? 'bg-accent text-accent-foreground' : ''}
                  {entry.is_git_repo
             ? 'border-l-2 border-chart-2'
             : 'border-l-2 border-transparent'}"
           onclick={() => navigateToEntry(entry)}
           ondblclick={() => {
-            const sep = browsedPath.endsWith('/')
-              ? ''
-              : '/';
+            const sep = browsedPath.endsWith('/') ? '' : '/';
             onSelect(browsedPath + sep + entry.name);
           }}
           role="option"
           aria-selected={i === focusedIndex}
         >
           {#if entry.is_git_repo}
-            <FolderGit2
-              class="h-4 w-4 shrink-0 text-chart-2"
-            />
+            <FolderGit2 class="h-4 w-4 shrink-0 text-chart-2" />
           {:else}
             <Folder
               class="h-4 w-4 shrink-0
