@@ -17,7 +17,7 @@
 </script>
 
 <div class="flex h-full flex-col">
-  <div class="flex items-center border-b bg-muted/40 px-2">
+  <div class="flex items-center border-b border-tab-border bg-tab-bar px-2">
     {#if projectTabs.length > 0}
       <div class="flex items-center gap-1 overflow-x-auto py-1">
         {#each projectTabs as tab (tab.id)}
@@ -26,8 +26,8 @@
                    gap-1.5 rounded-md px-3 py-1.5 text-sm
                    transition-colors select-none
                    {tab.id === tabStore.activeTabId
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'}"
+              ? 'bg-tab-active text-tab-active-foreground shadow-sm'
+              : 'text-tab-inactive-foreground hover:text-foreground'}"
             onclick={() => tabStore.activate(tab.id)}
             onkeydown={(e) => {
               if (e.key === 'Enter') tabStore.activate(tab.id);

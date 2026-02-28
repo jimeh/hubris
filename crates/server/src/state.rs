@@ -32,6 +32,14 @@ impl AppState {
         self.data_dir.join("projects.json")
     }
 
+    pub fn themes_dir(&self) -> PathBuf {
+        self.data_dir.join("themes")
+    }
+
+    pub fn settings_file(&self) -> PathBuf {
+        self.data_dir.join("settings.json")
+    }
+
     /// Load projects from disk. Single source of truth
     /// (eliminates the duplicated load_projects in
     /// terminal.rs and projects.rs).

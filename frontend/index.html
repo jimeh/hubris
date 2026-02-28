@@ -1,10 +1,28 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>hubris</title>
+    <script>
+      // Set dark class before first paint to prevent flash.
+      // Must match logic in theme store.
+      (function () {
+        try {
+          var s = JSON.parse(localStorage.getItem('hubris-appearance') || '{}');
+          var scheme = s.colorScheme || 'auto';
+          var prefersDark = window.matchMedia(
+            '(prefers-color-scheme: dark)',
+          ).matches;
+          var isDark = scheme === 'dark' || (scheme !== 'light' && prefersDark);
+          if (isDark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          // Default to dark on parse error
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body class="min-h-screen bg-background text-foreground antialiased">
     <div id="app" class="h-screen"></div>

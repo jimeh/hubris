@@ -57,12 +57,18 @@ reconciliation — drift corrects on reconnect.
 - SSE events: snapshot, tab_created, tab_closed, tab_updated
 
 ### Frontend (Svelte 5 / Vite / Tailwind v4)
-- Stores: rune-based singletons — grep `getProjectStore`, `getTabStore`
+- Stores: rune-based singletons — grep `getProjectStore`, `getTabStore`,
+  `getThemeStore`
 - SSE client: singleton — grep `getEventClient`
 - Tab store: REST mutations + SSE sync with optimistic updates
 - UI primitives: shadcn-svelte (Bits UI) — grep `components/ui/`
 - Terminal: adapter pattern — grep `TerminalAdapter`, `XtermAdapter`
-- Theme: Catppuccin via Tailwind, defined in `app.css`
+- Theme engine: VS Code color theme format, culori hex→OKLCH conversion.
+  Built-in Catppuccin themes in `theme/builtin.ts`, converter in
+  `theme/convert.ts`, parser in `theme/parse.ts`. Settings + user themes
+  persisted via REST (`/api/settings`, `/api/themes`).
+- FOUC prevention: inline script in `index.html` reads localStorage
+  for dark class before first paint.
 - Dev proxy: port 3001 proxies `/api` → backend 3101
 
 ## Conventions
@@ -83,3 +89,11 @@ reconciliation — drift corrects on reconnect.
 - **Tab position**: f64 for fractional ordering (midpoint insertion).
 - **deleteTab tolerates 404**: Tab may already be gone (shell exit,
   other browser).
+- **shadcn-svelte Select wrapper**: The default `select.svelte` from
+  shadcn-svelte destructures `value`/`open` with `$bindable` and
+  re-passes via `bind:`. This breaks the bits-ui `type` discriminant
+  (single vs multiple), causing string values to be iterated as char
+  arrays. The workaround is a simple passthrough: `{...restProps}`.
+  If reinstalling shadcn components, reapply this fix.
+- **Settings sync**: No SSE event for settings changes yet. Multiple
+  open browsers won't see each other's theme changes until reload.
