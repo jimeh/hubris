@@ -1,4 +1,4 @@
-use hubris_server::{build_router, AppState};
+use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
 
@@ -8,10 +8,7 @@ async fn start_test_server() -> (String, tempfile::TempDir) {
     let state = AppState::new(tmp.path().to_path_buf());
     let app = build_router(state);
 
-    let listener =
-        tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
@@ -139,10 +136,7 @@ async fn test_delete_nonexistent() {
     let client = reqwest::Client::new();
 
     let res = client
-        .delete(format!(
-            "{}/api/projects/nonexistent-id",
-            base
-        ))
+        .delete(format!("{}/api/projects/nonexistent-id", base))
         .send()
         .await
         .unwrap();

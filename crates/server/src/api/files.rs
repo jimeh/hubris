@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
+use axum::Json;
 use axum::extract::Query;
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -37,20 +37,14 @@ pub async fn list_files(
 
     let dir = match &params.path {
         Some(p) if !p.is_empty() => PathBuf::from(p),
-        _ => home
-            .clone()
-            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
+        _ => home.clone().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
     };
 
     let dir = tokio::fs::canonicalize(&dir)
         .await
         .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => {
-                StatusCode::NOT_FOUND
-            }
-            std::io::ErrorKind::PermissionDenied => {
-                StatusCode::FORBIDDEN
-            }
+            std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+            std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         })?;
 
@@ -64,9 +58,7 @@ pub async fn list_files(
     let mut read_dir = tokio::fs::read_dir(&dir)
         .await
         .map_err(|e| match e.kind() {
-            std::io::ErrorKind::PermissionDenied => {
-                StatusCode::FORBIDDEN
-            }
+            std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         })?;
 
@@ -96,20 +88,16 @@ pub async fn list_files(
 
         // Check for .git subdirectory or file (worktrees)
         let git_path = entry.path().join(".git");
-        let is_git_repo =
-            git_path.is_dir() || git_path.is_file();
+        let is_git_repo = git_path.is_dir() || git_path.is_file();
 
         entries.push(DirEntry { name, is_git_repo });
     }
 
-    entries.sort_by(|a, b| {
-        a.name.to_lowercase().cmp(&b.name.to_lowercase())
-    });
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     Ok(Json(ListFilesResponse {
         path: dir.to_string_lossy().to_string(),
         entries,
-        home_dir: home
-            .map(|h| h.to_string_lossy().to_string()),
+        home_dir: home.map(|h| h.to_string_lossy().to_string()),
     }))
 }
