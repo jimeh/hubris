@@ -1,0 +1,154 @@
+use std::collections::VecDeque;
+use std::io::{Read, Write};
+use std::sync::{Arc, Mutex};
+
+use portable_pty::{Child, MasterPty};
+use serde::Serialize;
+use tokio::sync::broadcast;
+use tokio::task::JoinHandle;
+
+/// Default scrollback buffer size in bytes (~128KB).
+/// Passed to `LiveTab::spawn()` so it can be overridden
+/// per-tab in the future (e.g., from user settings).
+pub const DEFAULT_SCROLLBACK: usize = 128 * 1024;
+
+/// Serializable tab metadata. Sent to clients via REST
+/// and SSE.
+#[derive(Debug, Clone, Serialize)]
+pub struct TabInfo {
+    pub id: String,
+    pub session_id: String,
+    pub project_id: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub tab_type: String,
+    pub position: f64,
+    pub created_at: u64,
+}
+
+/// A live terminal tab with its PTY, scrollback buffer,
+/// and broadcast channels for output fan-out and close
+/// notification.
+pub struct LiveTab {
+    info: Mutex<TabInfo>,
+    pub pty_master: Mutex<Box<dyn MasterPty + Send>>,
+    pub pty_writer: Mutex<Box<dyn Write + Send>>,
+    child: Mutex<Box<dyn Child + Send + Sync>>,
+    pub scrollback: Arc<Mutex<VecDeque<u8>>>,
+    pub output_tx: broadcast::Sender<Vec<u8>>,
+    pub close_tx: broadcast::Sender<()>,
+    _reader_handle: JoinHandle<()>,
+}
+
+impl LiveTab {
+    /// Spawn a new LiveTab from an already-opened PTY pair
+    /// and child process. Starts a background reader task
+    /// that feeds scrollback and broadcasts output.
+    pub fn spawn(
+        info: TabInfo,
+        master: Box<dyn MasterPty + Send>,
+        child: Box<dyn Child + Send + Sync>,
+        scrollback_size: usize,
+    ) -> Self {
+        let mut reader = master.try_clone_reader().unwrap();
+        let writer = master.take_writer().unwrap();
+
+        let scrollback = Arc::new(Mutex::new(VecDeque::with_capacity(scrollback_size)));
+        let (output_tx, _) = broadcast::channel(64);
+        let (close_tx, _) = broadcast::channel(1);
+
+        let sb = scrollback.clone();
+        let tx = output_tx.clone();
+        let ctx = close_tx.clone();
+
+        let reader_handle = tokio::task::spawn_blocking(move || {
+            let mut buf = [0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let data = buf[..n].to_vec();
+                        {
+                            let mut sb = sb.lock().unwrap();
+                            for &byte in &data {
+                                if sb.len() >= scrollback_size {
+                                    sb.pop_front();
+                                }
+                                sb.push_back(byte);
+                            }
+                        }
+                        let _ = tx.send(data);
+                    }
+                    Err(_) => break,
+                }
+            }
+            // Shell exited
+            let _ = ctx.send(());
+        });
+
+        Self {
+            info: Mutex::new(info),
+            pty_master: Mutex::new(master),
+            pty_writer: Mutex::new(writer),
+            child: Mutex::new(child),
+            scrollback,
+            output_tx,
+            close_tx,
+            _reader_handle: reader_handle,
+        }
+    }
+
+    /// Get a snapshot of current tab metadata.
+    pub fn info(&self) -> TabInfo {
+        self.info.lock().unwrap().clone()
+    }
+
+    /// Update tab metadata under lock. Returns the updated
+    /// snapshot.
+    pub fn update_info(&self, f: impl FnOnce(&mut TabInfo) -> TabInfo) -> TabInfo {
+        let mut info = self.info.lock().unwrap();
+        f(&mut info)
+    }
+
+    /// Attach to this tab's output stream. Returns:
+    /// - scrollback snapshot (all buffered output)
+    /// - output receiver (live PTY output)
+    /// - close receiver (shell exit notification)
+    ///
+    /// Lock ordering: scrollback mutex held while
+    /// subscribing to output channel guarantees no output
+    /// is missed between snapshot and subscription.
+    pub fn attach(
+        &self,
+    ) -> (
+        Vec<u8>,
+        broadcast::Receiver<Vec<u8>>,
+        broadcast::Receiver<()>,
+    ) {
+        let sb = self.scrollback.lock().unwrap();
+        let snapshot: Vec<u8> = sb.iter().copied().collect();
+        let output_rx = self.output_tx.subscribe();
+        let close_rx = self.close_tx.subscribe();
+        (snapshot, output_rx, close_rx)
+    }
+
+    /// Notify all attached clients that this tab is
+    /// closing. Called by `delete_tab` for explicit closure.
+    pub fn notify_close(&self) {
+        let _ = self.close_tx.send(());
+    }
+
+    /// Kill the child process and wait for exit.
+    pub fn kill(&self) {
+        let mut child = self.child.lock().unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+impl Drop for LiveTab {
+    fn drop(&mut self) {
+        self.kill();
+        self._reader_handle.abort();
+    }
+}

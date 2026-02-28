@@ -8,20 +8,23 @@
   let { project }: { project: Project } = $props();
   const tabStore = getTabStore();
 
-  // Reset tabs when project changes
+  // Switch active tab when project changes
   $effect(() => {
-    project; // track
-    tabStore.reset();
+    tabStore.switchToProject(project.id);
   });
+
+  let projectTabs = $derived(
+    tabStore.tabsForProject(project.id),
+  );
 </script>
 
 <div class="flex h-full flex-col">
   <div class="flex items-center border-b bg-muted/40 px-2">
-    {#if tabStore.tabs.length > 0}
+    {#if projectTabs.length > 0}
       <div
         class="flex items-center gap-1 overflow-x-auto py-1"
       >
-        {#each tabStore.tabs as tab (tab.id)}
+        {#each projectTabs as tab (tab.id)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="inline-flex cursor-pointer items-center
@@ -57,27 +60,28 @@
       variant="ghost"
       size="icon-sm"
       class="ml-1 shrink-0"
-      onclick={() => tabStore.addTerminal()}
+      onclick={() => tabStore.addTerminal(project.id)}
     >
       <Plus class="h-4 w-4" />
     </Button>
   </div>
 
   <div class="relative flex-1 overflow-hidden">
-    {#each tabStore.tabs as tab (tab.id)}
+    {#each projectTabs as tab (tab.id)}
       <div
         class="absolute inset-0"
         class:hidden={tab.id !== tabStore.activeTabId}
       >
         {#if tab.type === 'terminal'}
           <TerminalTab
-            projectId={project.id}
+            tabId={tab.id}
             visible={tab.id === tabStore.activeTabId}
+            onclosed={() => tabStore.removeLocal(tab.id)}
           />
         {/if}
       </div>
     {/each}
-    {#if tabStore.tabs.length === 0}
+    {#if projectTabs.length === 0}
       <div
         class="flex h-full items-center justify-center
                   text-muted-foreground"

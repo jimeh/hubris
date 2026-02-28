@@ -4,9 +4,10 @@
   import { terminalWsUrl } from '$lib/api';
   import type { TerminalAdapter } from '$lib/terminal/adapter';
 
-  let { projectId, visible }: {
-    projectId: string;
+  let { tabId, visible, onclosed }: {
+    tabId: string;
     visible: boolean;
+    onclosed?: () => void;
   } = $props();
 
   let containerEl: HTMLDivElement;
@@ -17,7 +18,7 @@
     terminal = createXtermAdapter();
     terminal.open(containerEl);
 
-    ws = new WebSocket(terminalWsUrl(projectId));
+    ws = new WebSocket(terminalWsUrl(tabId));
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
@@ -32,11 +33,24 @@
     };
 
     ws.onmessage = (ev) => {
+      // Check for tab_closed control frame (text/JSON)
+      if (typeof ev.data === 'string') {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'tab_closed') {
+            onclosed?.();
+            return;
+          }
+        } catch {
+          // not JSON, ignore
+        }
+      }
       terminal!.write(new Uint8Array(ev.data));
     };
 
     ws.onclose = () => {
-      terminal!.write('\r\n[Connection closed]\r\n');
+      // PTY is still alive — no "[Connection closed]"
+      // message. Reconnection happens on component remount.
     };
 
     terminal.onData((data) => {

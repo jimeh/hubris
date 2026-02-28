@@ -6,8 +6,12 @@ export interface Project {
 
 export interface Tab {
   id: string;
+  session_id: string;
+  project_id: string;
   label: string;
   type: 'terminal';
+  position: number;
+  created_at: number;
 }
 
 export interface DirEntry {

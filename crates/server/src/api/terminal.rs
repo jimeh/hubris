@@ -1,20 +1,19 @@
-use std::io::{Read, Write};
+use std::io::Write;
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use portable_pty::PtySize;
 use serde::Deserialize;
-use tokio::sync::mpsc;
+use tokio::sync::broadcast;
 
-use crate::api::projects::Project;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct TerminalParams {
-    pub project_id: String,
+    pub tab_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -24,130 +23,119 @@ enum ControlMessage {
     Resize { cols: u16, rows: u16 },
 }
 
-async fn load_projects(state: &AppState) -> Result<Vec<Project>, std::io::Error> {
-    let path = state.projects_file();
-    match tokio::fs::read_to_string(&path).await {
-        Ok(contents) => {
-            let projects: Vec<Project> = serde_json::from_str(&contents).unwrap_or_default();
-            Ok(projects)
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
-        Err(e) => Err(e),
-    }
-}
-
 pub async fn ws_handler(
     State(state): State<AppState>,
     Query(params): Query<TerminalParams>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let projects = load_projects(&state)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let project = projects
-        .iter()
-        .find(|p| p.id == params.project_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let cwd = project.path.clone();
-    Ok(ws.on_upgrade(move |socket| handle_terminal(socket, cwd, state)))
+    if !state.tabs.contains_key(&params.tab_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let tab_id = params.tab_id;
+    Ok(ws.on_upgrade(move |socket| handle_attach(socket, tab_id, state)))
 }
 
-async fn handle_terminal(socket: WebSocket, cwd: String, _state: AppState) {
-    let pty_system = NativePtySystem::default();
-
-    let pair = match pty_system.openpty(PtySize {
-        rows: 24,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
-    }) {
-        Ok(pair) => pair,
-        Err(e) => {
-            tracing::error!("failed to open pty: {}", e);
-            return;
-        }
+/// Attach to an existing LiveTab. Does NOT spawn a PTY.
+/// On WS disconnect, does NOT kill the PTY.
+async fn handle_attach(socket: WebSocket, tab_id: String, state: AppState) {
+    // Clone Arc out of DashMap to avoid holding shard lock
+    let tab = match state.tabs.get(&tab_id).map(|r| r.value().clone()) {
+        Some(t) => t,
+        None => return,
     };
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    let mut cmd = CommandBuilder::new(&shell);
-    cmd.cwd(&cwd);
-    cmd.env("TERM", "xterm-256color");
+    let (scrollback, mut output_rx, mut close_rx) = tab.attach();
+    let (mut ws_sender, mut ws_receiver) = socket.split();
 
-    let mut child = match pair.slave.spawn_command(cmd) {
-        Ok(child) => child,
-        Err(e) => {
-            tracing::error!("failed to spawn shell: {}", e);
-            return;
-        }
-    };
+    // Replay scrollback
+    if !scrollback.is_empty()
+        && ws_sender
+            .send(Message::Binary(scrollback.into()))
+            .await
+            .is_err()
+    {
+        return;
+    }
 
-    // Drop slave — we interact via the master side
-    drop(pair.slave);
-
-    let master = pair.master;
-    let mut reader = master.try_clone_reader().unwrap();
-    let mut writer = master.take_writer().unwrap();
-
-    let (ws_sender, mut ws_receiver) = socket.split();
-    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(8);
-
-    // PTY reader → channel (blocking I/O in spawn_blocking)
-    let reader_handle = tokio::task::spawn_blocking(move || {
-        let mut buf = [0u8; 4096];
+    // Relay: broadcast -> WS (with close detection
+    // and adaptive batching)
+    let relay_handle = tokio::spawn(async move {
         loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if tx.blocking_send(buf[..n].to_vec()).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-
-    // Channel → WebSocket sender with adaptive batching
-    let sender_handle = tokio::spawn(async move {
-        let mut ws_sender = ws_sender;
-        while let Some(data) = rx.recv().await {
-            if data.len() < 128 {
-                // Small output: send immediately
-                if ws_sender.send(Message::Binary(data.into())).await.is_err() {
+            tokio::select! {
+                _ = close_rx.recv() => {
+                    let _ = ws_sender
+                        .send(Message::Text(
+                            r#"{"type":"tab_closed"}"#
+                                .into(),
+                        ))
+                        .await;
                     break;
                 }
-            } else {
-                // Larger output: batch with short timer
-                let mut batch = data;
-                let deadline = tokio::time::sleep(std::time::Duration::from_millis(4));
-                tokio::pin!(deadline);
-                loop {
-                    tokio::select! {
-                        _ = &mut deadline => break,
-                        more = rx.recv() => {
-                            match more {
-                                Some(more_data) => {
-                                    batch.extend(
-                                        more_data,
-                                    );
-                                }
-                                None => break,
+                result = output_rx.recv() => {
+                    match result {
+                        Ok(data) if data.len() < 128 => {
+                            if ws_sender
+                                .send(Message::Binary(
+                                    data.into(),
+                                ))
+                                .await
+                                .is_err()
+                            {
+                                break;
                             }
                         }
+                        Ok(data) => {
+                            let mut batch = data;
+                            let deadline =
+                                tokio::time::sleep(
+                                    std::time::Duration
+                                        ::from_millis(4),
+                                );
+                            tokio::pin!(deadline);
+                            loop {
+                                tokio::select! {
+                                    _ = &mut deadline => break,
+                                    more = output_rx.recv() => {
+                                        match more {
+                                            Ok(d) => batch.extend(d),
+                                            Err(_) => break,
+                                        }
+                                    }
+                                }
+                            }
+                            if ws_sender
+                                .send(Message::Binary(
+                                    batch.into(),
+                                ))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError
+                            ::Lagged(n)) =>
+                        {
+                            tracing::warn!(
+                                "ws relay lagged, \
+                                 dropped {} msgs",
+                                n
+                            );
+                        }
+                        Err(broadcast::error::RecvError
+                            ::Closed) => break,
                     }
-                }
-                if ws_sender.send(Message::Binary(batch.into())).await.is_err() {
-                    break;
                 }
             }
         }
     });
 
-    // WebSocket → PTY writer
-    let master_for_resize = master;
+    // WS receiver -> PTY writer + resize
     while let Some(Ok(msg)) = ws_receiver.next().await {
         match msg {
             Message::Binary(data) => {
+                let mut writer = tab.pty_writer.lock().unwrap();
                 if writer.write_all(&data).is_err() {
                     break;
                 }
@@ -156,7 +144,8 @@ async fn handle_terminal(socket: WebSocket, cwd: String, _state: AppState) {
                 if let Ok(ctrl) = serde_json::from_str::<ControlMessage>(&text) {
                     match ctrl {
                         ControlMessage::Resize { cols, rows } => {
-                            let _ = master_for_resize.resize(PtySize {
+                            let master = tab.pty_master.lock().unwrap();
+                            let _ = master.resize(PtySize {
                                 rows,
                                 cols,
                                 pixel_width: 0,
@@ -171,9 +160,6 @@ async fn handle_terminal(socket: WebSocket, cwd: String, _state: AppState) {
         }
     }
 
-    // Cleanup
-    sender_handle.abort();
-    reader_handle.abort();
-    let _ = child.kill();
-    let _ = child.wait();
+    // Detach only — do NOT kill PTY
+    relay_handle.abort();
 }
