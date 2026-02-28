@@ -12,6 +12,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
+use api::events::events_handler;
 use api::files::list_files;
 use api::projects::{add_project, delete_project, list_projects};
 use api::tabs::{create_tab, delete_tab, list_tabs};
@@ -26,7 +27,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/projects/{id}", delete(delete_project))
         .route("/tabs", get(list_tabs).post(create_tab))
         .route("/tabs/{id}", delete(delete_tab))
-        .route("/terminal/ws", get(ws_handler));
+        .route("/terminal/ws", get(ws_handler))
+        .route("/events", get(events_handler));
 
     let cors = CorsLayer::new()
         .allow_origin(

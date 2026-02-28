@@ -4,10 +4,9 @@
   import { terminalWsUrl } from '$lib/api';
   import type { TerminalAdapter } from '$lib/terminal/adapter';
 
-  let { tabId, visible, onclosed }: {
+  let { tabId, visible }: {
     tabId: string;
     visible: boolean;
-    onclosed?: () => void;
   } = $props();
 
   let containerEl: HTMLDivElement;
@@ -33,17 +32,6 @@
     };
 
     ws.onmessage = (ev) => {
-      if (typeof ev.data === 'string') {
-        try {
-          const msg = JSON.parse(ev.data);
-          if (msg.type === 'tab_closed') {
-            onclosed?.();
-            return;
-          }
-        } catch {
-          // not JSON, ignore
-        }
-      }
       terminal!.write(new Uint8Array(ev.data));
     };
 

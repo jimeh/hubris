@@ -2,6 +2,7 @@ import {
   listTabs,
   createTab,
   deleteTab,
+  eventsUrl,
 } from '$lib/api';
 import type { Tab } from '$lib/types';
 
@@ -10,6 +11,8 @@ let activeTabId = $state<string | null>(null);
 let activeTabByProject = $state<Record<string, string>>(
   {},
 );
+
+let eventSource: EventSource | null = null;
 
 export function getTabStore() {
   /** Fetch all tabs from the server. */
@@ -28,7 +31,9 @@ export function getTabStore() {
     projectId: string,
   ): Promise<Tab> {
     const tab = await createTab(projectId);
-    tabs = [...tabs, tab];
+    if (!tabs.find((t) => t.id === tab.id)) {
+      tabs = [...tabs, tab];
+    }
     activeTabId = tab.id;
     activeTabByProject[projectId] = tab.id;
     return tab;
@@ -102,6 +107,35 @@ export function getTabStore() {
     }
   }
 
+  /** Connect to SSE event stream for real-time sync. */
+  function connectEvents() {
+    if (eventSource) return;
+    eventSource = new EventSource(eventsUrl());
+
+    eventSource.onmessage = (ev) => {
+      const event = JSON.parse(ev.data);
+      switch (event.type) {
+        case 'tab_created': {
+          const tab = event.data;
+          if (!tabs.find((t) => t.id === tab.id)) {
+            tabs = [...tabs, tab];
+          }
+          break;
+        }
+        case 'tab_closed': {
+          removeFromState(event.data.id);
+          break;
+        }
+      }
+    };
+  }
+
+  /** Disconnect from SSE event stream. */
+  function disconnectEvents() {
+    eventSource?.close();
+    eventSource = null;
+  }
+
   return {
     get tabs() {
       return tabs;
@@ -116,5 +150,7 @@ export function getTabStore() {
     activate,
     tabsForProject,
     switchToProject,
+    connectEvents,
+    disconnectEvents,
   };
 }

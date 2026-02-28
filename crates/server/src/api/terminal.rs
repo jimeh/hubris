@@ -52,8 +52,7 @@ async fn handle_attach(
         None => return,
     };
 
-    let (scrollback, mut output_rx, mut close_rx) =
-        tab.attach();
+    let (scrollback, mut output_rx) = tab.attach();
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Send scrollback replay
@@ -70,77 +69,63 @@ async fn handle_attach(
     // Relay: broadcast → WS sender (adaptive batching)
     let relay_handle = tokio::spawn(async move {
         loop {
-            tokio::select! {
-                _ = close_rx.recv() => {
-                    let _ = ws_sender
-                        .send(Message::Text(
-                            r#"{"type":"tab_closed"}"#
-                                .into(),
-                        ))
-                        .await;
-                    break;
-                }
-                result = output_rx.recv() => {
-                    match result {
-                        Ok(data) => {
-                            if data.len() < 128 {
-                                if ws_sender
-                                    .send(Message::Binary(
-                                        data.into(),
-                                    ))
-                                    .await
-                                    .is_err()
-                                {
-                                    break;
-                                }
-                            } else {
-                                let mut batch = data;
-                                let deadline =
-                                    tokio::time::sleep(
-                                        std::time::Duration
-                                            ::from_millis(4),
-                                    );
-                                tokio::pin!(deadline);
-                                loop {
-                                    tokio::select! {
-                                        _ = &mut deadline => break,
-                                        more = output_rx.recv() => {
-                                            match more {
-                                                Ok(d) => {
-                                                    batch.extend(d);
-                                                }
-                                                Err(_) => break,
-                                            }
+            match output_rx.recv().await {
+                Ok(data) => {
+                    if data.len() < 128 {
+                        // Small output: send immediately
+                        if ws_sender
+                            .send(Message::Binary(
+                                data.into(),
+                            ))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    } else {
+                        // Larger output: batch with timer
+                        let mut batch = data;
+                        let deadline =
+                            tokio::time::sleep(
+                                std::time::Duration
+                                    ::from_millis(4),
+                            );
+                        tokio::pin!(deadline);
+                        loop {
+                            tokio::select! {
+                                _ = &mut deadline => break,
+                                more = output_rx.recv() => {
+                                    match more {
+                                        Ok(d) => {
+                                            batch.extend(d);
                                         }
+                                        Err(_) => break,
                                     }
-                                }
-                                if ws_sender
-                                    .send(Message::Binary(
-                                        batch.into(),
-                                    ))
-                                    .await
-                                    .is_err()
-                                {
-                                    break;
                                 }
                             }
                         }
-                        Err(
-                            broadcast::error::RecvError
-                                ::Lagged(n),
-                        ) => {
-                            tracing::warn!(
-                                "ws client lagged, \
-                                 dropped {} msgs",
-                                n
-                            );
+                        if ws_sender
+                            .send(Message::Binary(
+                                batch.into(),
+                            ))
+                            .await
+                            .is_err()
+                        {
+                            break;
                         }
-                        Err(
-                            broadcast::error::RecvError
-                                ::Closed,
-                        ) => break,
                     }
                 }
+                Err(
+                    broadcast::error::RecvError::Lagged(n),
+                ) => {
+                    tracing::warn!(
+                        "ws client lagged, dropped {} msgs",
+                        n
+                    );
+                }
+                Err(
+                    broadcast::error::RecvError::Closed,
+                ) => break,
             }
         }
     });

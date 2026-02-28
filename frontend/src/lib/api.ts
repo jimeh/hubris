@@ -81,6 +81,10 @@ export async function deleteTab(
   if (!res.ok) throw new Error(`${res.status}`);
 }
 
+export function eventsUrl(): string {
+  return `${BASE}/events`;
+}
+
 export function terminalWsUrl(tabId: string): string {
   const proto =
     location.protocol === 'https:' ? 'wss:' : 'ws:';

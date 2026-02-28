@@ -25,22 +25,30 @@ Package managers: Cargo (backend), bun (frontend).
   support.
 - **LiveTab** — server-side PTY that outlives WebSocket connections.
   Holds a scrollback buffer, broadcast channel for output fan-out, and
-  a close notification channel (`close_tx`). PTY is killed on explicit
-  tab deletion, project deletion, or shell process exit.
+  an internal `close_tx` channel for shell-exit detection. PTY is
+  killed on explicit tab deletion, project deletion, or shell process
+  exit.
+- **StateEvent** — global event enum (`TabCreated`, `TabClosed`)
+  broadcast via `events_tx` on `AppState`. All state mutations emit
+  events; SSE endpoint streams them to all connected browsers.
 
 ## Backend (Rust / Axum)
 
 - State: `AppState` with `DashMap<TabId, Arc<LiveTab>>` for persistent
-  PTY tabs, `AtomicU32` for tab label numbering, PathBuf for data dir.
+  PTY tabs, `AtomicU32` for tab label numbering, PathBuf for data dir,
+  and `events_tx: broadcast::Sender<StateEvent>` for SSE fan-out.
 - `load_projects()` lives on `AppState` (single source of truth).
 - Data persistence: JSON file. Dev: `./data/`, prod: `~/.hubris/`.
 - Tab REST API: `POST /api/tabs` spawns PTY, `DELETE /api/tabs/{id}`
   kills PTY, `GET /api/tabs` lists all tabs.
+- SSE endpoint: `GET /api/events` streams `StateEvent` JSON to all
+  connected browsers. Events: `tab_created` (with `TabInfo`),
+  `tab_closed` (with `{id}`). Uses `tokio-stream` `BroadcastStream`.
 - WebSocket protocol: `GET /api/terminal/ws?tab_id=<id>` attaches to
   an existing tab. Binary output (PTY → client), JSON control messages
-  (client → server, e.g. `type: "resize"`); server→client text frame
-  `{"type":"tab_closed"}` signals tab removal. WS disconnect = detach
+  (client → server, e.g. `type: "resize"`). WS disconnect = detach
   only, PTY stays alive. Reconnection replays scrollback buffer.
+  Tab lifecycle events (create/close) are handled via SSE, not WS.
 - PTY spawning: portable-pty, shell from `$SHELL` or `/bin/sh`.
 - Arc<LiveTab> pattern: clone Arc from DashMap before await points to
   avoid holding shard locks across async boundaries.
@@ -52,6 +60,8 @@ Package managers: Cargo (backend), bun (frontend).
   pattern — grep for `getProjectStore`, `getTabStore`.
 - Tab store is API-backed: fetches tabs from server, tracks
   `activeTabByProject` for per-project tab memory on project switch.
+  Subscribes to SSE via `EventSource` for real-time cross-browser
+  sync (`connectEvents`/`disconnectEvents`).
 - UI primitives: shadcn-svelte (Bits UI) — grep for `components/ui/`.
 - Terminal: `TerminalAdapter` interface with xterm.js impl — grep
   for `TerminalAdapter`, `XtermAdapter`.

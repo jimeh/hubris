@@ -1,11 +1,21 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import * as Sidebar from '$lib/components/ui/sidebar/index.js';
   import AppSidebar from '$lib/components/AppSidebar.svelte';
   import ProjectView from '$lib/components/ProjectView.svelte';
   import { getProjectStore } from '$lib/stores/projects.svelte';
+  import { getTabStore } from '$lib/stores/tabs.svelte';
 
   const store = getProjectStore();
   store.refresh();
+
+  const tabStore = getTabStore();
+  onMount(() => {
+    tabStore.connectEvents();
+  });
+  onDestroy(() => {
+    tabStore.disconnectEvents();
+  });
 </script>
 
 <Sidebar.Provider>

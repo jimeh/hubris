@@ -113,23 +113,12 @@ impl LiveTab {
     /// guarantees no output is missed or duplicated.
     pub fn attach(
         &self,
-    ) -> (
-        Vec<u8>,
-        broadcast::Receiver<Vec<u8>>,
-        broadcast::Receiver<()>,
-    ) {
+    ) -> (Vec<u8>, broadcast::Receiver<Vec<u8>>) {
         let sb = self.scrollback.lock().unwrap();
         let rx = self.output_tx.subscribe();
-        let close_rx = self.close_tx.subscribe();
         let snapshot: Vec<u8> =
             sb.iter().copied().collect();
-        (snapshot, rx, close_rx)
-    }
-
-    /// Notify all attached clients that this tab is
-    /// closing.
-    pub fn notify_close(&self) {
-        let _ = self.close_tx.send(());
+        (snapshot, rx)
     }
 
     /// Kill the child process. The reader task ends

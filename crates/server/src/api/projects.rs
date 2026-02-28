@@ -89,7 +89,11 @@ pub async fn delete_project(
         .map(|e| e.key().clone())
         .collect();
     for tid in tab_ids {
-        state.tabs.remove(&tid);
+        if state.tabs.remove(&tid).is_some() {
+            state.emit(crate::state::StateEvent::TabClosed {
+                id: tid,
+            });
+        }
     }
 
     StatusCode::NO_CONTENT

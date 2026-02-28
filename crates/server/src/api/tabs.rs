@@ -11,7 +11,7 @@ use portable_pty::{
 use serde::Deserialize;
 
 use crate::pty::live_tab::{LiveTab, TabInfo};
-use crate::state::AppState;
+use crate::state::{AppState, StateEvent};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateTabRequest {
@@ -97,12 +97,19 @@ pub async fn create_tab(
     // Auto-remove tab from map when shell exits
     {
         let tabs = state.tabs.clone();
+        let events_tx = state.events_tx.clone();
         let id = info.id.clone();
         tokio::spawn(async move {
             let _ = close_rx.recv().await;
-            tabs.remove(&id);
+            if tabs.remove(&id).is_some() {
+                let _ = events_tx.send(
+                    StateEvent::TabClosed { id },
+                );
+            }
         });
     }
+
+    state.emit(StateEvent::TabCreated(info.clone()));
 
     Ok((StatusCode::CREATED, Json(info)))
 }
@@ -113,8 +120,8 @@ pub async fn delete_tab(
     Path(id): Path<String>,
 ) -> StatusCode {
     match state.tabs.remove(&id) {
-        Some((_, tab)) => {
-            tab.notify_close();
+        Some(_) => {
+            state.emit(StateEvent::TabClosed { id });
             StatusCode::NO_CONTENT
         }
         None => StatusCode::NOT_FOUND,
