@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { createXtermAdapter } from '$lib/terminal/xterm';
   import { terminalWsUrl } from '$lib/api';
+  import { getThemeStore } from '$lib/stores/theme.svelte';
   import type { TerminalAdapter } from '$lib/terminal/adapter';
 
   let {
@@ -13,6 +14,8 @@
     visible: boolean;
     onclosed?: () => void;
   } = $props();
+
+  const theme = getThemeStore();
 
   let containerEl: HTMLDivElement;
   let terminal: TerminalAdapter | null = null;
@@ -89,6 +92,12 @@
     if (visible && terminal) {
       requestAnimationFrame(() => terminal!.fit());
     }
+  });
+
+  // Refresh terminal theme when theme changes
+  $effect(() => {
+    void theme.version;
+    if (terminal) terminal.refreshTheme();
   });
 
   onDestroy(() => {

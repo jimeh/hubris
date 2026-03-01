@@ -1,0 +1,171 @@
+import { parse, converter } from 'culori';
+import type { HubrisTheme } from './types';
+
+const toOklch = converter('oklch');
+
+/** Round to n decimal places for cross-platform consistency. */
+function round(n: number, dp: number): number {
+  const f = 10 ** dp;
+  return Math.round(n * f) / f;
+}
+
+/**
+ * Convert a hex color string to an oklch() CSS value.
+ * Preserves alpha channel if present. Values are rounded
+ * to 8 decimal places to avoid cross-platform floating-point
+ * drift (macOS vs Linux produce different last digits).
+ */
+export function hexToOklch(hex: string): string {
+  const color = parse(hex);
+  if (!color) return hex; // unparseable, pass through
+  const c = toOklch(color);
+  const l = round(c.l, 8);
+  const ch = round(c.c, 8);
+  const h = round(c.h ?? 0, 8);
+  if (c.alpha != null && c.alpha < 1) {
+    return `oklch(${l} ${ch} ${h} / ${round(c.alpha, 8)})`;
+  }
+  return `oklch(${l} ${ch} ${h})`;
+}
+
+/**
+ * Map from VS Code color key to Hubris CSS variable name.
+ * Tuple: [vscodeKey, cssVar, ...fallbackVscodeKeys]
+ *
+ * UI tokens are converted to OKLCH before being set.
+ */
+export const UI_TOKEN_MAP: [string, string, ...string[]][] = [
+  // Core
+  ['editor.background', '--background'],
+  ['editor.foreground', '--foreground', 'foreground'],
+  ['editorWidget.background', '--card', 'editor.background'],
+  ['editorWidget.foreground', '--card-foreground', 'editor.foreground'],
+  ['editorWidget.background', '--popover', 'editor.background'],
+  ['editorWidget.foreground', '--popover-foreground', 'editor.foreground'],
+  ['button.background', '--primary'],
+  ['button.foreground', '--primary-foreground'],
+  ['button.secondaryBackground', '--secondary'],
+  ['button.secondaryForeground', '--secondary-foreground', 'editor.foreground'],
+  ['tab.inactiveBackground', '--muted', 'editorGroupHeader.tabsBackground'],
+  ['tab.inactiveForeground', '--muted-foreground'],
+  ['list.hoverBackground', '--accent'],
+  ['list.hoverForeground', '--accent-foreground', 'editor.foreground'],
+  ['errorForeground', '--destructive'],
+  ['panel.border', '--border', 'sideBar.border', 'editorGroup.border'],
+  ['input.background', '--input'],
+  ['focusBorder', '--ring'],
+  // Sidebar
+  ['sideBar.background', '--sidebar'],
+  ['sideBar.foreground', '--sidebar-foreground', 'editor.foreground'],
+  ['list.activeSelectionBackground', '--sidebar-primary'],
+  ['list.activeSelectionForeground', '--sidebar-primary-foreground'],
+  ['list.hoverBackground', '--sidebar-accent'],
+  ['list.hoverForeground', '--sidebar-accent-foreground', 'editor.foreground'],
+  ['sideBar.border', '--sidebar-border', 'panel.border', 'editorGroup.border'],
+  ['focusBorder', '--sidebar-ring'],
+  // Tab bar
+  ['editorGroupHeader.tabsBackground', '--tab-bar', 'sideBar.background'],
+  ['tab.activeBackground', '--tab-active', 'editor.background'],
+  ['tab.activeForeground', '--tab-active-foreground', 'editor.foreground'],
+  ['tab.inactiveForeground', '--tab-inactive-foreground'],
+  ['tab.border', '--tab-border', 'editorGroup.border', 'panel.border'],
+];
+
+/**
+ * Terminal tokens stay as hex (xterm.js consumes hex).
+ */
+export const TERMINAL_TOKEN_MAP: [string, string, ...string[]][] = [
+  ['terminal.background', '--terminal-background', 'editor.background'],
+  ['terminal.foreground', '--terminal-foreground', 'editor.foreground'],
+  ['terminalCursor.foreground', '--terminal-cursor'],
+  ['terminal.selectionBackground', '--terminal-selection'],
+  ['terminal.ansiBlack', '--terminal-ansi-black'],
+  ['terminal.ansiRed', '--terminal-ansi-red'],
+  ['terminal.ansiGreen', '--terminal-ansi-green'],
+  ['terminal.ansiYellow', '--terminal-ansi-yellow'],
+  ['terminal.ansiBlue', '--terminal-ansi-blue'],
+  ['terminal.ansiMagenta', '--terminal-ansi-magenta'],
+  ['terminal.ansiCyan', '--terminal-ansi-cyan'],
+  ['terminal.ansiWhite', '--terminal-ansi-white'],
+  ['terminal.ansiBrightBlack', '--terminal-ansi-bright-black'],
+  ['terminal.ansiBrightRed', '--terminal-ansi-bright-red'],
+  ['terminal.ansiBrightGreen', '--terminal-ansi-bright-green'],
+  ['terminal.ansiBrightYellow', '--terminal-ansi-bright-yellow'],
+  ['terminal.ansiBrightBlue', '--terminal-ansi-bright-blue'],
+  ['terminal.ansiBrightMagenta', '--terminal-ansi-bright-magenta'],
+  ['terminal.ansiBrightCyan', '--terminal-ansi-bright-cyan'],
+  ['terminal.ansiBrightWhite', '--terminal-ansi-bright-white'],
+];
+
+/**
+ * Resolve a color value from a theme using a priority
+ * chain of VS Code keys.
+ */
+function resolve(
+  colors: Record<string, string>,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    if (colors[key]) return colors[key];
+  }
+  return undefined;
+}
+
+/** All CSS var names we write, for cleanup. */
+const ALL_CSS_VARS = [
+  ...new Set([
+    ...UI_TOKEN_MAP.map(([, v]) => v),
+    ...TERMINAL_TOKEN_MAP.map(([, v]) => v),
+  ]),
+];
+
+/** Pre-computed CSS variable values for a theme. */
+export interface ComputedThemeVars {
+  isDark: boolean;
+  vars: Record<string, string>;
+}
+
+/** Compute CSS var values for a theme without applying. */
+export function computeThemeVars(theme: HubrisTheme): ComputedThemeVars {
+  const vars: Record<string, string> = {};
+
+  for (const [primary, cssVar, ...fallbacks] of UI_TOKEN_MAP) {
+    const hex = resolve(theme.colors, [primary, ...fallbacks]);
+    if (hex) vars[cssVar] = hexToOklch(hex);
+  }
+
+  for (const [primary, cssVar, ...fallbacks] of TERMINAL_TOKEN_MAP) {
+    const hex = resolve(theme.colors, [primary, ...fallbacks]);
+    if (hex) vars[cssVar] = hex;
+  }
+
+  return { isDark: theme.type === 'dark', vars };
+}
+
+/** Apply pre-computed vars to the document. */
+export function applyComputedVars(computed: ComputedThemeVars): void {
+  const root = document.documentElement;
+  root.classList.toggle('dark', computed.isDark);
+  for (const [key, value] of Object.entries(computed.vars)) {
+    root.style.setProperty(key, value);
+  }
+}
+
+/**
+ * Apply a theme to the document, setting CSS custom
+ * properties on <html>.
+ */
+export function applyTheme(theme: HubrisTheme): void {
+  applyComputedVars(computeThemeVars(theme));
+}
+
+/**
+ * Remove all theme overrides from <html>, reverting to
+ * app.css defaults.
+ */
+export function clearTheme(): void {
+  const root = document.documentElement;
+  for (const v of ALL_CSS_VARS) {
+    root.style.removeProperty(v);
+  }
+}

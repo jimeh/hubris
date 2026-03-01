@@ -70,7 +70,11 @@ export default defineConfig(async () => {
   const port = parseInt(process.env.HUBRIS_PORT || '3001', 10);
 
   return {
-    plugins: [svelte(), tailwindcss(), devInstancePlugin()],
+    plugins: [
+      svelte({ inspector: { toggleKeyCombo: 'meta-shift' } }),
+      tailwindcss(),
+      devInstancePlugin(),
+    ],
     resolve: {
       alias: {
         $lib: path.resolve('./src/lib'),

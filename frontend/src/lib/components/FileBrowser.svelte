@@ -243,7 +243,7 @@
                  hover:bg-accent/50
                  {i === focusedIndex ? 'bg-accent text-accent-foreground' : ''}
                  {entry.is_git_repo
-            ? 'border-l-2 border-chart-2'
+            ? 'border-l-2 border-primary'
             : 'border-l-2 border-transparent'}"
           onclick={() => navigateToEntry(entry)}
           ondblclick={() => {
@@ -254,7 +254,7 @@
           aria-selected={i === focusedIndex}
         >
           {#if entry.is_git_repo}
-            <FolderGit2 class="h-4 w-4 shrink-0 text-chart-2" />
+            <FolderGit2 class="h-4 w-4 shrink-0 text-primary" />
           {:else}
             <Folder
               class="h-4 w-4 shrink-0

@@ -7,5 +7,6 @@ export interface TerminalAdapter {
   get rows(): number;
   get cols(): number;
   focus(): void;
+  refreshTheme(): void;
   dispose(): void;
 }

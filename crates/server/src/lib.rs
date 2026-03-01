@@ -14,8 +14,10 @@ use tower_http::trace::TraceLayer;
 use api::events::event_stream;
 use api::files::list_files;
 use api::projects::{add_project, delete_project, list_projects};
+use api::settings::{get_settings, save_settings};
 use api::tabs::{create_tab, delete_tab, list_tabs, update_tab};
 use api::terminal::ws_handler;
+use api::themes::{create_theme, delete_theme, get_theme, list_themes};
 use embedded::spa_handler;
 pub use state::AppState;
 
@@ -57,6 +59,14 @@ pub async fn bind_with_port_fallback(
     ))
 }
 
+const API_METHODS: [Method; 5] = [
+    Method::GET,
+    Method::POST,
+    Method::PUT,
+    Method::DELETE,
+    Method::PATCH,
+];
+
 /// Build the API router for a given AppState.
 pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
@@ -66,18 +76,21 @@ pub fn build_router(state: AppState) -> Router {
         .route("/tabs", get(list_tabs).post(create_tab))
         .route("/tabs/{id}", delete(delete_tab).patch(update_tab))
         .route("/events", get(event_stream))
-        .route("/terminal/ws", get(ws_handler));
+        .route("/terminal/ws", get(ws_handler))
+        .route("/settings", get(get_settings).put(save_settings))
+        .route("/themes", get(list_themes).post(create_theme))
+        .route("/themes/{id}", get(get_theme).delete(delete_theme));
 
     let cors = if cfg!(debug_assertions) {
         CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
-            .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
+            .allow_methods(API_METHODS)
             .allow_headers([CONTENT_TYPE])
     } else {
         // Production: no CORS needed, frontend is embedded
         // and served from the same origin.
         CorsLayer::new()
-            .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
+            .allow_methods(API_METHODS)
             .allow_headers([CONTENT_TYPE])
     };
 

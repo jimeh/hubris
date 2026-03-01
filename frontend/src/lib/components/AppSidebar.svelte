@@ -2,15 +2,27 @@
   import * as Sidebar from '$lib/components/ui/sidebar/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import AddProjectDialog from './AddProjectDialog.svelte';
-  import { Plus } from '@lucide/svelte';
+  import SettingsDialog from './SettingsDialog.svelte';
+  import { Plus, Settings } from '@lucide/svelte';
 
   let { store } = $props();
   let showDialog = $state(false);
+  let showSettings = $state(false);
 </script>
 
 <Sidebar.Root>
   <Sidebar.Header>
-    <h2 class="px-2 text-lg font-semibold">Projects</h2>
+    <div class="flex items-center justify-between px-2">
+      <h2 class="text-lg font-semibold">Projects</h2>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onclick={() => (showSettings = true)}
+        title="Settings"
+      >
+        <Settings class="h-4 w-4" />
+      </Button>
+    </div>
   </Sidebar.Header>
   <Sidebar.Content>
     <Sidebar.Group>
@@ -30,10 +42,11 @@
       </Sidebar.GroupContent>
     </Sidebar.Group>
   </Sidebar.Content>
+  <Sidebar.Separator />
   <Sidebar.Footer>
     <Button
-      variant="outline"
-      class="w-full"
+      variant="ghost"
+      class="w-full text-muted-foreground"
       onclick={() => (showDialog = true)}
     >
       <Plus class="mr-2 h-4 w-4" />
@@ -51,3 +64,5 @@
     onClose={() => (showDialog = false)}
   />
 {/if}
+
+<SettingsDialog bind:open={showSettings} />

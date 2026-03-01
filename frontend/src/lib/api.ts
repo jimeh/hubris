@@ -1,4 +1,5 @@
 import type { ListFilesResponse, Project, Tab } from './types';
+import type { AppearanceSettings, HubrisTheme, ThemeMeta } from './theme/types';
 
 const BASE = '/api';
 
@@ -81,4 +82,57 @@ export async function updateTab(
 export function terminalWsUrl(tabId: string): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${location.host}/api/terminal/ws?tab_id=${encodeURIComponent(tabId)}`;
+}
+
+// --- Settings ---
+
+export async function getSettings(): Promise<{
+  appearance?: AppearanceSettings;
+}> {
+  const res = await fetch(`${BASE}/settings`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function saveSettings(value: {
+  appearance: AppearanceSettings;
+}): Promise<void> {
+  // Also cache in localStorage for FOUC script
+  localStorage.setItem('hubris-appearance', JSON.stringify(value.appearance));
+  const res = await fetch(`${BASE}/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+}
+
+// --- User Themes ---
+
+export async function listUserThemes(): Promise<ThemeMeta[]> {
+  const res = await fetch(`${BASE}/themes`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function getUserTheme(id: string): Promise<HubrisTheme> {
+  const res = await fetch(`${BASE}/themes/${id}`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function uploadUserTheme(theme: HubrisTheme): Promise<void> {
+  const res = await fetch(`${BASE}/themes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(theme),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+}
+
+export async function deleteUserTheme(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/themes/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
 }
