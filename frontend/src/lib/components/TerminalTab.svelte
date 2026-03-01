@@ -90,7 +90,10 @@
   // Fit when tab becomes visible
   $effect(() => {
     if (visible && terminal) {
-      requestAnimationFrame(() => terminal!.fit());
+      requestAnimationFrame(() => {
+        terminal!.fit();
+        terminal!.focus();
+      });
     }
   });
 
