@@ -67,8 +67,8 @@ run = "cd frontend && bun install"
 description = "Install frontend dependencies"
 
 [tasks."setup:server"]
-run = "cargo build"
-description = "Build backend and fetch dependencies"
+run = "cargo fetch"
+description = "Fetch backend dependencies"
 
 [tasks.setup]
 depends = ["setup:frontend", "setup:server"]
