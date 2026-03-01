@@ -28,6 +28,21 @@ export interface HubrisTheme {
   builtin?: boolean;
 }
 
+/** Lightweight theme entry from the list endpoint. */
+export interface ThemeMeta {
+  id: string;
+  name: string;
+  type: 'dark' | 'light';
+}
+
+/** Union type for theme Select dropdowns (builtins + user). */
+export interface ThemeListEntry {
+  id: string;
+  name: string;
+  type: 'dark' | 'light';
+  builtin?: boolean;
+}
+
 /**
  * User's appearance preferences, persisted to the server.
  */

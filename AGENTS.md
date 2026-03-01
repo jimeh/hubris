@@ -11,6 +11,7 @@ mise run dev       # backend + frontend dev servers
 mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
 mise run test      # vitest + cargo test
+mise run generate  # run all code generators
 ```
 
 Sub-tasks: `check:backend`, `check:frontend`, `format:backend`,
@@ -67,8 +68,12 @@ reconciliation — drift corrects on reconnect.
   Built-in Catppuccin themes in `theme/builtin.ts`, converter in
   `theme/convert.ts`, parser in `theme/parse.ts`. Settings + user themes
   persisted via REST (`/api/settings`, `/api/themes`).
+  `GET /api/themes` returns metadata only; full theme fetched lazily via
+  `GET /api/themes/:id` on selection.
 - FOUC prevention: inline script in `index.html` reads localStorage
-  for dark class before first paint.
+  (`hubris-theme-cache`) and applies full CSS vars before first paint.
+- Codegen: `defaults.generated.css` generated from builtin themes via
+  `mise run generate`. Committed to git; CI verifies via `git diff`.
 - Dev proxy: port 3001 proxies `/api` → backend 3101
 
 ## Conventions

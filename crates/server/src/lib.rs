@@ -59,6 +59,14 @@ pub async fn bind_with_port_fallback(
     ))
 }
 
+const API_METHODS: [Method; 5] = [
+    Method::GET,
+    Method::POST,
+    Method::PUT,
+    Method::DELETE,
+    Method::PATCH,
+];
+
 /// Build the API router for a given AppState.
 pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
@@ -76,25 +84,13 @@ pub fn build_router(state: AppState) -> Router {
     let cors = if cfg!(debug_assertions) {
         CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::PATCH,
-            ])
+            .allow_methods(API_METHODS)
             .allow_headers([CONTENT_TYPE])
     } else {
         // Production: no CORS needed, frontend is embedded
         // and served from the same origin.
         CorsLayer::new()
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::PATCH,
-            ])
+            .allow_methods(API_METHODS)
             .allow_headers([CONTENT_TYPE])
     };
 

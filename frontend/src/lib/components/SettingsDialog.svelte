@@ -1,11 +1,11 @@
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import * as Select from '$lib/components/ui/select/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Separator } from '$lib/components/ui/separator/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { getThemeStore } from '$lib/stores/theme.svelte';
   import ThemeManager from './ThemeManager.svelte';
+  import ThemeSelect from './ThemeSelect.svelte';
   import { Sun, Moon, Monitor } from '@lucide/svelte';
 
   let {
@@ -22,19 +22,6 @@
   let fixedThemes = $derived(isFixedLight ? lightThemes : darkThemes);
   let fixedCurrent = $derived(
     isFixedLight ? theme.settings.lightTheme : theme.settings.darkTheme,
-  );
-
-  // Derived labels for displaying selected theme names
-  let lightThemeName = $derived(
-    lightThemes.find((t) => t.id === theme.settings.lightTheme)?.name ??
-      'Select…',
-  );
-  let darkThemeName = $derived(
-    darkThemes.find((t) => t.id === theme.settings.darkTheme)?.name ??
-      'Select…',
-  );
-  let fixedThemeName = $derived(
-    fixedThemes.find((t) => t.id === fixedCurrent)?.name ?? 'Select…',
   );
 </script>
 
@@ -96,105 +83,28 @@
 
         <!-- Theme pickers -->
         {#if theme.settings.colorScheme === 'auto'}
-          <!-- Show both light and dark pickers -->
-          <div class="grid grid-cols-[120px_1fr] items-center gap-3">
-            <Label>Light Theme</Label>
-            <Select.Root
-              type="single"
-              value={theme.settings.lightTheme}
-              onValueChange={(v: string) => {
-                if (v) theme.updateSettings({ lightTheme: v });
-              }}
-            >
-              <Select.Trigger class="w-full">
-                <span data-slot="select-value">
-                  {lightThemeName}
-                </span>
-              </Select.Trigger>
-              <Select.Content>
-                {#each lightThemes as t (t.id)}
-                  <Select.Item value={t.id} label={t.name}>
-                    {t.name}
-                    {#if t.builtin}
-                      <span
-                        class="ml-1 text-xs
-                          text-muted-foreground"
-                      >
-                        Built-in
-                      </span>
-                    {/if}
-                  </Select.Item>
-                {/each}
-              </Select.Content>
-            </Select.Root>
-          </div>
-          <div class="grid grid-cols-[120px_1fr] items-center gap-3">
-            <Label>Dark Theme</Label>
-            <Select.Root
-              type="single"
-              value={theme.settings.darkTheme}
-              onValueChange={(v: string) => {
-                if (v) theme.updateSettings({ darkTheme: v });
-              }}
-            >
-              <Select.Trigger class="w-full">
-                <span data-slot="select-value">
-                  {darkThemeName}
-                </span>
-              </Select.Trigger>
-              <Select.Content>
-                {#each darkThemes as t (t.id)}
-                  <Select.Item value={t.id} label={t.name}>
-                    {t.name}
-                    {#if t.builtin}
-                      <span
-                        class="ml-1 text-xs
-                          text-muted-foreground"
-                      >
-                        Built-in
-                      </span>
-                    {/if}
-                  </Select.Item>
-                {/each}
-              </Select.Content>
-            </Select.Root>
-          </div>
+          <ThemeSelect
+            label="Light Theme"
+            themes={lightThemes}
+            value={theme.settings.lightTheme}
+            onchange={(v) => theme.updateSettings({ lightTheme: v })}
+          />
+          <ThemeSelect
+            label="Dark Theme"
+            themes={darkThemes}
+            value={theme.settings.darkTheme}
+            onchange={(v) => theme.updateSettings({ darkTheme: v })}
+          />
         {:else}
-          <!-- Single theme picker for the active scheme -->
-          <div class="grid grid-cols-[120px_1fr] items-center gap-3">
-            <Label>Theme</Label>
-            <Select.Root
-              type="single"
-              value={fixedCurrent}
-              onValueChange={(v: string) => {
-                if (v)
-                  theme.updateSettings(
-                    isFixedLight ? { lightTheme: v } : { darkTheme: v },
-                  );
-              }}
-            >
-              <Select.Trigger class="w-full">
-                <span data-slot="select-value">
-                  {fixedThemeName}
-                </span>
-              </Select.Trigger>
-              <Select.Content>
-                {#each fixedThemes as t (t.id)}
-                  <Select.Item value={t.id} label={t.name}>
-                    {t.name}
-                    {#if t.builtin}
-                      <span
-                        class="ml-1 text-xs
-                          text-muted-foreground"
-                      >
-                        Built-in
-                      </span>
-                    {/if}
-                  </Select.Item>
-                {/each}
-              </Select.Content>
-            </Select.Root>
-          </div>
+          <ThemeSelect
+            label="Theme"
+            themes={fixedThemes}
+            value={fixedCurrent}
+            onchange={(v) =>
+              theme.updateSettings(
+                isFixedLight ? { lightTheme: v } : { darkTheme: v },
+              )}
+          />
         {/if}
       </section>
 

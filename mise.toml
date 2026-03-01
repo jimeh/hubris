@@ -74,6 +74,10 @@ description = "Build backend and fetch dependencies"
 depends = ["setup:frontend", "setup:server"]
 description = "Install all dependencies"
 
+[tasks.generate]
+description = "Run all code generators"
+run = "cd frontend && bun run generate:theme-defaults"
+
 [tasks.clean]
 description = "Remove build artifacts"
 run = [

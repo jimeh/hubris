@@ -20,7 +20,7 @@ export function hexToOklch(hex: string): string {
  *
  * UI tokens are converted to OKLCH before being set.
  */
-const UI_TOKEN_MAP: [string, string, ...string[]][] = [
+export const UI_TOKEN_MAP: [string, string, ...string[]][] = [
   // Core
   ['editor.background', '--background'],
   ['editor.foreground', '--foreground', 'foreground'],
@@ -60,7 +60,7 @@ const UI_TOKEN_MAP: [string, string, ...string[]][] = [
 /**
  * Terminal tokens stay as hex (xterm.js consumes hex).
  */
-const TERMINAL_TOKEN_MAP: [string, string, ...string[]][] = [
+export const TERMINAL_TOKEN_MAP: [string, string, ...string[]][] = [
   ['terminal.background', '--terminal-background', 'editor.background'],
   ['terminal.foreground', '--terminal-foreground', 'editor.foreground'],
   ['terminalCursor.foreground', '--terminal-cursor'],
@@ -99,36 +99,50 @@ function resolve(
 
 /** All CSS var names we write, for cleanup. */
 const ALL_CSS_VARS = [
-  ...UI_TOKEN_MAP.map(([, v]) => v),
-  ...TERMINAL_TOKEN_MAP.map(([, v]) => v),
+  ...new Set([
+    ...UI_TOKEN_MAP.map(([, v]) => v),
+    ...TERMINAL_TOKEN_MAP.map(([, v]) => v),
+  ]),
 ];
+
+/** Pre-computed CSS variable values for a theme. */
+export interface ComputedThemeVars {
+  isDark: boolean;
+  vars: Record<string, string>;
+}
+
+/** Compute CSS var values for a theme without applying. */
+export function computeThemeVars(theme: HubrisTheme): ComputedThemeVars {
+  const vars: Record<string, string> = {};
+
+  for (const [primary, cssVar, ...fallbacks] of UI_TOKEN_MAP) {
+    const hex = resolve(theme.colors, [primary, ...fallbacks]);
+    if (hex) vars[cssVar] = hexToOklch(hex);
+  }
+
+  for (const [primary, cssVar, ...fallbacks] of TERMINAL_TOKEN_MAP) {
+    const hex = resolve(theme.colors, [primary, ...fallbacks]);
+    if (hex) vars[cssVar] = hex;
+  }
+
+  return { isDark: theme.type === 'dark', vars };
+}
+
+/** Apply pre-computed vars to the document. */
+export function applyComputedVars(computed: ComputedThemeVars): void {
+  const root = document.documentElement;
+  root.classList.toggle('dark', computed.isDark);
+  for (const [key, value] of Object.entries(computed.vars)) {
+    root.style.setProperty(key, value);
+  }
+}
 
 /**
  * Apply a theme to the document, setting CSS custom
  * properties on <html>.
  */
 export function applyTheme(theme: HubrisTheme): void {
-  const root = document.documentElement;
-  const c = theme.colors;
-
-  // Set dark/light class
-  root.classList.toggle('dark', theme.type === 'dark');
-
-  // UI tokens → OKLCH
-  for (const [primary, cssVar, ...fallbacks] of UI_TOKEN_MAP) {
-    const hex = resolve(c, [primary, ...fallbacks]);
-    if (hex) {
-      root.style.setProperty(cssVar, hexToOklch(hex));
-    }
-  }
-
-  // Terminal tokens → hex passthrough
-  for (const [primary, cssVar, ...fallbacks] of TERMINAL_TOKEN_MAP) {
-    const hex = resolve(c, [primary, ...fallbacks]);
-    if (hex) {
-      root.style.setProperty(cssVar, hex);
-    }
-  }
+  applyComputedVars(computeThemeVars(theme));
 }
 
 /**

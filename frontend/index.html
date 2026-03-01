@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>hubris</title>
     <script>
-      // Set dark class before first paint to prevent flash.
+      // Apply cached theme before first paint to prevent FOUC.
       // Must match logic in theme store.
       (function () {
         try {
@@ -15,10 +15,28 @@
           var prefersDark = window.matchMedia(
             '(prefers-color-scheme: dark)',
           ).matches;
-          var isDark = scheme === 'dark' || (scheme !== 'light' && prefersDark);
-          if (isDark) document.documentElement.classList.add('dark');
+          var wantDark =
+            scheme === 'dark' || (scheme !== 'light' && prefersDark);
+
+          var cache = JSON.parse(
+            localStorage.getItem('hubris-theme-cache') || '{}',
+          );
+          var entry = wantDark ? cache.dark : cache.light;
+
+          if (entry) {
+            if (entry.isDark) document.documentElement.classList.add('dark');
+            var vars = entry.vars;
+            var style = document.documentElement.style;
+            for (var key in vars) {
+              if (vars.hasOwnProperty(key)) {
+                style.setProperty(key, vars[key]);
+              }
+            }
+          } else {
+            // No cache — at least set dark class
+            if (wantDark) document.documentElement.classList.add('dark');
+          }
         } catch (e) {
-          // Default to dark on parse error
           document.documentElement.classList.add('dark');
         }
       })();

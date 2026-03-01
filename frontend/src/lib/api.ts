@@ -1,5 +1,5 @@
 import type { ListFilesResponse, Project, Tab } from './types';
-import type { AppearanceSettings, HubrisTheme } from './theme/types';
+import type { AppearanceSettings, HubrisTheme, ThemeMeta } from './theme/types';
 
 const BASE = '/api';
 
@@ -109,7 +109,7 @@ export async function saveSettings(value: {
 
 // --- User Themes ---
 
-export async function listUserThemes(): Promise<HubrisTheme[]> {
+export async function listUserThemes(): Promise<ThemeMeta[]> {
   const res = await fetch(`${BASE}/themes`);
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();

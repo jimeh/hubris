@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate:theme-defaults": "bun run scripts/generate-theme-defaults.ts > src/lib/theme/defaults.generated.css && prettier --write src/lib/theme/defaults.generated.css"
   },
   "trustedDependencies": [
     "esbuild"
