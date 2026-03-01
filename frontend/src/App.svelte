@@ -5,6 +5,7 @@
   import { getProjectStore } from '$lib/stores/projects.svelte';
   import { getTabStore } from '$lib/stores/tabs.svelte';
   import { getThemeStore } from '$lib/stores/theme.svelte';
+  import { getTerminalStore } from '$lib/stores/terminal.svelte';
   import { getEventClient } from '$lib/events';
 
   const store = getProjectStore();
@@ -13,6 +14,10 @@
   // Initialize theme store (loads settings + applies theme)
   const themeStore = getThemeStore();
   themeStore.init();
+
+  // Initialize terminal store (loads font settings)
+  const terminalStore = getTerminalStore();
+  terminalStore.init();
 
   // Initialize tab store first so SSE handlers are
   // registered before the snapshot arrives on connect.

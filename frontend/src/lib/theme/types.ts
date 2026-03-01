@@ -54,3 +54,17 @@ export interface AppearanceSettings {
   /** Theme ID for dark mode (used when auto or dark). */
   darkTheme: string;
 }
+
+/**
+ * Terminal display settings, persisted to the server.
+ */
+export interface TerminalSettings {
+  /** Which font source to use. */
+  fontSource: 'default' | 'system' | 'bundled';
+  /** CSS font-family string for system fonts. */
+  systemFontFamily: string;
+  /** Bundled font ID (e.g. 'jetbrainsmono-nf'). */
+  bundledFont: string;
+  /** Terminal font size in px (8–32). */
+  fontSize: number;
+}

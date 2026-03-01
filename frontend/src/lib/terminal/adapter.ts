@@ -8,5 +8,6 @@ export interface TerminalAdapter {
   get cols(): number;
   focus(): void;
   refreshTheme(): void;
+  updateFont(family: string, size: number): void;
   dispose(): void;
 }

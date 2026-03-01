@@ -59,11 +59,14 @@ reconciliation — drift corrects on reconnect.
 
 ### Frontend (Svelte 5 / Vite / Tailwind v4)
 - Stores: rune-based singletons — grep `getProjectStore`, `getTabStore`,
-  `getThemeStore`
+  `getThemeStore`, `getTerminalStore`
 - SSE client: singleton — grep `getEventClient`
 - Tab store: REST mutations + SSE sync with optimistic updates
 - UI primitives: shadcn-svelte (Bits UI) — grep `components/ui/`
-- Terminal: adapter pattern — grep `TerminalAdapter`, `XtermAdapter`
+- Terminal: adapter pattern — grep `TerminalAdapter`, `XtermAdapter`.
+  Font registry in `terminal/fonts.ts` (bundled Nerd Fonts, dynamic
+  @font-face injection). Terminal settings store manages font source
+  (default/system/bundled), font family, and font size.
 - Theme engine: VS Code color theme format, culori hex→OKLCH conversion.
   Built-in Catppuccin themes in `theme/builtin.ts`, converter in
   `theme/convert.ts`, parser in `theme/parse.ts`. Settings + user themes
@@ -102,3 +105,10 @@ reconciliation — drift corrects on reconnect.
   If reinstalling shadcn components, reapply this fix.
 - **Settings sync**: No SSE event for settings changes yet. Multiple
   open browsers won't see each other's theme changes until reload.
+- **Settings save is read-modify-write**: `saveSettings` in `api.ts`
+  GETs current settings before PUTting merged result. This prevents
+  theme and terminal stores from clobbering each other's sections.
+- **Bundled fonts**: 16 woff2 files in `frontend/public/fonts/`,
+  downloaded via `mise run download:fonts`. Committed to git. Fonts
+  are loaded on-demand via dynamic @font-face when user selects a
+  bundled font.

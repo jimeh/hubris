@@ -27,9 +27,31 @@ fn default_dark_theme() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalSettings {
+    #[serde(default = "default_font_source")]
+    pub font_source: String,
+    #[serde(default)]
+    pub system_font_family: String,
+    #[serde(default)]
+    pub bundled_font: String,
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
+}
+
+fn default_font_source() -> String {
+    "default".to_string()
+}
+fn default_font_size() -> u32 {
+    14
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
     pub appearance: Option<AppearanceSettings>,
+    #[serde(default)]
+    pub terminal: Option<TerminalSettings>,
 }
 
 /// GET /api/settings

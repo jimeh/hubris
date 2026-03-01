@@ -78,6 +78,10 @@ description = "Install all dependencies"
 description = "Run all code generators"
 run = "cd frontend && bun run generate:theme-defaults"
 
+[tasks."download:fonts"]
+description = "Download bundled Nerd Font woff2 files"
+run = "frontend/scripts/download-bundled-fonts.sh"
+
 [tasks.clean]
 description = "Remove build artifacts"
 run = [

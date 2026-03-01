@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalAdapter } from './adapter';
+import { DEFAULT_FONT_FAMILY } from './fonts';
 
 function getTerminalTheme(): Record<string, string> {
   const style = getComputedStyle(document.documentElement);
@@ -42,7 +43,7 @@ export function createXtermAdapter(opts?: {
 }): TerminalAdapter {
   const term = new Terminal({
     fontSize: opts?.fontSize ?? 14,
-    fontFamily: opts?.fontFamily ?? "'JetBrains Mono', 'Fira Code', monospace",
+    fontFamily: opts?.fontFamily ?? DEFAULT_FONT_FAMILY,
     theme: getTerminalTheme(),
     cursorBlink: true,
     scrollback: 10000,
@@ -88,6 +89,11 @@ export function createXtermAdapter(opts?: {
     },
     refreshTheme() {
       term.options.theme = getTerminalTheme();
+    },
+    updateFont(family: string, size: number) {
+      term.options.fontFamily = family;
+      term.options.fontSize = size;
+      fitAddon.fit();
     },
     dispose() {
       term.dispose();
