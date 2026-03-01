@@ -2,6 +2,7 @@ export interface Project {
   id: string;
   name: string;
   path: string;
+  position: number;
 }
 
 export interface Tab {

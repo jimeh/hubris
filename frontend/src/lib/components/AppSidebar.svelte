@@ -3,11 +3,71 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import AddProjectDialog from './AddProjectDialog.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
-  import { Plus, Settings } from '@lucide/svelte';
+  import { Plus, Settings, X } from '@lucide/svelte';
+  import { dndzone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
+  import type { Project } from '$lib/types';
 
   let { store } = $props();
   let showDialog = $state(false);
   let showSettings = $state(false);
+
+  const FLIP_MS = 150;
+
+  type DndProject = Project & {
+    [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: string;
+  };
+
+  let dragging = $state(false);
+  let dndItems = $state<DndProject[]>([]);
+
+  // Sync dndItems from store when not dragging
+  $effect(() => {
+    if (!dragging) {
+      dndItems = store.projects.map((p: Project) => ({
+        ...p,
+      }));
+    }
+  });
+
+  function handleConsider(e: CustomEvent<{ items: DndProject[] }>) {
+    dragging = true;
+    dndItems = e.detail.items;
+  }
+
+  function handleFinalize(e: CustomEvent<{ items: DndProject[] }>) {
+    dndItems = e.detail.items;
+    dragging = false;
+
+    // Find the item that moved and compute new position
+    const newOrder = dndItems;
+    for (let i = 0; i < newOrder.length; i++) {
+      const item = newOrder[i];
+      const storeIdx = store.projects.findIndex(
+        (p: Project) => p.id === item.id,
+      );
+      if (storeIdx !== i) {
+        const prev = i > 0 ? newOrder[i - 1].position : null;
+        const next = i < newOrder.length - 1 ? newOrder[i + 1].position : null;
+        let newPos: number;
+        if (prev !== null && next !== null) {
+          newPos = (prev + next) / 2;
+        } else if (prev !== null) {
+          newPos = prev + 1.0;
+        } else if (next !== null) {
+          newPos = next - 1.0;
+        } else {
+          newPos = 1.0;
+        }
+        store.reorder(item.id, newPos);
+        break;
+      }
+    }
+  }
+
+  function removeProject(e: MouseEvent, id: string) {
+    e.stopPropagation();
+    store.remove(id);
+  }
 </script>
 
 <Sidebar.Root>
@@ -27,18 +87,43 @@
   <Sidebar.Content>
     <Sidebar.Group>
       <Sidebar.GroupContent>
-        <Sidebar.Menu>
-          {#each store.projects as project (project.id)}
-            <Sidebar.MenuItem>
+        <div
+          class="flex w-full min-w-0 flex-col gap-1"
+          use:dndzone={{
+            items: dndItems,
+            flipDurationMs: FLIP_MS,
+            type: 'projects',
+            dropTargetStyle: {},
+          }}
+          onconsider={handleConsider}
+          onfinalize={handleFinalize}
+        >
+          {#each dndItems as project (project.id)}
+            <div
+              class="group/menu-item relative"
+              class:shadow-item={project[SHADOW_ITEM_MARKER_PROPERTY_NAME]}
+            >
               <Sidebar.MenuButton
                 isActive={store.selected?.id === project.id}
                 onclick={() => store.select(project)}
+                class={dragging ? 'cursor-grabbing' : 'cursor-grab'}
               >
-                {project.name}
+                {#snippet child({ props })}
+                  <!-- Render as div, not button — button.value
+                       triggers svelte-dnd-action's input guard,
+                       preventing drag initiation -->
+                  <div {...props}>{project.name}</div>
+                {/snippet}
               </Sidebar.MenuButton>
-            </Sidebar.MenuItem>
+              <Sidebar.MenuAction
+                showOnHover
+                onclick={(e: MouseEvent) => removeProject(e, project.id)}
+              >
+                <X class="h-3 w-3" />
+              </Sidebar.MenuAction>
+            </div>
           {/each}
-        </Sidebar.Menu>
+        </div>
       </Sidebar.GroupContent>
     </Sidebar.Group>
   </Sidebar.Content>
@@ -66,3 +151,11 @@
 {/if}
 
 <SettingsDialog bind:open={showSettings} />
+
+<style>
+  :global(.shadow-item) {
+    opacity: 0.4;
+    border: 1px dashed var(--sidebar-border);
+    border-radius: var(--radius);
+  }
+</style>

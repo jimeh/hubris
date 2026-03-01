@@ -58,7 +58,8 @@ reconciliation — drift corrects on reconnect.
 - PTY: portable-pty, shell from `$SHELL` or `/bin/sh`
 - WS protocol: binary (PTY output), JSON control (`type: "resize"`,
   `type: "attached"` with `byte_offset`/`data_lost`)
-- SSE events: snapshot, tab_created, tab_closed, tab_updated
+- SSE events: snapshot, tab_created, tab_closed, tab_updated,
+  project_added, project_removed, project_updated
 
 ### Frontend (Svelte 5 / Vite / Tailwind v4)
 - Stores: rune-based singletons — grep `getProjectStore`, `getTabStore`,
@@ -66,6 +67,8 @@ reconciliation — drift corrects on reconnect.
 - SSE client: singleton — grep `getEventClient`
 - Tab store: REST mutations + SSE sync with optimistic updates.
   Active tab and per-project tab selection persisted to localStorage.
+- Project store: SSE-driven (snapshot + incremental events), optimistic
+  mutations. Drag-and-drop reorder via svelte-dnd-action.
 - UI primitives: shadcn-svelte (Bits UI) — grep `components/ui/`
 - Terminal: adapter pattern — grep `TerminalAdapter`, `XtermAdapter`.
   Font registry in `terminal/fonts.ts` (bundled Nerd Fonts, dynamic
@@ -94,13 +97,19 @@ reconciliation — drift corrects on reconnect.
 
 ## Gotchas
 
-- **SSE init ordering**: Tab store handlers must be registered before
+- **SSE init ordering**: All store handlers must be registered before
   `EventClient.connect()` — snapshot fires immediately on connect.
-  In App.svelte: call `getTabStore()` before `events.connect()`.
+  In App.svelte: call `getProjectStore()` and `getTabStore()` before
+  `events.connect()`.
 - **rustfmt style_edition 2024**: Formats more aggressively than
   default (collapses single-line signatures, method chains). Always
   run `cargo fmt` after edits.
-- **Tab position**: f64 for fractional ordering (midpoint insertion).
+- **Position fields**: Both Tab and Project use f64 for fractional
+  ordering (midpoint insertion between neighbors).
+- **svelte-dnd-action + button elements**: The library's mousedown
+  guard rejects nested elements with a `value` property (buttons,
+  inputs). Use the `child` snippet on `Sidebar.MenuButton` to render
+  a `<div>` instead of `<button>` inside draggable containers.
 - **deleteTab tolerates 404**: Tab may already be gone (shell exit,
   other browser).
 - **shadcn-svelte Select wrapper**: The default `select.svelte` from

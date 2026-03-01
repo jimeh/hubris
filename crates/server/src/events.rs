@@ -3,6 +3,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tokio::sync::broadcast;
 
+use crate::api::projects::Project;
 use crate::pty::live_tab::TabInfo;
 
 /// Typed event envelope. The `kind` field determines the
@@ -22,7 +23,10 @@ pub enum EventKind {
     /// Full state snapshot, sent on SSE connect and
     /// after lag recovery.
     #[serde(rename = "snapshot")]
-    Snapshot { tabs: Vec<TabInfo> },
+    Snapshot {
+        tabs: Vec<TabInfo>,
+        projects: Vec<Project>,
+    },
     /// A new tab was created.
     #[serde(rename = "tab_created")]
     TabCreated(TabInfo),
@@ -32,6 +36,15 @@ pub enum EventKind {
     /// A tab's metadata changed (position, label).
     #[serde(rename = "tab_updated")]
     TabUpdated(TabInfo),
+    /// A project was added.
+    #[serde(rename = "project_added")]
+    ProjectAdded(Project),
+    /// A project was removed.
+    #[serde(rename = "project_removed")]
+    ProjectRemoved { project_id: String },
+    /// A project's metadata changed (position, name).
+    #[serde(rename = "project_updated")]
+    ProjectUpdated(Project),
 }
 
 impl EventKind {
@@ -42,6 +55,9 @@ impl EventKind {
             EventKind::TabCreated(_) => "tab_created",
             EventKind::TabClosed { .. } => "tab_closed",
             EventKind::TabUpdated(_) => "tab_updated",
+            EventKind::ProjectAdded(_) => "project_added",
+            EventKind::ProjectRemoved { .. } => "project_removed",
+            EventKind::ProjectUpdated(_) => "project_updated",
         }
     }
 }
@@ -119,7 +135,11 @@ mod tests {
     #[test]
     fn test_event_kind_names() {
         assert_eq!(
-            EventKind::Snapshot { tabs: vec![] }.event_name(),
+            EventKind::Snapshot {
+                tabs: vec![],
+                projects: vec![]
+            }
+            .event_name(),
             "snapshot"
         );
         assert_eq!(

@@ -24,6 +24,19 @@ export async function addProject(path: string): Promise<Project> {
   return res.json();
 }
 
+export async function updateProject(
+  id: string,
+  updates: { position?: number; name?: string },
+): Promise<Project> {
+  const res = await fetch(`${BASE}/projects/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
 export async function deleteProject(id: string): Promise<void> {
   const res = await fetch(`${BASE}/projects/${id}`, {
     method: 'DELETE',

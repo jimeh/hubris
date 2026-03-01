@@ -11,6 +11,7 @@ vi.stubGlobal('location', {
 const {
   listProjects,
   addProject,
+  updateProject,
   deleteProject,
   terminalWsUrl,
   listFiles,
@@ -77,6 +78,32 @@ describe('API client', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: '/home/user/myrepo' }),
+      });
+      expect(result).toEqual(mockProject);
+    });
+  });
+
+  describe('updateProject', () => {
+    it('sends PATCH with position', async () => {
+      const mockProject = {
+        id: 'p1',
+        name: 'test',
+        path: '/test',
+        position: 5.5,
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockProject),
+        }),
+      );
+
+      const result = await updateProject('p1', { position: 5.5 });
+      expect(fetch).toHaveBeenCalledWith('/api/projects/p1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position: 5.5 }),
       });
       expect(result).toEqual(mockProject);
     });

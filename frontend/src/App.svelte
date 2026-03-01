@@ -8,8 +8,9 @@
   import { getTerminalStore } from '$lib/stores/terminal.svelte';
   import { getEventClient } from '$lib/events';
 
+  // Initialize stores BEFORE SSE connect so handlers are
+  // registered before the snapshot arrives on connect.
   const store = getProjectStore();
-  store.refresh();
 
   // Initialize theme store (loads settings + applies theme)
   const themeStore = getThemeStore();
@@ -19,8 +20,6 @@
   const terminalStore = getTerminalStore();
   terminalStore.init();
 
-  // Initialize tab store first so SSE handlers are
-  // registered before the snapshot arrives on connect.
   getTabStore();
 
   // Start SSE event stream for state sync

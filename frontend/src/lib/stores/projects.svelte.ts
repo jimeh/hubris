@@ -1,46 +1,77 @@
-import { listProjects, addProject, deleteProject } from '$lib/api';
+import { addProject, deleteProject, updateProject } from '$lib/api';
+import { getEventClient } from '$lib/events';
 import type { Project } from '$lib/types';
 
 const LS_SELECTED = 'hubris-selected-project';
 
 let projects = $state<Project[]>([]);
 let selected = $state<Project | null>(null);
-let loading = $state(false);
-let error = $state<string | null>(null);
+let initialized = false;
+
+function sortedProjects(list: Project[]): Project[] {
+  return [...list].sort((a, b) => a.position - b.position);
+}
 
 export function getProjectStore() {
-  async function refresh() {
-    loading = true;
-    error = null;
-    try {
-      projects = await listProjects();
-      // Restore previously selected project after load
-      if (!selected) {
-        try {
-          const savedId = localStorage.getItem(LS_SELECTED);
-          if (savedId) {
-            const match = projects.find((p) => p.id === savedId);
-            if (match) selected = match;
+  if (!initialized) {
+    initialized = true;
+    const events = getEventClient();
+
+    events.on<{ projects: Project[] }>('snapshot', (data) => {
+      if (data.projects) {
+        projects = sortedProjects(data.projects);
+        // Validate selected still exists
+        if (selected && !projects.find((p) => p.id === selected!.id)) {
+          selected = null;
+        }
+        // Restore previously selected project from localStorage
+        if (!selected) {
+          try {
+            const savedId = localStorage.getItem(LS_SELECTED);
+            if (savedId) {
+              const match = projects.find((p) => p.id === savedId);
+              if (match) selected = match;
+            }
+          } catch {
+            // localStorage unavailable
           }
-        } catch {
-          // localStorage unavailable
         }
       }
-    } catch (e) {
-      error = (e as Error).message;
-    } finally {
-      loading = false;
-    }
+    });
+
+    events.on<Project>('project_added', (project) => {
+      if (!projects.find((p) => p.id === project.id)) {
+        projects = sortedProjects([...projects, project]);
+      }
+    });
+
+    events.on<{ project_id: string }>('project_removed', ({ project_id }) => {
+      projects = projects.filter((p) => p.id !== project_id);
+      if (selected?.id === project_id) selected = null;
+    });
+
+    events.on<Project>('project_updated', (project) => {
+      projects = sortedProjects(
+        projects.map((p) => (p.id === project.id ? project : p)),
+      );
+      // Update selected reference if it was the updated project
+      if (selected?.id === project.id) {
+        selected = project;
+      }
+    });
   }
 
   async function add(path: string) {
     const project = await addProject(path);
-    projects = [...projects, project];
+    // Optimistic: add immediately, SSE deduplicates
+    if (!projects.find((p) => p.id === project.id)) {
+      projects = sortedProjects([...projects, project]);
+    }
     return project;
   }
 
   async function remove(id: string) {
-    await deleteProject(id);
+    // Optimistic remove
     projects = projects.filter((p) => p.id !== id);
     if (selected?.id === id) {
       selected = null;
@@ -50,6 +81,19 @@ export function getProjectStore() {
         // localStorage unavailable
       }
     }
+    try {
+      await deleteProject(id);
+    } catch {
+      // Already gone (other browser removed it)
+    }
+  }
+
+  async function reorder(id: string, position: number): Promise<void> {
+    // Optimistic: update position locally
+    projects = sortedProjects(
+      projects.map((p) => (p.id === id ? { ...p, position } : p)),
+    );
+    await updateProject(id, { position });
   }
 
   function select(project: Project) {
@@ -68,15 +112,9 @@ export function getProjectStore() {
     get selected() {
       return selected;
     },
-    get loading() {
-      return loading;
-    },
-    get error() {
-      return error;
-    },
-    refresh,
     add,
     remove,
+    reorder,
     select,
   };
 }

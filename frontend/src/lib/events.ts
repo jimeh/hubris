@@ -5,6 +5,9 @@ const SSE_EVENT_NAMES = [
   'tab_created',
   'tab_closed',
   'tab_updated',
+  'project_added',
+  'project_removed',
+  'project_updated',
 ] as const;
 
 export type SseEventName = (typeof SSE_EVENT_NAMES)[number];
