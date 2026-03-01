@@ -2,6 +2,7 @@
   import * as Sidebar from '$lib/components/ui/sidebar/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import AddProjectDialog from './AddProjectDialog.svelte';
+  import ConfirmDialog from './ConfirmDialog.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
   import { Plus, Settings, X } from '@lucide/svelte';
   import { dndzone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
@@ -10,6 +11,7 @@
   let { store } = $props();
   let showDialog = $state(false);
   let showSettings = $state(false);
+  let confirmRemoveId = $state<string | null>(null);
 
   const FLIP_MS = 150;
 
@@ -42,7 +44,7 @@
 
   function removeProject(e: MouseEvent, id: string) {
     e.stopPropagation();
-    store.remove(id);
+    confirmRemoveId = id;
   }
 </script>
 
@@ -82,7 +84,7 @@
               <Sidebar.MenuButton
                 isActive={store.selected?.id === project.id}
                 onclick={() => store.select(project)}
-                class={dragging ? 'cursor-grabbing' : 'cursor-grab'}
+                class={dragging ? 'cursor-grabbing' : 'cursor-default'}
               >
                 {#snippet child({ props })}
                   <!-- Render as div, not button — button.value
@@ -126,12 +128,29 @@
   />
 {/if}
 
+{#if confirmRemoveId}
+  {@const project = store.projects.find(
+    (p: Project) => p.id === confirmRemoveId,
+  )}
+  <ConfirmDialog
+    title="Remove Project"
+    description="Remove {project?.name ??
+      'this project'} from the sidebar? This won't delete any files."
+    confirmLabel="Remove"
+    onConfirm={() => {
+      store.remove(confirmRemoveId!);
+      confirmRemoveId = null;
+    }}
+    onClose={() => (confirmRemoveId = null)}
+  />
+{/if}
+
 <SettingsDialog bind:open={showSettings} />
 
 <style>
   :global(.shadow-item) {
     opacity: 0.4;
-    border: 1px dashed var(--sidebar-border);
+    outline: 1px dashed var(--sidebar-border);
     border-radius: var(--radius);
   }
 </style>
