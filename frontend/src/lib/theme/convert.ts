@@ -1,17 +1,31 @@
-import { parse, formatCss, converter } from 'culori';
+import { parse, converter } from 'culori';
 import type { HubrisTheme } from './types';
 
 const toOklch = converter('oklch');
 
+/** Round to n decimal places for cross-platform consistency. */
+function round(n: number, dp: number): number {
+  const f = 10 ** dp;
+  return Math.round(n * f) / f;
+}
+
 /**
  * Convert a hex color string to an oklch() CSS value.
- * Preserves alpha channel if present.
+ * Preserves alpha channel if present. Values are rounded
+ * to 8 decimal places to avoid cross-platform floating-point
+ * drift (macOS vs Linux produce different last digits).
  */
 export function hexToOklch(hex: string): string {
   const color = parse(hex);
   if (!color) return hex; // unparseable, pass through
-  const converted = toOklch(color);
-  return formatCss(converted);
+  const c = toOklch(color);
+  const l = round(c.l, 8);
+  const ch = round(c.c, 8);
+  const h = round(c.h ?? 0, 8);
+  if (c.alpha != null && c.alpha < 1) {
+    return `oklch(${l} ${ch} ${h} / ${round(c.alpha, 8)})`;
+  }
+  return `oklch(${l} ${ch} ${h})`;
 }
 
 /**
