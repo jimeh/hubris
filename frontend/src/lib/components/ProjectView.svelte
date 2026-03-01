@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Button } from '$lib/components/ui/button/index.js';
   import TerminalTab from './TerminalTab.svelte';
   import { getTabStore } from '$lib/stores/tabs.svelte';
   import { Plus, X } from '@lucide/svelte';
@@ -48,7 +49,10 @@
             <button
               class="ml-1 rounded p-0.5 opacity-50
                      hover:opacity-100 hover:bg-muted
+                     focus-visible:opacity-100 focus-visible:ring-1
+                     focus-visible:ring-ring
                      transition-all"
+              aria-label="Close tab"
               onclick={(e) => {
                 e.stopPropagation();
                 tabStore.close(tab.id);
@@ -64,14 +68,15 @@
       </div>
     {/if}
     <div class="my-2 w-px bg-border"></div>
-    <button
-      class="inline-flex items-center justify-center px-3 py-2
-             text-muted-foreground hover:text-foreground
-             hover:bg-muted/50 transition-colors shrink-0"
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class="shrink-0 rounded-none"
+      aria-label="New tab"
       onclick={() => tabStore.addTerminal(project.id)}
     >
       <Plus class="h-4 w-4" />
-    </button>
+    </Button>
   </div>
 
   <div class="relative flex-1 overflow-hidden">
