@@ -58,13 +58,33 @@ function sortedTabs(list: Tab[]): Tab[] {
   return [...list].sort((a, b) => a.position - b.position);
 }
 
+/** Shallow equality check to skip no-op snapshot updates. */
+function tabsEqual(a: Tab[], b: Tab[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].id !== b[i].id ||
+      a[i].label !== b[i].label ||
+      a[i].position !== b[i].position ||
+      a[i].project_id !== b[i].project_id
+    )
+      return false;
+  }
+  return true;
+}
+
 export function getTabStore() {
   if (!initialized) {
     initialized = true;
     const events = getEventClient();
 
     events.on<{ tabs: Tab[] }>('snapshot', (data) => {
-      tabs = sortedTabs(data.tabs);
+      const incoming = sortedTabs(data.tabs);
+      // Skip update when tabs are unchanged (common on
+      // SSE reconnect). Avoids reactive cascade / flash.
+      if (tabsEqual(tabs, incoming)) return;
+
+      tabs = incoming;
       // Validate activeTabId still exists
       if (activeTabId && !tabs.find((t) => t.id === activeTabId)) {
         activeTabId = null;

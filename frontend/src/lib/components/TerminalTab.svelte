@@ -232,12 +232,13 @@
 
   .reconnect-indicator {
     position: absolute;
-    bottom: 8px;
-    right: 8px;
-    padding: 4px 10px;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 12px;
     border-radius: 6px;
-    background: oklch(0.25 0 0 / 0.8);
-    color: oklch(0.75 0 0);
+    background: oklch(0.25 0.05 25 / 0.85);
+    color: oklch(0.7 0.12 25);
     font-size: 12px;
     font-family: sans-serif;
     pointer-events: none;
