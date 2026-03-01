@@ -125,8 +125,8 @@ describe('loadBundledFont', () => {
   });
 
   it('returns the CSS font-family name', async () => {
-    const family = await loadBundledFont('hack-nf');
-    expect(family).toBe('Hack Nerd Font');
+    const family = await loadBundledFont('meslolgs-nf');
+    expect(family).toBe('MesloLGS Nerd Font');
   });
 
   it('calls document.fonts.load for both weights', async () => {

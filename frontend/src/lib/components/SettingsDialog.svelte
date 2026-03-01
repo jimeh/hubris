@@ -233,10 +233,12 @@
               type="text"
               inputmode="numeric"
               value={termStore.settings.fontSize}
-              onchange={(e) =>
+              onchange={(e) => {
                 termStore.updateSettings({
                   fontSize: parseInt(e.currentTarget.value, 10) || 14,
-                })}
+                });
+                e.currentTarget.value = String(termStore.settings.fontSize);
+              }}
               class="h-8 w-14 text-center"
             />
             <Button

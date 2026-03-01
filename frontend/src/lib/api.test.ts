@@ -384,13 +384,14 @@ describe('API client', () => {
         'fetch',
         vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
           callCount++;
-          if (!init?.method || init.method === 'GET') {
-            return Promise.resolve({
-              ok: true,
-              json: () => Promise.resolve(existingSettings),
-            });
+          if (init?.method === 'PUT') {
+            return Promise.resolve({ ok: true });
           }
-          return Promise.resolve({ ok: true });
+          // GET (or any non-PUT)
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(existingSettings),
+          });
         }),
       );
 
@@ -417,13 +418,13 @@ describe('API client', () => {
       vi.stubGlobal(
         'fetch',
         vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-          if (!init?.method || init.method === 'GET') {
-            return Promise.resolve({
-              ok: true,
-              json: () => Promise.resolve({}),
-            });
+          if (init?.method === 'PUT') {
+            return Promise.resolve({ ok: false, status: 500 });
           }
-          return Promise.resolve({ ok: false, status: 500 });
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({}),
+          });
         }),
       );
 
@@ -437,6 +438,27 @@ describe('API client', () => {
           },
         }),
       ).rejects.toThrow('500');
+    });
+
+    it('caches in localStorage even when GET fails', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockRejectedValue(new Error('network error')),
+      );
+
+      const terminal = {
+        fontSource: 'default' as const,
+        systemFontFamily: '',
+        bundledFont: 'jetbrainsmono-nf',
+        fontSize: 14,
+      };
+
+      await expect(saveSettings({ terminal })).rejects.toThrow('network error');
+
+      // localStorage was written before the failed GET
+      expect(localStorage.getItem('hubris-terminal')).toBe(
+        JSON.stringify(terminal),
+      );
     });
   });
 });
