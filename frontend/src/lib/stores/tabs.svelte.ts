@@ -2,13 +2,75 @@ import { createTab, deleteTab } from '$lib/api';
 import { getEventClient } from '$lib/events';
 import type { Tab } from '$lib/types';
 
+const LS_ACTIVE_TAB = 'hubris-active-tab';
+const LS_TAB_BY_PROJECT = 'hubris-active-tab-by-project';
+
+function lsGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function lsGetJson<T>(key: string): T | null {
+  const raw = lsGet(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key: string, value: unknown): void {
+  try {
+    if (value == null) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(
+        key,
+        typeof value === 'string'
+          ? value
+          : JSON.stringify(value),
+      );
+    }
+  } catch {
+    // localStorage full or unavailable
+  }
+}
+
+function persistSelection(): void {
+  lsSet(LS_ACTIVE_TAB, activeTabId);
+  lsSet(LS_TAB_BY_PROJECT, activeTabByProject);
+}
+
 let tabs = $state<Tab[]>([]);
-let activeTabId = $state<string | null>(null);
-const activeTabByProject = $state<Record<string, string>>({});
+let activeTabId = $state<string | null>(
+  lsGet(LS_ACTIVE_TAB),
+);
+const activeTabByProject = $state<Record<string, string>>(
+  lsGetJson<Record<string, string>>(LS_TAB_BY_PROJECT) ?? {},
+);
 let initialized = false;
 
 function sortedTabs(list: Tab[]): Tab[] {
   return [...list].sort((a, b) => a.position - b.position);
+}
+
+/** Shallow equality check to skip no-op snapshot updates. */
+function tabsEqual(a: Tab[], b: Tab[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].id !== b[i].id ||
+      a[i].label !== b[i].label ||
+      a[i].position !== b[i].position ||
+      a[i].project_id !== b[i].project_id
+    )
+      return false;
+  }
+  return true;
 }
 
 export function getTabStore() {
@@ -17,10 +79,16 @@ export function getTabStore() {
     const events = getEventClient();
 
     events.on<{ tabs: Tab[] }>('snapshot', (data) => {
-      tabs = sortedTabs(data.tabs);
+      const incoming = sortedTabs(data.tabs);
+      // Skip update when tabs are unchanged (common on
+      // SSE reconnect). Avoids reactive cascade / flash.
+      if (tabsEqual(tabs, incoming)) return;
+
+      tabs = incoming;
       // Validate activeTabId still exists
       if (activeTabId && !tabs.find((t) => t.id === activeTabId)) {
         activeTabId = null;
+        persistSelection();
       }
     });
 
@@ -51,6 +119,7 @@ export function getTabStore() {
       if (projectId) {
         activeTabByProject[projectId] = activeTabId ?? '';
       }
+      persistSelection();
     }
   }
 
@@ -68,6 +137,7 @@ export function getTabStore() {
     }
     activeTabId = tab.id;
     activeTabByProject[projectId] = tab.id;
+    persistSelection();
     return tab;
   }
 
@@ -89,6 +159,7 @@ export function getTabStore() {
     if (tab) {
       activeTabByProject[tab.project_id] = id;
     }
+    persistSelection();
   }
 
   /** Get tabs for a specific project. */
@@ -110,6 +181,7 @@ export function getTabStore() {
     } else {
       activeTabId = null;
     }
+    persistSelection();
   }
 
   return {

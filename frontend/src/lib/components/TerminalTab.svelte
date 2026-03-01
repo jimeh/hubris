@@ -23,17 +23,38 @@
   let terminal: TerminalAdapter | null = null;
   let ws: WebSocket | null = null;
 
-  onMount(() => {
-    terminal = createXtermAdapter({
-      fontSize: termStore.fontSize,
-      fontFamily: termStore.fontFamily,
-    });
-    terminal.open(containerEl);
+  // Reconnection state
+  let bytePosition = 0;
+  let inputBuffer: Uint8Array[] = [];
+  let intentionalClose = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectDelay = 100;
+  let everConnected = $state(false);
+  let connected = $state(false);
 
-    ws = new WebSocket(terminalWsUrl(tabId));
+  const RECONNECT_DELAY_INITIAL = 100;
+  const RECONNECT_DELAY_MAX = 5000;
+  const RECONNECT_DELAY_MULTIPLIER = 2;
+
+  const encoder = new TextEncoder();
+
+  function connectWs() {
+    if (intentionalClose) return;
+
+    let url = terminalWsUrl(tabId);
+    if (bytePosition > 0) {
+      url += `&resume_from=${bytePosition}`;
+    }
+
+    ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
+      connected = true;
+      everConnected = true;
+      reconnectDelay = RECONNECT_DELAY_INITIAL;
+
+      // Send current terminal dimensions
       ws!.send(
         JSON.stringify({
           type: 'resize',
@@ -41,48 +62,105 @@
           rows: terminal!.rows,
         }),
       );
+
+      // Flush buffered input
+      for (const chunk of inputBuffer) {
+        ws!.send(chunk);
+      }
+      inputBuffer = [];
+
       terminal!.focus();
     };
 
     ws.onmessage = (ev) => {
-      // Check for tab_closed control frame (text/JSON)
       if (typeof ev.data === 'string') {
         try {
           const msg = JSON.parse(ev.data);
           if (msg.type === 'tab_closed') {
+            intentionalClose = true;
             onclosed?.();
+            return;
+          }
+          if (msg.type === 'attached') {
+            bytePosition = msg.byte_offset;
+            if (msg.data_lost) {
+              terminal!.clear();
+            }
             return;
           }
         } catch {
           // not JSON, ignore
         }
       }
-      terminal!.write(new Uint8Array(ev.data));
+
+      // Binary PTY data
+      const data = new Uint8Array(ev.data);
+      terminal!.write(data);
+      bytePosition += data.byteLength;
     };
 
     ws.onclose = () => {
-      // PTY is still alive — no "[Connection closed]"
-      // message. Reconnection happens on component remount.
+      connected = false;
+      ws = null;
+      if (!intentionalClose) {
+        scheduleReconnect();
+      }
     };
 
-    terminal.onData((data) => {
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(new TextEncoder().encode(data));
-      }
+    ws.onerror = () => {
+      // onclose fires after onerror — reconnect handled there
+    };
+  }
+
+  function scheduleReconnect() {
+    if (intentionalClose) return;
+    if (reconnectTimer != null) return;
+
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      reconnectDelay = Math.min(
+        reconnectDelay * RECONNECT_DELAY_MULTIPLIER,
+        RECONNECT_DELAY_MAX,
+      );
+      connectWs();
+    }, reconnectDelay);
+  }
+
+  function sendInput(data: string) {
+    const encoded = encoder.encode(data);
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(encoded);
+    } else {
+      inputBuffer.push(encoded);
+    }
+  }
+
+  function sendResize() {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: 'resize',
+          cols: terminal!.cols,
+          rows: terminal!.rows,
+        }),
+      );
+    }
+  }
+
+  onMount(() => {
+    terminal = createXtermAdapter({
+      fontSize: termStore.fontSize,
+      fontFamily: termStore.fontFamily,
     });
+    terminal.open(containerEl);
+    terminal.onData(sendInput);
+
+    connectWs();
 
     const resizeObserver = new ResizeObserver(() => {
       if (visible) {
         terminal!.fit();
-        if (ws?.readyState === WebSocket.OPEN) {
-          ws.send(
-            JSON.stringify({
-              type: 'resize',
-              cols: terminal!.cols,
-              rows: terminal!.rows,
-            }),
-          );
-        }
+        sendResize();
       }
     });
     resizeObserver.observe(containerEl);
@@ -118,29 +196,62 @@
       );
       // Notify PTY of new dimensions — font change
       // alters cols/rows via fitAddon.fit()
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: 'resize',
-            cols: terminal.cols,
-            rows: terminal.rows,
-          }),
-        );
-      }
+      sendResize();
     }
   });
 
   onDestroy(() => {
+    intentionalClose = true;
+    if (reconnectTimer != null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     ws?.close();
     terminal?.dispose();
   });
 </script>
 
-<div class="terminal-container" bind:this={containerEl}></div>
+<div class="terminal-wrapper">
+  <div class="terminal-container" bind:this={containerEl}></div>
+  {#if !connected && everConnected}
+    <div class="reconnect-indicator">Reconnecting…</div>
+  {/if}
+</div>
 
 <style>
+  .terminal-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
   .terminal-container {
     width: 100%;
     height: 100%;
+  }
+
+  .reconnect-indicator {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    border-radius: 6px;
+    background: oklch(0.25 0.05 25 / 0.85);
+    color: oklch(0.7 0.12 25);
+    font-size: 12px;
+    font-family: sans-serif;
+    pointer-events: none;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
   }
 </style>

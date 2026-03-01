@@ -14,6 +14,10 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 pub struct TerminalParams {
     pub tab_id: String,
+    /// Byte offset for resumable reconnection. When
+    /// present, the server only replays scrollback bytes
+    /// the client missed.
+    pub resume_from: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,22 +37,41 @@ pub async fn ws_handler(
     }
 
     let tab_id = params.tab_id;
-    Ok(ws.on_upgrade(move |socket| handle_attach(socket, tab_id, state)))
+    let resume_from = params.resume_from;
+    Ok(ws.on_upgrade(move |socket| handle_attach(socket, tab_id, resume_from, state)))
 }
 
 /// Attach to an existing LiveTab. Does NOT spawn a PTY.
 /// On WS disconnect, does NOT kill the PTY.
-async fn handle_attach(socket: WebSocket, tab_id: String, state: AppState) {
+async fn handle_attach(
+    socket: WebSocket,
+    tab_id: String,
+    resume_from: Option<u64>,
+    state: AppState,
+) {
     // Clone Arc out of DashMap to avoid holding shard lock
     let tab = match state.tabs.get(&tab_id).map(|r| r.value().clone()) {
         Some(t) => t,
         None => return,
     };
 
-    let (scrollback, mut output_rx, mut close_rx) = tab.attach();
+    let (scrollback, byte_offset, data_lost, mut output_rx, mut close_rx) = tab.attach(resume_from);
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
-    // Replay scrollback
+    // Send attach metadata so client can track position
+    let attached_msg = format!(
+        r#"{{"type":"attached","byte_offset":{},"data_lost":{}}}"#,
+        byte_offset, data_lost,
+    );
+    if ws_sender
+        .send(Message::Text(attached_msg.into()))
+        .await
+        .is_err()
+    {
+        return;
+    }
+
+    // Replay scrollback (missed bytes or full buffer)
     if !scrollback.is_empty()
         && ws_sender
             .send(Message::Binary(scrollback.into()))

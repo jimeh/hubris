@@ -43,7 +43,9 @@ or `pnpm-lock.yaml`. Using npm or pnpm will fail or create wrong lockfiles.
 ### Connection Model
 One SSE stream (state sync) + N WebSocket connections (PTY I/O) per
 browser. WS attaches to existing LiveTab; does NOT kill PTY on
-disconnect.
+disconnect. WS auto-reconnects with exponential backoff and resumable
+byte-position tracking (`resume_from` query param). Input buffered
+client-side while disconnected.
 
 ### State Sync
 SSE snapshot on connect, incremental events for changes. EventSource
@@ -54,14 +56,16 @@ reconciliation — drift corrects on reconnect.
 - State: grep for `AppState` — DashMap for tabs, EventBus for SSE
 - Persistence: JSON file. Dev: `~/.hubris-dev/`, prod: `~/.hubris/`
 - PTY: portable-pty, shell from `$SHELL` or `/bin/sh`
-- WS protocol: binary (PTY output), JSON control (`type: "resize"`)
+- WS protocol: binary (PTY output), JSON control (`type: "resize"`,
+  `type: "attached"` with `byte_offset`/`data_lost`)
 - SSE events: snapshot, tab_created, tab_closed, tab_updated
 
 ### Frontend (Svelte 5 / Vite / Tailwind v4)
 - Stores: rune-based singletons — grep `getProjectStore`, `getTabStore`,
   `getThemeStore`, `getTerminalStore`
 - SSE client: singleton — grep `getEventClient`
-- Tab store: REST mutations + SSE sync with optimistic updates
+- Tab store: REST mutations + SSE sync with optimistic updates.
+  Active tab and per-project tab selection persisted to localStorage.
 - UI primitives: shadcn-svelte (Bits UI) — grep `components/ui/`
 - Terminal: adapter pattern — grep `TerminalAdapter`, `XtermAdapter`.
   Font registry in `terminal/fonts.ts` (bundled Nerd Fonts, dynamic
@@ -73,6 +77,8 @@ reconciliation — drift corrects on reconnect.
   persisted via REST (`/api/settings`, `/api/themes`).
   `GET /api/themes` returns metadata only; full theme fetched lazily via
   `GET /api/themes/:id` on selection.
+- Project store: selected project persisted to localStorage
+  (`hubris-selected-project`), restored on page load.
 - FOUC prevention: inline script in `index.html` reads localStorage
   (`hubris-theme-cache`) and applies full CSS vars before first paint.
 - Codegen: `defaults.generated.css` generated from builtin themes via

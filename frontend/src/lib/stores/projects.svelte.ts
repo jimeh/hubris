@@ -1,6 +1,8 @@
 import { listProjects, addProject, deleteProject } from '$lib/api';
 import type { Project } from '$lib/types';
 
+const LS_SELECTED = 'hubris-selected-project';
+
 let projects = $state<Project[]>([]);
 let selected = $state<Project | null>(null);
 let loading = $state(false);
@@ -12,6 +14,18 @@ export function getProjectStore() {
     error = null;
     try {
       projects = await listProjects();
+      // Restore previously selected project after load
+      if (!selected) {
+        try {
+          const savedId = localStorage.getItem(LS_SELECTED);
+          if (savedId) {
+            const match = projects.find((p) => p.id === savedId);
+            if (match) selected = match;
+          }
+        } catch {
+          // localStorage unavailable
+        }
+      }
     } catch (e) {
       error = (e as Error).message;
     } finally {
@@ -28,11 +42,23 @@ export function getProjectStore() {
   async function remove(id: string) {
     await deleteProject(id);
     projects = projects.filter((p) => p.id !== id);
-    if (selected?.id === id) selected = null;
+    if (selected?.id === id) {
+      selected = null;
+      try {
+        localStorage.removeItem(LS_SELECTED);
+      } catch {
+        // localStorage unavailable
+      }
+    }
   }
 
   function select(project: Project) {
     selected = project;
+    try {
+      localStorage.setItem(LS_SELECTED, project.id);
+    } catch {
+      // localStorage full or unavailable
+    }
   }
 
   return {
