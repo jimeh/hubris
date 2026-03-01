@@ -104,7 +104,8 @@ reconciliation — drift corrects on reconnect.
   arrays. The workaround is a simple passthrough: `{...restProps}`.
   If reinstalling shadcn components, reapply this fix.
 - **Settings sync**: No SSE event for settings changes yet. Multiple
-  open browsers won't see each other's theme changes until reload.
+  open browsers won't see each other's settings changes (theme,
+  terminal font) until reload.
 - **Settings save is read-modify-write**: `saveSettings` in `api.ts`
   GETs current settings before PUTting merged result. This prevents
   theme and terminal stores from clobbering each other's sections.

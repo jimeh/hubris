@@ -78,46 +78,67 @@ export const DEFAULT_FONT_FAMILY =
   "'Courier New', monospace";
 
 const loadedFonts = new Set<string>();
+const pendingLoads = new Map<string, Promise<string>>();
 
 /**
  * Inject @font-face for a bundled font and wait for the
  * browser to load it. Returns the CSS font-family name.
- * Idempotent — skips if already loaded.
+ * Idempotent — skips if already loaded. Concurrent calls
+ * for the same ID share a single in-flight promise.
  */
-export async function loadBundledFont(id: string): Promise<string> {
+export async function loadBundledFont(
+  id: string,
+): Promise<string> {
   const font = BUNDLED_FONTS.find((f) => f.id === id);
   if (!font) throw new Error(`Unknown bundled font: ${id}`);
   if (loadedFonts.has(id)) return font.family;
 
-  // Reuse existing <style> from a previous failed attempt
-  if (!document.getElementById(`bundled-font-${id}`)) {
-    const style = document.createElement('style');
-    style.id = `bundled-font-${id}`;
-    style.textContent = `
-      @font-face {
-        font-family: '${font.family}';
-        src: url('${font.regular}') format('woff2');
-        font-weight: 400;
-        font-style: normal;
-        font-display: block;
-      }
-      @font-face {
-        font-family: '${font.family}';
-        src: url('${font.bold}') format('woff2');
-        font-weight: 700;
-        font-style: normal;
-        font-display: block;
-      }
-    `;
-    document.head.appendChild(style);
+  // Deduplicate concurrent loads for the same font
+  const pending = pendingLoads.get(id);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    // Reuse existing <style> from a previous failed attempt
+    if (!document.getElementById(`bundled-font-${id}`)) {
+      const style = document.createElement('style');
+      style.id = `bundled-font-${id}`;
+      style.textContent = `
+        @font-face {
+          font-family: '${font.family}';
+          src: url('${font.regular}') format('woff2');
+          font-weight: 400;
+          font-style: normal;
+          font-display: block;
+        }
+        @font-face {
+          font-family: '${font.family}';
+          src: url('${font.bold}') format('woff2');
+          font-weight: 700;
+          font-style: normal;
+          font-display: block;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    // Wait for browser to fetch and parse the font files
+    await document.fonts.load(
+      `400 16px '${font.family}'`,
+    );
+    await document.fonts.load(
+      `700 16px '${font.family}'`,
+    );
+
+    loadedFonts.add(id);
+    return font.family;
+  })();
+
+  pendingLoads.set(id, promise);
+  try {
+    return await promise;
+  } finally {
+    pendingLoads.delete(id);
   }
-
-  // Wait for browser to fetch and parse the font files
-  await document.fonts.load(`400 16px '${font.family}'`);
-  await document.fonts.load(`700 16px '${font.family}'`);
-
-  loadedFonts.add(id);
-  return font.family;
 }
 
 /**

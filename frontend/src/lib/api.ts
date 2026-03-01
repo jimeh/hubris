@@ -104,17 +104,6 @@ export async function saveSettings(partial: {
   appearance?: AppearanceSettings;
   terminal?: TerminalSettings;
 }): Promise<void> {
-  // Cache in localStorage for FOUC / offline fallback
-  if (partial.appearance) {
-    localStorage.setItem(
-      'hubris-appearance',
-      JSON.stringify(partial.appearance),
-    );
-  }
-  if (partial.terminal) {
-    localStorage.setItem('hubris-terminal', JSON.stringify(partial.terminal));
-  }
-
   // Read-modify-write to avoid clobbering sibling sections
   const current = await getSettings();
   const merged = { ...current, ...partial };
@@ -125,6 +114,21 @@ export async function saveSettings(partial: {
     body: JSON.stringify(merged),
   });
   if (!res.ok) throw new Error(`${res.status}`);
+
+  // Cache in localStorage only after server confirms —
+  // avoids desync if the save fails
+  if (partial.appearance) {
+    localStorage.setItem(
+      'hubris-appearance',
+      JSON.stringify(partial.appearance),
+    );
+  }
+  if (partial.terminal) {
+    localStorage.setItem(
+      'hubris-terminal',
+      JSON.stringify(partial.terminal),
+    );
+  }
 }
 
 // --- User Themes ---

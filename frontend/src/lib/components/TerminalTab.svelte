@@ -112,7 +112,21 @@
   $effect(() => {
     void termStore.version;
     if (terminal) {
-      terminal.updateFont(termStore.fontFamily, termStore.fontSize);
+      terminal.updateFont(
+        termStore.fontFamily,
+        termStore.fontSize,
+      );
+      // Notify PTY of new dimensions — font change
+      // alters cols/rows via fitAddon.fit()
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: 'resize',
+            cols: terminal.cols,
+            rows: terminal.rows,
+          }),
+        );
+      }
     }
   });
 

@@ -83,6 +83,26 @@ describe('resolveFont', () => {
     expect(result).toBe(DEFAULT_FONT_FAMILY);
   });
 
+  it('returns bundled font family on success', async () => {
+    Object.defineProperty(document, 'fonts', {
+      value: { load: vi.fn().mockResolvedValue([]) },
+      writable: true,
+      configurable: true,
+    });
+    document
+      .querySelectorAll('style[id^="bundled-font-"]')
+      .forEach((el) => el.remove());
+
+    const result = await resolveFont({
+      fontSource: 'bundled',
+      systemFontFamily: '',
+      bundledFont: 'commitmono-nf',
+    });
+    expect(result).toBe(
+      "'CommitMono Nerd Font', monospace",
+    );
+  });
+
   it('falls back to default for unknown fontSource', async () => {
     const result = await resolveFont({
       fontSource: 'unknown',

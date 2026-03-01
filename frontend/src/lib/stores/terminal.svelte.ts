@@ -43,15 +43,33 @@ async function init() {
   await applyFont();
 }
 
-async function updateSettings(partial: Partial<TerminalSettings>) {
+async function updateSettings(
+  partial: Partial<TerminalSettings>,
+) {
   if (partial.fontSize !== undefined) {
-    partial = { ...partial, fontSize: clampFontSize(partial.fontSize) };
+    partial = {
+      ...partial,
+      fontSize: clampFontSize(partial.fontSize),
+    };
   }
+
+  const prev = { ...settings };
+  const prevFont = fontFamily;
+
   settings = { ...settings, ...partial };
   await applyFont();
-  await saveSettings({
-    terminal: $state.snapshot(settings),
-  });
+
+  try {
+    await saveSettings({
+      terminal: $state.snapshot(settings),
+    });
+  } catch (err) {
+    // Rollback to previous state on save failure
+    settings = prev;
+    fontFamily = prevFont;
+    version++;
+    throw err;
+  }
 }
 
 export function getTerminalStore() {

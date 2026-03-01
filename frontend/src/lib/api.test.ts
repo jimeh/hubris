@@ -440,10 +440,12 @@ describe('API client', () => {
       ).rejects.toThrow('500');
     });
 
-    it('caches in localStorage even when GET fails', async () => {
+    it('does not cache in localStorage when GET fails', async () => {
       vi.stubGlobal(
         'fetch',
-        vi.fn().mockRejectedValue(new Error('network error')),
+        vi.fn().mockRejectedValue(
+          new Error('network error'),
+        ),
       );
 
       const terminal = {
@@ -453,12 +455,49 @@ describe('API client', () => {
         fontSize: 14,
       };
 
-      await expect(saveSettings({ terminal })).rejects.toThrow('network error');
+      await expect(
+        saveSettings({ terminal }),
+      ).rejects.toThrow('network error');
 
-      // localStorage was written before the failed GET
-      expect(localStorage.getItem('hubris-terminal')).toBe(
-        JSON.stringify(terminal),
+      // localStorage should NOT be written on failure
+      expect(
+        localStorage.getItem('hubris-terminal'),
+      ).toBeNull();
+    });
+
+    it('does not cache in localStorage when PUT fails', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(
+          (_url: string, init?: RequestInit) => {
+            if (init?.method === 'PUT') {
+              return Promise.resolve({
+                ok: false,
+                status: 500,
+              });
+            }
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve({}),
+            });
+          },
+        ),
       );
+
+      const terminal = {
+        fontSource: 'default' as const,
+        systemFontFamily: '',
+        bundledFont: 'jetbrainsmono-nf',
+        fontSize: 14,
+      };
+
+      await expect(
+        saveSettings({ terminal }),
+      ).rejects.toThrow('500');
+
+      expect(
+        localStorage.getItem('hubris-terminal'),
+      ).toBeNull();
     });
   });
 });
