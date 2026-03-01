@@ -87,6 +87,9 @@ export function createXtermAdapter(opts?: {
     focus() {
       term.focus();
     },
+    clear() {
+      term.reset();
+    },
     refreshTheme() {
       term.options.theme = getTerminalTheme();
     },

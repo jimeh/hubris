@@ -7,6 +7,8 @@ export interface TerminalAdapter {
   get rows(): number;
   get cols(): number;
   focus(): void;
+  /** Reset terminal state, clearing screen and scrollback. */
+  clear(): void;
   refreshTheme(): void;
   updateFont(family: string, size: number): void;
   dispose(): void;

@@ -2,9 +2,56 @@ import { createTab, deleteTab } from '$lib/api';
 import { getEventClient } from '$lib/events';
 import type { Tab } from '$lib/types';
 
+const LS_ACTIVE_TAB = 'hubris-active-tab';
+const LS_TAB_BY_PROJECT = 'hubris-active-tab-by-project';
+
+function lsGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function lsGetJson<T>(key: string): T | null {
+  const raw = lsGet(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key: string, value: unknown): void {
+  try {
+    if (value == null) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(
+        key,
+        typeof value === 'string'
+          ? value
+          : JSON.stringify(value),
+      );
+    }
+  } catch {
+    // localStorage full or unavailable
+  }
+}
+
+function persistSelection(): void {
+  lsSet(LS_ACTIVE_TAB, activeTabId);
+  lsSet(LS_TAB_BY_PROJECT, activeTabByProject);
+}
+
 let tabs = $state<Tab[]>([]);
-let activeTabId = $state<string | null>(null);
-const activeTabByProject = $state<Record<string, string>>({});
+let activeTabId = $state<string | null>(
+  lsGet(LS_ACTIVE_TAB),
+);
+const activeTabByProject = $state<Record<string, string>>(
+  lsGetJson<Record<string, string>>(LS_TAB_BY_PROJECT) ?? {},
+);
 let initialized = false;
 
 function sortedTabs(list: Tab[]): Tab[] {
@@ -21,6 +68,7 @@ export function getTabStore() {
       // Validate activeTabId still exists
       if (activeTabId && !tabs.find((t) => t.id === activeTabId)) {
         activeTabId = null;
+        persistSelection();
       }
     });
 
@@ -51,6 +99,7 @@ export function getTabStore() {
       if (projectId) {
         activeTabByProject[projectId] = activeTabId ?? '';
       }
+      persistSelection();
     }
   }
 
@@ -68,6 +117,7 @@ export function getTabStore() {
     }
     activeTabId = tab.id;
     activeTabByProject[projectId] = tab.id;
+    persistSelection();
     return tab;
   }
 
@@ -89,6 +139,7 @@ export function getTabStore() {
     if (tab) {
       activeTabByProject[tab.project_id] = id;
     }
+    persistSelection();
   }
 
   /** Get tabs for a specific project. */
@@ -110,6 +161,7 @@ export function getTabStore() {
     } else {
       activeTabId = null;
     }
+    persistSelection();
   }
 
   return {

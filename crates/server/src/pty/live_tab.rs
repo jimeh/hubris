@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use portable_pty::{Child, MasterPty};
@@ -35,6 +36,9 @@ pub struct LiveTab {
     pub pty_writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
     pub scrollback: Arc<Mutex<VecDeque<u8>>>,
+    /// Monotonic count of all bytes ever output by the PTY.
+    /// Used for resumable WebSocket reconnection.
+    total_bytes: Arc<AtomicU64>,
     pub output_tx: broadcast::Sender<Vec<u8>>,
     pub close_tx: broadcast::Sender<()>,
     _reader_handle: JoinHandle<()>,
@@ -54,10 +58,12 @@ impl LiveTab {
         let writer = master.take_writer().unwrap();
 
         let scrollback = Arc::new(Mutex::new(VecDeque::with_capacity(scrollback_size)));
+        let total_bytes = Arc::new(AtomicU64::new(0));
         let (output_tx, _) = broadcast::channel(64);
         let (close_tx, _) = broadcast::channel(1);
 
         let sb = scrollback.clone();
+        let tb = total_bytes.clone();
         let tx = output_tx.clone();
         let ctx = close_tx.clone();
 
@@ -77,6 +83,7 @@ impl LiveTab {
                                 sb.push_back(byte);
                             }
                         }
+                        tb.fetch_add(n as u64, Ordering::Relaxed);
                         let _ = tx.send(data);
                     }
                     Err(_) => break,
@@ -92,6 +99,7 @@ impl LiveTab {
             pty_writer: Mutex::new(writer),
             child: Mutex::new(child),
             scrollback,
+            total_bytes,
             output_tx,
             close_tx,
             _reader_handle: reader_handle,
@@ -111,7 +119,11 @@ impl LiveTab {
     }
 
     /// Attach to this tab's output stream. Returns:
-    /// - scrollback snapshot (all buffered output)
+    /// - scrollback snapshot (missed bytes, or full buffer)
+    /// - byte_offset (total bytes ever output — the
+    ///   client's new position counter)
+    /// - data_lost (true if gap exceeds scrollback; client
+    ///   should clear its terminal before writing snapshot)
     /// - output receiver (live PTY output)
     /// - close receiver (shell exit notification)
     ///
@@ -120,16 +132,42 @@ impl LiveTab {
     /// is missed between snapshot and subscription.
     pub fn attach(
         &self,
+        resume_from: Option<u64>,
     ) -> (
         Vec<u8>,
+        u64,
+        bool,
         broadcast::Receiver<Vec<u8>>,
         broadcast::Receiver<()>,
     ) {
         let sb = self.scrollback.lock().unwrap();
-        let snapshot: Vec<u8> = sb.iter().copied().collect();
+        let total = self.total_bytes.load(Ordering::Relaxed);
+
+        let (snapshot, data_lost) = match resume_from {
+            None => {
+                // First connect: send full scrollback
+                (sb.iter().copied().collect(), false)
+            }
+            Some(pos) if pos >= total => {
+                // Client is caught up (or somehow ahead)
+                (Vec::new(), false)
+            }
+            Some(pos) => {
+                let missed = (total - pos) as usize;
+                if missed <= sb.len() {
+                    // Gap fits in scrollback — send tail
+                    let start = sb.len() - missed;
+                    (sb.iter().skip(start).copied().collect(), false)
+                } else {
+                    // Gap exceeds scrollback — data lost
+                    (sb.iter().copied().collect(), true)
+                }
+            }
+        };
+
         let output_rx = self.output_tx.subscribe();
         let close_rx = self.close_tx.subscribe();
-        (snapshot, output_rx, close_rx)
+        (snapshot, total, data_lost, output_rx, close_rx)
     }
 
     /// Notify all attached clients that this tab is
