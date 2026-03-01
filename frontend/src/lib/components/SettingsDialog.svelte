@@ -10,7 +10,7 @@
   import { BUNDLED_FONTS } from '$lib/terminal/fonts';
   import ThemeManager from './ThemeManager.svelte';
   import ThemeSelect from './ThemeSelect.svelte';
-  import { Sun, Moon, Monitor, Type } from '@lucide/svelte';
+  import { Sun, Moon, Monitor, Type, Minus, Plus } from '@lucide/svelte';
 
   let {
     open = $bindable(false),
@@ -217,17 +217,40 @@
         <!-- Font Size -->
         <div class="grid grid-cols-[120px_1fr] items-center gap-3">
           <Label>Font Size</Label>
-          <Input
-            type="number"
-            min={8}
-            max={32}
-            value={termStore.settings.fontSize}
-            onchange={(e) =>
-              termStore.updateSettings({
-                fontSize: parseInt(e.currentTarget.value, 10) || 14,
-              })}
-            class="w-20"
-          />
+          <div class="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              disabled={termStore.settings.fontSize <= 8}
+              onclick={() =>
+                termStore.updateSettings({
+                  fontSize: termStore.settings.fontSize - 1,
+                })}
+            >
+              <Minus class="h-3.5 w-3.5" />
+            </Button>
+            <Input
+              type="text"
+              inputmode="numeric"
+              value={termStore.settings.fontSize}
+              onchange={(e) =>
+                termStore.updateSettings({
+                  fontSize: parseInt(e.currentTarget.value, 10) || 14,
+                })}
+              class="h-8 w-14 text-center"
+            />
+            <Button
+              variant="outline"
+              size="icon-sm"
+              disabled={termStore.settings.fontSize >= 32}
+              onclick={() =>
+                termStore.updateSettings({
+                  fontSize: termStore.settings.fontSize + 1,
+                })}
+            >
+              <Plus class="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
 
         <!-- Font Preview -->

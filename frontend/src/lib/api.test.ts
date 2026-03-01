@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock location for terminalWsUrl
@@ -17,11 +18,14 @@ const {
   createTab,
   deleteTab,
   updateTab,
+  getSettings,
+  saveSettings,
 } = await import('./api');
 
 describe('API client', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    localStorage.clear();
   });
 
   describe('listProjects', () => {
@@ -284,6 +288,155 @@ describe('API client', () => {
         body: JSON.stringify({ label: 'My Shell' }),
       });
       expect(result).toEqual(mockTab);
+    });
+  });
+
+  describe('getSettings', () => {
+    it('fetches from /api/settings and returns JSON', async () => {
+      const mockSettings = {
+        appearance: {
+          colorScheme: 'dark',
+          lightTheme: 'catppuccin-latte',
+          darkTheme: 'catppuccin-mocha',
+        },
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockSettings),
+        }),
+      );
+
+      const result = await getSettings();
+      expect(fetch).toHaveBeenCalledWith('/api/settings');
+      expect(result).toEqual(mockSettings);
+    });
+
+    it('throws on non-OK response', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+        }),
+      );
+
+      await expect(getSettings()).rejects.toThrow('500');
+    });
+  });
+
+  describe('saveSettings', () => {
+    it('caches appearance in localStorage', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({}),
+        }),
+      );
+
+      const appearance = {
+        colorScheme: 'dark' as const,
+        lightTheme: 'catppuccin-latte',
+        darkTheme: 'catppuccin-mocha',
+      };
+      await saveSettings({ appearance });
+
+      expect(localStorage.getItem('hubris-appearance')).toBe(
+        JSON.stringify(appearance),
+      );
+    });
+
+    it('caches terminal settings in localStorage', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({}),
+        }),
+      );
+
+      const terminal = {
+        fontSource: 'bundled' as const,
+        systemFontFamily: '',
+        bundledFont: 'hack-nf',
+        fontSize: 16,
+      };
+      await saveSettings({ terminal });
+
+      expect(localStorage.getItem('hubris-terminal')).toBe(
+        JSON.stringify(terminal),
+      );
+    });
+
+    it('does read-modify-write to preserve sibling sections', async () => {
+      const existingSettings = {
+        appearance: {
+          colorScheme: 'dark',
+          lightTheme: 'catppuccin-latte',
+          darkTheme: 'catppuccin-mocha',
+        },
+      };
+
+      let callCount = 0;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+          callCount++;
+          if (!init?.method || init.method === 'GET') {
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve(existingSettings),
+            });
+          }
+          return Promise.resolve({ ok: true });
+        }),
+      );
+
+      const terminal = {
+        fontSource: 'default' as const,
+        systemFontFamily: '',
+        bundledFont: 'jetbrainsmono-nf',
+        fontSize: 14,
+      };
+      await saveSettings({ terminal });
+
+      // Should have made 2 fetch calls: GET then PUT
+      expect(callCount).toBe(2);
+
+      // The PUT body should contain BOTH appearance
+      // (from GET) and terminal (from caller)
+      const putCall = vi.mocked(fetch).mock.calls[1];
+      const putBody = JSON.parse(putCall[1]!.body as string);
+      expect(putBody.appearance).toEqual(existingSettings.appearance);
+      expect(putBody.terminal).toEqual(terminal);
+    });
+
+    it('throws on non-OK PUT response', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+          if (!init?.method || init.method === 'GET') {
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve({}),
+            });
+          }
+          return Promise.resolve({ ok: false, status: 500 });
+        }),
+      );
+
+      await expect(
+        saveSettings({
+          terminal: {
+            fontSource: 'default',
+            systemFontFamily: '',
+            bundledFont: '',
+            fontSize: 14,
+          },
+        }),
+      ).rejects.toThrow('500');
     });
   });
 });

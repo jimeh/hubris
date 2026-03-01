@@ -89,25 +89,28 @@ export async function loadBundledFont(id: string): Promise<string> {
   if (!font) throw new Error(`Unknown bundled font: ${id}`);
   if (loadedFonts.has(id)) return font.family;
 
-  const style = document.createElement('style');
-  style.id = `bundled-font-${id}`;
-  style.textContent = `
-    @font-face {
-      font-family: '${font.family}';
-      src: url('${font.regular}') format('woff2');
-      font-weight: 400;
-      font-style: normal;
-      font-display: block;
-    }
-    @font-face {
-      font-family: '${font.family}';
-      src: url('${font.bold}') format('woff2');
-      font-weight: 700;
-      font-style: normal;
-      font-display: block;
-    }
-  `;
-  document.head.appendChild(style);
+  // Reuse existing <style> from a previous failed attempt
+  if (!document.getElementById(`bundled-font-${id}`)) {
+    const style = document.createElement('style');
+    style.id = `bundled-font-${id}`;
+    style.textContent = `
+      @font-face {
+        font-family: '${font.family}';
+        src: url('${font.regular}') format('woff2');
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: '${font.family}';
+        src: url('${font.bold}') format('woff2');
+        font-weight: 700;
+        font-style: normal;
+        font-display: block;
+      }
+    `;
+    document.head.appendChild(style);
+  }
 
   // Wait for browser to fetch and parse the font files
   await document.fonts.load(`400 16px '${font.family}'`);
