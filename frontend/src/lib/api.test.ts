@@ -12,6 +12,7 @@ const {
   listProjects,
   addProject,
   updateProject,
+  reorderProjects,
   deleteProject,
   terminalWsUrl,
   listFiles,
@@ -84,12 +85,12 @@ describe('API client', () => {
   });
 
   describe('updateProject', () => {
-    it('sends PATCH with position', async () => {
+    it('sends PATCH with name', async () => {
       const mockProject = {
         id: 'p1',
-        name: 'test',
+        name: 'Renamed',
         path: '/test',
-        position: 5.5,
+        position: 1.0,
       };
       vi.stubGlobal(
         'fetch',
@@ -99,13 +100,37 @@ describe('API client', () => {
         }),
       );
 
-      const result = await updateProject('p1', { position: 5.5 });
+      const result = await updateProject('p1', { name: 'Renamed' });
       expect(fetch).toHaveBeenCalledWith('/api/projects/p1', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ position: 5.5 }),
+        body: JSON.stringify({ name: 'Renamed' }),
       });
       expect(result).toEqual(mockProject);
+    });
+  });
+
+  describe('reorderProjects', () => {
+    it('sends PUT with project_ids', async () => {
+      const mockProjects = [
+        { id: 'p2', name: 'var', path: '/var', position: 1.0 },
+        { id: 'p1', name: 'tmp', path: '/tmp', position: 2.0 },
+      ];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockProjects),
+        }),
+      );
+
+      const result = await reorderProjects(['p2', 'p1']);
+      expect(fetch).toHaveBeenCalledWith('/api/projects/reorder', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_ids: ['p2', 'p1'] }),
+      });
+      expect(result).toEqual(mockProjects);
     });
   });
 

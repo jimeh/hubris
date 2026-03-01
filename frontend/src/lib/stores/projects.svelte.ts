@@ -1,4 +1,4 @@
-import { addProject, deleteProject, updateProject } from '$lib/api';
+import { addProject, deleteProject, reorderProjects } from '$lib/api';
 import { getEventClient } from '$lib/events';
 import type { Project } from '$lib/types';
 
@@ -59,6 +59,13 @@ export function getProjectStore() {
         selected = project;
       }
     });
+
+    events.on<Project[]>('projects_reordered', (reordered) => {
+      projects = reordered; // already sorted by backend
+      if (selected && !projects.find((p) => p.id === selected!.id)) {
+        selected = null;
+      }
+    });
   }
 
   async function add(path: string) {
@@ -88,12 +95,15 @@ export function getProjectStore() {
     }
   }
 
-  async function reorder(id: string, position: number): Promise<void> {
-    // Optimistic: update position locally
-    projects = sortedProjects(
-      projects.map((p) => (p.id === id ? { ...p, position } : p)),
-    );
-    await updateProject(id, { position });
+  async function reorder(orderedIds: string[]): Promise<void> {
+    // Optimistic: resequence locally with clean integers
+    projects = [...projects]
+      .map((p) => {
+        const idx = orderedIds.indexOf(p.id);
+        return { ...p, position: idx >= 0 ? idx + 1 : p.position };
+      })
+      .sort((a, b) => a.position - b.position);
+    await reorderProjects(orderedIds);
   }
 
   function select(project: Project) {

@@ -42,9 +42,12 @@ pub enum EventKind {
     /// A project was removed.
     #[serde(rename = "project_removed")]
     ProjectRemoved { project_id: String },
-    /// A project's metadata changed (position, name).
+    /// A project's metadata changed (name).
     #[serde(rename = "project_updated")]
     ProjectUpdated(Project),
+    /// All projects were reordered.
+    #[serde(rename = "projects_reordered")]
+    ProjectsReordered(Vec<Project>),
 }
 
 impl EventKind {
@@ -58,6 +61,7 @@ impl EventKind {
             EventKind::ProjectAdded(_) => "project_added",
             EventKind::ProjectRemoved { .. } => "project_removed",
             EventKind::ProjectUpdated(_) => "project_updated",
+            EventKind::ProjectsReordered(_) => "projects_reordered",
         }
     }
 }

@@ -7,13 +7,13 @@ pub mod state;
 use axum::Router;
 use axum::http::Method;
 use axum::http::header::CONTENT_TYPE;
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, put};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use api::events::event_stream;
 use api::files::list_files;
-use api::projects::{add_project, delete_project, list_projects, update_project};
+use api::projects::{add_project, delete_project, list_projects, reorder_projects, update_project};
 use api::settings::{get_settings, save_settings};
 use api::tabs::{create_tab, delete_tab, list_tabs, update_tab};
 use api::terminal::ws_handler;
@@ -72,6 +72,7 @@ pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
         .route("/files", get(list_files))
         .route("/projects", get(list_projects).post(add_project))
+        .route("/projects/reorder", put(reorder_projects))
         .route(
             "/projects/{id}",
             delete(delete_project).patch(update_project),

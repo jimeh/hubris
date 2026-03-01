@@ -104,8 +104,11 @@ reconciliation — drift corrects on reconnect.
 - **rustfmt style_edition 2024**: Formats more aggressively than
   default (collapses single-line signatures, method chains). Always
   run `cargo fmt` after edits.
-- **Position fields**: Both Tab and Project use f64 for fractional
-  ordering (midpoint insertion between neighbors).
+- **Tab position**: f64 for fractional ordering (midpoint insertion).
+- **Project reorder**: Bulk `PUT /api/projects/reorder` with ordered
+  IDs. Backend resequences all positions as clean integers (1, 2, 3, …)
+  and emits a single `projects_reordered` SSE event. Do NOT use PATCH
+  to set individual project positions.
 - **svelte-dnd-action + button elements**: The library's mousedown
   guard rejects nested elements with a `value` property (buttons,
   inputs). Use the `child` snippet on `Sidebar.MenuButton` to render

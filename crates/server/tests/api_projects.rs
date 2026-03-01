@@ -122,11 +122,11 @@ async fn test_list_after_add() {
 }
 
 #[tokio::test]
-async fn test_projects_sorted_by_position() {
+async fn test_reorder_projects() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    // Add two projects
+    // Add two projects (tmp=pos 1, var=pos 2)
     let res = client
         .post(format!("{}/api/projects", base))
         .json(&serde_json::json!({ "path": "/tmp" }))
@@ -136,22 +136,34 @@ async fn test_projects_sorted_by_position() {
     let p1: Value = res.json().await.unwrap();
     let p1_id = p1["id"].as_str().unwrap();
 
-    client
+    let res = client
         .post(format!("{}/api/projects", base))
         .json(&serde_json::json!({ "path": "/var" }))
         .send()
         .await
         .unwrap();
+    let p2: Value = res.json().await.unwrap();
+    let p2_id = p2["id"].as_str().unwrap();
 
-    // Move first project to position 10
-    client
-        .patch(format!("{}/api/projects/{}", base, p1_id))
-        .json(&serde_json::json!({ "position": 10.0 }))
+    // Reorder: put /var first, /tmp second
+    let res = client
+        .put(format!("{}/api/projects/reorder", base))
+        .json(&serde_json::json!({
+            "project_ids": [p2_id, p1_id]
+        }))
         .send()
         .await
         .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
 
-    // List should now show /var first (pos 2.0) then /tmp (pos 10.0)
+    let body: Vec<Value> = res.json().await.unwrap();
+    assert_eq!(body.len(), 2);
+    assert_eq!(body[0]["name"], "var");
+    assert_eq!(body[0]["position"], 1.0);
+    assert_eq!(body[1]["name"], "tmp");
+    assert_eq!(body[1]["position"], 2.0);
+
+    // Verify list endpoint also returns new order
     let res = client
         .get(format!("{}/api/projects", base))
         .send()
@@ -163,30 +175,27 @@ async fn test_projects_sorted_by_position() {
 }
 
 #[tokio::test]
-async fn test_update_project_position() {
+async fn test_reorder_invalid_ids() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let res = client
+    client
         .post(format!("{}/api/projects", base))
         .json(&serde_json::json!({ "path": "/tmp" }))
         .send()
         .await
         .unwrap();
-    let project: Value = res.json().await.unwrap();
-    let id = project["id"].as_str().unwrap();
 
+    // Reorder with nonexistent ID
     let res = client
-        .patch(format!("{}/api/projects/{}", base, id))
-        .json(&serde_json::json!({ "position": 5.5 }))
+        .put(format!("{}/api/projects/reorder", base))
+        .json(&serde_json::json!({
+            "project_ids": ["nonexistent"]
+        }))
         .send()
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let body: Value = res.json().await.unwrap();
-    assert_eq!(body["position"], 5.5);
-    assert_eq!(body["name"], "tmp");
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -222,7 +231,7 @@ async fn test_update_nonexistent_project() {
 
     let res = client
         .patch(format!("{}/api/projects/nonexistent-id", base))
-        .json(&serde_json::json!({ "position": 1.0 }))
+        .json(&serde_json::json!({ "name": "test" }))
         .send()
         .await
         .unwrap();

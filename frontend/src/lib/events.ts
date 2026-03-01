@@ -8,6 +8,7 @@ const SSE_EVENT_NAMES = [
   'project_added',
   'project_removed',
   'project_updated',
+  'projects_reordered',
 ] as const;
 
 export type SseEventName = (typeof SSE_EVENT_NAMES)[number];

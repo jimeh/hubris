@@ -37,31 +37,7 @@
   function handleFinalize(e: CustomEvent<{ items: DndProject[] }>) {
     dndItems = e.detail.items;
     dragging = false;
-
-    // Find the item that moved and compute new position
-    const newOrder = dndItems;
-    for (let i = 0; i < newOrder.length; i++) {
-      const item = newOrder[i];
-      const storeIdx = store.projects.findIndex(
-        (p: Project) => p.id === item.id,
-      );
-      if (storeIdx !== i) {
-        const prev = i > 0 ? newOrder[i - 1].position : null;
-        const next = i < newOrder.length - 1 ? newOrder[i + 1].position : null;
-        let newPos: number;
-        if (prev !== null && next !== null) {
-          newPos = (prev + next) / 2;
-        } else if (prev !== null) {
-          newPos = prev + 1.0;
-        } else if (next !== null) {
-          newPos = next - 1.0;
-        } else {
-          newPos = 1.0;
-        }
-        store.reorder(item.id, newPos);
-        break;
-      }
-    }
+    store.reorder(dndItems.map((p) => p.id));
   }
 
   function removeProject(e: MouseEvent, id: string) {

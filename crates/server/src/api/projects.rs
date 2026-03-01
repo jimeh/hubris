@@ -24,8 +24,12 @@ pub struct AddProjectRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateProjectRequest {
-    pub position: Option<f64>,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReorderProjectsRequest {
+    pub project_ids: Vec<String>,
 }
 
 async fn save_projects(state: &AppState, projects: &[Project]) -> Result<(), std::io::Error> {
@@ -91,9 +95,6 @@ pub async fn update_project(
         .iter_mut()
         .find(|p| p.id == id)
         .ok_or(StatusCode::NOT_FOUND)?;
-    if let Some(pos) = req.position {
-        project.position = pos;
-    }
     if let Some(name) = req.name {
         project.name = name;
     }
@@ -105,6 +106,49 @@ pub async fn update_project(
         .events
         .emit(EventKind::ProjectUpdated(updated.clone()));
     Ok(Json(updated))
+}
+
+pub async fn reorder_projects(
+    State(state): State<AppState>,
+    Json(req): Json<ReorderProjectsRequest>,
+) -> Result<Json<Vec<Project>>, StatusCode> {
+    let mut projects = state
+        .load_projects()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Validate: request must contain exactly the same IDs
+    if req.project_ids.len() != projects.len() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let all_exist = req
+        .project_ids
+        .iter()
+        .all(|id| projects.iter().any(|p| p.id == *id));
+    if !all_exist {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Resequence: assign 1.0, 2.0, 3.0, … based on
+    // requested order
+    for (i, id) in req.project_ids.iter().enumerate() {
+        if let Some(p) = projects.iter_mut().find(|p| p.id == *id) {
+            p.position = (i + 1) as f64;
+        }
+    }
+    projects.sort_by(|a, b| {
+        a.position
+            .partial_cmp(&b.position)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    save_projects(&state, &projects)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .events
+        .emit(EventKind::ProjectsReordered(projects.clone()));
+    Ok(Json(projects))
 }
 
 pub async fn delete_project(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {

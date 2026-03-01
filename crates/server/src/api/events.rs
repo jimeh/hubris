@@ -78,7 +78,8 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         // Project events are session-independent
         EventKind::ProjectAdded(_)
         | EventKind::ProjectRemoved { .. }
-        | EventKind::ProjectUpdated(_) => true,
+        | EventKind::ProjectUpdated(_)
+        | EventKind::ProjectsReordered(_) => true,
     }
 }
 
