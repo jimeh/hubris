@@ -1,5 +1,10 @@
 import type { ListFilesResponse, Project, Tab } from './types';
-import type { AppearanceSettings, HubrisTheme, ThemeMeta } from './theme/types';
+import type {
+  AppearanceSettings,
+  HubrisTheme,
+  TerminalSettings,
+  ThemeMeta,
+} from './theme/types';
 
 const BASE = '/api';
 
@@ -88,23 +93,42 @@ export function terminalWsUrl(tabId: string): string {
 
 export async function getSettings(): Promise<{
   appearance?: AppearanceSettings;
+  terminal?: TerminalSettings;
 }> {
   const res = await fetch(`${BASE}/settings`);
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
 
-export async function saveSettings(value: {
-  appearance: AppearanceSettings;
+export async function saveSettings(partial: {
+  appearance?: AppearanceSettings;
+  terminal?: TerminalSettings;
 }): Promise<void> {
-  // Also cache in localStorage for FOUC script
-  localStorage.setItem('hubris-appearance', JSON.stringify(value.appearance));
+  // Read-modify-write to avoid clobbering sibling sections
+  const current = await getSettings();
+  const merged = { ...current, ...partial };
+
   const res = await fetch(`${BASE}/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(value),
+    body: JSON.stringify(merged),
   });
   if (!res.ok) throw new Error(`${res.status}`);
+
+  // Cache in localStorage only after server confirms —
+  // avoids desync if the save fails
+  if (partial.appearance) {
+    localStorage.setItem(
+      'hubris-appearance',
+      JSON.stringify(partial.appearance),
+    );
+  }
+  if (partial.terminal) {
+    localStorage.setItem(
+      'hubris-terminal',
+      JSON.stringify(partial.terminal),
+    );
+  }
 }
 
 // --- User Themes ---

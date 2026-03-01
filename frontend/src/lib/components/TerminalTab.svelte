@@ -3,6 +3,7 @@
   import { createXtermAdapter } from '$lib/terminal/xterm';
   import { terminalWsUrl } from '$lib/api';
   import { getThemeStore } from '$lib/stores/theme.svelte';
+  import { getTerminalStore } from '$lib/stores/terminal.svelte';
   import type { TerminalAdapter } from '$lib/terminal/adapter';
 
   let {
@@ -16,13 +17,17 @@
   } = $props();
 
   const theme = getThemeStore();
+  const termStore = getTerminalStore();
 
   let containerEl: HTMLDivElement;
   let terminal: TerminalAdapter | null = null;
   let ws: WebSocket | null = null;
 
   onMount(() => {
-    terminal = createXtermAdapter();
+    terminal = createXtermAdapter({
+      fontSize: termStore.fontSize,
+      fontFamily: termStore.fontFamily,
+    });
     terminal.open(containerEl);
 
     ws = new WebSocket(terminalWsUrl(tabId));
@@ -101,6 +106,28 @@
   $effect(() => {
     void theme.version;
     if (terminal) terminal.refreshTheme();
+  });
+
+  // Update terminal font when settings change
+  $effect(() => {
+    void termStore.version;
+    if (terminal) {
+      terminal.updateFont(
+        termStore.fontFamily,
+        termStore.fontSize,
+      );
+      // Notify PTY of new dimensions — font change
+      // alters cols/rows via fitAddon.fit()
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: 'resize',
+            cols: terminal.cols,
+            rows: terminal.rows,
+          }),
+        );
+      }
+    }
   });
 
   onDestroy(() => {
