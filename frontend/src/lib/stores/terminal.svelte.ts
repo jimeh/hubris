@@ -43,9 +43,7 @@ async function init() {
   await applyFont();
 }
 
-async function updateSettings(
-  partial: Partial<TerminalSettings>,
-) {
+async function updateSettings(partial: Partial<TerminalSettings>) {
   if (partial.fontSize !== undefined) {
     partial = {
       ...partial,

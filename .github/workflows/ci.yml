@@ -18,6 +18,9 @@ jobs:
       - name: Install dependencies
         run: cd frontend && bun install --frozen-lockfile
 
+      - name: Lint
+        run: cd frontend && bun run lint
+
       - name: Type check
         run: cd frontend && bun run check
 

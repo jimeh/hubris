@@ -149,10 +149,7 @@ export async function saveSettings(partial: {
     );
   }
   if (partial.terminal) {
-    localStorage.setItem(
-      'hubris-terminal',
-      JSON.stringify(partial.terminal),
-    );
+    localStorage.setItem('hubris-terminal', JSON.stringify(partial.terminal));
   }
 }
 

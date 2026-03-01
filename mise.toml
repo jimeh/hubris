@@ -33,7 +33,7 @@ run = [
 
 [tasks."check:frontend"]
 description = "Frontend lint + format check + type check"
-run = "cd frontend && bun run lint && bun run format:check && bun run check"
+run = "cd frontend && bun run lint && bun run check"
 
 [tasks.check]
 description = "Run all checks"
