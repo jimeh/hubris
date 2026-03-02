@@ -10,6 +10,8 @@
     ChevronDown,
     ChevronRight,
     Ellipsis,
+    Folder,
+    FolderOpen,
     Pencil,
     Plus,
     Settings,
@@ -222,6 +224,9 @@
             flipDurationMs: FLIP_MS,
             type: 'projects',
             dropTargetStyle: {},
+            centreDraggedOnCursor: false,
+            useCursorForDetection: true,
+            morphDisabled: true,
           }}
           onconsider={handleProjectConsider}
           onfinalize={handleProjectFinalize}
@@ -244,9 +249,19 @@
                   >
                     <div class="flex items-center gap-2 truncate">
                       {#if projectStore.isExpanded(project.id)}
-                        <ChevronDown class="h-3.5 w-3.5 shrink-0" />
+                        <FolderOpen
+                          class="h-3.5 w-3.5 shrink-0 group-hover/menu-item:hidden"
+                        />
+                        <ChevronDown
+                          class="hidden h-3.5 w-3.5 shrink-0 group-hover/menu-item:block"
+                        />
                       {:else}
-                        <ChevronRight class="h-3.5 w-3.5 shrink-0" />
+                        <Folder
+                          class="h-3.5 w-3.5 shrink-0 group-hover/menu-item:hidden"
+                        />
+                        <ChevronRight
+                          class="hidden h-3.5 w-3.5 shrink-0 group-hover/menu-item:block"
+                        />
                       {/if}
                       <span class="truncate">{project.name}</span>
                     </div>
@@ -257,7 +272,20 @@
                         git error
                       </span>
                     {/if}
-                    <div class="ml-auto flex items-center gap-1">
+                    <div
+                      class={`ml-auto flex items-center gap-1 transition-opacity ${
+                        openProjectMenuId === project.id
+                          ? 'opacity-100'
+                          : 'opacity-0 group-hover/menu-item:opacity-100'
+                      }`}
+                    >
+                      <button
+                        class="rounded p-1 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        title="Project actions"
+                        onclick={(e) => toggleProjectMenu(e, project.id)}
+                      >
+                        <Ellipsis class="h-3.5 w-3.5" />
+                      </button>
                       <button
                         class="rounded p-1 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                         title="New worktree"
@@ -267,13 +295,6 @@
                         }}
                       >
                         <Plus class="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        class="rounded p-1 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                        title="Project actions"
-                        onclick={(e) => toggleProjectMenu(e, project.id)}
-                      >
-                        <Ellipsis class="h-3.5 w-3.5" />
                       </button>
                     </div>
 
@@ -309,7 +330,12 @@
               </Sidebar.MenuButton>
 
               {#if projectStore.isExpanded(project.id)}
-                <div class="ml-6 mt-1 space-y-1">
+                <div
+                  class="ml-6 mt-1 space-y-1"
+                  role="presentation"
+                  onmousedown={(e) => e.stopPropagation()}
+                  ontouchstart={(e) => e.stopPropagation()}
+                >
                   {#if localWorktree(project.id)}
                     <button
                       class="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-sidebar-accent
