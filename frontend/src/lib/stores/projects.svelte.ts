@@ -1,4 +1,9 @@
-import { addProject, deleteProject, reorderProjects } from '$lib/api';
+import {
+  addProject,
+  deleteProject,
+  reorderProjects,
+  updateProject,
+} from '$lib/api';
 import { getEventClient } from '$lib/events';
 import type { Project } from '$lib/types';
 
@@ -107,6 +112,13 @@ export function getProjectStore() {
     await reorderProjects(orderedIds);
   }
 
+  async function rename(id: string, name: string): Promise<void> {
+    const updated = await updateProject(id, { name });
+    projects = sortedProjects(
+      projects.map((project) => (project.id === id ? updated : project)),
+    );
+  }
+
   function toggleExpanded(projectId: string): void {
     expandedById[projectId] = !isExpanded(projectId);
     expandedById = { ...expandedById };
@@ -124,6 +136,7 @@ export function getProjectStore() {
     add,
     remove,
     reorder,
+    rename,
     toggleExpanded,
     isExpanded,
   };

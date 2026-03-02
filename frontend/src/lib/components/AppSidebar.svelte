@@ -2,15 +2,18 @@
   import * as Sidebar from '$lib/components/ui/sidebar/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import AddProjectDialog from './AddProjectDialog.svelte';
+  import AddWorktreeDialog from './AddWorktreeDialog.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import RenameProjectDialog from './RenameProjectDialog.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
   import {
     ChevronDown,
     ChevronRight,
+    Ellipsis,
+    Pencil,
     Plus,
     Settings,
     Trash2,
-    X,
   } from '@lucide/svelte';
   import { dndzone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
   import type { Project, Worktree } from '$lib/types';
@@ -20,6 +23,7 @@
     add(path: string): Promise<Project>;
     remove(id: string, force?: boolean): Promise<void>;
     reorder(orderedIds: string[]): Promise<void>;
+    rename(id: string, name: string): Promise<void>;
     toggleExpanded(projectId: string): void;
     isExpanded(projectId: string): boolean;
   }
@@ -48,7 +52,24 @@
 
   let showDialog = $state(false);
   let showSettings = $state(false);
+  let createWorktreeTarget = $state<{
+    projectId: string;
+    projectName: string;
+  } | null>(null);
+  let renameProjectTarget = $state<{
+    projectId: string;
+    currentName: string;
+  } | null>(null);
+  let openProjectMenuId = $state<string | null>(null);
   let confirmRemoveProjectId = $state<string | null>(null);
+  let confirmRemoveWorktree = $state<{
+    projectId: string;
+    worktree: Worktree;
+  } | null>(null);
+  let confirmForceRemoveWorktree = $state<{
+    projectId: string;
+    worktree: Worktree;
+  } | null>(null);
 
   const FLIP_MS = 150;
 
@@ -92,6 +113,11 @@
     projectStore.reorder(dndProjects.map((project) => project.id));
   }
 
+  function toggleProjectExpanded(projectId: string): void {
+    openProjectMenuId = null;
+    projectStore.toggleExpanded(projectId);
+  }
+
   function handleWorktreeConsider(
     projectId: string,
     e: CustomEvent<{ items: DndWorktree[] }>,
@@ -120,35 +146,34 @@
     );
   }
 
-  async function createWorktree(projectId: string): Promise<void> {
-    const branch = window.prompt('New worktree branch name:');
-    if (!branch) return;
-    const trimmed = branch.trim();
-    if (!trimmed) return;
-    try {
-      await worktreeStore.create(projectId, trimmed);
-    } catch (err) {
-      alert(`Failed to create worktree (${(err as Error).message})`);
-    }
+  function openCreateWorktree(projectId: string, projectName: string): void {
+    createWorktreeTarget = { projectId, projectName };
+  }
+
+  function toggleProjectMenu(e: MouseEvent, projectId: string): void {
+    e.stopPropagation();
+    openProjectMenuId = openProjectMenuId === projectId ? null : projectId;
+  }
+
+  function openRenameProject(projectId: string, currentName: string): void {
+    openProjectMenuId = null;
+    renameProjectTarget = { projectId, currentName };
   }
 
   async function removeWorktree(
     projectId: string,
     worktree: Worktree,
+    force = false,
   ): Promise<void> {
-    if (worktree.is_local) return;
-    if (!window.confirm(`Delete worktree "${worktree.name}"?`)) return;
-
+    if (worktree.is_local) {
+      return;
+    }
     try {
-      await worktreeStore.remove(projectId, worktree.id, false);
+      await worktreeStore.remove(projectId, worktree.id, force);
     } catch (err) {
       const message = (err as Error).message;
-      if (message === '409') {
-        const force = window.confirm(
-          'Worktree has changes or is busy. Force delete this worktree?',
-        );
-        if (!force) return;
-        await worktreeStore.remove(projectId, worktree.id, true);
+      if (!force && message === '409') {
+        confirmForceRemoveWorktree = { projectId, worktree };
       } else {
         alert(`Failed to delete worktree (${message})`);
       }
@@ -208,13 +233,14 @@
             >
               <Sidebar.MenuButton
                 isActive={false}
-                onclick={() => projectStore.toggleExpanded(project.id)}
+                size="sm"
+                onclick={() => toggleProjectExpanded(project.id)}
                 class={draggingProjects ? 'cursor-grabbing' : 'cursor-default'}
               >
                 {#snippet child({ props })}
                   <div
                     {...props}
-                    class="flex items-center justify-between gap-2"
+                    class="relative flex items-center gap-2 px-2 py-1"
                   >
                     <div class="flex items-center gap-2 truncate">
                       {#if projectStore.isExpanded(project.id)}
@@ -231,19 +257,56 @@
                         git error
                       </span>
                     {/if}
+                    <div class="ml-auto flex items-center gap-1">
+                      <button
+                        class="rounded p-1 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        title="New worktree"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          openCreateWorktree(project.id, project.name);
+                        }}
+                      >
+                        <Plus class="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        class="rounded p-1 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        title="Project actions"
+                        onclick={(e) => toggleProjectMenu(e, project.id)}
+                      >
+                        <Ellipsis class="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {#if openProjectMenuId === project.id}
+                      <div
+                        class="absolute top-8 right-1 z-30 min-w-28 rounded-md border bg-popover p-1 shadow-md"
+                      >
+                        <button
+                          class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            openRenameProject(project.id, project.name);
+                          }}
+                        >
+                          <Pencil class="h-3.5 w-3.5" />
+                          Rename
+                        </button>
+                        <button
+                          class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm text-destructive hover:bg-destructive/10"
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            openProjectMenuId = null;
+                            confirmRemoveProjectId = project.id;
+                          }}
+                        >
+                          <Trash2 class="h-3.5 w-3.5" />
+                          Remove
+                        </button>
+                      </div>
+                    {/if}
                   </div>
                 {/snippet}
               </Sidebar.MenuButton>
-
-              <Sidebar.MenuAction
-                showOnHover
-                onclick={(e: MouseEvent) => {
-                  e.stopPropagation();
-                  confirmRemoveProjectId = project.id;
-                }}
-              >
-                <X class="h-3 w-3" />
-              </Sidebar.MenuAction>
 
               {#if projectStore.isExpanded(project.id)}
                 <div class="ml-6 mt-1 space-y-1">
@@ -289,7 +352,10 @@
                           title="Delete worktree"
                           onclick={(e) => {
                             e.stopPropagation();
-                            removeWorktree(project.id, worktree);
+                            confirmRemoveWorktree = {
+                              projectId: project.id,
+                              worktree,
+                            };
                           }}
                         >
                           <Trash2 class="h-3 w-3" />
@@ -297,16 +363,6 @@
                       </div>
                     {/each}
                   </div>
-
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    class="w-full justify-start text-xs text-muted-foreground"
-                    onclick={() => createWorktree(project.id)}
-                  >
-                    <Plus class="mr-1 h-3.5 w-3.5" />
-                    New Worktree
-                  </Button>
 
                   {#if worktreeStore.projectError(project.id)}
                     <p class="px-2 pb-1 text-xs text-destructive">
@@ -346,6 +402,26 @@
   />
 {/if}
 
+{#if createWorktreeTarget}
+  <AddWorktreeDialog
+    projectName={createWorktreeTarget.projectName}
+    onAdd={async (branch) => {
+      await worktreeStore.create(createWorktreeTarget!.projectId, branch);
+      createWorktreeTarget = null;
+    }}
+    onClose={() => (createWorktreeTarget = null)}
+  />
+{/if}
+
+{#if renameProjectTarget}
+  <RenameProjectDialog
+    currentName={renameProjectTarget.currentName}
+    onRename={(name) =>
+      projectStore.rename(renameProjectTarget!.projectId, name)}
+    onClose={() => (renameProjectTarget = null)}
+  />
+{/if}
+
 {#if confirmRemoveProjectId}
   {@const project = projectStore.projects.find(
     (p: Project) => p.id === confirmRemoveProjectId,
@@ -360,6 +436,36 @@
       confirmRemoveProjectId = null;
     }}
     onClose={() => (confirmRemoveProjectId = null)}
+  />
+{/if}
+
+{#if confirmRemoveWorktree}
+  <ConfirmDialog
+    title="Delete Worktree"
+    description="Delete worktree {confirmRemoveWorktree.worktree
+      .name}? This removes the worktree directory from disk."
+    confirmLabel="Delete"
+    onConfirm={() => {
+      const target = confirmRemoveWorktree!;
+      confirmRemoveWorktree = null;
+      void removeWorktree(target.projectId, target.worktree, false);
+    }}
+    onClose={() => (confirmRemoveWorktree = null)}
+  />
+{/if}
+
+{#if confirmForceRemoveWorktree}
+  <ConfirmDialog
+    title="Force Delete Worktree"
+    description="Worktree {confirmForceRemoveWorktree.worktree
+      .name} has uncommitted changes or is busy. Force delete it anyway?"
+    confirmLabel="Force Delete"
+    onConfirm={() => {
+      const target = confirmForceRemoveWorktree!;
+      confirmForceRemoveWorktree = null;
+      void removeWorktree(target.projectId, target.worktree, true);
+    }}
+    onClose={() => (confirmForceRemoveWorktree = null)}
   />
 {/if}
 
