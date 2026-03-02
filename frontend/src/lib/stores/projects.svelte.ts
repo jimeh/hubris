@@ -90,8 +90,10 @@ export function getProjectStore() {
     }
     try {
       await deleteProject(id);
-    } catch {
-      // Already gone (other browser removed it)
+    } catch (err) {
+      // 404 tolerated at API layer; log unexpected failures.
+      // SSE snapshot on reconnect will reconcile state.
+      console.error('Failed to delete project:', err);
     }
   }
 

@@ -53,7 +53,7 @@ export async function deleteProject(id: string): Promise<void> {
   const res = await fetch(`${BASE}/projects/${id}`, {
     method: 'DELETE',
   });
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
 }
 
 export async function listFiles(

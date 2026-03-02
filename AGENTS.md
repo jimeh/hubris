@@ -59,7 +59,7 @@ reconciliation — drift corrects on reconnect.
 - WS protocol: binary (PTY output), JSON control (`type: "resize"`,
   `type: "attached"` with `byte_offset`/`data_lost`)
 - SSE events: snapshot, tab_created, tab_closed, tab_updated,
-  project_added, project_removed, project_updated
+  project_added, project_removed, project_updated, projects_reordered
 
 ### Frontend (Svelte 5 / Vite / Tailwind v4)
 - Stores: rune-based singletons — grep `getProjectStore`, `getTabStore`,
@@ -115,6 +115,8 @@ reconciliation — drift corrects on reconnect.
   a `<div>` instead of `<button>` inside draggable containers.
 - **deleteTab tolerates 404**: Tab may already be gone (shell exit,
   other browser).
+- **deleteProject tolerates 404**: Project may already be gone (other
+  browser removed it). Matches deleteTab pattern.
 - **shadcn-svelte Select wrapper**: The default `select.svelte` from
   shadcn-svelte destructures `value`/`open` with `$bindable` and
   re-passes via `bind:`. This breaks the bits-ui `type` discriminant

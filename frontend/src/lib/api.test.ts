@@ -143,6 +143,31 @@ describe('API client', () => {
         method: 'DELETE',
       });
     });
+
+    it('tolerates 404 (already gone)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+        }),
+      );
+
+      // Should not throw
+      await deleteProject('abc-123');
+    });
+
+    it('throws on non-404 errors', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+        }),
+      );
+
+      await expect(deleteProject('abc-123')).rejects.toThrow('500');
+    });
   });
 
   describe('listFiles', () => {
