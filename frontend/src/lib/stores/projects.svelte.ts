@@ -2,14 +2,44 @@ import { addProject, deleteProject, reorderProjects } from '$lib/api';
 import { getEventClient } from '$lib/events';
 import type { Project } from '$lib/types';
 
-const LS_SELECTED = 'hubris-selected-project';
+const LS_EXPANDED = 'hubris-expanded-projects';
+
+function lsGetJson<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // localStorage unavailable
+  }
+}
 
 let projects = $state<Project[]>([]);
-let selected = $state<Project | null>(null);
+let expandedById = $state<Record<string, boolean>>(
+  lsGetJson<Record<string, boolean>>(LS_EXPANDED) ?? {},
+);
 let initialized = false;
 
 function sortedProjects(list: Project[]): Project[] {
   return [...list].sort((a, b) => a.position - b.position);
+}
+
+function ensureExpandedState(): void {
+  for (const project of projects) {
+    if (expandedById[project.id] === undefined) {
+      expandedById[project.id] = true;
+    }
+  }
+  expandedById = { ...expandedById };
+  lsSet(LS_EXPANDED, expandedById);
 }
 
 export function getProjectStore() {
@@ -20,113 +50,81 @@ export function getProjectStore() {
     events.on<{ projects: Project[] }>('snapshot', (data) => {
       if (data.projects) {
         projects = sortedProjects(data.projects);
-        // Validate selected still exists
-        if (selected && !projects.find((p) => p.id === selected!.id)) {
-          selected = null;
-        }
-        // Restore previously selected project from localStorage
-        if (!selected) {
-          try {
-            const savedId = localStorage.getItem(LS_SELECTED);
-            if (savedId) {
-              const match = projects.find((p) => p.id === savedId);
-              if (match) selected = match;
-            }
-          } catch {
-            // localStorage unavailable
-          }
-        }
+        ensureExpandedState();
       }
     });
 
     events.on<Project>('project_added', (project) => {
       if (!projects.find((p) => p.id === project.id)) {
         projects = sortedProjects([...projects, project]);
+        ensureExpandedState();
       }
     });
 
     events.on<{ project_id: string }>('project_removed', ({ project_id }) => {
       projects = projects.filter((p) => p.id !== project_id);
-      if (selected?.id === project_id) selected = null;
+      delete expandedById[project_id];
+      expandedById = { ...expandedById };
+      lsSet(LS_EXPANDED, expandedById);
     });
 
     events.on<Project>('project_updated', (project) => {
       projects = sortedProjects(
         projects.map((p) => (p.id === project.id ? project : p)),
       );
-      // Update selected reference if it was the updated project
-      if (selected?.id === project.id) {
-        selected = project;
-      }
     });
 
     events.on<Project[]>('projects_reordered', (reordered) => {
-      projects = reordered; // already sorted by backend
-      if (selected && !projects.find((p) => p.id === selected!.id)) {
-        selected = null;
-      }
+      projects = reordered;
+      ensureExpandedState();
     });
   }
 
-  async function add(path: string) {
+  async function add(path: string): Promise<Project> {
     const project = await addProject(path);
-    // Optimistic: add immediately, SSE deduplicates
     if (!projects.find((p) => p.id === project.id)) {
       projects = sortedProjects([...projects, project]);
+      ensureExpandedState();
     }
     return project;
   }
 
-  async function remove(id: string) {
-    // Optimistic remove
-    projects = projects.filter((p) => p.id !== id);
-    if (selected?.id === id) {
-      selected = null;
-      try {
-        localStorage.removeItem(LS_SELECTED);
-      } catch {
-        // localStorage unavailable
-      }
-    }
-    try {
-      await deleteProject(id);
-    } catch (err) {
-      // 404 tolerated at API layer; log unexpected failures.
-      // SSE snapshot on reconnect will reconcile state.
-      console.error('Failed to delete project:', err);
-    }
+  async function remove(id: string, force = false): Promise<void> {
+    await deleteProject(id, force);
   }
 
   async function reorder(orderedIds: string[]): Promise<void> {
-    // Optimistic: resequence locally with clean integers
     projects = [...projects]
-      .map((p) => {
-        const idx = orderedIds.indexOf(p.id);
-        return { ...p, position: idx >= 0 ? idx + 1 : p.position };
+      .map((project) => {
+        const idx = orderedIds.indexOf(project.id);
+        return {
+          ...project,
+          position: idx >= 0 ? idx + 1 : project.position,
+        };
       })
       .sort((a, b) => a.position - b.position);
+
     await reorderProjects(orderedIds);
   }
 
-  function select(project: Project) {
-    selected = project;
-    try {
-      localStorage.setItem(LS_SELECTED, project.id);
-    } catch {
-      // localStorage full or unavailable
-    }
+  function toggleExpanded(projectId: string): void {
+    expandedById[projectId] = !isExpanded(projectId);
+    expandedById = { ...expandedById };
+    lsSet(LS_EXPANDED, expandedById);
+  }
+
+  function isExpanded(projectId: string): boolean {
+    return expandedById[projectId] ?? true;
   }
 
   return {
     get projects() {
       return projects;
     },
-    get selected() {
-      return selected;
-    },
     add,
     remove,
     reorder,
-    select,
+    toggleExpanded,
+    isExpanded,
   };
 }

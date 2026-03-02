@@ -3,12 +3,23 @@ export interface Project {
   name: string;
   path: string;
   position: number;
+  git_error?: string;
+}
+
+export interface Worktree {
+  id: string;
+  project_id: string;
+  name: string;
+  path: string;
+  branch: string;
+  is_local: boolean;
+  position: number;
 }
 
 export interface Tab {
   id: string;
   session_id: string;
-  project_id: string;
+  worktree_id: string;
   label: string;
   type: 'terminal';
   position: number;

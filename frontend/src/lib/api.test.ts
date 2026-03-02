@@ -258,7 +258,7 @@ describe('API client', () => {
         {
           id: 't1',
           session_id: 'default',
-          project_id: 'p1',
+          worktree_id: 'w1',
           label: 'Terminal 1',
           type: 'terminal',
           position: 1.0,
@@ -280,11 +280,11 @@ describe('API client', () => {
   });
 
   describe('createTab', () => {
-    it('sends POST with project_id in body', async () => {
+    it('sends POST with worktree_id in body', async () => {
       const mockTab = {
         id: 't1',
         session_id: 'default',
-        project_id: 'p1',
+        worktree_id: 'w1',
         label: 'Terminal 1',
         type: 'terminal',
         position: 1.0,
@@ -298,11 +298,11 @@ describe('API client', () => {
         }),
       );
 
-      const result = await createTab('p1');
+      const result = await createTab('w1');
       expect(fetch).toHaveBeenCalledWith('/api/tabs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: 'p1' }),
+        body: JSON.stringify({ worktree_id: 'w1' }),
       });
       expect(result).toEqual(mockTab);
     });
@@ -342,7 +342,7 @@ describe('API client', () => {
       const mockTab = {
         id: 't1',
         session_id: 'default',
-        project_id: 'p1',
+        worktree_id: 'w1',
         label: 'My Shell',
         type: 'terminal',
         position: 1.0,

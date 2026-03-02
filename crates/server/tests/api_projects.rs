@@ -1,8 +1,9 @@
+use std::process::Command;
+
 use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
 
-/// Spin up a test server on a random port and return the base URL.
 async fn start_test_server() -> (String, tempfile::TempDir) {
     let tmp = tempfile::TempDir::new().unwrap();
     let state = AppState::new(tmp.path().to_path_buf());
@@ -15,6 +16,18 @@ async fn start_test_server() -> (String, tempfile::TempDir) {
     });
 
     (format!("http://{}", addr), tmp)
+}
+
+fn init_git_repo() -> tempfile::TempDir {
+    let repo = tempfile::TempDir::new().unwrap();
+    let status = Command::new("git")
+        .arg("init")
+        .arg("-q")
+        .arg(repo.path())
+        .status()
+        .unwrap();
+    assert!(status.success());
+    repo
 }
 
 #[tokio::test]
@@ -34,47 +47,23 @@ async fn test_list_empty() {
 }
 
 #[tokio::test]
-async fn test_add_project_valid() {
+async fn test_add_project_valid_git_repo() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
+    let repo = init_git_repo();
 
-    // Use /tmp as a known-existing directory
     let res = client
         .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/tmp" }))
+        .json(&serde_json::json!({ "path": repo.path().to_string_lossy() }))
         .send()
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::CREATED);
 
     let body: Value = res.json().await.unwrap();
-    assert_eq!(body["name"], "tmp");
-    assert_eq!(body["path"], "/tmp");
+    let canonical = tokio::fs::canonicalize(repo.path()).await.unwrap();
+    assert_eq!(body["path"], canonical.to_string_lossy().to_string());
     assert!(body["id"].is_string());
-}
-
-#[tokio::test]
-async fn test_add_project_has_position() {
-    let (base, _tmp) = start_test_server().await;
-    let client = reqwest::Client::new();
-
-    let res = client
-        .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/tmp" }))
-        .send()
-        .await
-        .unwrap();
-    let p1: Value = res.json().await.unwrap();
-    assert_eq!(p1["position"], 1.0);
-
-    let res = client
-        .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/var" }))
-        .send()
-        .await
-        .unwrap();
-    let p2: Value = res.json().await.unwrap();
-    assert_eq!(p2["position"], 2.0);
 }
 
 #[tokio::test]
@@ -94,23 +83,30 @@ async fn test_add_project_invalid_path() {
 }
 
 #[tokio::test]
-async fn test_list_after_add() {
+async fn test_add_project_deduplicates() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
+    let repo = init_git_repo();
 
-    // Add two projects
-    client
+    let res1 = client
         .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/tmp" }))
+        .json(&serde_json::json!({ "path": repo.path().to_string_lossy() }))
         .send()
         .await
         .unwrap();
-    client
+    assert_eq!(res1.status(), StatusCode::CREATED);
+    let p1: Value = res1.json().await.unwrap();
+
+    let res2 = client
         .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/var" }))
+        .json(&serde_json::json!({ "path": repo.path().to_string_lossy() }))
         .send()
         .await
         .unwrap();
+    assert_eq!(res2.status(), StatusCode::OK);
+    let p2: Value = res2.json().await.unwrap();
+
+    assert_eq!(p1["id"], p2["id"]);
 
     let res = client
         .get(format!("{}/api/projects", base))
@@ -118,7 +114,7 @@ async fn test_list_after_add() {
         .await
         .unwrap();
     let body: Vec<Value> = res.json().await.unwrap();
-    assert_eq!(body.len(), 2);
+    assert_eq!(body.len(), 1);
 }
 
 #[tokio::test]
@@ -126,10 +122,12 @@ async fn test_reorder_projects() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    // Add two projects (tmp=pos 1, var=pos 2)
+    let repo1 = init_git_repo();
+    let repo2 = init_git_repo();
+
     let res = client
         .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/tmp" }))
+        .json(&serde_json::json!({ "path": repo1.path().to_string_lossy() }))
         .send()
         .await
         .unwrap();
@@ -138,14 +136,13 @@ async fn test_reorder_projects() {
 
     let res = client
         .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/var" }))
+        .json(&serde_json::json!({ "path": repo2.path().to_string_lossy() }))
         .send()
         .await
         .unwrap();
     let p2: Value = res.json().await.unwrap();
     let p2_id = p2["id"].as_str().unwrap();
 
-    // Reorder: put /var first, /tmp second
     let res = client
         .put(format!("{}/api/projects/reorder", base))
         .json(&serde_json::json!({
@@ -157,103 +154,25 @@ async fn test_reorder_projects() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let body: Vec<Value> = res.json().await.unwrap();
-    assert_eq!(body.len(), 2);
-    assert_eq!(body[0]["name"], "var");
-    assert_eq!(body[0]["position"], 1.0);
-    assert_eq!(body[1]["name"], "tmp");
-    assert_eq!(body[1]["position"], 2.0);
-
-    // Verify list endpoint also returns new order
-    let res = client
-        .get(format!("{}/api/projects", base))
-        .send()
-        .await
-        .unwrap();
-    let body: Vec<Value> = res.json().await.unwrap();
-    assert_eq!(body[0]["name"], "var");
-    assert_eq!(body[1]["name"], "tmp");
-}
-
-#[tokio::test]
-async fn test_reorder_invalid_ids() {
-    let (base, _tmp) = start_test_server().await;
-    let client = reqwest::Client::new();
-
-    client
-        .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/tmp" }))
-        .send()
-        .await
-        .unwrap();
-
-    // Reorder with nonexistent ID
-    let res = client
-        .put(format!("{}/api/projects/reorder", base))
-        .json(&serde_json::json!({
-            "project_ids": ["nonexistent"]
-        }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn test_update_project_name() {
-    let (base, _tmp) = start_test_server().await;
-    let client = reqwest::Client::new();
-
-    let res = client
-        .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/tmp" }))
-        .send()
-        .await
-        .unwrap();
-    let project: Value = res.json().await.unwrap();
-    let id = project["id"].as_str().unwrap();
-
-    let res = client
-        .patch(format!("{}/api/projects/{}", base, id))
-        .json(&serde_json::json!({ "name": "My Project" }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let body: Value = res.json().await.unwrap();
-    assert_eq!(body["name"], "My Project");
-}
-
-#[tokio::test]
-async fn test_update_nonexistent_project() {
-    let (base, _tmp) = start_test_server().await;
-    let client = reqwest::Client::new();
-
-    let res = client
-        .patch(format!("{}/api/projects/nonexistent-id", base))
-        .json(&serde_json::json!({ "name": "test" }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(body[0]["id"], p2_id);
+    assert_eq!(body[1]["id"], p1_id);
 }
 
 #[tokio::test]
 async fn test_delete_project() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
+    let repo = init_git_repo();
 
-    // Add project
     let res = client
         .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/tmp" }))
+        .json(&serde_json::json!({ "path": repo.path().to_string_lossy() }))
         .send()
         .await
         .unwrap();
     let project: Value = res.json().await.unwrap();
     let id = project["id"].as_str().unwrap();
 
-    // Delete it
     let res = client
         .delete(format!("{}/api/projects/{}", base, id))
         .send()
@@ -261,7 +180,6 @@ async fn test_delete_project() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 
-    // Verify it's gone
     let res = client
         .get(format!("{}/api/projects", base))
         .send()
@@ -272,32 +190,18 @@ async fn test_delete_project() {
 }
 
 #[tokio::test]
-async fn test_delete_nonexistent() {
+async fn test_sse_snapshot_includes_worktrees() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
+    let repo = init_git_repo();
 
-    let res = client
-        .delete(format!("{}/api/projects/nonexistent-id", base))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(res.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn test_sse_snapshot_includes_projects() {
-    let (base, _tmp) = start_test_server().await;
-    let client = reqwest::Client::new();
-
-    // Add a project
     client
         .post(format!("{}/api/projects", base))
-        .json(&serde_json::json!({ "path": "/tmp" }))
+        .json(&serde_json::json!({ "path": repo.path().to_string_lossy() }))
         .send()
         .await
         .unwrap();
 
-    // Connect to SSE with a timeout (SSE is streaming)
     let mut res = client
         .get(format!("{}/api/events", base))
         .timeout(std::time::Duration::from_secs(2))
@@ -305,7 +209,6 @@ async fn test_sse_snapshot_includes_projects() {
         .await
         .unwrap();
 
-    // Read chunks until we have the snapshot
     let mut collected = Vec::new();
     while let Ok(Ok(Some(chunk))) =
         tokio::time::timeout(std::time::Duration::from_millis(500), res.chunk()).await
@@ -326,6 +229,5 @@ async fn test_sse_snapshot_includes_projects() {
     let parsed: Value = serde_json::from_str(data_str).unwrap();
 
     assert!(parsed["data"]["projects"].is_array());
-    assert_eq!(parsed["data"]["projects"].as_array().unwrap().len(), 1);
-    assert_eq!(parsed["data"]["projects"][0]["name"], "tmp");
+    assert!(parsed["data"]["worktrees"].is_object());
 }

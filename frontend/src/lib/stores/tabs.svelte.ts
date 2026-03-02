@@ -3,7 +3,7 @@ import { getEventClient } from '$lib/events';
 import type { Tab } from '$lib/types';
 
 const LS_ACTIVE_TAB = 'hubris-active-tab';
-const LS_TAB_BY_PROJECT = 'hubris-active-tab-by-project';
+const LS_TAB_BY_WORKTREE = 'hubris-active-tab-by-worktree';
 
 function lsGet(key: string): string | null {
   try {
@@ -34,19 +34,19 @@ function lsSet(key: string, value: unknown): void {
       );
     }
   } catch {
-    // localStorage full or unavailable
+    // localStorage unavailable
   }
 }
 
 function persistSelection(): void {
   lsSet(LS_ACTIVE_TAB, activeTabId);
-  lsSet(LS_TAB_BY_PROJECT, activeTabByProject);
+  lsSet(LS_TAB_BY_WORKTREE, activeTabByWorktree);
 }
 
 let tabs = $state<Tab[]>([]);
 let activeTabId = $state<string | null>(lsGet(LS_ACTIVE_TAB));
-const activeTabByProject = $state<Record<string, string>>(
-  lsGetJson<Record<string, string>>(LS_TAB_BY_PROJECT) ?? {},
+const activeTabByWorktree = $state<Record<string, string>>(
+  lsGetJson<Record<string, string>>(LS_TAB_BY_WORKTREE) ?? {},
 );
 let initialized = false;
 
@@ -54,7 +54,6 @@ function sortedTabs(list: Tab[]): Tab[] {
   return [...list].sort((a, b) => a.position - b.position);
 }
 
-/** Shallow equality check to skip no-op snapshot updates. */
 function tabsEqual(a: Tab[], b: Tab[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
@@ -62,9 +61,10 @@ function tabsEqual(a: Tab[], b: Tab[]): boolean {
       a[i].id !== b[i].id ||
       a[i].label !== b[i].label ||
       a[i].position !== b[i].position ||
-      a[i].project_id !== b[i].project_id
-    )
+      a[i].worktree_id !== b[i].worktree_id
+    ) {
       return false;
+    }
   }
   return true;
 }
@@ -76,13 +76,10 @@ export function getTabStore() {
 
     events.on<{ tabs: Tab[] }>('snapshot', (data) => {
       const incoming = sortedTabs(data.tabs);
-      // Skip update when tabs are unchanged (common on
-      // SSE reconnect). Avoids reactive cascade / flash.
       if (tabsEqual(tabs, incoming)) return;
 
       tabs = incoming;
-      // Validate activeTabId still exists
-      if (activeTabId && !tabs.find((t) => t.id === activeTabId)) {
+      if (activeTabId && !tabs.find((tab) => tab.id === activeTabId)) {
         activeTabId = null;
         persistSelection();
       }
@@ -103,77 +100,67 @@ export function getTabStore() {
     });
   }
 
-  function removeFromState(id: string) {
+  function removeFromState(id: string): void {
     const tab = tabs.find((t) => t.id === id);
     tabs = tabs.filter((t) => t.id !== id);
     if (activeTabId === id) {
-      const projectId = tab?.project_id;
-      const remaining = projectId
-        ? tabs.filter((t) => t.project_id === projectId)
+      const worktreeId = tab?.worktree_id;
+      const remaining = worktreeId
+        ? tabs.filter((t) => t.worktree_id === worktreeId)
         : tabs;
       activeTabId = remaining[remaining.length - 1]?.id ?? null;
-      if (projectId) {
-        activeTabByProject[projectId] = activeTabId ?? '';
+      if (worktreeId) {
+        activeTabByWorktree[worktreeId] = activeTabId ?? '';
       }
       persistSelection();
     }
   }
 
-  /** Remove tab locally (server already closed it). */
-  function removeLocal(id: string) {
+  function removeLocal(id: string): void {
     removeFromState(id);
   }
 
-  /** Create a new terminal tab for a project. */
-  async function addTerminal(projectId: string): Promise<Tab> {
-    const tab = await createTab(projectId);
-    // Optimistic: add immediately, SSE event deduplicates
+  async function addTerminal(worktreeId: string): Promise<Tab> {
+    const tab = await createTab(worktreeId);
     if (!tabs.find((t) => t.id === tab.id)) {
       tabs = sortedTabs([...tabs, tab]);
     }
     activeTabId = tab.id;
-    activeTabByProject[projectId] = tab.id;
+    activeTabByWorktree[worktreeId] = tab.id;
     persistSelection();
     return tab;
   }
 
-  /** Close a tab (tells server to kill PTY). */
-  async function close(id: string) {
+  async function close(id: string): Promise<void> {
     if (!tabs.find((t) => t.id === id)) return;
-    // Optimistic remove
     removeFromState(id);
     try {
       await deleteTab(id);
     } catch {
-      // Already gone (shell exited, other browser)
+      // Already gone
     }
   }
 
-  function activate(id: string) {
+  function activate(id: string): void {
     activeTabId = id;
     const tab = tabs.find((t) => t.id === id);
     if (tab) {
-      activeTabByProject[tab.project_id] = id;
+      activeTabByWorktree[tab.worktree_id] = id;
     }
     persistSelection();
   }
 
-  /** Get tabs for a specific project. */
-  function tabsForProject(projectId: string): Tab[] {
-    return tabs.filter((t) => t.project_id === projectId);
+  function tabsForWorktree(worktreeId: string): Tab[] {
+    return tabs.filter((tab) => tab.worktree_id === worktreeId);
   }
 
-  /**
-   * Switch to a project's tabs. Restores the previously
-   * active tab for that project.
-   */
-  function switchToProject(projectId: string) {
-    const projectTabs = tabsForProject(projectId);
-    const remembered = activeTabByProject[projectId];
-    if (remembered && projectTabs.find((t) => t.id === remembered)) {
+  function switchToWorktree(worktreeId: string): void {
+    const worktreeTabs = tabsForWorktree(worktreeId);
+    const remembered = activeTabByWorktree[worktreeId];
+    if (remembered && worktreeTabs.find((tab) => tab.id === remembered)) {
       activeTabId = remembered;
-    } else if (projectTabs.length > 0) {
-      activeTabId = projectTabs[0].id;
+    } else if (worktreeTabs.length > 0) {
+      activeTabId = worktreeTabs[0].id;
     } else {
       activeTabId = null;
     }
@@ -191,7 +178,7 @@ export function getTabStore() {
     close,
     removeLocal,
     activate,
-    tabsForProject,
-    switchToProject,
+    tabsForWorktree,
+    switchToWorktree,
   };
 }

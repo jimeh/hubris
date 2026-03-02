@@ -1,9 +1,10 @@
-import type { ListFilesResponse, Project, Tab } from './types';
+import type { ListFilesResponse, Project, Tab, Worktree } from './types';
 import type {
   AppearanceSettings,
   HubrisTheme,
   TerminalSettings,
   ThemeMeta,
+  WorktreeSettings,
 } from './theme/types';
 
 const BASE = '/api';
@@ -49,10 +50,67 @@ export async function reorderProjects(
   return res.json();
 }
 
-export async function deleteProject(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/projects/${id}`, {
+export async function deleteProject(id: string, force = false): Promise<void> {
+  const params = new URLSearchParams();
+  if (force) params.set('force', 'true');
+  const qs = params.toString();
+  const res = await fetch(`${BASE}/projects/${id}${qs ? `?${qs}` : ''}`, {
     method: 'DELETE',
   });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`${res.status}`);
+  }
+}
+
+export async function listProjectWorktrees(projectId: string): Promise<{
+  worktrees: Worktree[];
+  git_error?: string;
+}> {
+  const res = await fetch(`${BASE}/projects/${projectId}/worktrees`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function createProjectWorktree(
+  projectId: string,
+  branch: string,
+): Promise<Worktree> {
+  const res = await fetch(`${BASE}/projects/${projectId}/worktrees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branch }),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function reorderProjectWorktrees(
+  projectId: string,
+  worktreeIds: string[],
+): Promise<Worktree[]> {
+  const res = await fetch(`${BASE}/projects/${projectId}/worktrees/reorder`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ worktree_ids: worktreeIds }),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function deleteProjectWorktree(
+  projectId: string,
+  worktreeId: string,
+  force = false,
+): Promise<void> {
+  const params = new URLSearchParams();
+  if (force) params.set('force', 'true');
+  const qs = params.toString();
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}${qs ? `?${qs}` : ''}`,
+    {
+      method: 'DELETE',
+    },
+  );
   if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
 }
 
@@ -79,11 +137,11 @@ export async function listTabs(): Promise<Tab[]> {
   return res.json();
 }
 
-export async function createTab(projectId: string): Promise<Tab> {
+export async function createTab(worktreeId: string): Promise<Tab> {
   const res = await fetch(`${BASE}/tabs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project_id: projectId }),
+    body: JSON.stringify({ worktree_id: worktreeId }),
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
@@ -119,6 +177,7 @@ export function terminalWsUrl(tabId: string): string {
 export async function getSettings(): Promise<{
   appearance?: AppearanceSettings;
   terminal?: TerminalSettings;
+  worktree?: WorktreeSettings;
 }> {
   const res = await fetch(`${BASE}/settings`);
   if (!res.ok) throw new Error(`${res.status}`);
@@ -128,6 +187,7 @@ export async function getSettings(): Promise<{
 export async function saveSettings(partial: {
   appearance?: AppearanceSettings;
   terminal?: TerminalSettings;
+  worktree?: WorktreeSettings;
 }): Promise<void> {
   // Read-modify-write to avoid clobbering sibling sections
   const current = await getSettings();

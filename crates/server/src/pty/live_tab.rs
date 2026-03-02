@@ -19,7 +19,7 @@ pub const DEFAULT_SCROLLBACK: usize = 128 * 1024;
 pub struct TabInfo {
     pub id: String,
     pub session_id: String,
-    pub project_id: String,
+    pub worktree_id: String,
     pub label: String,
     #[serde(rename = "type")]
     pub tab_type: String,

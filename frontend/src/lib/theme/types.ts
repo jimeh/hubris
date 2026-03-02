@@ -68,3 +68,11 @@ export interface TerminalSettings {
   /** Terminal font size in px (8–32). */
   fontSize: number;
 }
+
+/**
+ * Worktree placement settings, persisted to the server.
+ */
+export interface WorktreeSettings {
+  /** Global location strategy for new worktree dirs. */
+  locationMode: 'dataDir' | 'repoLocalDotHubris';
+}

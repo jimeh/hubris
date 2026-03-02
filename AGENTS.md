@@ -30,10 +30,14 @@ or `pnpm-lock.yaml`. Using npm or pnpm will fail or create wrong lockfiles.
 
 ## Domain Concepts
 
-- **Project** — user-registered directory; persisted in JSON file.
+- **Project** — user-registered git repository; path canonicalized
+  to git local root on add. Persisted in JSON file.
+- **Worktree** — git worktree within a project. The "local" worktree
+  is the project's own directory; others are created via
+  `git worktree add`. IDs are deterministic UUIDv5 from path.
 - **Session** — logical tab grouping. Hardcoded "default" for now,
   designed for multi-session later.
-- **Tab** — server-authoritative terminal within a project+session.
+- **Tab** — server-authoritative terminal within a worktree+session.
   CRUD via REST, state sync via SSE. Type field extensible.
 - **LiveTab** — server-side persistent PTY. Survives WS disconnects.
   Killed only on explicit close or shell exit.
@@ -59,16 +63,24 @@ reconciliation — drift corrects on reconnect.
 - WS protocol: binary (PTY output), JSON control (`type: "resize"`,
   `type: "attached"` with `byte_offset`/`data_lost`)
 - SSE events: snapshot, tab_created, tab_closed, tab_updated,
-  project_added, project_removed, project_updated, projects_reordered
+  project_added, project_removed, project_updated, projects_reordered,
+  worktree_created, worktree_deleted, worktrees_reordered,
+  project_worktrees_updated
 
 ### Frontend (Svelte 5 / Vite / Tailwind v4)
-- Stores: rune-based singletons — grep `getProjectStore`, `getTabStore`,
-  `getThemeStore`, `getTerminalStore`
+- Stores: rune-based singletons — grep `getProjectStore`,
+  `getWorktreeStore`, `getTabStore`, `getThemeStore`,
+  `getTerminalStore`, `getWorktreeSettingsStore`
 - SSE client: singleton — grep `getEventClient`
 - Tab store: REST mutations + SSE sync with optimistic updates.
-  Active tab and per-project tab selection persisted to localStorage.
+  Active tab and per-worktree tab selection persisted to localStorage.
 - Project store: SSE-driven (snapshot + incremental events), optimistic
-  mutations. Drag-and-drop reorder via svelte-dnd-action.
+  mutations. Drag-and-drop reorder via svelte-dnd-action. Projects are
+  expandable/collapsible in sidebar; no project-level selection.
+- Worktree store: SSE-driven, tracks worktrees per project and
+  selected worktree. Selection persisted to localStorage
+  (`hubris-selected-worktree`). Worktree CRUD via REST under
+  `/api/projects/:id/worktrees`.
 - UI primitives: shadcn-svelte (Bits UI) — grep `components/ui/`
 - Terminal: adapter pattern — grep `TerminalAdapter`, `XtermAdapter`.
   Font registry in `terminal/fonts.ts` (bundled Nerd Fonts, dynamic
@@ -80,8 +92,8 @@ reconciliation — drift corrects on reconnect.
   persisted via REST (`/api/settings`, `/api/themes`).
   `GET /api/themes` returns metadata only; full theme fetched lazily via
   `GET /api/themes/:id` on selection.
-- Project store: selected project persisted to localStorage
-  (`hubris-selected-project`), restored on page load.
+- Project store: expanded/collapsed state persisted to localStorage
+  (`hubris-expanded-projects`), restored on page load.
 - FOUC prevention: inline script in `index.html` reads localStorage
   (`hubris-theme-cache`) and applies full CSS vars before first paint.
 - Codegen: `defaults.generated.css` generated from builtin themes via
@@ -99,8 +111,8 @@ reconciliation — drift corrects on reconnect.
 
 - **SSE init ordering**: All store handlers must be registered before
   `EventClient.connect()` — snapshot fires immediately on connect.
-  In App.svelte: call `getProjectStore()` and `getTabStore()` before
-  `events.connect()`.
+  In App.svelte: call `getProjectStore()`, `getWorktreeStore()`, and
+  `getTabStore()` before `events.connect()`.
 - **rustfmt style_edition 2024**: Formats more aggressively than
   default (collapses single-line signatures, method chains). Always
   run `cargo fmt` after edits.
@@ -133,3 +145,10 @@ reconciliation — drift corrects on reconnect.
   downloaded via `mise run download:fonts`. Committed to git. Fonts
   are loaded on-demand via dynamic @font-face when user selects a
   bundled font.
+- **Project paths are canonicalized to Git local root**: `POST /api/projects`
+  resolves input paths through Git and stores the canonical local root.
+  On macOS this often normalizes `/tmp/...` to `/private/tmp/...`.
+- **Removing a project is now destructive for linked worktrees**:
+  `DELETE /api/projects/:id` deletes all non-local worktrees first.
+  If any worktree is dirty/busy, the request returns `409` unless
+  `?force=true` is supplied.
