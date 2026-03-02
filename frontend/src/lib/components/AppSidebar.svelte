@@ -17,7 +17,12 @@
     Settings,
     Trash2,
   } from '@lucide/svelte';
-  import { dndzone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
+  import {
+    dndzone,
+    dragHandle,
+    dragHandleZone,
+    SHADOW_ITEM_MARKER_PROPERTY_NAME,
+  } from 'svelte-dnd-action';
   import type { Project, Worktree } from '$lib/types';
 
   interface ProjectStore {
@@ -152,6 +157,11 @@
     createWorktreeTarget = { projectId, projectName };
   }
 
+  function projectHeaderClass(props: Record<string, unknown>): string {
+    const baseClass = typeof props.class === 'string' ? props.class : '';
+    return `${baseClass} relative flex items-center gap-2 px-2 py-1`;
+  }
+
   function toggleProjectMenu(e: MouseEvent, projectId: string): void {
     e.stopPropagation();
     openProjectMenuId = openProjectMenuId === projectId ? null : projectId;
@@ -160,6 +170,33 @@
   function openRenameProject(projectId: string, currentName: string): void {
     openProjectMenuId = null;
     renameProjectTarget = { projectId, currentName };
+  }
+
+  function handleWindowMouseDown(e: MouseEvent): void {
+    if (!openProjectMenuId) {
+      return;
+    }
+
+    const target = e.target as HTMLElement | null;
+    if (!target) {
+      openProjectMenuId = null;
+      return;
+    }
+
+    const inMenu = target.closest(`[data-project-menu="${openProjectMenuId}"]`);
+    const inTrigger = target.closest(
+      `[data-project-menu-trigger="${openProjectMenuId}"]`,
+    );
+
+    if (!inMenu && !inTrigger) {
+      openProjectMenuId = null;
+    }
+  }
+
+  function handleWindowKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      openProjectMenuId = null;
+    }
   }
 
   async function removeWorktree(
@@ -219,7 +256,7 @@
       <Sidebar.GroupContent>
         <div
           class="flex w-full min-w-0 flex-col gap-1"
-          use:dndzone={{
+          use:dragHandleZone={{
             items: dndProjects,
             flipDurationMs: FLIP_MS,
             type: 'projects',
@@ -234,18 +271,19 @@
           {#each dndProjects as project (project.id)}
             <div
               class="group/menu-item relative rounded-md"
-              class:shadow-item={project[SHADOW_ITEM_MARKER_PROPERTY_NAME]}
+              data-project-drag-item="true"
             >
               <Sidebar.MenuButton
                 isActive={false}
                 size="sm"
                 onclick={() => toggleProjectExpanded(project.id)}
-                class={draggingProjects ? 'cursor-grabbing' : 'cursor-default'}
               >
                 {#snippet child({ props })}
                   <div
                     {...props}
-                    class="relative flex items-center gap-2 px-2 py-1"
+                    class={projectHeaderClass(props)}
+                    data-project-header="true"
+                    use:dragHandle
                   >
                     <div class="flex items-center gap-2 truncate">
                       {#if projectStore.isExpanded(project.id)}
@@ -282,6 +320,7 @@
                       <button
                         class="rounded p-1 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                         title="Project actions"
+                        data-project-menu-trigger={project.id}
                         onclick={(e) => toggleProjectMenu(e, project.id)}
                       >
                         <Ellipsis class="h-3.5 w-3.5" />
@@ -301,6 +340,7 @@
                     {#if openProjectMenuId === project.id}
                       <div
                         class="absolute top-8 right-1 z-30 min-w-28 rounded-md border bg-popover p-1 shadow-md"
+                        data-project-menu={project.id}
                       >
                         <button
                           class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
@@ -331,14 +371,14 @@
 
               {#if projectStore.isExpanded(project.id)}
                 <div
-                  class="ml-6 mt-1 space-y-1"
+                  class="mt-1 space-y-1"
                   role="presentation"
                   onmousedown={(e) => e.stopPropagation()}
                   ontouchstart={(e) => e.stopPropagation()}
                 >
                   {#if localWorktree(project.id)}
                     <button
-                      class="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-sidebar-accent
+                      class="flex w-full items-center justify-between rounded-md px-2 py-1 pl-8 text-left text-sm hover:bg-sidebar-accent
                              {worktreeStore.selectedWorktreeId ===
                       localWorktree(project.id)?.id
                         ? 'bg-sidebar-accent text-sidebar-accent-foreground'
@@ -362,9 +402,12 @@
                     class="space-y-1"
                   >
                     {#each dndWorktrees[project.id] ?? [] as worktree (worktree.id)}
-                      <div class="group/worktree-item relative">
+                      <div
+                        class="group/worktree-item relative"
+                        data-worktree-drag-item="true"
+                      >
                         <button
-                          class="flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm hover:bg-sidebar-accent
+                          class="flex w-full items-center justify-between rounded-md px-2 py-1 pr-8 pl-8 text-left text-sm hover:bg-sidebar-accent
                                  {worktreeStore.selectedWorktreeId ===
                           worktree.id
                             ? 'bg-sidebar-accent text-sidebar-accent-foreground'
@@ -374,7 +417,7 @@
                           <span class="truncate">{worktree.name}</span>
                         </button>
                         <button
-                          class="absolute top-1 right-1 opacity-0 transition-opacity group-hover/worktree-item:opacity-100"
+                          class="absolute top-1/2 right-1 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground/70 opacity-0 transition-[opacity,background-color,color] pointer-events-none group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           title="Delete worktree"
                           onclick={(e) => {
                             e.stopPropagation();
@@ -384,7 +427,7 @@
                             };
                           }}
                         >
-                          <Trash2 class="h-3 w-3" />
+                          <Trash2 class="h-3.5 w-3.5" />
                         </button>
                       </div>
                     {/each}
@@ -417,6 +460,11 @@
     </Button>
   </Sidebar.Footer>
 </Sidebar.Root>
+
+<svelte:window
+  onmousedown={handleWindowMouseDown}
+  onkeydown={handleWindowKeyDown}
+/>
 
 {#if showDialog}
   <AddProjectDialog
@@ -498,9 +546,13 @@
 <SettingsDialog bind:open={showSettings} />
 
 <style>
-  :global(.shadow-item) {
-    opacity: 0.4;
-    outline: 1px dashed var(--sidebar-border);
+  :global(
+    #dnd-action-dragged-el[data-project-drag-item='true'],
+    #dnd-action-dragged-el[data-worktree-drag-item='true']
+  ) {
+    opacity: 0.5 !important;
     border-radius: var(--radius);
+    outline: none !important;
+    box-shadow: none !important;
   }
 </style>
