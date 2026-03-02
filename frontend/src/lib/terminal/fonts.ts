@@ -86,9 +86,7 @@ const pendingLoads = new Map<string, Promise<string>>();
  * Idempotent — skips if already loaded. Concurrent calls
  * for the same ID share a single in-flight promise.
  */
-export async function loadBundledFont(
-  id: string,
-): Promise<string> {
+export async function loadBundledFont(id: string): Promise<string> {
   const font = BUNDLED_FONTS.find((f) => f.id === id);
   if (!font) throw new Error(`Unknown bundled font: ${id}`);
   if (loadedFonts.has(id)) return font.family;
@@ -122,12 +120,8 @@ export async function loadBundledFont(
     }
 
     // Wait for browser to fetch and parse the font files
-    await document.fonts.load(
-      `400 16px '${font.family}'`,
-    );
-    await document.fonts.load(
-      `700 16px '${font.family}'`,
-    );
+    await document.fonts.load(`400 16px '${font.family}'`);
+    await document.fonts.load(`700 16px '${font.family}'`);
 
     loadedFonts.add(id);
     return font.family;

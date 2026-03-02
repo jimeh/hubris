@@ -11,6 +11,8 @@ vi.stubGlobal('location', {
 const {
   listProjects,
   addProject,
+  updateProject,
+  reorderProjects,
   deleteProject,
   terminalWsUrl,
   listFiles,
@@ -82,6 +84,56 @@ describe('API client', () => {
     });
   });
 
+  describe('updateProject', () => {
+    it('sends PATCH with name', async () => {
+      const mockProject = {
+        id: 'p1',
+        name: 'Renamed',
+        path: '/test',
+        position: 1.0,
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockProject),
+        }),
+      );
+
+      const result = await updateProject('p1', { name: 'Renamed' });
+      expect(fetch).toHaveBeenCalledWith('/api/projects/p1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Renamed' }),
+      });
+      expect(result).toEqual(mockProject);
+    });
+  });
+
+  describe('reorderProjects', () => {
+    it('sends PUT with project_ids', async () => {
+      const mockProjects = [
+        { id: 'p2', name: 'var', path: '/var', position: 1.0 },
+        { id: 'p1', name: 'tmp', path: '/tmp', position: 2.0 },
+      ];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockProjects),
+        }),
+      );
+
+      const result = await reorderProjects(['p2', 'p1']);
+      expect(fetch).toHaveBeenCalledWith('/api/projects/reorder', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_ids: ['p2', 'p1'] }),
+      });
+      expect(result).toEqual(mockProjects);
+    });
+  });
+
   describe('deleteProject', () => {
     it('sends DELETE to /api/projects/:id', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
@@ -90,6 +142,31 @@ describe('API client', () => {
       expect(fetch).toHaveBeenCalledWith('/api/projects/abc-123', {
         method: 'DELETE',
       });
+    });
+
+    it('tolerates 404 (already gone)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+        }),
+      );
+
+      // Should not throw
+      await deleteProject('abc-123');
+    });
+
+    it('throws on non-404 errors', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+        }),
+      );
+
+      await expect(deleteProject('abc-123')).rejects.toThrow('500');
     });
   });
 
@@ -443,9 +520,7 @@ describe('API client', () => {
     it('does not cache in localStorage when GET fails', async () => {
       vi.stubGlobal(
         'fetch',
-        vi.fn().mockRejectedValue(
-          new Error('network error'),
-        ),
+        vi.fn().mockRejectedValue(new Error('network error')),
       );
 
       const terminal = {
@@ -455,33 +530,27 @@ describe('API client', () => {
         fontSize: 14,
       };
 
-      await expect(
-        saveSettings({ terminal }),
-      ).rejects.toThrow('network error');
+      await expect(saveSettings({ terminal })).rejects.toThrow('network error');
 
       // localStorage should NOT be written on failure
-      expect(
-        localStorage.getItem('hubris-terminal'),
-      ).toBeNull();
+      expect(localStorage.getItem('hubris-terminal')).toBeNull();
     });
 
     it('does not cache in localStorage when PUT fails', async () => {
       vi.stubGlobal(
         'fetch',
-        vi.fn().mockImplementation(
-          (_url: string, init?: RequestInit) => {
-            if (init?.method === 'PUT') {
-              return Promise.resolve({
-                ok: false,
-                status: 500,
-              });
-            }
+        vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+          if (init?.method === 'PUT') {
             return Promise.resolve({
-              ok: true,
-              json: () => Promise.resolve({}),
+              ok: false,
+              status: 500,
             });
-          },
-        ),
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({}),
+          });
+        }),
       );
 
       const terminal = {
@@ -491,13 +560,9 @@ describe('API client', () => {
         fontSize: 14,
       };
 
-      await expect(
-        saveSettings({ terminal }),
-      ).rejects.toThrow('500');
+      await expect(saveSettings({ terminal })).rejects.toThrow('500');
 
-      expect(
-        localStorage.getItem('hubris-terminal'),
-      ).toBeNull();
+      expect(localStorage.getItem('hubris-terminal')).toBeNull();
     });
   });
 });

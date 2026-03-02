@@ -98,9 +98,7 @@ describe('resolveFont', () => {
       systemFontFamily: '',
       bundledFont: 'commitmono-nf',
     });
-    expect(result).toBe(
-      "'CommitMono Nerd Font', monospace",
-    );
+    expect(result).toBe("'CommitMono Nerd Font', monospace");
   });
 
   it('falls back to default for unknown fontSource', async () => {

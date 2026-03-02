@@ -54,6 +54,30 @@ async fn test_add_project_valid() {
 }
 
 #[tokio::test]
+async fn test_add_project_has_position() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let res = client
+        .post(format!("{}/api/projects", base))
+        .json(&serde_json::json!({ "path": "/tmp" }))
+        .send()
+        .await
+        .unwrap();
+    let p1: Value = res.json().await.unwrap();
+    assert_eq!(p1["position"], 1.0);
+
+    let res = client
+        .post(format!("{}/api/projects", base))
+        .json(&serde_json::json!({ "path": "/var" }))
+        .send()
+        .await
+        .unwrap();
+    let p2: Value = res.json().await.unwrap();
+    assert_eq!(p2["position"], 2.0);
+}
+
+#[tokio::test]
 async fn test_add_project_invalid_path() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
@@ -95,6 +119,123 @@ async fn test_list_after_add() {
         .unwrap();
     let body: Vec<Value> = res.json().await.unwrap();
     assert_eq!(body.len(), 2);
+}
+
+#[tokio::test]
+async fn test_reorder_projects() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Add two projects (tmp=pos 1, var=pos 2)
+    let res = client
+        .post(format!("{}/api/projects", base))
+        .json(&serde_json::json!({ "path": "/tmp" }))
+        .send()
+        .await
+        .unwrap();
+    let p1: Value = res.json().await.unwrap();
+    let p1_id = p1["id"].as_str().unwrap();
+
+    let res = client
+        .post(format!("{}/api/projects", base))
+        .json(&serde_json::json!({ "path": "/var" }))
+        .send()
+        .await
+        .unwrap();
+    let p2: Value = res.json().await.unwrap();
+    let p2_id = p2["id"].as_str().unwrap();
+
+    // Reorder: put /var first, /tmp second
+    let res = client
+        .put(format!("{}/api/projects/reorder", base))
+        .json(&serde_json::json!({
+            "project_ids": [p2_id, p1_id]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body: Vec<Value> = res.json().await.unwrap();
+    assert_eq!(body.len(), 2);
+    assert_eq!(body[0]["name"], "var");
+    assert_eq!(body[0]["position"], 1.0);
+    assert_eq!(body[1]["name"], "tmp");
+    assert_eq!(body[1]["position"], 2.0);
+
+    // Verify list endpoint also returns new order
+    let res = client
+        .get(format!("{}/api/projects", base))
+        .send()
+        .await
+        .unwrap();
+    let body: Vec<Value> = res.json().await.unwrap();
+    assert_eq!(body[0]["name"], "var");
+    assert_eq!(body[1]["name"], "tmp");
+}
+
+#[tokio::test]
+async fn test_reorder_invalid_ids() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    client
+        .post(format!("{}/api/projects", base))
+        .json(&serde_json::json!({ "path": "/tmp" }))
+        .send()
+        .await
+        .unwrap();
+
+    // Reorder with nonexistent ID
+    let res = client
+        .put(format!("{}/api/projects/reorder", base))
+        .json(&serde_json::json!({
+            "project_ids": ["nonexistent"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_update_project_name() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let res = client
+        .post(format!("{}/api/projects", base))
+        .json(&serde_json::json!({ "path": "/tmp" }))
+        .send()
+        .await
+        .unwrap();
+    let project: Value = res.json().await.unwrap();
+    let id = project["id"].as_str().unwrap();
+
+    let res = client
+        .patch(format!("{}/api/projects/{}", base, id))
+        .json(&serde_json::json!({ "name": "My Project" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["name"], "My Project");
+}
+
+#[tokio::test]
+async fn test_update_nonexistent_project() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let res = client
+        .patch(format!("{}/api/projects/nonexistent-id", base))
+        .json(&serde_json::json!({ "name": "test" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -141,4 +282,50 @@ async fn test_delete_nonexistent() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_sse_snapshot_includes_projects() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Add a project
+    client
+        .post(format!("{}/api/projects", base))
+        .json(&serde_json::json!({ "path": "/tmp" }))
+        .send()
+        .await
+        .unwrap();
+
+    // Connect to SSE with a timeout (SSE is streaming)
+    let mut res = client
+        .get(format!("{}/api/events", base))
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await
+        .unwrap();
+
+    // Read chunks until we have the snapshot
+    let mut collected = Vec::new();
+    while let Ok(Ok(Some(chunk))) =
+        tokio::time::timeout(std::time::Duration::from_millis(500), res.chunk()).await
+    {
+        collected.extend_from_slice(&chunk);
+        let text = String::from_utf8_lossy(&collected);
+        if text.contains("data:") {
+            break;
+        }
+    }
+
+    let text = String::from_utf8(collected).unwrap();
+    let data_line = text
+        .lines()
+        .find(|l| l.starts_with("data:"))
+        .expect("no data line in SSE");
+    let data_str = data_line.strip_prefix("data:").unwrap().trim();
+    let parsed: Value = serde_json::from_str(data_str).unwrap();
+
+    assert!(parsed["data"]["projects"].is_array());
+    assert_eq!(parsed["data"]["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(parsed["data"]["projects"][0]["name"], "tmp");
 }

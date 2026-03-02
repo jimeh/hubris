@@ -30,9 +30,7 @@ function lsSet(key: string, value: unknown): void {
     } else {
       localStorage.setItem(
         key,
-        typeof value === 'string'
-          ? value
-          : JSON.stringify(value),
+        typeof value === 'string' ? value : JSON.stringify(value),
       );
     }
   } catch {
@@ -46,9 +44,7 @@ function persistSelection(): void {
 }
 
 let tabs = $state<Tab[]>([]);
-let activeTabId = $state<string | null>(
-  lsGet(LS_ACTIVE_TAB),
-);
+let activeTabId = $state<string | null>(lsGet(LS_ACTIVE_TAB));
 const activeTabByProject = $state<Record<string, string>>(
   lsGetJson<Record<string, string>>(LS_TAB_BY_PROJECT) ?? {},
 );

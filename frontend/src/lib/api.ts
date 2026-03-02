@@ -24,11 +24,36 @@ export async function addProject(path: string): Promise<Project> {
   return res.json();
 }
 
+export async function updateProject(
+  id: string,
+  updates: { name?: string },
+): Promise<Project> {
+  const res = await fetch(`${BASE}/projects/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function reorderProjects(
+  projectIds: string[],
+): Promise<Project[]> {
+  const res = await fetch(`${BASE}/projects/reorder`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_ids: projectIds }),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
 export async function deleteProject(id: string): Promise<void> {
   const res = await fetch(`${BASE}/projects/${id}`, {
     method: 'DELETE',
   });
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
 }
 
 export async function listFiles(
@@ -124,10 +149,7 @@ export async function saveSettings(partial: {
     );
   }
   if (partial.terminal) {
-    localStorage.setItem(
-      'hubris-terminal',
-      JSON.stringify(partial.terminal),
-    );
+    localStorage.setItem('hubris-terminal', JSON.stringify(partial.terminal));
   }
 }
 

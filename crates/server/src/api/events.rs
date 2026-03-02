@@ -33,7 +33,7 @@ pub async fn event_stream(
         // Send snapshot on connect (session-filtered)
         yield Ok(build_snapshot_event(
             &state, &session_id,
-        ));
+        ).await);
 
         loop {
             match rx.recv().await {
@@ -52,7 +52,7 @@ pub async fn event_stream(
                     );
                     yield Ok(build_snapshot_event(
                         &state, &session_id,
-                    ));
+                    ).await);
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     break;
@@ -75,10 +75,15 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
             true
         }
         EventKind::TabUpdated(info) => info.session_id == session_id,
+        // Project events are session-independent
+        EventKind::ProjectAdded(_)
+        | EventKind::ProjectRemoved { .. }
+        | EventKind::ProjectUpdated(_)
+        | EventKind::ProjectsReordered(_) => true,
     }
 }
 
-fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event {
+async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event {
     let mut tabs: Vec<_> = state
         .tabs
         .iter()
@@ -91,8 +96,15 @@ fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    let mut projects = state.load_projects().await.unwrap_or_default();
+    projects.sort_by(|a, b| {
+        a.position
+            .partial_cmp(&b.position)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
     let snapshot = Event {
-        kind: EventKind::Snapshot { tabs },
+        kind: EventKind::Snapshot { tabs, projects },
     };
     sse::Event::default()
         .event("snapshot")

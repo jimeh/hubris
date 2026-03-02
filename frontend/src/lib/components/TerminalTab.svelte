@@ -190,10 +190,7 @@
   $effect(() => {
     void termStore.version;
     if (terminal) {
-      terminal.updateFont(
-        termStore.fontFamily,
-        termStore.fontSize,
-      );
+      terminal.updateFont(termStore.fontFamily, termStore.fontSize);
       // Notify PTY of new dimensions — font change
       // alters cols/rows via fitAddon.fit()
       sendResize();
