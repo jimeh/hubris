@@ -54,6 +54,45 @@ export const UI_TOKEN_MAP: [string, string, ...string[]][] = [
   ['panel.border', '--border', 'sideBar.border', 'editorGroup.border'],
   ['input.background', '--input'],
   ['focusBorder', '--ring'],
+  // Quick input / command palette
+  [
+    'quickInput.background',
+    '--quick-input-background',
+    'editorWidget.background',
+  ],
+  [
+    'quickInput.foreground',
+    '--quick-input-foreground',
+    'editorWidget.foreground',
+    'editor.foreground',
+  ],
+  [
+    'pickerGroup.border',
+    '--quick-input-border',
+    'panel.border',
+    'sideBar.border',
+    'editorGroup.border',
+  ],
+  [
+    'pickerGroup.foreground',
+    '--quick-input-group-foreground',
+    'tab.inactiveForeground',
+    'list.hoverForeground',
+    'editor.foreground',
+  ],
+  [
+    'quickInputList.focusBackground',
+    '--quick-input-focus-background',
+    'list.activeSelectionBackground',
+    'list.hoverBackground',
+  ],
+  [
+    'quickInputList.focusForeground',
+    '--quick-input-focus-foreground',
+    'list.activeSelectionForeground',
+    'list.hoverForeground',
+    'editor.foreground',
+  ],
   // Sidebar
   ['sideBar.background', '--sidebar'],
   ['sideBar.foreground', '--sidebar-foreground', 'editor.foreground'],

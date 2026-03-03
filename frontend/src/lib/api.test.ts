@@ -176,8 +176,12 @@ describe('API client', () => {
     it('fetches start points for a project', async () => {
       const mockResponse = {
         start_points: [
-          { value: 'main', kind: 'local' },
-          { value: 'origin/main', kind: 'remote' },
+          {
+            value: 'main',
+            sha: 'abc123',
+            local_ref: 'main',
+            remote_refs: ['origin/main'],
+          },
         ],
         default_start_point: 'main',
       };

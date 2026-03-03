@@ -20,8 +20,10 @@ pub enum GitStartPointKind {
 
 #[derive(Debug, Clone)]
 pub struct GitStartPoint {
-    pub value: String,
+    pub name: String,
     pub kind: GitStartPointKind,
+    pub sha: String,
+    pub commit_timestamp: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -190,7 +192,7 @@ pub async fn list_branch_start_points(local_root: &Path) -> Result<Vec<GitStartP
         "-C",
         &cwd,
         "for-each-ref",
-        "--format=%(refname:short)",
+        "--format=%(refname:short)\t%(objectname)\t%(committerdate:unix)",
         "refs/heads",
     ])
     .await?;
@@ -198,7 +200,7 @@ pub async fn list_branch_start_points(local_root: &Path) -> Result<Vec<GitStartP
         "-C",
         &cwd,
         "for-each-ref",
-        "--format=%(refname:short)",
+        "--format=%(refname)\t%(refname:short)\t%(objectname)\t%(committerdate:unix)",
         "refs/remotes",
     ])
     .await?;
@@ -206,32 +208,73 @@ pub async fn list_branch_start_points(local_root: &Path) -> Result<Vec<GitStartP
     let mut seen = HashSet::new();
     let mut start_points = Vec::new();
 
-    for value in local.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        if seen.insert(value.to_string()) {
+    for line in local.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let mut parts = line.split('\t');
+        let Some(name) = parts.next().map(str::trim) else {
+            continue;
+        };
+        let Some(sha) = parts.next().map(str::trim) else {
+            continue;
+        };
+        let Some(commit_timestamp) = parts.next().map(str::trim) else {
+            continue;
+        };
+        if name.is_empty() || sha.is_empty() {
+            continue;
+        }
+        let commit_timestamp = commit_timestamp.parse::<i64>().unwrap_or_default();
+
+        if seen.insert(name.to_string()) {
             start_points.push(GitStartPoint {
-                value: value.to_string(),
+                name: name.to_string(),
                 kind: GitStartPointKind::Local,
+                sha: sha.to_string(),
+                commit_timestamp,
             });
         }
     }
 
-    for value in remote
+    for line in remote
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
-        if value.ends_with("/HEAD") {
+        let mut parts = line.split('\t');
+        let Some(full_name) = parts.next().map(str::trim) else {
+            continue;
+        };
+        let Some(name) = parts.next().map(str::trim) else {
+            continue;
+        };
+        let Some(sha) = parts.next().map(str::trim) else {
+            continue;
+        };
+        let Some(commit_timestamp) = parts.next().map(str::trim) else {
+            continue;
+        };
+        if name.is_empty() || sha.is_empty() {
             continue;
         }
-        if seen.insert(value.to_string()) {
+        let commit_timestamp = commit_timestamp.parse::<i64>().unwrap_or_default();
+        if full_name.ends_with("/HEAD") {
+            continue;
+        }
+        if seen.insert(name.to_string()) {
             start_points.push(GitStartPoint {
-                value: value.to_string(),
+                name: name.to_string(),
                 kind: GitStartPointKind::Remote,
+                sha: sha.to_string(),
+                commit_timestamp,
             });
         }
     }
 
-    start_points.sort_by(|a, b| a.value.cmp(&b.value).then_with(|| a.kind.cmp(&b.kind)));
+    start_points.sort_by(|a, b| {
+        b.commit_timestamp
+            .cmp(&a.commit_timestamp)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.kind.cmp(&b.kind))
+    });
     Ok(start_points)
 }
 

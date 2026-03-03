@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -31,16 +32,12 @@ pub struct ListWorktreesResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StartPointKind {
-    Local,
-    Remote,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct StartPoint {
     pub value: String,
-    pub kind: StartPointKind,
+    pub sha: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_ref: Option<String>,
+    pub remote_refs: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -189,13 +186,6 @@ fn sort_non_local(mut non_local: Vec<Worktree>, order: &[String]) -> Vec<Worktre
     remaining.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     ordered.extend(remaining);
     ordered
-}
-
-fn map_start_point_kind(kind: git::GitStartPointKind) -> StartPointKind {
-    match kind {
-        git::GitStartPointKind::Local => StartPointKind::Local,
-        git::GitStartPointKind::Remote => StartPointKind::Remote,
-    }
 }
 
 pub async fn list_worktrees_for_project(
@@ -422,17 +412,82 @@ pub async fn list_project_worktree_start_points(
 
     let default_start_point = git::current_branch(&local_root).await.ok().flatten();
     match git::list_branch_start_points(&local_root).await {
-        Ok(start_points) => Ok(Json(ListWorktreeStartPointsResponse {
-            start_points: start_points
-                .into_iter()
-                .map(|start_point| StartPoint {
-                    value: start_point.value,
-                    kind: map_start_point_kind(start_point.kind),
-                })
-                .collect(),
-            default_start_point,
-            git_error: None,
-        })),
+        Ok(start_points) => {
+            let mut by_sha: HashMap<String, (Vec<String>, Vec<String>, i64)> = HashMap::new();
+            for start_point in start_points {
+                let entry = by_sha
+                    .entry(start_point.sha)
+                    .or_insert_with(|| (Vec::new(), Vec::new(), i64::MIN));
+                entry.2 = entry.2.max(start_point.commit_timestamp);
+                match start_point.kind {
+                    git::GitStartPointKind::Local => {
+                        if !entry.0.contains(&start_point.name) {
+                            entry.0.push(start_point.name);
+                        }
+                    }
+                    git::GitStartPointKind::Remote => {
+                        if !entry.1.contains(&start_point.name) {
+                            entry.1.push(start_point.name);
+                        }
+                    }
+                }
+            }
+
+            let mut grouped: Vec<(StartPoint, i64)> = Vec::new();
+            for (sha, (mut local_refs, mut remote_refs, commit_timestamp)) in by_sha {
+                local_refs.sort();
+                remote_refs.sort();
+
+                if !local_refs.is_empty() {
+                    for local_ref in local_refs {
+                        grouped.push((
+                            StartPoint {
+                                value: local_ref.clone(),
+                                sha: sha.clone(),
+                                local_ref: Some(local_ref),
+                                remote_refs: remote_refs.clone(),
+                            },
+                            commit_timestamp,
+                        ));
+                    }
+                    continue;
+                }
+
+                if let Some(first_remote) = remote_refs.first().cloned() {
+                    grouped.push((
+                        StartPoint {
+                            value: first_remote,
+                            sha,
+                            local_ref: None,
+                            remote_refs,
+                        },
+                        commit_timestamp,
+                    ));
+                }
+            }
+
+            grouped.sort_by(|(a, a_ts), (b, b_ts)| {
+                b_ts.cmp(a_ts)
+                    .then_with(|| match (&a.local_ref, &b.local_ref) {
+                        (Some(a_local), Some(b_local)) => a_local.cmp(b_local),
+                        (Some(_), None) => Ordering::Less,
+                        (None, Some(_)) => Ordering::Greater,
+                        (None, None) => {
+                            let a_first_remote = a.remote_refs.first().unwrap_or(&a.value);
+                            let b_first_remote = b.remote_refs.first().unwrap_or(&b.value);
+                            a_first_remote.cmp(b_first_remote)
+                        }
+                    })
+            });
+
+            let grouped: Vec<StartPoint> = grouped.into_iter().map(|(sp, _)| sp).collect();
+
+            Ok(Json(ListWorktreeStartPointsResponse {
+                start_points: grouped,
+                default_start_point,
+                git_error: None,
+            }))
+        }
         Err(err) => Ok(Json(ListWorktreeStartPointsResponse {
             start_points: vec![],
             default_start_point,

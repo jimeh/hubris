@@ -73,7 +73,9 @@ export async function listProjectWorktrees(projectId: string): Promise<{
 
 export type WorktreeStartPoint = {
   value: string;
-  kind: 'local' | 'remote';
+  sha: string;
+  local_ref?: string;
+  remote_refs: string[];
 };
 
 export async function listProjectWorktreeStartPoints(

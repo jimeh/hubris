@@ -152,3 +152,12 @@ reconciliation — drift corrects on reconnect.
   `DELETE /api/projects/:id` deletes all non-local worktrees first.
   If any worktree is dirty/busy, the request returns `409` unless
   `?force=true` is supplied.
+- **Git remote HEAD aliases with `%(refname:short)` are lossy**:
+  `refs/remotes/origin/HEAD` becomes `origin` when formatted as short.
+  To reliably filter remote HEAD aliases, inspect full refname
+  (`%(refname)`) and only use short names for display.
+- **Rust integration tests should disable Git commit signing**:
+  local/global Git config may enforce GPG signing and break ephemeral
+  test-repo commits (for example with `Cannot allocate memory` from gpg).
+  In test helpers that run `git commit`, pass
+  `-c commit.gpgsign=false`.

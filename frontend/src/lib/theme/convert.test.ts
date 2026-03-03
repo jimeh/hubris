@@ -136,6 +136,23 @@ describe('computeThemeVars', () => {
     // editor.foreground is the primary for this entry
     expect(result.vars['--foreground']).toMatch(/oklch/);
   });
+
+  it('keeps quick input focus background distinct via fallback chain', () => {
+    const result = computeThemeVars({
+      ...minimalTheme,
+      colors: {
+        ...minimalTheme.colors,
+        'editorWidget.background': '#111111',
+        'list.activeSelectionBackground': '#2a2a2a',
+        'list.hoverBackground': '#111111',
+      },
+    });
+
+    expect(result.vars['--quick-input-background']).toBe(hexToOklch('#111111'));
+    expect(result.vars['--quick-input-focus-background']).toBe(
+      hexToOklch('#2a2a2a'),
+    );
+  });
 });
 
 describe('applyComputedVars', () => {

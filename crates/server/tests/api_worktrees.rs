@@ -23,9 +23,25 @@ fn run_git(repo_path: &Path, args: &[&str]) {
     let status = Command::new("git")
         .arg("-C")
         .arg(repo_path)
+        .arg("-c")
+        .arg("commit.gpgsign=false")
         .args(args)
         .status()
         .unwrap();
+    assert!(status.success(), "git failed: {:?}", args);
+}
+
+fn run_git_env(repo_path: &Path, args: &[&str], env: &[(&str, &str)]) {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
+        .arg(repo_path)
+        .arg("-c")
+        .arg("commit.gpgsign=false")
+        .args(args);
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
+    let status = cmd.status().unwrap();
     assert!(status.success(), "git failed: {:?}", args);
 }
 
@@ -59,12 +75,15 @@ async fn test_list_start_points_returns_local_and_remote() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
-    run_git(repo.path(), &["branch", "feature-local"]);
 
     // Add remote refs without requiring a real remote.
     run_git(
         repo.path(),
         &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+    run_git(
+        repo.path(),
+        &["update-ref", "refs/remotes/upstream/main", "HEAD"],
     );
     run_git(
         repo.path(),
@@ -87,18 +106,52 @@ async fn test_list_start_points_returns_local_and_remote() {
     assert!(body["git_error"].is_null());
 
     let start_points = body["start_points"].as_array().unwrap();
-    let values: Vec<&str> = start_points
-        .iter()
-        .filter_map(|point| point["value"].as_str())
-        .collect();
-    assert!(values.contains(&"main"));
-    assert!(values.contains(&"feature-local"));
-    assert!(values.contains(&"origin/main"));
-    assert!(!values.contains(&"origin/HEAD"));
+    assert_eq!(start_points.len(), 1);
+    let grouped = &start_points[0];
+    assert_eq!(grouped["value"], "main");
+    assert_eq!(grouped["local_ref"], "main");
+    assert!(grouped["sha"].as_str().is_some_and(|sha| !sha.is_empty()));
 
-    let mut sorted = values.clone();
-    sorted.sort_unstable();
-    assert_eq!(values, sorted);
+    let remote_refs = grouped["remote_refs"].as_array().unwrap();
+    assert_eq!(remote_refs.len(), 2);
+    assert_eq!(remote_refs[0], "origin/main");
+    assert_eq!(remote_refs[1], "upstream/main");
+}
+
+#[tokio::test]
+async fn test_list_start_points_sorted_by_recent_commit() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    run_git(repo.path(), &["branch", "stale"]);
+    std::fs::write(repo.path().join("README.md"), "hello\nnewer\n").unwrap();
+    run_git(repo.path(), &["add", "README.md"]);
+    run_git_env(
+        repo.path(),
+        &["commit", "-q", "-m", "newer commit"],
+        &[
+            ("GIT_AUTHOR_DATE", "2099-01-01T00:00:00Z"),
+            ("GIT_COMMITTER_DATE", "2099-01-01T00:00:00Z"),
+        ],
+    );
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/start-points",
+            base, project_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+
+    let start_points = body["start_points"].as_array().unwrap();
+    assert_eq!(start_points.len(), 2);
+    assert_eq!(start_points[0]["value"], "main");
+    assert_eq!(start_points[1]["value"], "stale");
 }
 
 #[tokio::test]
