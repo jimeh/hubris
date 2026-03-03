@@ -57,6 +57,8 @@ pub async fn create_tab(
     State(state): State<AppState>,
     Json(req): Json<CreateTabRequest>,
 ) -> Result<(StatusCode, Json<TabInfo>), StatusCode> {
+    // TODO: Track a worktree_id -> path index in AppState so tab creation
+    // avoids scanning all projects/worktrees via git on every request.
     let resolved = resolve_worktree(&state, &req.worktree_id)
         .await?
         .ok_or(StatusCode::NOT_FOUND)?;

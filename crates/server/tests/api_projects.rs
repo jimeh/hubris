@@ -30,6 +30,17 @@ fn init_git_repo() -> tempfile::TempDir {
     repo
 }
 
+async fn create_project(client: &reqwest::Client, base: &str, path: &str) -> Value {
+    let res = client
+        .post(format!("{}/api/projects", base))
+        .json(&serde_json::json!({ "path": path }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    res.json().await.unwrap()
+}
+
 #[tokio::test]
 async fn test_list_empty() {
     let (base, _tmp) = start_test_server().await;
@@ -230,4 +241,100 @@ async fn test_sse_snapshot_includes_worktrees() {
 
     assert!(parsed["data"]["projects"].is_array());
     assert!(parsed["data"]["worktrees"].is_object());
+}
+
+#[tokio::test]
+async fn test_update_project_name() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let id = project["id"].as_str().unwrap();
+
+    let res = client
+        .patch(format!("{}/api/projects/{}", base, id))
+        .json(&serde_json::json!({ "name": "Renamed Project" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let updated: Value = res.json().await.unwrap();
+    assert_eq!(updated["id"], id);
+    assert_eq!(updated["name"], "Renamed Project");
+
+    let res = client
+        .get(format!("{}/api/projects", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Vec<Value> = res.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["id"], id);
+    assert_eq!(body[0]["name"], "Renamed Project");
+}
+
+#[tokio::test]
+async fn test_delete_nonexistent_project() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let res = client
+        .delete(format!("{}/api/projects/nonexistent-project-id", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_reorder_projects_invalid_ids() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo1 = init_git_repo();
+    let repo2 = init_git_repo();
+
+    let p1 = create_project(&client, &base, repo1.path().to_str().unwrap()).await;
+    create_project(&client, &base, repo2.path().to_str().unwrap()).await;
+    let p1_id = p1["id"].as_str().unwrap();
+
+    let res = client
+        .put(format!("{}/api/projects/reorder", base))
+        .json(&serde_json::json!({
+            "project_ids": [p1_id, "not-a-real-id"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_delete_project_fails_when_worktrees_cannot_be_listed() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let id = project["id"].as_str().unwrap();
+
+    std::fs::remove_dir_all(repo.path()).unwrap();
+
+    let res = client
+        .delete(format!("{}/api/projects/{}", base, id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    let res = client
+        .get(format!("{}/api/projects", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Vec<Value> = res.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["id"], id);
 }

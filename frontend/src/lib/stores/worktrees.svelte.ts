@@ -41,6 +41,16 @@ function allWorktrees(): Worktree[] {
   return Object.values(worktreesByProject).flat();
 }
 
+function byStableFallback(a: Worktree, b: Worktree): number {
+  const byProjectId = a.project_id.localeCompare(b.project_id);
+  if (byProjectId !== 0) return byProjectId;
+
+  const byPosition = a.position - b.position;
+  if (byPosition !== 0) return byPosition;
+
+  return a.id.localeCompare(b.id);
+}
+
 function resolveSelected(): Worktree | null {
   if (!selectedWorktreeId) return null;
   return allWorktrees().find((wt) => wt.id === selectedWorktreeId) ?? null;
@@ -50,9 +60,7 @@ function ensureSelection(): void {
   const selected = resolveSelected();
   if (selected) return;
 
-  const first = allWorktrees()
-    .sort((a, b) => a.position - b.position)
-    .at(0);
+  const first = allWorktrees().sort(byStableFallback).at(0);
   selectedWorktreeId = first?.id ?? null;
   lsSet(LS_SELECTED, selectedWorktreeId);
 }

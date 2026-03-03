@@ -204,14 +204,20 @@ pub async fn delete_project(
         None => return StatusCode::NOT_FOUND,
     };
 
-    if let Ok(worktrees) = list_worktrees_for_project(&state, &project).await {
-        for worktree in worktrees.iter().filter(|wt| !wt.is_local) {
-            let local_root =
-                match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await {
-                    Ok(root) => root,
-                    Err(_) => return StatusCode::BAD_REQUEST,
-                };
+    let worktrees = match list_worktrees_for_project(&state, &project).await {
+        Ok(worktrees) => worktrees,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
+    };
 
+    let non_local_worktrees: Vec<_> = worktrees.iter().filter(|wt| !wt.is_local).collect();
+    if !non_local_worktrees.is_empty() {
+        let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await
+        {
+            Ok(root) => root,
+            Err(_) => return StatusCode::BAD_REQUEST,
+        };
+
+        for worktree in non_local_worktrees {
             if git::remove_worktree(
                 &local_root,
                 PathBuf::from(&worktree.path).as_path(),
@@ -227,10 +233,10 @@ pub async fn delete_project(
                 };
             }
         }
+    }
 
-        for worktree in worktrees {
-            close_tabs_for_worktree(&state, &worktree.id);
-        }
+    for worktree in worktrees {
+        close_tabs_for_worktree(&state, &worktree.id);
     }
 
     projects.retain(|p| p.id != id);

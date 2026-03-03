@@ -64,6 +64,16 @@ async fn create_tab(client: &reqwest::Client, base: &str, worktree_id: &str) -> 
     res.json().await.unwrap()
 }
 
+async fn list_tabs(client: &reqwest::Client, base: &str) -> Vec<Value> {
+    let res = client
+        .get(format!("{}/api/tabs", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    res.json().await.unwrap()
+}
+
 #[tokio::test]
 async fn test_list_tabs_empty() {
     let (base, _tmp) = start_test_server().await;
@@ -149,4 +159,109 @@ async fn test_delete_project_cascades_tabs() {
         .unwrap();
     let body: Vec<Value> = res.json().await.unwrap();
     assert!(body.is_empty());
+}
+
+#[tokio::test]
+async fn test_delete_tab() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_tab(&client, &base, &worktree_id).await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let res = client
+        .delete(format!("{}/api/tabs/{}", base, tab_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let body = list_tabs(&client, &base).await;
+    assert!(body.is_empty());
+
+    let res = client
+        .delete(format!("{}/api/tabs/{}", base, tab_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_update_tab() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_tab(&client, &base, &worktree_id).await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let res = client
+        .patch(format!("{}/api/tabs/{}", base, tab_id))
+        .json(&serde_json::json!({
+            "label": "Renamed tab",
+            "position": 42.5
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let updated: Value = res.json().await.unwrap();
+    assert_eq!(updated["id"], tab_id);
+    assert_eq!(updated["label"], "Renamed tab");
+    assert_eq!(updated["position"], 42.5);
+
+    let body = list_tabs(&client, &base).await;
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["id"], tab_id);
+    assert_eq!(body[0]["label"], "Renamed tab");
+    assert_eq!(body[0]["position"], 42.5);
+}
+
+#[tokio::test]
+async fn test_list_tabs_sorted_by_position() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let first = create_tab(&client, &base, &worktree_id).await;
+    let second = create_tab(&client, &base, &worktree_id).await;
+    let first_id = first["id"].as_str().unwrap();
+    let second_id = second["id"].as_str().unwrap();
+
+    let res = client
+        .patch(format!("{}/api/tabs/{}", base, second_id))
+        .json(&serde_json::json!({ "position": 0.5 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body = list_tabs(&client, &base).await;
+    assert_eq!(body.len(), 2);
+    assert_eq!(body[0]["id"], second_id);
+    assert_eq!(body[1]["id"], first_id);
+}
+
+#[tokio::test]
+async fn test_create_tab_label_increments() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let first = create_tab(&client, &base, &worktree_id).await;
+    let second = create_tab(&client, &base, &worktree_id).await;
+
+    assert_eq!(first["label"], "Terminal 1");
+    assert_eq!(second["label"], "Terminal 2");
 }

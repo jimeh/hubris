@@ -69,6 +69,7 @@
   } | null>(null);
   let openProjectMenuId = $state<string | null>(null);
   let confirmRemoveProjectId = $state<string | null>(null);
+  let confirmForceRemoveProjectId = $state<string | null>(null);
   let confirmRemoveWorktree = $state<{
     projectId: string;
     worktree: Worktree;
@@ -77,6 +78,7 @@
     projectId: string;
     worktree: Worktree;
   } | null>(null);
+  let actionError = $state<string | null>(null);
 
   const FLIP_MS = 150;
 
@@ -154,12 +156,13 @@
   }
 
   function openCreateWorktree(projectId: string, projectName: string): void {
+    actionError = null;
     createWorktreeTarget = { projectId, projectName };
   }
 
   function projectHeaderClass(props: Record<string, unknown>): string {
     const baseClass = typeof props.class === 'string' ? props.class : '';
-    return `${baseClass} relative flex items-center gap-2 px-2 py-1`;
+    return `${baseClass} relative overflow-visible flex items-center gap-2 px-2 py-1`;
   }
 
   function toggleProjectMenu(e: MouseEvent, projectId: string): void {
@@ -169,6 +172,7 @@
 
   function openRenameProject(projectId: string, currentName: string): void {
     openProjectMenuId = null;
+    actionError = null;
     renameProjectTarget = { projectId, currentName };
   }
 
@@ -209,28 +213,40 @@
     }
     try {
       await worktreeStore.remove(projectId, worktree.id, force);
+      actionError = null;
     } catch (err) {
       const message = (err as Error).message;
       if (!force && message === '409') {
         confirmForceRemoveWorktree = { projectId, worktree };
       } else {
-        alert(`Failed to delete worktree (${message})`);
+        actionError = `Failed to delete worktree (${message})`;
       }
     }
   }
 
-  async function removeProject(projectId: string): Promise<void> {
+  function handleWorktreeRowKeyDown(
+    e: KeyboardEvent,
+    worktreeId: string,
+  ): void {
+    if (e.key !== 'Enter' && e.key !== ' ') {
+      return;
+    }
+    e.preventDefault();
+    worktreeStore.select(worktreeId);
+  }
+
+  async function removeProject(
+    projectId: string,
+    force = false,
+  ): Promise<void> {
     try {
-      await projectStore.remove(projectId, false);
+      await projectStore.remove(projectId, force);
+      actionError = null;
     } catch (err) {
-      if ((err as Error).message === '409') {
-        const force = window.confirm(
-          'Some linked worktrees are dirty. Force delete all non-local worktrees?',
-        );
-        if (!force) return;
-        await projectStore.remove(projectId, true);
+      if (!force && (err as Error).message === '409') {
+        confirmForceRemoveProjectId = projectId;
       } else {
-        alert(`Failed to remove project (${(err as Error).message})`);
+        actionError = `Failed to remove project (${(err as Error).message})`;
       }
     }
   }
@@ -283,33 +299,37 @@
                     {...props}
                     class={projectHeaderClass(props)}
                     data-project-header="true"
-                    use:dragHandle
                   >
-                    <div class="flex items-center gap-2 truncate">
-                      {#if projectStore.isExpanded(project.id)}
-                        <FolderOpen
-                          class="h-3.5 w-3.5 shrink-0 group-hover/menu-item:hidden"
-                        />
-                        <ChevronDown
-                          class="hidden h-3.5 w-3.5 shrink-0 group-hover/menu-item:block"
-                        />
-                      {:else}
-                        <Folder
-                          class="h-3.5 w-3.5 shrink-0 group-hover/menu-item:hidden"
-                        />
-                        <ChevronRight
-                          class="hidden h-3.5 w-3.5 shrink-0 group-hover/menu-item:block"
-                        />
+                    <div
+                      class="flex min-w-0 flex-1 items-center gap-2"
+                      use:dragHandle
+                    >
+                      <div class="flex items-center gap-2 truncate">
+                        {#if projectStore.isExpanded(project.id)}
+                          <FolderOpen
+                            class="h-3.5 w-3.5 shrink-0 group-hover/menu-item:hidden"
+                          />
+                          <ChevronDown
+                            class="hidden h-3.5 w-3.5 shrink-0 group-hover/menu-item:block"
+                          />
+                        {:else}
+                          <Folder
+                            class="h-3.5 w-3.5 shrink-0 group-hover/menu-item:hidden"
+                          />
+                          <ChevronRight
+                            class="hidden h-3.5 w-3.5 shrink-0 group-hover/menu-item:block"
+                          />
+                        {/if}
+                        <span class="truncate">{project.name}</span>
+                      </div>
+                      {#if worktreeStore.projectError(project.id)}
+                        <span
+                          class="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive"
+                        >
+                          git error
+                        </span>
                       {/if}
-                      <span class="truncate">{project.name}</span>
                     </div>
-                    {#if worktreeStore.projectError(project.id)}
-                      <span
-                        class="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive"
-                      >
-                        git error
-                      </span>
-                    {/if}
                     <div
                       class={`ml-auto flex items-center gap-1 transition-opacity ${
                         openProjectMenuId === project.id
@@ -330,6 +350,7 @@
                         title="New worktree"
                         onclick={(e) => {
                           e.stopPropagation();
+                          actionError = null;
                           openCreateWorktree(project.id, project.name);
                         }}
                       >
@@ -343,7 +364,7 @@
                         data-project-menu={project.id}
                       >
                         <button
-                          class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                          class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           onclick={(e) => {
                             e.stopPropagation();
                             openRenameProject(project.id, project.name);
@@ -356,6 +377,7 @@
                           class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm text-destructive hover:bg-destructive/10"
                           onclick={(e) => {
                             e.stopPropagation();
+                            actionError = null;
                             openProjectMenuId = null;
                             confirmRemoveProjectId = project.id;
                           }}
@@ -406,21 +428,26 @@
                         class="group/worktree-item relative"
                         data-worktree-drag-item="true"
                       >
-                        <button
+                        <div
                           class="flex w-full items-center justify-between rounded-md px-2 py-1 pr-8 pl-8 text-left text-sm hover:bg-sidebar-accent
                                  {worktreeStore.selectedWorktreeId ===
                           worktree.id
                             ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                             : 'text-sidebar-foreground/80'}"
+                          role="button"
+                          tabindex="0"
                           onclick={() => worktreeStore.select(worktree.id)}
+                          onkeydown={(e) =>
+                            handleWorktreeRowKeyDown(e, worktree.id)}
                         >
                           <span class="truncate">{worktree.name}</span>
-                        </button>
+                        </div>
                         <button
                           class="absolute top-1/2 right-1 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground/70 opacity-0 transition-[opacity,background-color,color] pointer-events-none group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           title="Delete worktree"
                           onclick={(e) => {
                             e.stopPropagation();
+                            actionError = null;
                             confirmRemoveWorktree = {
                               projectId: project.id,
                               worktree,
@@ -459,6 +486,9 @@
       Add Project
     </Button>
   </Sidebar.Footer>
+  {#if actionError}
+    <p class="px-2 pb-2 text-xs text-destructive">{actionError}</p>
+  {/if}
 </Sidebar.Root>
 
 <svelte:window
@@ -506,10 +536,29 @@
       'this project'} and delete all non-local worktrees for it?"
     confirmLabel="Remove"
     onConfirm={() => {
-      removeProject(confirmRemoveProjectId!);
+      const projectId = confirmRemoveProjectId!;
       confirmRemoveProjectId = null;
+      void removeProject(projectId);
     }}
     onClose={() => (confirmRemoveProjectId = null)}
+  />
+{/if}
+
+{#if confirmForceRemoveProjectId}
+  {@const project = projectStore.projects.find(
+    (p: Project) => p.id === confirmForceRemoveProjectId,
+  )}
+  <ConfirmDialog
+    title="Force Remove Project"
+    description="Project {project?.name ??
+      'this project'} has linked worktrees with uncommitted changes or busy state. Force remove it anyway?"
+    confirmLabel="Force Remove"
+    onConfirm={() => {
+      const projectId = confirmForceRemoveProjectId!;
+      confirmForceRemoveProjectId = null;
+      void removeProject(projectId, true);
+    }}
+    onClose={() => (confirmForceRemoveProjectId = null)}
   />
 {/if}
 
