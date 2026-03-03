@@ -14,6 +14,8 @@ const {
   updateProject,
   reorderProjects,
   deleteProject,
+  listProjectWorktreeStartPoints,
+  createProjectWorktree,
   terminalWsUrl,
   listFiles,
   listTabs,
@@ -167,6 +169,96 @@ describe('API client', () => {
       );
 
       await expect(deleteProject('abc-123')).rejects.toThrow('500');
+    });
+  });
+
+  describe('listProjectWorktreeStartPoints', () => {
+    it('fetches start points for a project', async () => {
+      const mockResponse = {
+        start_points: [
+          { value: 'main', kind: 'local' },
+          { value: 'origin/main', kind: 'remote' },
+        ],
+        default_start_point: 'main',
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockResponse),
+        }),
+      );
+
+      const result = await listProjectWorktreeStartPoints('p1');
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/projects/p1/worktrees/start-points',
+      );
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('throws on non-OK response', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+        }),
+      );
+
+      await expect(listProjectWorktreeStartPoints('p1')).rejects.toThrow('500');
+    });
+  });
+
+  describe('createProjectWorktree', () => {
+    it('sends POST with branch and optional start point', async () => {
+      const mockWorktree = {
+        id: 'w1',
+        project_id: 'p1',
+        name: 'feature-test',
+        path: '/tmp/w1',
+        branch: 'feature-test',
+        is_local: false,
+        position: 2,
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockWorktree),
+        }),
+      );
+
+      const result = await createProjectWorktree(
+        'p1',
+        'feature-test',
+        'origin/main',
+      );
+      expect(fetch).toHaveBeenCalledWith('/api/projects/p1/worktrees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branch: 'feature-test',
+          start_point: 'origin/main',
+        }),
+      });
+      expect(result).toEqual(mockWorktree);
+    });
+
+    it('omits start_point when not provided', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ id: 'w1' }),
+        }),
+      );
+
+      await createProjectWorktree('p1', 'feature-test');
+      expect(fetch).toHaveBeenCalledWith('/api/projects/p1/worktrees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch: 'feature-test' }),
+      });
     });
   });
 

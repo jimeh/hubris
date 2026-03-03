@@ -153,8 +153,12 @@ export function getWorktreeStore() {
     lsSet(LS_SELECTED, worktreeId);
   }
 
-  async function create(projectId: string, branch: string): Promise<Worktree> {
-    const worktree = await createProjectWorktree(projectId, branch);
+  async function create(
+    projectId: string,
+    branch: string,
+    startPoint?: string,
+  ): Promise<Worktree> {
+    const worktree = await createProjectWorktree(projectId, branch, startPoint);
 
     const list = worktreesByProject[projectId] ?? [];
     const local = list.find((wt) => wt.is_local);

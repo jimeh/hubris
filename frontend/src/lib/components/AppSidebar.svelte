@@ -39,7 +39,11 @@
     selectedWorktreeId: string | null;
     worktreesForProject(projectId: string): Worktree[];
     select(worktreeId: string): void;
-    create(projectId: string, branch: string): Promise<Worktree>;
+    create(
+      projectId: string,
+      branch: string,
+      startPoint?: string,
+    ): Promise<Worktree>;
     remove(
       projectId: string,
       worktreeId: string,
@@ -533,9 +537,14 @@
 
 {#if createWorktreeTarget}
   <AddWorktreeDialog
+    projectId={createWorktreeTarget.projectId}
     projectName={createWorktreeTarget.projectName}
-    onAdd={async (branch) => {
-      await worktreeStore.create(createWorktreeTarget!.projectId, branch);
+    onAdd={async (branch, startPoint) => {
+      await worktreeStore.create(
+        createWorktreeTarget!.projectId,
+        branch,
+        startPoint,
+      );
       createWorktreeTarget = null;
     }}
     onClose={() => (createWorktreeTarget = null)}

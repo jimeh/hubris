@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use tokio::process::Command;
@@ -9,6 +10,18 @@ const WORKTREE_NAMESPACE: Uuid = Uuid::from_u128(0x2b8b1f5e_84f8_4d8d_9ad8_9f6df
 pub struct GitWorktree {
     pub path: PathBuf,
     pub branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GitStartPointKind {
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Clone)]
+pub struct GitStartPoint {
+    pub value: String,
+    pub kind: GitStartPointKind,
 }
 
 #[derive(Debug, Clone)]
@@ -141,6 +154,7 @@ pub async fn create_worktree(
     local_root: &Path,
     branch: &str,
     target_path: &Path,
+    start_point: Option<&str>,
 ) -> Result<(), GitError> {
     if let Some(parent) = target_path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -153,9 +167,109 @@ pub async fn create_worktree(
     let cwd = local_root.to_string_lossy().to_string();
     let target = target_path.to_string_lossy().to_string();
 
-    run_git(&["-C", &cwd, "worktree", "add", "-b", branch, &target])
+    let mut args = vec![
+        "-C".to_string(),
+        cwd,
+        "worktree".to_string(),
+        "add".to_string(),
+        "-b".to_string(),
+        branch.to_string(),
+        target,
+    ];
+    if let Some(start_point) = start_point {
+        args.push(start_point.to_string());
+    }
+
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_git(&arg_refs).await.map(|_| ())
+}
+
+pub async fn list_branch_start_points(local_root: &Path) -> Result<Vec<GitStartPoint>, GitError> {
+    let cwd = local_root.to_string_lossy().to_string();
+    let local = run_git(&[
+        "-C",
+        &cwd,
+        "for-each-ref",
+        "--format=%(refname:short)",
+        "refs/heads",
+    ])
+    .await?;
+    let remote = run_git(&[
+        "-C",
+        &cwd,
+        "for-each-ref",
+        "--format=%(refname:short)",
+        "refs/remotes",
+    ])
+    .await?;
+
+    let mut seen = HashSet::new();
+    let mut start_points = Vec::new();
+
+    for value in local.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if seen.insert(value.to_string()) {
+            start_points.push(GitStartPoint {
+                value: value.to_string(),
+                kind: GitStartPointKind::Local,
+            });
+        }
+    }
+
+    for value in remote
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if value.ends_with("/HEAD") {
+            continue;
+        }
+        if seen.insert(value.to_string()) {
+            start_points.push(GitStartPoint {
+                value: value.to_string(),
+                kind: GitStartPointKind::Remote,
+            });
+        }
+    }
+
+    start_points.sort_by(|a, b| a.value.cmp(&b.value).then_with(|| a.kind.cmp(&b.kind)));
+    Ok(start_points)
+}
+
+pub async fn current_branch(local_root: &Path) -> Result<Option<String>, GitError> {
+    let cwd = local_root.to_string_lossy().to_string();
+    let output = Command::new("git")
+        .args(["-C", &cwd, "symbolic-ref", "--quiet", "--short", "HEAD"])
+        .output()
         .await
-        .map(|_| ())
+        .map_err(|e| GitError {
+            message: format!("failed to run git: {e}"),
+        })?;
+
+    if output.status.success() {
+        let branch = trim_output(&output.stdout);
+        if branch.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(branch))
+        }
+    } else if output.status.code() == Some(1) {
+        // Detached HEAD; there is no current branch.
+        Ok(None)
+    } else {
+        let stderr = trim_output(&output.stderr);
+        let stdout = trim_output(&output.stdout);
+        Err(GitError {
+            message: if stderr.is_empty() {
+                if stdout.is_empty() {
+                    "git command failed".to_string()
+                } else {
+                    stdout
+                }
+            } else {
+                stderr
+            },
+        })
+    }
 }
 
 pub async fn remove_worktree(

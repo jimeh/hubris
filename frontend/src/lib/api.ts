@@ -71,14 +71,38 @@ export async function listProjectWorktrees(projectId: string): Promise<{
   return res.json();
 }
 
+export type WorktreeStartPoint = {
+  value: string;
+  kind: 'local' | 'remote';
+};
+
+export async function listProjectWorktreeStartPoints(
+  projectId: string,
+): Promise<{
+  start_points: WorktreeStartPoint[];
+  default_start_point?: string;
+  git_error?: string;
+}> {
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/start-points`,
+  );
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
 export async function createProjectWorktree(
   projectId: string,
   branch: string,
+  startPoint?: string,
 ): Promise<Worktree> {
+  const body: { branch: string; start_point?: string } = { branch };
+  if (startPoint) {
+    body.start_point = startPoint;
+  }
   const res = await fetch(`${BASE}/projects/${projectId}/worktrees`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ branch }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();

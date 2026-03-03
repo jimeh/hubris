@@ -20,8 +20,8 @@ use api::tabs::{create_tab, delete_tab, list_tabs, update_tab};
 use api::terminal::ws_handler;
 use api::themes::{create_theme, delete_theme, get_theme, list_themes};
 use api::worktrees::{
-    create_project_worktree, delete_project_worktree, list_project_worktrees,
-    reorder_project_worktrees,
+    create_project_worktree, delete_project_worktree, list_project_worktree_start_points,
+    list_project_worktrees, reorder_project_worktrees,
 };
 use embedded::spa_handler;
 pub use state::AppState;
@@ -85,6 +85,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/projects/{id}/worktrees",
             get(list_project_worktrees).post(create_project_worktree),
+        )
+        .route(
+            "/projects/{id}/worktrees/start-points",
+            get(list_project_worktree_start_points),
         )
         .route(
             "/projects/{id}/worktrees/reorder",

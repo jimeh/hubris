@@ -30,9 +30,33 @@ pub struct ListWorktreesResponse {
     pub git_error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StartPointKind {
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StartPoint {
+    pub value: String,
+    pub kind: StartPointKind,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ListWorktreeStartPointsResponse {
+    pub start_points: Vec<StartPoint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_start_point: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_error: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateWorktreeRequest {
     pub branch: String,
+    #[serde(default)]
+    pub start_point: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,6 +189,13 @@ fn sort_non_local(mut non_local: Vec<Worktree>, order: &[String]) -> Vec<Worktre
     remaining.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     ordered.extend(remaining);
     ordered
+}
+
+fn map_start_point_kind(kind: git::GitStartPointKind) -> StartPointKind {
+    match kind {
+        git::GitStartPointKind::Local => StartPointKind::Local,
+        git::GitStartPointKind::Remote => StartPointKind::Remote,
+    }
 }
 
 pub async fn list_worktrees_for_project(
@@ -306,6 +337,11 @@ pub async fn create_project_worktree(
     Json(req): Json<CreateWorktreeRequest>,
 ) -> Result<(StatusCode, Json<Worktree>), StatusCode> {
     let branch = req.branch.trim();
+    let start_point = req
+        .start_point
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     if !validate_branch(branch) {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -326,7 +362,7 @@ pub async fn create_project_worktree(
     let settings = load_settings(&state).await;
     let target = resolve_target_path(&state, project, branch, &settings);
 
-    git::create_worktree(&local_root, branch, &target)
+    git::create_worktree(&local_root, branch, &target, start_point)
         .await
         .map_err(|_| StatusCode::CONFLICT)?;
 
@@ -358,6 +394,51 @@ pub async fn create_project_worktree(
     });
 
     Ok((StatusCode::CREATED, Json(created)))
+}
+
+pub async fn list_project_worktree_start_points(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+) -> Result<Json<ListWorktreeStartPointsResponse>, StatusCode> {
+    let projects = state
+        .load_projects()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await {
+        Ok(root) => root,
+        Err(err) => {
+            return Ok(Json(ListWorktreeStartPointsResponse {
+                start_points: vec![],
+                default_start_point: None,
+                git_error: Some(err.message),
+            }));
+        }
+    };
+
+    let default_start_point = git::current_branch(&local_root).await.ok().flatten();
+    match git::list_branch_start_points(&local_root).await {
+        Ok(start_points) => Ok(Json(ListWorktreeStartPointsResponse {
+            start_points: start_points
+                .into_iter()
+                .map(|start_point| StartPoint {
+                    value: start_point.value,
+                    kind: map_start_point_kind(start_point.kind),
+                })
+                .collect(),
+            default_start_point,
+            git_error: None,
+        })),
+        Err(err) => Ok(Json(ListWorktreeStartPointsResponse {
+            start_points: vec![],
+            default_start_point,
+            git_error: Some(err.message),
+        })),
+    }
 }
 
 pub async fn reorder_project_worktrees(
