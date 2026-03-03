@@ -12,13 +12,13 @@
     Ellipsis,
     Folder,
     FolderOpen,
+    GripVertical,
     Pencil,
     Plus,
     Settings,
     Trash2,
   } from '@lucide/svelte';
   import {
-    dndzone,
     dragHandle,
     dragHandleZone,
     SHADOW_ITEM_MARKER_PROPERTY_NAME,
@@ -81,6 +81,13 @@
   let actionError = $state<string | null>(null);
 
   const FLIP_MS = 150;
+  const projectActionButtonClass =
+    'rounded p-1 text-sidebar-foreground/70 transition-colors ' +
+    'hover:bg-sidebar-foreground/12 hover:text-sidebar-accent-foreground ' +
+    'focus-visible:bg-sidebar-foreground/12';
+  const projectMenuItemClass =
+    'flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm ' +
+    'transition-colors';
 
   type DndProject = Project & {
     [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: string;
@@ -338,7 +345,7 @@
                       }`}
                     >
                       <button
-                        class="rounded p-1 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        class={projectActionButtonClass}
                         title="Project actions"
                         data-project-menu-trigger={project.id}
                         onclick={(e) => toggleProjectMenu(e, project.id)}
@@ -346,7 +353,7 @@
                         <Ellipsis class="h-3.5 w-3.5" />
                       </button>
                       <button
-                        class="rounded p-1 text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        class={projectActionButtonClass}
                         title="New worktree"
                         onclick={(e) => {
                           e.stopPropagation();
@@ -360,11 +367,11 @@
 
                     {#if openProjectMenuId === project.id}
                       <div
-                        class="absolute top-8 right-1 z-30 min-w-28 rounded-md border bg-popover p-1 shadow-md"
+                        class="absolute top-8 right-1 z-50 min-w-28 rounded-md border bg-popover p-1 shadow-md"
                         data-project-menu={project.id}
                       >
                         <button
-                          class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          class={`${projectMenuItemClass} hover:bg-foreground/10 hover:text-popover-foreground`}
                           onclick={(e) => {
                             e.stopPropagation();
                             openRenameProject(project.id, project.name);
@@ -400,7 +407,7 @@
                 >
                   {#if localWorktree(project.id)}
                     <button
-                      class="flex w-full items-center justify-between rounded-md px-2 py-1 pl-8 text-left text-sm hover:bg-sidebar-accent
+                      class="flex w-full cursor-default select-none items-center gap-1 rounded-md px-2 py-1 text-left text-sm hover:bg-sidebar-accent
                              {worktreeStore.selectedWorktreeId ===
                       localWorktree(project.id)?.id
                         ? 'bg-sidebar-accent text-sidebar-accent-foreground'
@@ -408,16 +415,23 @@
                       onclick={() =>
                         worktreeStore.select(localWorktree(project.id)!.id)}
                     >
+                      <span
+                        class="flex h-6 w-5 shrink-0 items-center justify-center"
+                        aria-hidden="true"
+                      ></span>
                       <span class="truncate">local</span>
                     </button>
                   {/if}
 
                   <div
-                    use:dndzone={{
+                    use:dragHandleZone={{
                       items: dndWorktrees[project.id] ?? [],
                       flipDurationMs: FLIP_MS,
                       type: `worktrees-${project.id}`,
                       dropTargetStyle: {},
+                      centreDraggedOnCursor: false,
+                      useCursorForDetection: true,
+                      morphDisabled: true,
                     }}
                     onconsider={(e) => handleWorktreeConsider(project.id, e)}
                     onfinalize={(e) => handleWorktreeFinalize(project.id, e)}
@@ -429,21 +443,32 @@
                         data-worktree-drag-item="true"
                       >
                         <div
-                          class="flex w-full items-center justify-between rounded-md px-2 py-1 pr-8 pl-8 text-left text-sm hover:bg-sidebar-accent
+                          class="flex cursor-default select-none items-center gap-1 rounded-md px-2 py-1 pr-8 text-sm transition-colors hover:bg-sidebar-accent
                                  {worktreeStore.selectedWorktreeId ===
                           worktree.id
                             ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                             : 'text-sidebar-foreground/80'}"
-                          role="button"
-                          tabindex="0"
-                          onclick={() => worktreeStore.select(worktree.id)}
-                          onkeydown={(e) =>
-                            handleWorktreeRowKeyDown(e, worktree.id)}
                         >
-                          <span class="truncate">{worktree.name}</span>
+                          <div
+                            use:dragHandle
+                            class="flex h-6 w-5 shrink-0 items-center justify-center text-sidebar-foreground/60 opacity-0 transition-opacity group-hover/worktree-item:opacity-100 cursor-grab active:cursor-grabbing"
+                            title="Drag to reorder"
+                          >
+                            <GripVertical class="h-3.5 w-3.5" />
+                          </div>
+                          <div
+                            class="flex min-w-0 flex-1 items-center text-left"
+                            role="button"
+                            tabindex="0"
+                            onclick={() => worktreeStore.select(worktree.id)}
+                            onkeydown={(e) =>
+                              handleWorktreeRowKeyDown(e, worktree.id)}
+                          >
+                            <span class="truncate">{worktree.name}</span>
+                          </div>
                         </div>
                         <button
-                          class="absolute top-1/2 right-1 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground/70 opacity-0 transition-[opacity,background-color,color] pointer-events-none group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          class="absolute top-1/2 right-1 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground/70 opacity-0 transition-[opacity,background-color,color] pointer-events-none group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           title="Delete worktree"
                           onclick={(e) => {
                             e.stopPropagation();
@@ -600,6 +625,8 @@
     #dnd-action-dragged-el[data-worktree-drag-item='true']
   ) {
     opacity: 0.5 !important;
+    z-index: 40 !important;
+    pointer-events: none !important;
     border-radius: var(--radius);
     outline: none !important;
     box-shadow: none !important;
