@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { RefreshCw } from '@lucide/svelte';
+  import { generateWorktreeBranchName } from '$lib/worktreeName';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
@@ -14,19 +16,24 @@
   } = $props();
 
   let branch = $state('');
+  let suggestedBranch = $state(generateWorktreeBranchName());
   let submitting = $state(false);
   let error = $state('');
 
+  function rerollSuggestedBranch(): void {
+    suggestedBranch = generateWorktreeBranchName(suggestedBranch);
+  }
+
   async function submit() {
-    const trimmed = branch.trim();
-    if (!trimmed) {
+    const effectiveBranch = branch.trim() || suggestedBranch;
+    if (!effectiveBranch) {
       return;
     }
 
     submitting = true;
     error = '';
     try {
-      await onAdd(trimmed);
+      await onAdd(effectiveBranch);
     } catch (err) {
       error = (err as Error).message;
       submitting = false;
@@ -51,17 +58,30 @@
     </Dialog.Header>
 
     <div class="space-y-3 py-2">
-      <Input
-        type="text"
-        bind:value={branch}
-        placeholder="feature/my-branch"
-        disabled={submitting}
-        onkeydown={(e: KeyboardEvent) => {
-          if (e.key === 'Enter') {
-            submit();
-          }
-        }}
-      />
+      <div class="flex items-center gap-2">
+        <Input
+          type="text"
+          bind:value={branch}
+          placeholder={suggestedBranch}
+          class="flex-1"
+          disabled={submitting}
+          onkeydown={(e: KeyboardEvent) => {
+            if (e.key === 'Enter') {
+              submit();
+            }
+          }}
+        />
+        <Button
+          variant="outline"
+          size="icon-sm"
+          title="Generate another name"
+          aria-label="Generate another name"
+          disabled={submitting}
+          onclick={rerollSuggestedBranch}
+        >
+          <RefreshCw class="h-4 w-4" />
+        </Button>
+      </div>
 
       {#if error}
         <p class="text-sm text-destructive">{error}</p>
@@ -72,9 +92,7 @@
       <Button variant="outline" onclick={onClose} disabled={submitting}>
         Cancel
       </Button>
-      <Button onclick={submit} disabled={submitting || !branch.trim()}>
-        Create
-      </Button>
+      <Button onclick={submit} disabled={submitting}>Create</Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>
