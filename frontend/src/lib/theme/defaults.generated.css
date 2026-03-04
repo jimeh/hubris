@@ -20,6 +20,12 @@
   --border: oklch(0.85747708 0.01447998 268.47559172);
   --input: oklch(0.85747708 0.01447998 268.47559172);
   --ring: oklch(0.6637629 0.1751033 273.13460351);
+  --quick-input-background: oklch(0.93345933 0.0087138 264.52060224);
+  --quick-input-foreground: oklch(0.43546963 0.04300796 279.32502095);
+  --quick-input-border: oklch(0.85747708 0.01447998 268.47559172);
+  --quick-input-group-foreground: oklch(0.65355363 0.02687877 278.12081596);
+  --quick-input-focus-background: oklch(0.80830701 0.01739331 271.19815543);
+  --quick-input-focus-foreground: oklch(0.43546963 0.04300796 279.32502095);
 
   --sidebar: oklch(0.93345933 0.0087138 264.52060224);
   --sidebar-foreground: oklch(0.43546963 0.04300796 279.32502095);
@@ -77,6 +83,12 @@
   --border: oklch(0.32402189 0.03188455 281.97844174);
   --input: oklch(0.32402189 0.03188455 281.97844174);
   --ring: oklch(0.81659601 0.09095183 277.30924283);
+  --quick-input-background: oklch(0.32402189 0.03188455 281.97844174);
+  --quick-input-foreground: oklch(0.87866008 0.042552 272.27673784);
+  --quick-input-border: oklch(0.32402189 0.03188455 281.97844174);
+  --quick-input-group-foreground: oklch(0.54969118 0.03449391 277.09507461);
+  --quick-input-focus-background: oklch(0.40369142 0.03195464 280.15200361);
+  --quick-input-focus-foreground: oklch(0.87866008 0.042552 272.27673784);
 
   --sidebar: oklch(0.21552161 0.02541687 284.06469902);
   --sidebar-foreground: oklch(0.87866008 0.042552 272.27673784);

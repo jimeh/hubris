@@ -1,57 +1,64 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::api::projects::Project;
+use crate::api::worktrees::Worktree;
 use crate::pty::live_tab::TabInfo;
 
-/// Typed event envelope. The `kind` field determines the
-/// SSE event name and payload shape.
 #[derive(Debug, Clone, Serialize)]
 pub struct Event {
     #[serde(flatten)]
     pub kind: EventKind,
 }
 
-/// Extensible event variants. Add new variants here as
-/// features are added (e.g., SessionCreated,
-/// ProjectUpdated).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventKind {
-    /// Full state snapshot, sent on SSE connect and
-    /// after lag recovery.
     #[serde(rename = "snapshot")]
     Snapshot {
         tabs: Vec<TabInfo>,
         projects: Vec<Project>,
+        worktrees: HashMap<String, Vec<Worktree>>,
+        project_errors: HashMap<String, String>,
     },
-    /// A new tab was created.
     #[serde(rename = "tab_created")]
     TabCreated(TabInfo),
-    /// A tab was closed (shell exit or explicit delete).
     #[serde(rename = "tab_closed")]
     TabClosed { tab_id: String },
-    /// A tab's metadata changed (position, label).
     #[serde(rename = "tab_updated")]
     TabUpdated(TabInfo),
-    /// A project was added.
     #[serde(rename = "project_added")]
     ProjectAdded(Project),
-    /// A project was removed.
     #[serde(rename = "project_removed")]
     ProjectRemoved { project_id: String },
-    /// A project's metadata changed (name).
     #[serde(rename = "project_updated")]
     ProjectUpdated(Project),
-    /// All projects were reordered.
     #[serde(rename = "projects_reordered")]
     ProjectsReordered(Vec<Project>),
+    #[serde(rename = "worktree_created")]
+    WorktreeCreated(Worktree),
+    #[serde(rename = "worktree_deleted")]
+    WorktreeDeleted {
+        project_id: String,
+        worktree_id: String,
+    },
+    #[serde(rename = "worktrees_reordered")]
+    WorktreesReordered {
+        project_id: String,
+        worktrees: Vec<Worktree>,
+    },
+    #[serde(rename = "project_worktrees_updated")]
+    ProjectWorktreesUpdated {
+        project_id: String,
+        worktrees: Vec<Worktree>,
+        git_error: Option<String>,
+    },
 }
 
 impl EventKind {
-    /// SSE event name string.
     pub fn event_name(&self) -> &'static str {
         match self {
             EventKind::Snapshot { .. } => "snapshot",
@@ -62,12 +69,14 @@ impl EventKind {
             EventKind::ProjectRemoved { .. } => "project_removed",
             EventKind::ProjectUpdated(_) => "project_updated",
             EventKind::ProjectsReordered(_) => "projects_reordered",
+            EventKind::WorktreeCreated(_) => "worktree_created",
+            EventKind::WorktreeDeleted { .. } => "worktree_deleted",
+            EventKind::WorktreesReordered { .. } => "worktrees_reordered",
+            EventKind::ProjectWorktreesUpdated { .. } => "project_worktrees_updated",
         }
     }
 }
 
-/// Broadcast bus for state-sync events. All mutations
-/// emit events here; SSE endpoint subscribes.
 pub struct EventBus {
     tx: broadcast::Sender<Arc<Event>>,
 }
@@ -84,13 +93,11 @@ impl EventBus {
         Self { tx }
     }
 
-    /// Emit an event to all subscribers.
     pub fn emit(&self, kind: EventKind) {
         let event = Arc::new(Event { kind });
         let _ = self.tx.send(event);
     }
 
-    /// Subscribe for new events.
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<Event>> {
         self.tx.subscribe()
     }
@@ -108,7 +115,7 @@ mod tests {
         let info = TabInfo {
             id: "t1".into(),
             session_id: "default".into(),
-            project_id: "p1".into(),
+            worktree_id: "w1".into(),
             label: "Terminal 1".into(),
             tab_type: "terminal".into(),
             position: 1.0,
@@ -132,7 +139,6 @@ mod tests {
     #[tokio::test]
     async fn test_event_bus_no_subscribers() {
         let bus = EventBus::new();
-        // emit with no subscribers should not panic
         bus.emit(EventKind::TabClosed { tab_id: "x".into() });
     }
 
@@ -141,7 +147,9 @@ mod tests {
         assert_eq!(
             EventKind::Snapshot {
                 tabs: vec![],
-                projects: vec![]
+                projects: vec![],
+                worktrees: HashMap::new(),
+                project_errors: HashMap::new(),
             }
             .event_name(),
             "snapshot"

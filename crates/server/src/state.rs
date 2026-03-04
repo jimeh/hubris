@@ -36,6 +36,14 @@ impl AppState {
         self.data_dir.join("themes")
     }
 
+    pub fn project_meta_dir(&self) -> PathBuf {
+        self.data_dir.join("project-meta")
+    }
+
+    pub fn project_meta_file(&self, project_id: &str) -> PathBuf {
+        self.project_meta_dir().join(format!("{project_id}.json"))
+    }
+
     pub fn settings_file(&self) -> PathBuf {
         self.data_dir.join("settings.json")
     }

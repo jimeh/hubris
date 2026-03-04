@@ -7,6 +7,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { getThemeStore } from '$lib/stores/theme.svelte';
   import { getTerminalStore } from '$lib/stores/terminal.svelte';
+  import { getWorktreeSettingsStore } from '$lib/stores/worktreeSettings.svelte';
   import { BUNDLED_FONTS } from '$lib/terminal/fonts';
   import ThemeManager from './ThemeManager.svelte';
   import ThemeSelect from './ThemeSelect.svelte';
@@ -20,6 +21,7 @@
 
   const theme = getThemeStore();
   const termStore = getTerminalStore();
+  const worktreeSettings = getWorktreeSettingsStore();
 
   const fontPreviewLines = [
     'Hello, World!',
@@ -271,6 +273,42 @@
               > echo "Hello, World!"
 {#each fontPreviewLines as line (line)}{line}
               {/each}</pre>
+          </div>
+        </div>
+      </section>
+
+      <Separator />
+
+      <section class="space-y-3">
+        <h3 class="text-sm font-medium">Worktrees</h3>
+        <div class="grid grid-cols-[120px_1fr] items-center gap-3">
+          <Label>Location</Label>
+          <div class="flex gap-1">
+            <Button
+              variant={worktreeSettings.settings.locationMode === 'dataDir'
+                ? 'secondary'
+                : 'ghost'}
+              size="sm"
+              onclick={() =>
+                worktreeSettings.updateSettings({
+                  locationMode: 'dataDir',
+                })}
+            >
+              Data Dir
+            </Button>
+            <Button
+              variant={worktreeSettings.settings.locationMode ===
+              'repoLocalDotHubris'
+                ? 'secondary'
+                : 'ghost'}
+              size="sm"
+              onclick={() =>
+                worktreeSettings.updateSettings({
+                  locationMode: 'repoLocalDotHubris',
+                })}
+            >
+              Repo .hubris
+            </Button>
           </div>
         </div>
       </section>

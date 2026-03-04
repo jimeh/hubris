@@ -2,49 +2,266 @@
   import * as Sidebar from '$lib/components/ui/sidebar/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import AddProjectDialog from './AddProjectDialog.svelte';
+  import AddWorktreeDialog from './AddWorktreeDialog.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import RenameProjectDialog from './RenameProjectDialog.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
-  import { Plus, Settings, X } from '@lucide/svelte';
-  import { dndzone, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
-  import type { Project } from '$lib/types';
+  import * as Tooltip from '$lib/components/ui/tooltip/index.js';
+  import {
+    AlertTriangle,
+    ChevronDown,
+    ChevronRight,
+    Ellipsis,
+    Folder,
+    FolderOpen,
+    GripVertical,
+    Pencil,
+    Plus,
+    Settings,
+    Trash2,
+  } from '@lucide/svelte';
+  import {
+    dragHandle,
+    dragHandleZone,
+    SHADOW_ITEM_MARKER_PROPERTY_NAME,
+  } from 'svelte-dnd-action';
+  import type { Project, Worktree } from '$lib/types';
 
-  let { store } = $props();
+  interface ProjectStore {
+    projects: Project[];
+    add(path: string): Promise<Project>;
+    remove(id: string, force?: boolean): Promise<void>;
+    reorder(orderedIds: string[]): Promise<void>;
+    rename(id: string, name: string): Promise<void>;
+    toggleExpanded(projectId: string): void;
+    isExpanded(projectId: string): boolean;
+  }
+
+  interface WorktreeStore {
+    selectedWorktreeId: string | null;
+    worktreesForProject(projectId: string): Worktree[];
+    select(worktreeId: string): void;
+    create(
+      projectId: string,
+      branch: string,
+      startPoint?: string,
+    ): Promise<Worktree>;
+    remove(
+      projectId: string,
+      worktreeId: string,
+      force?: boolean,
+    ): Promise<void>;
+    reorder(projectId: string, orderedIds: string[]): Promise<void>;
+    projectError(projectId: string): string | null;
+  }
+
+  let {
+    projectStore,
+    worktreeStore,
+  }: {
+    projectStore: ProjectStore;
+    worktreeStore: WorktreeStore;
+  } = $props();
+
   let showDialog = $state(false);
   let showSettings = $state(false);
-  let confirmRemoveId = $state<string | null>(null);
+  let createWorktreeTarget = $state<{
+    projectId: string;
+    projectName: string;
+  } | null>(null);
+  let renameProjectTarget = $state<{
+    projectId: string;
+    currentName: string;
+  } | null>(null);
+  let openProjectMenuId = $state<string | null>(null);
+  let confirmRemoveProjectId = $state<string | null>(null);
+  let confirmForceRemoveProjectId = $state<string | null>(null);
+  let confirmRemoveWorktree = $state<{
+    projectId: string;
+    worktree: Worktree;
+  } | null>(null);
+  let confirmForceRemoveWorktree = $state<{
+    projectId: string;
+    worktree: Worktree;
+  } | null>(null);
+  let actionError = $state<string | null>(null);
 
   const FLIP_MS = 150;
+  const projectActionButtonClass =
+    'rounded p-1 text-sidebar-foreground/70 transition-colors ' +
+    'hover:bg-sidebar-foreground/12 hover:text-sidebar-accent-foreground ' +
+    'focus-visible:bg-sidebar-foreground/12';
+  const projectMenuItemClass =
+    'flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm ' +
+    'transition-colors';
 
   type DndProject = Project & {
     [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: string;
   };
 
-  let dragging = $state(false);
-  let dndItems = $state<DndProject[]>([]);
+  type DndWorktree = Worktree & {
+    [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: string;
+  };
 
-  // Sync dndItems from store when not dragging
+  let draggingProjects = $state(false);
+  let dndProjects = $state<DndProject[]>([]);
+  let dndWorktrees = $state<Record<string, DndWorktree[]>>({});
+
   $effect(() => {
-    if (!dragging) {
-      dndItems = store.projects.map((p: Project) => ({
-        ...p,
+    if (!draggingProjects) {
+      dndProjects = projectStore.projects.map((project: Project) => ({
+        ...project,
       }));
     }
+
+    const next: Record<string, DndWorktree[]> = {};
+    for (const project of projectStore.projects) {
+      next[project.id] = worktreeStore
+        .worktreesForProject(project.id)
+        .filter((worktree: Worktree) => !worktree.is_local)
+        .map((worktree: Worktree) => ({ ...worktree }));
+    }
+    dndWorktrees = next;
   });
 
-  function handleConsider(e: CustomEvent<{ items: DndProject[] }>) {
-    dragging = true;
-    dndItems = e.detail.items;
+  function handleProjectConsider(e: CustomEvent<{ items: DndProject[] }>) {
+    draggingProjects = true;
+    dndProjects = e.detail.items;
   }
 
-  function handleFinalize(e: CustomEvent<{ items: DndProject[] }>) {
-    dndItems = e.detail.items;
-    dragging = false;
-    store.reorder(dndItems.map((p) => p.id));
+  function handleProjectFinalize(e: CustomEvent<{ items: DndProject[] }>) {
+    dndProjects = e.detail.items;
+    draggingProjects = false;
+    projectStore.reorder(dndProjects.map((project) => project.id));
   }
 
-  function removeProject(e: MouseEvent, id: string) {
+  function toggleProjectExpanded(projectId: string): void {
+    openProjectMenuId = null;
+    projectStore.toggleExpanded(projectId);
+  }
+
+  function handleWorktreeConsider(
+    projectId: string,
+    e: CustomEvent<{ items: DndWorktree[] }>,
+  ) {
+    dndWorktrees[projectId] = e.detail.items;
+    dndWorktrees = { ...dndWorktrees };
+  }
+
+  function handleWorktreeFinalize(
+    projectId: string,
+    e: CustomEvent<{ items: DndWorktree[] }>,
+  ) {
+    dndWorktrees[projectId] = e.detail.items;
+    dndWorktrees = { ...dndWorktrees };
+    worktreeStore.reorder(
+      projectId,
+      e.detail.items.map((wt) => wt.id),
+    );
+  }
+
+  function localWorktree(projectId: string): Worktree | null {
+    return (
+      worktreeStore
+        .worktreesForProject(projectId)
+        .find((worktree: Worktree) => worktree.is_local) ?? null
+    );
+  }
+
+  function openCreateWorktree(projectId: string, projectName: string): void {
+    actionError = null;
+    createWorktreeTarget = { projectId, projectName };
+  }
+
+  function projectHeaderClass(props: Record<string, unknown>): string {
+    const baseClass = typeof props.class === 'string' ? props.class : '';
+    return `${baseClass} relative overflow-visible flex items-center gap-2 px-2 py-1`;
+  }
+
+  function toggleProjectMenu(e: MouseEvent, projectId: string): void {
     e.stopPropagation();
-    confirmRemoveId = id;
+    openProjectMenuId = openProjectMenuId === projectId ? null : projectId;
+  }
+
+  function openRenameProject(projectId: string, currentName: string): void {
+    openProjectMenuId = null;
+    actionError = null;
+    renameProjectTarget = { projectId, currentName };
+  }
+
+  function handleWindowMouseDown(e: MouseEvent): void {
+    if (!openProjectMenuId) {
+      return;
+    }
+
+    const target = e.target as HTMLElement | null;
+    if (!target) {
+      openProjectMenuId = null;
+      return;
+    }
+
+    const inMenu = target.closest(`[data-project-menu="${openProjectMenuId}"]`);
+    const inTrigger = target.closest(
+      `[data-project-menu-trigger="${openProjectMenuId}"]`,
+    );
+
+    if (!inMenu && !inTrigger) {
+      openProjectMenuId = null;
+    }
+  }
+
+  function handleWindowKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      openProjectMenuId = null;
+    }
+  }
+
+  async function removeWorktree(
+    projectId: string,
+    worktree: Worktree,
+    force = false,
+  ): Promise<void> {
+    if (worktree.is_local) {
+      return;
+    }
+    try {
+      await worktreeStore.remove(projectId, worktree.id, force);
+      actionError = null;
+    } catch (err) {
+      const message = (err as Error).message;
+      if (!force && message === '409') {
+        confirmForceRemoveWorktree = { projectId, worktree };
+      } else {
+        actionError = `Failed to delete worktree (${message})`;
+      }
+    }
+  }
+
+  function handleWorktreeRowKeyDown(
+    e: KeyboardEvent,
+    worktreeId: string,
+  ): void {
+    if (e.key !== 'Enter' && e.key !== ' ') {
+      return;
+    }
+    e.preventDefault();
+    worktreeStore.select(worktreeId);
+  }
+
+  async function removeProject(
+    projectId: string,
+    force = false,
+  ): Promise<void> {
+    try {
+      await projectStore.remove(projectId, force);
+      actionError = null;
+    } catch (err) {
+      if (!force && (err as Error).message === '409') {
+        confirmForceRemoveProjectId = projectId;
+      } else {
+        actionError = `Failed to remove project (${(err as Error).message})`;
+      }
+    }
   }
 </script>
 
@@ -62,50 +279,253 @@
       </Button>
     </div>
   </Sidebar.Header>
+
   <Sidebar.Content>
     <Sidebar.Group>
       <Sidebar.GroupContent>
         <div
           class="flex w-full min-w-0 flex-col gap-1"
-          use:dndzone={{
-            items: dndItems,
+          use:dragHandleZone={{
+            items: dndProjects,
             flipDurationMs: FLIP_MS,
             type: 'projects',
             dropTargetStyle: {},
+            centreDraggedOnCursor: false,
+            useCursorForDetection: true,
+            morphDisabled: true,
           }}
-          onconsider={handleConsider}
-          onfinalize={handleFinalize}
+          onconsider={handleProjectConsider}
+          onfinalize={handleProjectFinalize}
         >
-          {#each dndItems as project (project.id)}
+          {#each dndProjects as project (project.id)}
             <div
-              class="group/menu-item relative"
-              class:shadow-item={project[SHADOW_ITEM_MARKER_PROPERTY_NAME]}
+              class="group/menu-item relative rounded-md"
+              data-project-drag-item="true"
             >
               <Sidebar.MenuButton
-                isActive={store.selected?.id === project.id}
-                onclick={() => store.select(project)}
-                class={dragging ? 'cursor-grabbing' : 'cursor-default'}
+                isActive={false}
+                size="sm"
+                onclick={() => toggleProjectExpanded(project.id)}
               >
                 {#snippet child({ props })}
-                  <!-- Render as div, not button — button.value
-                       triggers svelte-dnd-action's input guard,
-                       preventing drag initiation -->
-                  <div {...props}>{project.name}</div>
+                  <div
+                    {...props}
+                    class={projectHeaderClass(props)}
+                    data-project-header="true"
+                  >
+                    <div
+                      class="flex min-w-0 flex-1 items-center gap-2"
+                      use:dragHandle
+                    >
+                      <div class="flex items-center gap-2 truncate">
+                        {#if projectStore.isExpanded(project.id)}
+                          <FolderOpen
+                            class="h-3.5 w-3.5 shrink-0 group-hover/menu-item:hidden"
+                          />
+                          <ChevronDown
+                            class="hidden h-3.5 w-3.5 shrink-0 group-hover/menu-item:block"
+                          />
+                        {:else}
+                          <Folder
+                            class="h-3.5 w-3.5 shrink-0 group-hover/menu-item:hidden"
+                          />
+                          <ChevronRight
+                            class="hidden h-3.5 w-3.5 shrink-0 group-hover/menu-item:block"
+                          />
+                        {/if}
+                        <span class="truncate">{project.name}</span>
+                      </div>
+                      {#if worktreeStore.projectError(project.id)}
+                        <span
+                          class="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive"
+                        >
+                          git error
+                        </span>
+                      {/if}
+                    </div>
+                    <div
+                      class={`ml-auto flex items-center gap-1 transition-opacity ${
+                        openProjectMenuId === project.id
+                          ? 'opacity-100'
+                          : 'opacity-0 group-hover/menu-item:opacity-100'
+                      }`}
+                    >
+                      <button
+                        class={projectActionButtonClass}
+                        title="Project actions"
+                        data-project-menu-trigger={project.id}
+                        onclick={(e) => toggleProjectMenu(e, project.id)}
+                      >
+                        <Ellipsis class="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        class={projectActionButtonClass}
+                        title="New worktree"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          actionError = null;
+                          openCreateWorktree(project.id, project.name);
+                        }}
+                      >
+                        <Plus class="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {#if openProjectMenuId === project.id}
+                      <div
+                        class="absolute top-8 right-1 z-50 min-w-28 rounded-md border bg-popover p-1 shadow-md"
+                        data-project-menu={project.id}
+                      >
+                        <button
+                          class={`${projectMenuItemClass} hover:bg-foreground/10 hover:text-popover-foreground`}
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            openRenameProject(project.id, project.name);
+                          }}
+                        >
+                          <Pencil class="h-3.5 w-3.5" />
+                          Rename
+                        </button>
+                        <button
+                          class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm text-destructive hover:bg-destructive/10"
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            actionError = null;
+                            openProjectMenuId = null;
+                            confirmRemoveProjectId = project.id;
+                          }}
+                        >
+                          <Trash2 class="h-3.5 w-3.5" />
+                          Remove
+                        </button>
+                      </div>
+                    {/if}
+                  </div>
                 {/snippet}
               </Sidebar.MenuButton>
-              <Sidebar.MenuAction
-                showOnHover
-                onclick={(e: MouseEvent) => removeProject(e, project.id)}
-              >
-                <X class="h-3 w-3" />
-              </Sidebar.MenuAction>
+
+              {#if projectStore.isExpanded(project.id)}
+                <div
+                  class="mt-1 space-y-1"
+                  role="presentation"
+                  onmousedown={(e) => e.stopPropagation()}
+                  ontouchstart={(e) => e.stopPropagation()}
+                >
+                  {#if localWorktree(project.id)}
+                    <button
+                      class="flex w-full cursor-default select-none items-center gap-1 rounded-md px-2 py-1 text-left text-sm hover:bg-sidebar-accent
+                             {worktreeStore.selectedWorktreeId ===
+                      localWorktree(project.id)?.id
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                        : 'text-sidebar-foreground/80'}"
+                      onclick={() =>
+                        worktreeStore.select(localWorktree(project.id)!.id)}
+                    >
+                      <span
+                        class="flex h-6 w-5 shrink-0 items-center justify-center"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="truncate">local</span>
+                    </button>
+                  {/if}
+
+                  <div
+                    use:dragHandleZone={{
+                      items: dndWorktrees[project.id] ?? [],
+                      flipDurationMs: FLIP_MS,
+                      type: `worktrees-${project.id}`,
+                      dropTargetStyle: {},
+                      centreDraggedOnCursor: false,
+                      useCursorForDetection: true,
+                      morphDisabled: true,
+                    }}
+                    onconsider={(e) => handleWorktreeConsider(project.id, e)}
+                    onfinalize={(e) => handleWorktreeFinalize(project.id, e)}
+                    class="space-y-1"
+                  >
+                    {#each dndWorktrees[project.id] ?? [] as worktree (worktree.id)}
+                      <div
+                        class="group/worktree-item relative"
+                        data-worktree-drag-item="true"
+                      >
+                        <div
+                          class="flex cursor-default select-none items-center gap-1 rounded-md px-2 py-1 pr-8 text-sm transition-colors hover:bg-sidebar-accent
+                                 {worktreeStore.selectedWorktreeId ===
+                          worktree.id
+                            ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                            : 'text-sidebar-foreground/80'}"
+                        >
+                          <div
+                            use:dragHandle
+                            class="flex h-6 w-5 shrink-0 items-center justify-center text-sidebar-foreground/60 opacity-0 transition-opacity group-hover/worktree-item:opacity-100 cursor-grab active:cursor-grabbing"
+                            title="Drag to reorder"
+                          >
+                            <GripVertical class="h-3.5 w-3.5" />
+                          </div>
+                          <div
+                            class="flex min-w-0 flex-1 items-center text-left"
+                            role="button"
+                            tabindex="0"
+                            onclick={() => worktreeStore.select(worktree.id)}
+                            onkeydown={(e) =>
+                              handleWorktreeRowKeyDown(e, worktree.id)}
+                          >
+                            <span class="truncate">{worktree.name}</span>
+                            {#if worktree.missing_on_disk}
+                              <Tooltip.Root>
+                                <Tooltip.Trigger>
+                                  {#snippet child({ props })}
+                                    <span
+                                      {...props}
+                                      class="ml-2 inline-flex items-center text-destructive"
+                                      aria-label="Worktree missing on disk"
+                                    >
+                                      <AlertTriangle class="h-3.5 w-3.5" />
+                                    </span>
+                                  {/snippet}
+                                </Tooltip.Trigger>
+                                <Tooltip.Content side="top" align="center">
+                                  This worktree was deleted outside Hubris.
+                                  Remove it from Hubris to clear this entry.
+                                </Tooltip.Content>
+                              </Tooltip.Root>
+                            {/if}
+                          </div>
+                        </div>
+                        <button
+                          class="absolute top-1/2 right-1 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground/70 opacity-0 transition-[opacity,background-color,color] pointer-events-none group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          title="Delete worktree"
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            actionError = null;
+                            confirmRemoveWorktree = {
+                              projectId: project.id,
+                              worktree,
+                            };
+                          }}
+                        >
+                          <Trash2 class="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    {/each}
+                  </div>
+
+                  {#if worktreeStore.projectError(project.id)}
+                    <p class="px-2 pb-1 text-xs text-destructive">
+                      {worktreeStore.projectError(project.id)}
+                    </p>
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/each}
         </div>
       </Sidebar.GroupContent>
     </Sidebar.Group>
   </Sidebar.Content>
+
   <Sidebar.Separator />
+
   <Sidebar.Footer>
     <Button
       variant="ghost"
@@ -116,41 +536,129 @@
       Add Project
     </Button>
   </Sidebar.Footer>
+  {#if actionError}
+    <p class="px-2 pb-2 text-xs text-destructive">{actionError}</p>
+  {/if}
 </Sidebar.Root>
+
+<svelte:window
+  onmousedown={handleWindowMouseDown}
+  onkeydown={handleWindowKeyDown}
+/>
 
 {#if showDialog}
   <AddProjectDialog
     onAdd={async (path) => {
-      await store.add(path);
+      await projectStore.add(path);
       showDialog = false;
     }}
     onClose={() => (showDialog = false)}
   />
 {/if}
 
-{#if confirmRemoveId}
-  {@const project = store.projects.find(
-    (p: Project) => p.id === confirmRemoveId,
+{#if createWorktreeTarget}
+  <AddWorktreeDialog
+    projectId={createWorktreeTarget.projectId}
+    projectName={createWorktreeTarget.projectName}
+    onAdd={async (branch, startPoint) => {
+      await worktreeStore.create(
+        createWorktreeTarget!.projectId,
+        branch,
+        startPoint,
+      );
+      createWorktreeTarget = null;
+    }}
+    onClose={() => (createWorktreeTarget = null)}
+  />
+{/if}
+
+{#if renameProjectTarget}
+  <RenameProjectDialog
+    currentName={renameProjectTarget.currentName}
+    onRename={(name) =>
+      projectStore.rename(renameProjectTarget!.projectId, name)}
+    onClose={() => (renameProjectTarget = null)}
+  />
+{/if}
+
+{#if confirmRemoveProjectId}
+  {@const project = projectStore.projects.find(
+    (p: Project) => p.id === confirmRemoveProjectId,
   )}
   <ConfirmDialog
     title="Remove Project"
     description="Remove {project?.name ??
-      'this project'} from the sidebar? This won't delete any files."
+      'this project'} and delete all non-local worktrees for it?"
     confirmLabel="Remove"
     onConfirm={() => {
-      store.remove(confirmRemoveId!);
-      confirmRemoveId = null;
+      const projectId = confirmRemoveProjectId!;
+      confirmRemoveProjectId = null;
+      void removeProject(projectId);
     }}
-    onClose={() => (confirmRemoveId = null)}
+    onClose={() => (confirmRemoveProjectId = null)}
+  />
+{/if}
+
+{#if confirmForceRemoveProjectId}
+  {@const project = projectStore.projects.find(
+    (p: Project) => p.id === confirmForceRemoveProjectId,
+  )}
+  <ConfirmDialog
+    title="Force Remove Project"
+    description="Project {project?.name ??
+      'this project'} has linked worktrees with uncommitted changes or busy state. Force remove it anyway?"
+    confirmLabel="Force Remove"
+    onConfirm={() => {
+      const projectId = confirmForceRemoveProjectId!;
+      confirmForceRemoveProjectId = null;
+      void removeProject(projectId, true);
+    }}
+    onClose={() => (confirmForceRemoveProjectId = null)}
+  />
+{/if}
+
+{#if confirmRemoveWorktree}
+  <ConfirmDialog
+    title="Delete Worktree"
+    description="Delete worktree {confirmRemoveWorktree.worktree
+      .name}? This removes the worktree directory from disk."
+    confirmLabel="Delete"
+    onConfirm={() => {
+      const target = confirmRemoveWorktree!;
+      confirmRemoveWorktree = null;
+      void removeWorktree(target.projectId, target.worktree, false);
+    }}
+    onClose={() => (confirmRemoveWorktree = null)}
+  />
+{/if}
+
+{#if confirmForceRemoveWorktree}
+  <ConfirmDialog
+    title="Force Delete Worktree"
+    description="Worktree {confirmForceRemoveWorktree.worktree
+      .name} has uncommitted changes or is busy. Force delete it anyway?"
+    confirmLabel="Force Delete"
+    onConfirm={() => {
+      const target = confirmForceRemoveWorktree!;
+      confirmForceRemoveWorktree = null;
+      void removeWorktree(target.projectId, target.worktree, true);
+    }}
+    onClose={() => (confirmForceRemoveWorktree = null)}
   />
 {/if}
 
 <SettingsDialog bind:open={showSettings} />
 
 <style>
-  :global(.shadow-item) {
-    opacity: 0.4;
-    outline: 1px dashed var(--sidebar-border);
+  :global(
+    #dnd-action-dragged-el[data-project-drag-item='true'],
+    #dnd-action-dragged-el[data-worktree-drag-item='true']
+  ) {
+    opacity: 0.5 !important;
+    z-index: 40 !important;
+    pointer-events: none !important;
     border-radius: var(--radius);
+    outline: none !important;
+    box-shadow: none !important;
   }
 </style>

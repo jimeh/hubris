@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -8,13 +9,14 @@ use axum::http::StatusCode;
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use serde::Deserialize;
 
+use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
 use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TabInfo};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateTabRequest {
-    pub project_id: String,
+    pub worktree_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,7 +35,6 @@ fn default_session_id() -> String {
     "default".to_string()
 }
 
-/// GET /api/tabs?session_id=default
 pub async fn list_tabs(
     State(state): State<AppState>,
     Query(params): Query<ListTabsParams>,
@@ -52,24 +53,18 @@ pub async fn list_tabs(
     Json(tabs)
 }
 
-/// POST /api/tabs
 pub async fn create_tab(
     State(state): State<AppState>,
     Json(req): Json<CreateTabRequest>,
 ) -> Result<(StatusCode, Json<TabInfo>), StatusCode> {
-    // Validate project exists
-    let projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let project = projects
-        .iter()
-        .find(|p| p.id == req.project_id)
+    // TODO: Track a worktree_id -> path index in AppState so tab creation
+    // avoids scanning all projects/worktrees via git on every request.
+    let resolved = resolve_worktree(&state, &req.worktree_id)
+        .await?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let tab_num = state.next_tab_num.fetch_add(1, Ordering::Relaxed);
 
-    // Position: after all existing tabs
     let max_pos = state
         .tabs
         .iter()
@@ -84,14 +79,13 @@ pub async fn create_tab(
     let info = TabInfo {
         id: uuid::Uuid::new_v4().to_string(),
         session_id: "default".to_string(),
-        project_id: req.project_id.clone(),
+        worktree_id: req.worktree_id.clone(),
         label: format!("Terminal {}", tab_num),
         tab_type: "terminal".to_string(),
         position: max_pos + 1.0,
         created_at,
     };
 
-    // Spawn PTY
     let pty_system = NativePtySystem::default();
     let pair = pty_system
         .openpty(PtySize {
@@ -107,7 +101,7 @@ pub async fn create_tab(
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     let mut cmd = CommandBuilder::new(&shell);
-    cmd.cwd(&project.path);
+    cmd.cwd(PathBuf::from(&resolved.worktree.path));
     cmd.env("TERM", "xterm-256color");
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| {
@@ -121,18 +115,14 @@ pub async fn create_tab(
     let tab = Arc::new(live_tab);
     state.tabs.insert(info.id.clone(), tab);
 
-    // Emit event
     state.events.emit(EventKind::TabCreated(info.clone()));
 
-    // Auto-remove tab when shell exits
     {
         let tabs = state.tabs.clone();
         let events = state.events.clone();
         let id = info.id.clone();
         tokio::spawn(async move {
             let _ = close_rx.recv().await;
-            // Only emit if we're the one removing the tab.
-            // delete_tab/delete_project may have already done it.
             if tabs.remove(&id).is_some() {
                 events.emit(EventKind::TabClosed { tab_id: id });
             }
@@ -142,7 +132,6 @@ pub async fn create_tab(
     Ok((StatusCode::CREATED, Json(info)))
 }
 
-/// DELETE /api/tabs/{id}
 pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {
     match state.tabs.remove(&id) {
         Some((_, tab)) => {
@@ -154,7 +143,6 @@ pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -
     }
 }
 
-/// PATCH /api/tabs/{id}
 pub async fn update_tab(
     State(state): State<AppState>,
     Path(id): Path<String>,

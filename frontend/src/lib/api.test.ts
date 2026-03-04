@@ -14,6 +14,8 @@ const {
   updateProject,
   reorderProjects,
   deleteProject,
+  listProjectWorktreeStartPoints,
+  createProjectWorktree,
   terminalWsUrl,
   listFiles,
   listTabs,
@@ -170,6 +172,101 @@ describe('API client', () => {
     });
   });
 
+  describe('listProjectWorktreeStartPoints', () => {
+    it('fetches start points for a project', async () => {
+      const mockResponse = {
+        start_points: [
+          {
+            value: 'main',
+            sha: 'abc123',
+            local_ref: 'main',
+            remote_refs: ['origin/main'],
+          },
+        ],
+        default_start_point: 'main',
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockResponse),
+        }),
+      );
+
+      const result = await listProjectWorktreeStartPoints('p1');
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/projects/p1/worktrees/start-points',
+      );
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('throws on non-OK response', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+        }),
+      );
+
+      await expect(listProjectWorktreeStartPoints('p1')).rejects.toThrow('500');
+    });
+  });
+
+  describe('createProjectWorktree', () => {
+    it('sends POST with branch and optional start point', async () => {
+      const mockWorktree = {
+        id: 'w1',
+        project_id: 'p1',
+        name: 'feature-test',
+        path: '/tmp/w1',
+        branch: 'feature-test',
+        is_local: false,
+        missing_on_disk: false,
+        position: 2,
+      };
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockWorktree),
+        }),
+      );
+
+      const result = await createProjectWorktree(
+        'p1',
+        'feature-test',
+        'origin/main',
+      );
+      expect(fetch).toHaveBeenCalledWith('/api/projects/p1/worktrees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branch: 'feature-test',
+          start_point: 'origin/main',
+        }),
+      });
+      expect(result).toEqual(mockWorktree);
+    });
+
+    it('omits start_point when not provided', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ id: 'w1' }),
+        }),
+      );
+
+      await createProjectWorktree('p1', 'feature-test');
+      expect(fetch).toHaveBeenCalledWith('/api/projects/p1/worktrees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch: 'feature-test' }),
+      });
+    });
+  });
+
   describe('listFiles', () => {
     it('fetches from /api/files with default params', async () => {
       const mockResponse = {
@@ -258,7 +355,7 @@ describe('API client', () => {
         {
           id: 't1',
           session_id: 'default',
-          project_id: 'p1',
+          worktree_id: 'w1',
           label: 'Terminal 1',
           type: 'terminal',
           position: 1.0,
@@ -280,11 +377,11 @@ describe('API client', () => {
   });
 
   describe('createTab', () => {
-    it('sends POST with project_id in body', async () => {
+    it('sends POST with worktree_id in body', async () => {
       const mockTab = {
         id: 't1',
         session_id: 'default',
-        project_id: 'p1',
+        worktree_id: 'w1',
         label: 'Terminal 1',
         type: 'terminal',
         position: 1.0,
@@ -298,11 +395,11 @@ describe('API client', () => {
         }),
       );
 
-      const result = await createTab('p1');
+      const result = await createTab('w1');
       expect(fetch).toHaveBeenCalledWith('/api/tabs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: 'p1' }),
+        body: JSON.stringify({ worktree_id: 'w1' }),
       });
       expect(result).toEqual(mockTab);
     });
@@ -342,7 +439,7 @@ describe('API client', () => {
       const mockTab = {
         id: 't1',
         session_id: 'default',
-        project_id: 'p1',
+        worktree_id: 'w1',
         label: 'My Shell',
         type: 'terminal',
         position: 1.0,

@@ -9,6 +9,10 @@ const SSE_EVENT_NAMES = [
   'project_removed',
   'project_updated',
   'projects_reordered',
+  'worktree_created',
+  'worktree_deleted',
+  'worktrees_reordered',
+  'project_worktrees_updated',
 ] as const;
 
 export type SseEventName = (typeof SSE_EVENT_NAMES)[number];

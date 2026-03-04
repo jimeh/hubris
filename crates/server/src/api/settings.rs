@@ -47,11 +47,24 @@ fn default_font_size() -> u32 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeSettings {
+    #[serde(default = "default_worktree_location_mode")]
+    pub location_mode: String,
+}
+
+fn default_worktree_location_mode() -> String {
+    "dataDir".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
     pub appearance: Option<AppearanceSettings>,
     #[serde(default)]
     pub terminal: Option<TerminalSettings>,
+    #[serde(default)]
+    pub worktree: Option<WorktreeSettings>,
 }
 
 /// GET /api/settings

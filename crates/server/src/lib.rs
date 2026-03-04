@@ -1,6 +1,7 @@
 pub mod api;
 mod embedded;
 pub mod events;
+pub mod git;
 pub mod pty;
 pub mod state;
 
@@ -18,6 +19,10 @@ use api::settings::{get_settings, save_settings};
 use api::tabs::{create_tab, delete_tab, list_tabs, update_tab};
 use api::terminal::ws_handler;
 use api::themes::{create_theme, delete_theme, get_theme, list_themes};
+use api::worktrees::{
+    create_project_worktree, delete_project_worktree, list_project_worktree_start_points,
+    list_project_worktrees, reorder_project_worktrees,
+};
 use embedded::spa_handler;
 pub use state::AppState;
 
@@ -76,6 +81,22 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/projects/{id}",
             delete(delete_project).patch(update_project),
+        )
+        .route(
+            "/projects/{id}/worktrees",
+            get(list_project_worktrees).post(create_project_worktree),
+        )
+        .route(
+            "/projects/{id}/worktrees/start-points",
+            get(list_project_worktree_start_points),
+        )
+        .route(
+            "/projects/{id}/worktrees/reorder",
+            put(reorder_project_worktrees),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}",
+            delete(delete_project_worktree),
         )
         .route("/tabs", get(list_tabs).post(create_tab))
         .route("/tabs/{id}", delete(delete_tab).patch(update_tab))

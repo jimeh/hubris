@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::time::Duration;
 
@@ -7,13 +8,12 @@ use futures_util::Stream;
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
+use crate::api::worktrees::list_worktrees_for_project;
 use crate::events::{Event, EventKind};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct EventStreamParams {
-    /// Session to subscribe to. Only events for tabs
-    /// in this session are delivered.
     #[serde(default = "default_session_id")]
     pub session_id: String,
 }
@@ -30,7 +30,6 @@ pub async fn event_stream(
     let mut rx = state.events.subscribe();
 
     let stream = async_stream::stream! {
-        // Send snapshot on connect (session-filtered)
         yield Ok(build_snapshot_event(
             &state, &session_id,
         ).await);
@@ -64,22 +63,20 @@ pub async fn event_stream(
     Sse::new(stream).keep_alive(sse::KeepAlive::new().interval(Duration::from_secs(30)))
 }
 
-/// Check if an event belongs to the given session.
 fn event_matches_session(event: &Event, session_id: &str) -> bool {
     match &event.kind {
         EventKind::Snapshot { .. } => true,
         EventKind::TabCreated(info) => info.session_id == session_id,
-        EventKind::TabClosed { .. } => {
-            // TabClosed doesn't carry session_id, so
-            // always forward. Frontend ignores unknown IDs.
-            true
-        }
+        EventKind::TabClosed { .. } => true,
         EventKind::TabUpdated(info) => info.session_id == session_id,
-        // Project events are session-independent
         EventKind::ProjectAdded(_)
         | EventKind::ProjectRemoved { .. }
         | EventKind::ProjectUpdated(_)
-        | EventKind::ProjectsReordered(_) => true,
+        | EventKind::ProjectsReordered(_)
+        | EventKind::WorktreeCreated(_)
+        | EventKind::WorktreeDeleted { .. }
+        | EventKind::WorktreesReordered { .. }
+        | EventKind::ProjectWorktreesUpdated { .. } => true,
     }
 }
 
@@ -103,8 +100,28 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    let mut worktrees = HashMap::new();
+    let mut project_errors = HashMap::new();
+
+    for project in &projects {
+        match list_worktrees_for_project(state, project).await {
+            Ok(list) => {
+                worktrees.insert(project.id.clone(), list);
+            }
+            Err(err) => {
+                worktrees.insert(project.id.clone(), vec![]);
+                project_errors.insert(project.id.clone(), err.clone());
+            }
+        }
+    }
+
     let snapshot = Event {
-        kind: EventKind::Snapshot { tabs, projects },
+        kind: EventKind::Snapshot {
+            tabs,
+            projects,
+            worktrees,
+            project_errors,
+        },
     };
     sse::Event::default()
         .event("snapshot")
