@@ -21,6 +21,8 @@ pub struct Worktree {
     pub path: String,
     pub branch: String,
     pub is_local: bool,
+    #[serde(default)]
+    pub missing_on_disk: bool,
     pub position: f64,
 }
 
@@ -75,9 +77,20 @@ pub struct ResolvedWorktree {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ManagedWorktree {
+    id: String,
+    path: String,
+    branch: String,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ProjectMeta {
     #[serde(default)]
     worktree_order: Vec<String>,
+    #[serde(default)]
+    managed_worktrees: Vec<ManagedWorktree>,
 }
 
 async fn load_meta(state: &AppState, project_id: &str) -> ProjectMeta {
@@ -188,56 +201,62 @@ fn sort_non_local(mut non_local: Vec<Worktree>, order: &[String]) -> Vec<Worktre
     ordered
 }
 
+fn normalize_meta(meta: &mut ProjectMeta) {
+    let managed_ids: HashSet<String> = meta
+        .managed_worktrees
+        .iter()
+        .map(|wt| wt.id.clone())
+        .collect();
+    meta.worktree_order.retain(|id| managed_ids.contains(id));
+}
+
+fn is_missing_worktree_error(message: &str) -> bool {
+    let message = message.to_lowercase();
+    message.contains("not a working tree")
+        || message.contains("worktree not found")
+        || message.contains("does not exist")
+        || message.contains("cannot find")
+}
+
 pub async fn list_worktrees_for_project(
     state: &AppState,
     project: &Project,
 ) -> Result<Vec<Worktree>, String> {
-    let local_root = git::resolve_local_root(PathBuf::from(&project.path).as_path())
-        .await
-        .map_err(|e| e.message)?;
+    let mut meta = load_meta(state, &project.id).await;
+    normalize_meta(&mut meta);
 
-    let raw = git::list_worktrees(&local_root)
-        .await
-        .map_err(|e| e.message)?;
+    let local_path_buf = PathBuf::from(&project.path);
+    let local_path = local_path_buf.to_string_lossy().to_string();
+    let local = Worktree {
+        id: git::worktree_id(&local_path_buf),
+        project_id: project.id.clone(),
+        name: "local".to_string(),
+        path: local_path,
+        branch: "local".to_string(),
+        is_local: true,
+        missing_on_disk: tokio::fs::metadata(&local_path_buf).await.is_err(),
+        position: 0.0,
+    };
 
-    let meta = load_meta(state, &project.id).await;
-
-    let local_root_str = local_root.to_string_lossy().to_string();
-    let mut local = None;
-    let mut non_local = Vec::new();
-
-    for wt in raw {
-        let path = wt.path.to_string_lossy().to_string();
-        let is_local = path == local_root_str;
-        let id = git::worktree_id(&wt.path);
-        let branch = wt.branch.unwrap_or_else(|| "detached".to_string());
-
-        let view = Worktree {
-            id,
+    let mut non_local = Vec::with_capacity(meta.managed_worktrees.len());
+    for managed in &meta.managed_worktrees {
+        let path_buf = PathBuf::from(&managed.path);
+        non_local.push(Worktree {
+            id: managed.id.clone(),
             project_id: project.id.clone(),
-            name: if is_local {
-                "local".to_string()
-            } else {
-                branch.clone()
-            },
-            path,
-            branch,
-            is_local,
+            name: managed
+                .name
+                .clone()
+                .unwrap_or_else(|| managed.branch.clone()),
+            path: managed.path.clone(),
+            branch: managed.branch.clone(),
+            is_local: false,
+            missing_on_disk: tokio::fs::metadata(&path_buf).await.is_err(),
             position: 0.0,
-        };
-
-        if is_local {
-            local = Some(view);
-        } else {
-            non_local.push(view);
-        }
+        });
     }
 
-    let mut ordered = Vec::new();
-    if let Some(local) = local {
-        ordered.push(local);
-    }
-
+    let mut ordered = vec![local];
     ordered.extend(sort_non_local(non_local, &meta.worktree_order));
 
     for (idx, wt) in ordered.iter_mut().enumerate() {
@@ -257,18 +276,13 @@ pub async fn resolve_worktree(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     for project in projects {
-        let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await
-        {
-            Ok(root) => root,
-            Err(_) => continue,
-        };
-
         let worktrees = match list_worktrees_for_project(state, &project).await {
             Ok(list) => list,
             Err(_) => continue,
         };
 
         if let Some(worktree) = worktrees.into_iter().find(|w| w.id == worktree_id) {
+            let local_root = PathBuf::from(&project.path);
             return Ok(Some(ResolvedWorktree {
                 project_id: project.id.clone(),
                 local_root,
@@ -356,21 +370,34 @@ pub async fn create_project_worktree(
         .await
         .map_err(|_| StatusCode::CONFLICT)?;
 
-    let mut list = list_worktrees_for_project(&state, project)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let created = list
-        .iter()
-        .find(|wt| !wt.is_local && wt.branch == branch)
-        .cloned()
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let canonical_target = tokio::fs::canonicalize(&target).await.unwrap_or(target);
+    let created_id = git::worktree_id(&canonical_target);
+    let created_path = canonical_target.to_string_lossy().to_string();
+    let created = Worktree {
+        id: created_id.clone(),
+        project_id: project.id.clone(),
+        name: branch.to_string(),
+        path: created_path.clone(),
+        branch: branch.to_string(),
+        is_local: false,
+        missing_on_disk: false,
+        position: 0.0,
+    };
 
     let mut meta = load_meta(&state, &project.id).await;
+    meta.managed_worktrees.retain(|wt| wt.id != created_id);
+    meta.managed_worktrees.push(ManagedWorktree {
+        id: created.id.clone(),
+        path: created.path.clone(),
+        branch: created.branch.clone(),
+        name: Some(created.name.clone()),
+    });
     meta.worktree_order.retain(|id| id != &created.id);
     meta.worktree_order.insert(0, created.id.clone());
+    normalize_meta(&mut meta);
     save_meta(&state, &project.id, &meta).await?;
 
-    list = list_worktrees_for_project(&state, project)
+    let list = list_worktrees_for_project(&state, project)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -531,7 +558,8 @@ pub async fn reorder_project_worktrees(
     }
 
     let mut meta = load_meta(&state, &project.id).await;
-    meta.worktree_order = req.worktree_ids;
+    meta.worktree_order = req.worktree_ids.clone();
+    normalize_meta(&mut meta);
     save_meta(&state, &project.id, &meta).await?;
 
     let reordered = list_worktrees_for_project(&state, project)
@@ -560,11 +588,6 @@ pub async fn delete_project_worktree(
         None => return StatusCode::NOT_FOUND,
     };
 
-    let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await {
-        Ok(root) => root,
-        Err(_) => return StatusCode::BAD_REQUEST,
-    };
-
     let worktrees = match list_worktrees_for_project(&state, project).await {
         Ok(list) => list,
         Err(_) => return StatusCode::BAD_REQUEST,
@@ -579,24 +602,36 @@ pub async fn delete_project_worktree(
         return StatusCode::BAD_REQUEST;
     }
 
-    if git::remove_worktree(
-        &local_root,
-        PathBuf::from(&worktree.path).as_path(),
-        params.force,
-    )
-    .await
-    .is_err()
-    {
-        return if params.force {
-            StatusCode::INTERNAL_SERVER_ERROR
-        } else {
-            StatusCode::CONFLICT
+    if !worktree.missing_on_disk {
+        let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await
+        {
+            Ok(root) => root,
+            Err(_) => return StatusCode::BAD_REQUEST,
         };
+
+        if let Err(err) = git::remove_worktree(
+            &local_root,
+            PathBuf::from(&worktree.path).as_path(),
+            params.force,
+        )
+        .await
+            && !is_missing_worktree_error(&err.message)
+        {
+            return if params.force {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                StatusCode::CONFLICT
+            };
+        }
     }
 
     let mut meta = load_meta(&state, &project.id).await;
+    meta.managed_worktrees.retain(|wt| wt.id != worktree_id);
     meta.worktree_order.retain(|id| id != &worktree_id);
-    let _ = save_meta(&state, &project.id, &meta).await;
+    normalize_meta(&mut meta);
+    if save_meta(&state, &project.id, &meta).await.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR;
+    }
 
     close_tabs_for_worktree(&state, &worktree_id);
 
@@ -616,4 +651,8 @@ pub async fn delete_project_worktree(
     });
 
     StatusCode::NO_CONTENT
+}
+
+pub(crate) fn is_missing_worktree_remove_error(message: &str) -> bool {
+    is_missing_worktree_error(message)
 }

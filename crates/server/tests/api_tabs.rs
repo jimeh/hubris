@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 
 use hubris_server::{AppState, build_router};
@@ -20,14 +21,26 @@ async fn start_test_server() -> (String, tempfile::TempDir) {
 
 fn init_git_repo() -> tempfile::TempDir {
     let repo = tempfile::TempDir::new().unwrap();
+    run_git(repo.path(), &["init", "-q"]);
+    run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+    run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+    std::fs::write(repo.path().join("README.md"), "hello\n").unwrap();
+    run_git(repo.path(), &["add", "README.md"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "init"]);
+    run_git(repo.path(), &["branch", "-M", "main"]);
+    repo
+}
+
+fn run_git(repo_path: &Path, args: &[&str]) {
     let status = Command::new("git")
-        .arg("init")
-        .arg("-q")
-        .arg(repo.path())
+        .arg("-C")
+        .arg(repo_path)
+        .arg("-c")
+        .arg("commit.gpgsign=false")
+        .args(args)
         .status()
         .unwrap();
-    assert!(status.success());
-    repo
+    assert!(status.success(), "git failed: {:?}", args);
 }
 
 async fn create_project(client: &reqwest::Client, base: &str, path: &str) -> String {
@@ -119,6 +132,38 @@ async fn test_create_tab_invalid_worktree() {
         .json(&serde_json::json!({
             "worktree_id": "nonexistent"
         }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_create_tab_for_external_non_managed_worktree_returns_not_found() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    assert!(!project_id.is_empty());
+
+    let external = tempfile::TempDir::new().unwrap();
+    let external_path = external.path().join("outside-worktree");
+    let external_path_str = external_path.to_string_lossy().to_string();
+    run_git(
+        repo.path(),
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "outside-branch",
+            &external_path_str,
+        ],
+    );
+    let external_id = hubris_server::git::worktree_id(&external_path);
+
+    let res = client
+        .post(format!("{}/api/tabs", base))
+        .json(&serde_json::json!({ "worktree_id": external_id }))
         .send()
         .await
         .unwrap();

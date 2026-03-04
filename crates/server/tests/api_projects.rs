@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 
 use hubris_server::{AppState, build_router};
@@ -20,20 +21,48 @@ async fn start_test_server() -> (String, tempfile::TempDir) {
 
 fn init_git_repo() -> tempfile::TempDir {
     let repo = tempfile::TempDir::new().unwrap();
+    run_git(repo.path(), &["init", "-q"]);
+    run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+    run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+    std::fs::write(repo.path().join("README.md"), "hello\n").unwrap();
+    run_git(repo.path(), &["add", "README.md"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "init"]);
+    run_git(repo.path(), &["branch", "-M", "main"]);
+    repo
+}
+
+fn run_git(repo_path: &Path, args: &[&str]) {
     let status = Command::new("git")
-        .arg("init")
-        .arg("-q")
-        .arg(repo.path())
+        .arg("-C")
+        .arg(repo_path)
+        .arg("-c")
+        .arg("commit.gpgsign=false")
+        .args(args)
         .status()
         .unwrap();
-    assert!(status.success());
-    repo
+    assert!(status.success(), "git failed: {:?}", args);
 }
 
 async fn create_project(client: &reqwest::Client, base: &str, path: &str) -> Value {
     let res = client
         .post(format!("{}/api/projects", base))
         .json(&serde_json::json!({ "path": path }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    res.json().await.unwrap()
+}
+
+async fn create_worktree(
+    client: &reqwest::Client,
+    base: &str,
+    project_id: &str,
+    branch: &str,
+) -> Value {
+    let res = client
+        .post(format!("{}/api/projects/{}/worktrees", base, project_id))
+        .json(&serde_json::json!({ "branch": branch }))
         .send()
         .await
         .unwrap();
@@ -311,7 +340,7 @@ async fn test_reorder_projects_invalid_ids() {
 }
 
 #[tokio::test]
-async fn test_delete_project_fails_when_worktrees_cannot_be_listed() {
+async fn test_delete_project_succeeds_when_managed_worktree_missing_on_disk() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -319,14 +348,16 @@ async fn test_delete_project_fails_when_worktrees_cannot_be_listed() {
     let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
     let id = project["id"].as_str().unwrap();
 
-    std::fs::remove_dir_all(repo.path()).unwrap();
+    let created = create_worktree(&client, &base, id, "feature-missing").await;
+    let worktree_path = created["path"].as_str().unwrap();
+    std::fs::remove_dir_all(worktree_path).unwrap();
 
     let res = client
         .delete(format!("{}/api/projects/{}", base, id))
         .send()
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
 
     let res = client
         .get(format!("{}/api/projects", base))
@@ -335,6 +366,37 @@ async fn test_delete_project_fails_when_worktrees_cannot_be_listed() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let body: Vec<Value> = res.json().await.unwrap();
-    assert_eq!(body.len(), 1);
-    assert_eq!(body[0]["id"], id);
+    assert!(body.is_empty());
+}
+
+#[tokio::test]
+async fn test_delete_project_respects_force_for_existing_dirty_worktree() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let id = project["id"].as_str().unwrap();
+
+    let created = create_worktree(&client, &base, id, "feature-dirty").await;
+    let worktree_path = created["path"].as_str().unwrap();
+    std::fs::write(
+        std::path::Path::new(worktree_path).join("dirty.txt"),
+        "uncommitted\n",
+    )
+    .unwrap();
+
+    let res = client
+        .delete(format!("{}/api/projects/{}", base, id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+
+    let res = client
+        .delete(format!("{}/api/projects/{}?force=true", base, id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
 }

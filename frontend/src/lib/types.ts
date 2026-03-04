@@ -13,6 +13,7 @@ export interface Worktree {
   path: string;
   branch: string;
   is_local: boolean;
+  missing_on_disk: boolean;
   position: number;
 }
 

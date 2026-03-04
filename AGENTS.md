@@ -161,3 +161,8 @@ reconciliation — drift corrects on reconnect.
   test-repo commits (for example with `Cannot allocate memory` from gpg).
   In test helpers that run `git commit`, pass
   `-c commit.gpgsign=false`.
+- **Sidebar component tests pull in theme store transitively**:
+  importing `AppSidebar.svelte` also imports `AddWorktreeDialog`, which
+  imports theme stores that read `window.matchMedia` at module eval time.
+  In jsdom tests, either mock `matchMedia` before importing sidebar
+  components or test lower-level stores/state instead.

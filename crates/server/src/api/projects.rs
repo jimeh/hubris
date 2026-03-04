@@ -5,7 +5,9 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use crate::api::worktrees::{close_tabs_for_worktree, list_worktrees_for_project};
+use crate::api::worktrees::{
+    close_tabs_for_worktree, is_missing_worktree_remove_error, list_worktrees_for_project,
+};
 use crate::events::EventKind;
 use crate::git;
 use crate::state::AppState;
@@ -211,26 +213,36 @@ pub async fn delete_project(
 
     let non_local_worktrees: Vec<_> = worktrees.iter().filter(|wt| !wt.is_local).collect();
     if !non_local_worktrees.is_empty() {
-        let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await
-        {
-            Ok(root) => root,
-            Err(_) => return StatusCode::BAD_REQUEST,
-        };
-
-        for worktree in non_local_worktrees {
-            if git::remove_worktree(
-                &local_root,
-                PathBuf::from(&worktree.path).as_path(),
-                params.force,
-            )
-            .await
-            .is_err()
-            {
-                return if params.force {
-                    StatusCode::INTERNAL_SERVER_ERROR
-                } else {
-                    StatusCode::CONFLICT
+        let should_resolve_root = non_local_worktrees.iter().any(|wt| !wt.missing_on_disk);
+        if should_resolve_root {
+            let local_root =
+                match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await {
+                    Ok(root) => root,
+                    Err(_) => return StatusCode::BAD_REQUEST,
                 };
+
+            for worktree in non_local_worktrees {
+                if worktree.missing_on_disk {
+                    continue;
+                }
+
+                if let Err(err) = git::remove_worktree(
+                    &local_root,
+                    PathBuf::from(&worktree.path).as_path(),
+                    params.force,
+                )
+                .await
+                {
+                    if is_missing_worktree_remove_error(&err.message) {
+                        continue;
+                    }
+
+                    return if params.force {
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    } else {
+                        StatusCode::CONFLICT
+                    };
+                }
             }
         }
     }

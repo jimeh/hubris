@@ -222,6 +222,7 @@ describe('API client', () => {
         path: '/tmp/w1',
         branch: 'feature-test',
         is_local: false,
+        missing_on_disk: false,
         position: 2,
       };
       vi.stubGlobal(

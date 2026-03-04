@@ -6,7 +6,9 @@
   import ConfirmDialog from './ConfirmDialog.svelte';
   import RenameProjectDialog from './RenameProjectDialog.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
+  import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import {
+    AlertTriangle,
     ChevronDown,
     ChevronRight,
     Ellipsis,
@@ -469,6 +471,25 @@
                               handleWorktreeRowKeyDown(e, worktree.id)}
                           >
                             <span class="truncate">{worktree.name}</span>
+                            {#if worktree.missing_on_disk}
+                              <Tooltip.Root>
+                                <Tooltip.Trigger>
+                                  {#snippet child({ props })}
+                                    <span
+                                      {...props}
+                                      class="ml-2 inline-flex items-center text-destructive"
+                                      aria-label="Worktree missing on disk"
+                                    >
+                                      <AlertTriangle class="h-3.5 w-3.5" />
+                                    </span>
+                                  {/snippet}
+                                </Tooltip.Trigger>
+                                <Tooltip.Content side="top" align="center">
+                                  This worktree was deleted outside Hubris.
+                                  Remove it from Hubris to clear this entry.
+                                </Tooltip.Content>
+                              </Tooltip.Root>
+                            {/if}
                           </div>
                         </div>
                         <button
