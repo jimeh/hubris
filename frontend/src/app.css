@@ -54,3 +54,8 @@
     @apply bg-background text-foreground;
   }
 }
+
+.sidebar-resizing [data-slot='sidebar-gap'],
+.sidebar-resizing [data-slot='sidebar-container'] {
+  transition: none !important;
+}
