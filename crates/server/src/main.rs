@@ -1,10 +1,9 @@
-use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use tokio::net::TcpListener;
+use listenfd::ListenFd;
 use tracing_subscriber::EnvFilter;
 
-use hubris_server::{AppState, bind_with_port_fallback, build_router};
+use hubris_server::{AppState, build_router, select_listener};
 
 const DEFAULT_PORT: u16 = 3001;
 const DEV_BACKEND_PORT_OFFSET: u16 = 100;
@@ -50,21 +49,19 @@ async fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_PORT);
 
-    let listener = if is_dev {
-        // Dev: backend uses an offset port,
-        // auto-increments if in use.
-        let dev_port = base_port + DEV_BACKEND_PORT_OFFSET;
-        bind_with_port_fallback(&host, dev_port, MAX_PORT_ATTEMPTS)
-            .await
-            .expect("failed to bind dev server")
-    } else {
-        let addr: SocketAddr = format!("{host}:{base_port}")
-            .parse()
-            .expect("invalid HUBRIS_HOST/HUBRIS_PORT");
-        TcpListener::bind(addr)
-            .await
-            .expect("failed to bind address")
-    };
+    let inherited_listener = ListenFd::from_env()
+        .take_tcp_listener(0)
+        .expect("failed to take socket activation listener");
+    let listener = select_listener(
+        inherited_listener,
+        &host,
+        base_port,
+        is_dev,
+        DEV_BACKEND_PORT_OFFSET,
+        MAX_PORT_ATTEMPTS,
+    )
+    .await
+    .expect("failed to bind server listener");
 
     let addr = listener.local_addr().unwrap();
 
