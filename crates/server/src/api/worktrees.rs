@@ -6,6 +6,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::api::projects::Project;
 use crate::api::settings::Settings;
@@ -13,7 +15,7 @@ use crate::events::EventKind;
 use crate::git;
 use crate::state::AppState;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
 pub struct Worktree {
     pub id: String,
     pub project_id: String,
@@ -26,14 +28,14 @@ pub struct Worktree {
     pub position: f64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ListWorktreesResponse {
     pub worktrees: Vec<Worktree>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema, TS)]
 pub struct StartPoint {
     pub value: String,
     pub sha: String,
@@ -42,7 +44,7 @@ pub struct StartPoint {
     pub remote_refs: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ListWorktreeStartPointsResponse {
     pub start_points: Vec<StartPoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -51,19 +53,20 @@ pub struct ListWorktreeStartPointsResponse {
     pub git_error: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateWorktreeRequest {
     pub branch: String,
     #[serde(default)]
     pub start_point: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ReorderWorktreesRequest {
     pub worktree_ids: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct DeleteWorktreeParams {
     #[serde(default)]
     pub force: bool,
@@ -310,6 +313,18 @@ pub fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/projects/{id}/worktrees",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+    ),
+    responses(
+        (status = 200, description = "Project worktrees", body = ListWorktreesResponse),
+        (status = 404, description = "Project not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn list_project_worktrees(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
@@ -335,6 +350,21 @@ pub async fn list_project_worktrees(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/projects/{id}/worktrees",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+    ),
+    request_body = CreateWorktreeRequest,
+    responses(
+        (status = 201, description = "Worktree created", body = Worktree),
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Project not found"),
+        (status = 409, description = "Worktree creation conflict"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn create_project_worktree(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
@@ -413,6 +443,22 @@ pub async fn create_project_worktree(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/projects/{id}/worktrees/start-points",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Candidate worktree start points",
+            body = ListWorktreeStartPointsResponse
+        ),
+        (status = 404, description = "Project not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn list_project_worktree_start_points(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
@@ -523,6 +569,20 @@ pub async fn list_project_worktree_start_points(
     }
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/projects/{id}/worktrees/reorder",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+    ),
+    request_body = ReorderWorktreesRequest,
+    responses(
+        (status = 200, description = "Worktrees reordered", body = [Worktree]),
+        (status = 400, description = "Invalid reorder payload"),
+        (status = 404, description = "Project not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn reorder_project_worktrees(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
@@ -574,6 +634,22 @@ pub async fn reorder_project_worktrees(
     Ok(Json(reordered))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/projects/{id}/worktrees/{worktree_id}",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+        DeleteWorktreeParams,
+    ),
+    responses(
+        (status = 204, description = "Worktree removed"),
+        (status = 400, description = "Invalid worktree request"),
+        (status = 404, description = "Project or worktree not found"),
+        (status = 409, description = "Worktree has uncommitted changes"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn delete_project_worktree(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,

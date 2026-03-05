@@ -98,6 +98,12 @@ reconciliation — drift corrects on reconnect.
   (`hubris-theme-cache`) and applies full CSS vars before first paint.
 - Codegen: `defaults.generated.css` generated from builtin themes via
   `mise run generate`. Committed to git; CI verifies via `git diff`.
+- API contracts: OpenAPI spec (utoipa) + TypeScript types (ts-rs) generated
+  from Rust structs. `cargo run --bin generate_contracts` writes
+  `frontend/src/lib/contracts/{openapi,sse,ws}.generated.*`. Then
+  `bun run generate:contracts:rest` runs openapi-typescript to produce
+  `rest.generated.ts`. Frontend imports generated types from
+  `$lib/contracts/` for request/response bodies and WS/SSE messages.
 - Dev proxy: port 3001 proxies `/api` → backend 3101
 
 ## Conventions
@@ -169,3 +175,9 @@ reconciliation — drift corrects on reconnect.
 - **Sidebar resize ownership**: Keep sidebar resize customization in
   app-level files (store/handle/CSS) instead of `components/ui/sidebar/*`
   so shadcn sidebar upgrades remain mostly copy-merge operations.
+- **`ts-rs` warns on some serde field attributes**:
+  with `ts-rs` + `serde-compat`, attributes like
+  `skip_serializing_if = "Option::is_none"` may emit warnings during
+  `cargo check`/`clippy`. The generated types still build; warnings are
+  expected unless those fields are modeled with `#[ts(optional)]` or
+  custom TS field types.

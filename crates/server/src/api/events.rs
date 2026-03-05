@@ -7,12 +7,14 @@ use axum::response::sse::{self, Sse};
 use futures_util::Stream;
 use serde::Deserialize;
 use tokio::sync::broadcast;
+use utoipa::IntoParams;
 
 use crate::api::worktrees::list_worktrees_for_project;
 use crate::events::{Event, EventKind};
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct EventStreamParams {
     #[serde(default = "default_session_id")]
     pub session_id: String,
@@ -22,6 +24,14 @@ fn default_session_id() -> String {
     "default".to_string()
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/events",
+    params(EventStreamParams),
+    responses(
+        (status = 200, description = "Server-sent event stream"),
+    ),
+)]
 pub async fn event_stream(
     State(state): State<AppState>,
     Query(params): Query<EventStreamParams>,
@@ -115,13 +125,11 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         }
     }
 
-    let snapshot = Event {
-        kind: EventKind::Snapshot {
-            tabs,
-            projects,
-            worktrees,
-            project_errors,
-        },
+    let snapshot = EventKind::Snapshot {
+        tabs,
+        projects,
+        worktrees,
+        project_errors,
     };
     sse::Event::default()
         .event("snapshot")
@@ -131,5 +139,5 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
 fn to_sse_event(event: &Event) -> sse::Event {
     sse::Event::default()
         .event(event.kind.event_name())
-        .data(serde_json::to_string(event).unwrap())
+        .data(serde_json::to_string(&event.kind).unwrap())
 }

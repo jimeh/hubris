@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EventHandler } from '$lib/events';
+import type { EventHandler, SseEventName } from '$lib/events';
 import type { Worktree } from '$lib/types';
 
 const mockCreateProjectWorktree = vi.fn();
@@ -17,17 +17,21 @@ vi.mock('$lib/api', () => ({
 }));
 
 class MockEventClient {
-  private handlers = new Map<string, Set<EventHandler>>();
+  private handlers = new Map<SseEventName, Set<EventHandler<unknown>>>();
 
-  on<T = unknown>(event: string, handler: EventHandler<T>): () => void {
+  on<K extends SseEventName>(
+    event: K,
+    handler: EventHandler<unknown>,
+  ): () => void {
     if (!this.handlers.has(event)) {
       this.handlers.set(event, new Set());
     }
-    this.handlers.get(event)!.add(handler as EventHandler);
-    return () => this.handlers.get(event)?.delete(handler as EventHandler);
+    this.handlers.get(event)!.add(handler as EventHandler<unknown>);
+    return () =>
+      this.handlers.get(event)?.delete(handler as EventHandler<unknown>);
   }
 
-  emit(event: string, data: unknown): void {
+  emit(event: SseEventName, data: unknown): void {
     for (const handler of this.handlers.get(event) ?? []) {
       handler(data);
     }

@@ -1,0 +1,1269 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "hubris-server",
+    "description": "",
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/events": {
+      "get": {
+        "tags": ["crate::api::events"],
+        "operationId": "event_stream",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent event stream"
+          }
+        }
+      }
+    },
+    "/api/files": {
+      "get": {
+        "tags": ["crate::api::files"],
+        "operationId": "list_files",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Directory to list. Defaults to home dir.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "show_hidden",
+            "in": "query",
+            "description": "Whether to include dotfiles. Defaults to false.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Directory listing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListFilesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Path is not a directory"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Directory not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "tags": [],
+        "summary": "Return the generated OpenAPI document as JSON.",
+        "operationId": "openapi_json",
+        "responses": {
+          "200": {
+            "description": "OpenAPI document"
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "tags": ["crate::api::projects"],
+        "operationId": "list_projects",
+        "responses": {
+          "200": {
+            "description": "List projects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Project"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["crate::api::projects"],
+        "operationId": "add_project",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Project already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Project created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid path"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/reorder": {
+      "put": {
+        "tags": ["crate::api::projects"],
+        "operationId": "reorder_projects",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderProjectsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Projects reordered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Project"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid order payload"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}": {
+      "delete": {
+        "tags": ["crate::api::projects"],
+        "operationId": "delete_project",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Project removed"
+          },
+          "400": {
+            "description": "Invalid project path"
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "409": {
+            "description": "Project has dirty linked worktrees"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["crate::api::projects"],
+        "operationId": "update_project",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Project updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees": {
+      "get": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "list_project_worktrees",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project worktrees",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWorktreesResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "create_project_worktree",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorktreeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Worktree created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Worktree"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "409": {
+            "description": "Worktree creation conflict"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/reorder": {
+      "put": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "reorder_project_worktrees",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderWorktreesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Worktrees reordered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Worktree"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid reorder payload"
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/start-points": {
+      "get": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "list_project_worktree_start_points",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Candidate worktree start points",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWorktreeStartPointsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/{worktree_id}": {
+      "delete": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "delete_project_worktree",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Worktree removed"
+          },
+          "400": {
+            "description": "Invalid worktree request"
+          },
+          "404": {
+            "description": "Project or worktree not found"
+          },
+          "409": {
+            "description": "Worktree has uncommitted changes"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "tags": ["crate::api::settings"],
+        "summary": "GET /api/settings",
+        "operationId": "get_settings",
+        "responses": {
+          "200": {
+            "description": "Current settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "tags": ["crate::api::settings"],
+        "summary": "PUT /api/settings — full replace",
+        "operationId": "save_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Settings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Settings saved"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/tabs": {
+      "get": {
+        "tags": ["crate::api::tabs"],
+        "operationId": "list_tabs",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List tabs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TabInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["crate::api::tabs"],
+        "operationId": "create_tab",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTabRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Tab created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TabInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Worktree not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/tabs/{id}": {
+      "delete": {
+        "tags": ["crate::api::tabs"],
+        "operationId": "delete_tab",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Tab ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Tab removed"
+          },
+          "404": {
+            "description": "Tab not found"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["crate::api::tabs"],
+        "operationId": "update_tab",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Tab ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTabRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tab updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TabInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tab not found"
+          }
+        }
+      }
+    },
+    "/api/terminal/ws": {
+      "get": {
+        "tags": ["crate::api::terminal"],
+        "operationId": "ws_handler",
+        "parameters": [
+          {
+            "name": "tab_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resume_from",
+            "in": "query",
+            "description": "Byte offset for resumable reconnection. When\npresent, the server only replays scrollback bytes\nthe client missed.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket upgraded"
+          },
+          "404": {
+            "description": "Tab not found"
+          }
+        }
+      }
+    },
+    "/api/themes": {
+      "get": {
+        "tags": ["crate::api::themes"],
+        "summary": "GET /api/themes — list user theme metadata",
+        "operationId": "list_themes",
+        "responses": {
+          "200": {
+            "description": "Theme metadata list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ThemeMeta"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "tags": ["crate::api::themes"],
+        "summary": "POST /api/themes — upload a new theme",
+        "operationId": "create_theme",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThemeFile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Theme created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeMeta"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Theme already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/themes/{id}": {
+      "get": {
+        "tags": ["crate::api::themes"],
+        "summary": "GET /api/themes/:id — get full theme",
+        "operationId": "get_theme",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Theme payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeFile"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Theme not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["crate::api::themes"],
+        "summary": "DELETE /api/themes/:id — remove a user theme",
+        "operationId": "delete_theme",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Theme removed"
+          },
+          "404": {
+            "description": "Theme not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AddProjectRequest": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "AppearanceSettings": {
+        "type": "object",
+        "properties": {
+          "colorScheme": {
+            "type": "string"
+          },
+          "darkTheme": {
+            "type": "string"
+          },
+          "lightTheme": {
+            "type": "string"
+          }
+        }
+      },
+      "ClientControlMessage": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["cols", "rows", "type"],
+            "properties": {
+              "cols": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "rows": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": ["resize"]
+              }
+            }
+          }
+        ]
+      },
+      "CreateTabRequest": {
+        "type": "object",
+        "required": ["worktree_id"],
+        "properties": {
+          "worktree_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateWorktreeRequest": {
+        "type": "object",
+        "required": ["branch"],
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "start_point": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "DirEntry": {
+        "type": "object",
+        "required": ["name", "is_git_repo"],
+        "properties": {
+          "is_git_repo": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ListFilesResponse": {
+        "type": "object",
+        "required": ["path", "entries"],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirEntry"
+            },
+            "description": "Subdirectories within `path`."
+          },
+          "home_dir": {
+            "type": ["string", "null"],
+            "description": "User's home directory (for quick-nav in UI)."
+          },
+          "path": {
+            "type": "string",
+            "description": "Canonical absolute path of the listed directory."
+          }
+        }
+      },
+      "ListWorktreeStartPointsResponse": {
+        "type": "object",
+        "required": ["start_points"],
+        "properties": {
+          "default_start_point": {
+            "type": ["string", "null"]
+          },
+          "git_error": {
+            "type": ["string", "null"]
+          },
+          "start_points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StartPoint"
+            }
+          }
+        }
+      },
+      "ListWorktreesResponse": {
+        "type": "object",
+        "required": ["worktrees"],
+        "properties": {
+          "git_error": {
+            "type": ["string", "null"]
+          },
+          "worktrees": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Worktree"
+            }
+          }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "required": ["id", "name", "path"],
+        "properties": {
+          "git_error": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "position": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "ReorderProjectsRequest": {
+        "type": "object",
+        "required": ["project_ids"],
+        "properties": {
+          "project_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ReorderWorktreesRequest": {
+        "type": "object",
+        "required": ["worktree_ids"],
+        "properties": {
+          "worktree_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ServerControlMessage": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["byte_offset", "data_lost", "type"],
+            "properties": {
+              "byte_offset": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "data_lost": {
+                "type": "boolean"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["attached"]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["tab_closed"]
+              }
+            }
+          }
+        ]
+      },
+      "Settings": {
+        "type": "object",
+        "properties": {
+          "appearance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppearanceSettings"
+              }
+            ]
+          },
+          "terminal": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TerminalSettings"
+              }
+            ]
+          },
+          "worktree": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorktreeSettings"
+              }
+            ]
+          }
+        }
+      },
+      "StartPoint": {
+        "type": "object",
+        "required": ["value", "sha", "remote_refs"],
+        "properties": {
+          "local_ref": {
+            "type": ["string", "null"]
+          },
+          "remote_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sha": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "TabInfo": {
+        "type": "object",
+        "description": "Serializable tab metadata. Sent to clients via REST\nand SSE.",
+        "required": [
+          "id",
+          "session_id",
+          "worktree_id",
+          "label",
+          "type",
+          "position",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "position": {
+            "type": "number",
+            "format": "double"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "worktree_id": {
+            "type": "string"
+          }
+        }
+      },
+      "TerminalSettings": {
+        "type": "object",
+        "properties": {
+          "bundledFont": {
+            "type": "string"
+          },
+          "fontSize": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "fontSource": {
+            "type": "string"
+          },
+          "systemFontFamily": {
+            "type": "string"
+          }
+        }
+      },
+      "ThemeFile": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ThemeMeta"
+          },
+          {
+            "type": "object",
+            "required": ["colors"],
+            "properties": {
+              "colors": {
+                "type": "object",
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ThemeMeta": {
+        "type": "object",
+        "required": ["id", "name", "type"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "UpdateProjectRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "UpdateTabRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": ["string", "null"]
+          },
+          "position": {
+            "type": ["number", "null"],
+            "format": "double"
+          }
+        }
+      },
+      "Worktree": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "path",
+          "branch",
+          "is_local",
+          "position"
+        ],
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_local": {
+            "type": "boolean"
+          },
+          "missing_on_disk": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "position": {
+            "type": "number",
+            "format": "double"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorktreeSettings": {
+        "type": "object",
+        "properties": {
+          "locationMode": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "hubris",
+      "description": "Hubris API"
+    }
+  ]
+}

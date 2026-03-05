@@ -1,4 +1,12 @@
-export type EventHandler<T = unknown> = (data: T) => void;
+import type { EventKind } from '$lib/contracts/sse.generated';
+
+export type SseEvent = EventKind;
+export type SseEventName = SseEvent['type'];
+export type SseEventData<K extends SseEventName> = Extract<
+  SseEvent,
+  { type: K }
+>['data'];
+export type EventHandler<T> = (data: T) => void;
 
 const SSE_EVENT_NAMES = [
   'snapshot',
@@ -13,9 +21,7 @@ const SSE_EVENT_NAMES = [
   'worktree_deleted',
   'worktrees_reordered',
   'project_worktrees_updated',
-] as const;
-
-export type SseEventName = (typeof SSE_EVENT_NAMES)[number];
+] as const satisfies ReadonlyArray<SseEventName>;
 
 /**
  * SSE client for server state sync. Connects to
@@ -26,7 +32,7 @@ export type SseEventName = (typeof SSE_EVENT_NAMES)[number];
  */
 export class EventClient {
   private es: EventSource | null = null;
-  private handlers = new Map<string, Set<EventHandler>>();
+  private handlers = new Map<SseEventName, Set<EventHandler<unknown>>>();
 
   connect(sessionId = 'default'): void {
     if (this.es) return;
@@ -37,12 +43,14 @@ export class EventClient {
 
     for (const name of SSE_EVENT_NAMES) {
       this.es.addEventListener(name, (e) => {
-        const parsed = JSON.parse((e as MessageEvent).data);
+        const parsed = JSON.parse(
+          (e as MessageEvent).data,
+        ) as Partial<SseEvent>;
         if (parsed.data === undefined) {
           console.warn(`SSE event "${name}" missing data field`, parsed);
           return;
         }
-        this.dispatch(name, parsed.data);
+        this.dispatch(name, parsed.data as SseEventData<typeof name>);
       });
     }
 
@@ -61,17 +69,22 @@ export class EventClient {
    * Register a handler for an event type. Returns an
    * unsubscribe function.
    */
-  on<T = unknown>(event: string, handler: EventHandler<T>): () => void {
-    if (!this.handlers.has(event)) {
-      this.handlers.set(event, new Set());
-    }
-    this.handlers.get(event)!.add(handler as EventHandler);
-    return () => this.handlers.get(event)?.delete(handler as EventHandler);
+  on<K extends SseEventName>(
+    event: K,
+    handler: EventHandler<SseEventData<K>>,
+  ): () => void {
+    const bucket = this.handlers.get(event) ?? new Set<EventHandler<unknown>>();
+    bucket.add(handler as EventHandler<unknown>);
+    this.handlers.set(event, bucket);
+    return () => bucket.delete(handler as EventHandler<unknown>);
   }
 
-  private dispatch(event: string, data: unknown): void {
+  private dispatch<K extends SseEventName>(
+    event: K,
+    data: SseEventData<K>,
+  ): void {
     for (const handler of this.handlers.get(event) ?? []) {
-      handler(data);
+      (handler as EventHandler<SseEventData<K>>)(data);
     }
   }
 }

@@ -14,6 +14,7 @@ use tower_http::trace::TraceLayer;
 
 use api::events::event_stream;
 use api::files::list_files;
+use api::openapi::{openapi_json, spec as openapi_spec_impl};
 use api::projects::{add_project, delete_project, list_projects, reorder_projects, update_project};
 use api::settings::{get_settings, save_settings};
 use api::tabs::{create_tab, delete_tab, list_tabs, update_tab};
@@ -75,6 +76,7 @@ const API_METHODS: [Method; 5] = [
 /// Build the API router for a given AppState.
 pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
+        .route("/openapi.json", get(openapi_json))
         .route("/files", get(list_files))
         .route("/projects", get(list_projects).post(add_project))
         .route("/projects/reorder", put(reorder_projects))
@@ -125,4 +127,8 @@ pub fn build_router(state: AppState) -> Router {
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+pub fn openapi_spec() -> utoipa::openapi::OpenApi {
+    openapi_spec_impl()
 }
