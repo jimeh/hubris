@@ -8,7 +8,7 @@ use hubris_server::api::worktrees::Worktree;
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
 use hubris_server::pty::live_tab::TabInfo;
-use ts_rs::TS;
+use ts_rs::{Config, TS};
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -45,22 +45,23 @@ fn write_openapi(dir: &Path) -> Result<(), Box<dyn Error>> {
 fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     let sse_path = dir.join("sse.generated.ts");
     let ws_path = dir.join("ws.generated.ts");
+    let cfg = Config::from_env();
 
     let mut sse = String::from("// Generated file. Do not edit.\n\n");
-    sse.push_str(&TabInfo::export_to_string()?);
+    sse.push_str(&TabInfo::export_to_string(&cfg)?);
     sse.push('\n');
-    sse.push_str(&Project::export_to_string()?);
+    sse.push_str(&Project::export_to_string(&cfg)?);
     sse.push('\n');
-    sse.push_str(&Worktree::export_to_string()?);
+    sse.push_str(&Worktree::export_to_string(&cfg)?);
     sse.push('\n');
-    sse.push_str(&strip_imports(&EventKind::export_to_string()?));
+    sse.push_str(&strip_imports(&EventKind::export_to_string(&cfg)?));
     sse.push('\n');
     fs::write(&sse_path, sse)?;
 
     let mut ws = String::from("// Generated file. Do not edit.\n\n");
-    ws.push_str(&ClientControlMessage::export_to_string()?);
+    ws.push_str(&ClientControlMessage::export_to_string(&cfg)?);
     ws.push('\n');
-    ws.push_str(&ServerControlMessage::export_to_string()?);
+    ws.push_str(&ServerControlMessage::export_to_string(&cfg)?);
     ws.push('\n');
     fs::write(&ws_path, ws)?;
     Ok(())

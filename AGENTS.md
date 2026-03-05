@@ -181,6 +181,10 @@ reconciliation — drift corrects on reconnect.
   `cargo check`/`clippy`. The generated types still build; warnings are
   expected unless those fields are modeled with `#[ts(optional)]` or
   custom TS field types.
+- **`ts-rs` v12 changed codegen API**:
+  `TS::export_to_string()` now requires a `ts_rs::Config` argument
+  (for example `TS::export_to_string(&Config::from_env())`), so
+  `generate_contracts`-style binaries must pass config explicitly.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.
