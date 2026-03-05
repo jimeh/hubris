@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tokio::sync::broadcast;
+use ts_rs::TS;
 
 use crate::api::projects::Project;
 use crate::api::worktrees::Worktree;
@@ -14,7 +15,7 @@ pub struct Event {
     pub kind: EventKind,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(tag = "type", content = "data")]
 pub enum EventKind {
     #[serde(rename = "snapshot")]

@@ -1,4 +1,5 @@
 import type { ListFilesResponse, Project, Tab, Worktree } from './types';
+import type { components } from '$lib/contracts/rest.generated';
 import type {
   AppearanceSettings,
   HubrisTheme,
@@ -9,6 +10,18 @@ import type {
 
 const BASE = '/api';
 
+type AddProjectRequest = components['schemas']['AddProjectRequest'];
+type UpdateProjectRequest = components['schemas']['UpdateProjectRequest'];
+type ReorderProjectsRequest = components['schemas']['ReorderProjectsRequest'];
+type ListWorktreesResponse = components['schemas']['ListWorktreesResponse'];
+type StartPoint = components['schemas']['StartPoint'];
+type ListWorktreeStartPointsResponse =
+  components['schemas']['ListWorktreeStartPointsResponse'];
+type CreateWorktreeRequest = components['schemas']['CreateWorktreeRequest'];
+type ReorderWorktreesRequest = components['schemas']['ReorderWorktreesRequest'];
+type CreateTabRequest = components['schemas']['CreateTabRequest'];
+type UpdateTabRequest = components['schemas']['UpdateTabRequest'];
+
 export async function listProjects(): Promise<Project[]> {
   const res = await fetch(`${BASE}/projects`);
   if (!res.ok) throw new Error(`${res.status}`);
@@ -16,10 +29,11 @@ export async function listProjects(): Promise<Project[]> {
 }
 
 export async function addProject(path: string): Promise<Project> {
+  const payload: AddProjectRequest = { path };
   const res = await fetch(`${BASE}/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
@@ -27,7 +41,7 @@ export async function addProject(path: string): Promise<Project> {
 
 export async function updateProject(
   id: string,
-  updates: { name?: string },
+  updates: UpdateProjectRequest,
 ): Promise<Project> {
   const res = await fetch(`${BASE}/projects/${id}`, {
     method: 'PATCH',
@@ -41,10 +55,11 @@ export async function updateProject(
 export async function reorderProjects(
   projectIds: string[],
 ): Promise<Project[]> {
+  const payload: ReorderProjectsRequest = { project_ids: projectIds };
   const res = await fetch(`${BASE}/projects/reorder`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project_ids: projectIds }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
@@ -62,29 +77,19 @@ export async function deleteProject(id: string, force = false): Promise<void> {
   }
 }
 
-export async function listProjectWorktrees(projectId: string): Promise<{
-  worktrees: Worktree[];
-  git_error?: string;
-}> {
+export async function listProjectWorktrees(
+  projectId: string,
+): Promise<ListWorktreesResponse> {
   const res = await fetch(`${BASE}/projects/${projectId}/worktrees`);
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
 
-export type WorktreeStartPoint = {
-  value: string;
-  sha: string;
-  local_ref?: string;
-  remote_refs: string[];
-};
+export type WorktreeStartPoint = StartPoint;
 
 export async function listProjectWorktreeStartPoints(
   projectId: string,
-): Promise<{
-  start_points: WorktreeStartPoint[];
-  default_start_point?: string;
-  git_error?: string;
-}> {
+): Promise<ListWorktreeStartPointsResponse> {
   const res = await fetch(
     `${BASE}/projects/${projectId}/worktrees/start-points`,
   );
@@ -97,7 +102,7 @@ export async function createProjectWorktree(
   branch: string,
   startPoint?: string,
 ): Promise<Worktree> {
-  const body: { branch: string; start_point?: string } = { branch };
+  const body: CreateWorktreeRequest = { branch };
   if (startPoint) {
     body.start_point = startPoint;
   }
@@ -114,10 +119,11 @@ export async function reorderProjectWorktrees(
   projectId: string,
   worktreeIds: string[],
 ): Promise<Worktree[]> {
+  const payload: ReorderWorktreesRequest = { worktree_ids: worktreeIds };
   const res = await fetch(`${BASE}/projects/${projectId}/worktrees/reorder`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ worktree_ids: worktreeIds }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
@@ -164,10 +170,11 @@ export async function listTabs(): Promise<Tab[]> {
 }
 
 export async function createTab(worktreeId: string): Promise<Tab> {
+  const payload: CreateTabRequest = { worktree_id: worktreeId };
   const res = await fetch(`${BASE}/tabs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ worktree_id: worktreeId }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
@@ -182,7 +189,7 @@ export async function deleteTab(id: string): Promise<void> {
 
 export async function updateTab(
   id: string,
-  updates: { label?: string; position?: number },
+  updates: UpdateTabRequest,
 ): Promise<Tab> {
   const res = await fetch(`${BASE}/tabs/${id}`, {
     method: 'PATCH',

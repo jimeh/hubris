@@ -2,6 +2,10 @@
   import { onMount, onDestroy } from 'svelte';
   import { createXtermAdapter } from '$lib/terminal/xterm';
   import { terminalWsUrl } from '$lib/api';
+  import type {
+    ClientControlMessage,
+    ServerControlMessage,
+  } from '$lib/contracts/ws.generated';
   import { getThemeStore } from '$lib/stores/theme.svelte';
   import { getTerminalStore } from '$lib/stores/terminal.svelte';
   import type { TerminalAdapter } from '$lib/terminal/adapter';
@@ -38,6 +42,12 @@
 
   const encoder = new TextEncoder();
 
+  function sendControlMessage(message: ClientControlMessage) {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(message));
+    }
+  }
+
   function connectWs() {
     if (intentionalClose) return;
 
@@ -55,13 +65,7 @@
       reconnectDelay = RECONNECT_DELAY_INITIAL;
 
       // Send current terminal dimensions
-      ws!.send(
-        JSON.stringify({
-          type: 'resize',
-          cols: terminal!.cols,
-          rows: terminal!.rows,
-        }),
-      );
+      sendResize();
 
       // Flush buffered input
       for (const chunk of inputBuffer) {
@@ -75,18 +79,20 @@
     ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
         try {
-          const msg = JSON.parse(ev.data);
-          if (msg.type === 'tab_closed') {
-            intentionalClose = true;
-            onclosed?.();
-            return;
-          }
-          if (msg.type === 'attached') {
-            bytePosition = msg.byte_offset;
-            if (msg.data_lost) {
-              terminal!.clear();
+          const msg = JSON.parse(ev.data) as ServerControlMessage;
+          switch (msg.type) {
+            case 'tab_closed': {
+              intentionalClose = true;
+              onclosed?.();
+              return;
             }
-            return;
+            case 'attached': {
+              bytePosition = msg.byte_offset;
+              if (msg.data_lost) {
+                terminal!.clear();
+              }
+              return;
+            }
           }
         } catch {
           // not JSON, ignore
@@ -136,15 +142,12 @@
   }
 
   function sendResize() {
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(
-        JSON.stringify({
-          type: 'resize',
-          cols: terminal!.cols,
-          rows: terminal!.rows,
-        }),
-      );
-    }
+    if (!terminal) return;
+    sendControlMessage({
+      type: 'resize',
+      cols: terminal.cols,
+      rows: terminal.rows,
+    });
   }
 
   onMount(() => {

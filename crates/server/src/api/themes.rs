@@ -2,10 +2,11 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ThemeMeta {
     pub id: String,
     pub name: String,
@@ -13,7 +14,7 @@ pub struct ThemeMeta {
     pub theme_type: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ThemeFile {
     #[serde(flatten)]
     pub meta: ThemeMeta,
@@ -21,6 +22,14 @@ pub struct ThemeFile {
 }
 
 /// GET /api/themes — list user theme metadata
+#[utoipa::path(
+    get,
+    path = "/api/themes",
+    responses(
+        (status = 200, description = "Theme metadata list", body = [ThemeMeta]),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn list_themes(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ThemeMeta>>, StatusCode> {
@@ -51,6 +60,18 @@ pub async fn list_themes(
 }
 
 /// GET /api/themes/:id — get full theme
+#[utoipa::path(
+    get,
+    path = "/api/themes/{id}",
+    params(
+        ("id" = String, Path, description = "Theme ID"),
+    ),
+    responses(
+        (status = 200, description = "Theme payload", body = ThemeFile),
+        (status = 404, description = "Theme not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn get_theme(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -68,6 +89,16 @@ pub async fn get_theme(
 }
 
 /// POST /api/themes — upload a new theme
+#[utoipa::path(
+    post,
+    path = "/api/themes",
+    request_body = ThemeFile,
+    responses(
+        (status = 201, description = "Theme created", body = ThemeMeta),
+        (status = 409, description = "Theme already exists"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn create_theme(
     State(state): State<AppState>,
     Json(theme): Json<ThemeFile>,
@@ -101,6 +132,18 @@ pub async fn create_theme(
 }
 
 /// DELETE /api/themes/:id — remove a user theme
+#[utoipa::path(
+    delete,
+    path = "/api/themes/{id}",
+    params(
+        ("id" = String, Path, description = "Theme ID"),
+    ),
+    responses(
+        (status = 204, description = "Theme removed"),
+        (status = 404, description = "Theme not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn delete_theme(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {
     let path = state.themes_dir().join(format!("{id}.json"));
     match tokio::fs::remove_file(&path).await {

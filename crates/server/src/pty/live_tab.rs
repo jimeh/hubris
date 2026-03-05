@@ -7,6 +7,8 @@ use portable_pty::{Child, MasterPty};
 use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
+use ts_rs::TS;
+use utoipa::ToSchema;
 
 /// Default scrollback buffer size in bytes (~128KB).
 /// Passed to `LiveTab::spawn()` so it can be overridden
@@ -15,7 +17,7 @@ pub const DEFAULT_SCROLLBACK: usize = 128 * 1024;
 
 /// Serializable tab metadata. Sent to clients via REST
 /// and SSE.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema, TS)]
 pub struct TabInfo {
     pub id: String,
     pub session_id: String,
@@ -24,6 +26,7 @@ pub struct TabInfo {
     #[serde(rename = "type")]
     pub tab_type: String,
     pub position: f64,
+    #[ts(type = "number")]
     pub created_at: u64,
 }
 

@@ -8,24 +8,26 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
 use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TabInfo};
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateTabRequest {
     pub worktree_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateTabRequest {
     pub label: Option<String>,
     pub position: Option<f64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ListTabsParams {
     #[serde(default = "default_session_id")]
     pub session_id: String,
@@ -35,6 +37,14 @@ fn default_session_id() -> String {
     "default".to_string()
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/tabs",
+    params(ListTabsParams),
+    responses(
+        (status = 200, description = "List tabs", body = [TabInfo]),
+    ),
+)]
 pub async fn list_tabs(
     State(state): State<AppState>,
     Query(params): Query<ListTabsParams>,
@@ -53,6 +63,16 @@ pub async fn list_tabs(
     Json(tabs)
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/tabs",
+    request_body = CreateTabRequest,
+    responses(
+        (status = 201, description = "Tab created", body = TabInfo),
+        (status = 404, description = "Worktree not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn create_tab(
     State(state): State<AppState>,
     Json(req): Json<CreateTabRequest>,
@@ -132,6 +152,17 @@ pub async fn create_tab(
     Ok((StatusCode::CREATED, Json(info)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/tabs/{id}",
+    params(
+        ("id" = String, Path, description = "Tab ID"),
+    ),
+    responses(
+        (status = 204, description = "Tab removed"),
+        (status = 404, description = "Tab not found"),
+    ),
+)]
 pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {
     match state.tabs.remove(&id) {
         Some((_, tab)) => {
@@ -143,6 +174,18 @@ pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -
     }
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/tabs/{id}",
+    params(
+        ("id" = String, Path, description = "Tab ID"),
+    ),
+    request_body = UpdateTabRequest,
+    responses(
+        (status = 200, description = "Tab updated", body = TabInfo),
+        (status = 404, description = "Tab not found"),
+    ),
+)]
 pub async fn update_tab(
     State(state): State<AppState>,
     Path(id): Path<String>,

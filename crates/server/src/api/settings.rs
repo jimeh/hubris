@@ -2,10 +2,11 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AppearanceSettings {
     #[serde(default = "default_color_scheme")]
@@ -26,7 +27,7 @@ fn default_dark_theme() -> String {
     "catppuccin-mocha".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalSettings {
     #[serde(default = "default_font_source")]
@@ -46,7 +47,7 @@ fn default_font_size() -> u32 {
     14
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeSettings {
     #[serde(default = "default_worktree_location_mode")]
@@ -57,7 +58,7 @@ fn default_worktree_location_mode() -> String {
     "dataDir".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 pub struct Settings {
     #[serde(default)]
     pub appearance: Option<AppearanceSettings>,
@@ -68,6 +69,14 @@ pub struct Settings {
 }
 
 /// GET /api/settings
+#[utoipa::path(
+    get,
+    path = "/api/settings",
+    responses(
+        (status = 200, description = "Current settings", body = Settings),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn get_settings(State(state): State<AppState>) -> Result<Json<Settings>, StatusCode> {
     let path = state.settings_file();
     match tokio::fs::read_to_string(&path).await {
@@ -81,6 +90,15 @@ pub async fn get_settings(State(state): State<AppState>) -> Result<Json<Settings
 }
 
 /// PUT /api/settings — full replace
+#[utoipa::path(
+    put,
+    path = "/api/settings",
+    request_body = Settings,
+    responses(
+        (status = 200, description = "Settings saved"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn save_settings(
     State(state): State<AppState>,
     Json(value): Json<Settings>,

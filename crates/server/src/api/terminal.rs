@@ -6,12 +6,15 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use portable_pty::PtySize;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
+use ts_rs::TS;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct TerminalParams {
     pub tab_id: String,
     /// Byte offset for resumable reconnection. When
@@ -20,13 +23,35 @@ pub struct TerminalParams {
     pub resume_from: Option<u64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, TS)]
 #[serde(tag = "type")]
-enum ControlMessage {
+pub enum ClientControlMessage {
     #[serde(rename = "resize")]
     Resize { cols: u16, rows: u16 },
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, TS)]
+#[serde(tag = "type")]
+pub enum ServerControlMessage {
+    #[serde(rename = "attached")]
+    Attached {
+        #[ts(type = "number")]
+        byte_offset: u64,
+        data_lost: bool,
+    },
+    #[serde(rename = "tab_closed")]
+    TabClosed,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/terminal/ws",
+    params(TerminalParams),
+    responses(
+        (status = 101, description = "WebSocket upgraded"),
+        (status = 404, description = "Tab not found"),
+    ),
+)]
 pub async fn ws_handler(
     State(state): State<AppState>,
     Query(params): Query<TerminalParams>,
@@ -59,10 +84,11 @@ async fn handle_attach(
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Send attach metadata so client can track position
-    let attached_msg = format!(
-        r#"{{"type":"attached","byte_offset":{},"data_lost":{}}}"#,
-        byte_offset, data_lost,
-    );
+    let attached_msg = serde_json::to_string(&ServerControlMessage::Attached {
+        byte_offset,
+        data_lost,
+    })
+    .unwrap();
     if ws_sender
         .send(Message::Text(attached_msg.into()))
         .await
@@ -87,10 +113,14 @@ async fn handle_attach(
         loop {
             tokio::select! {
                 _ = close_rx.recv() => {
+                    let tab_closed =
+                        serde_json::to_string(
+                            &ServerControlMessage::TabClosed,
+                        )
+                        .unwrap();
                     let _ = ws_sender
                         .send(Message::Text(
-                            r#"{"type":"tab_closed"}"#
-                                .into(),
+                            tab_closed.into(),
                         ))
                         .await;
                     break;
@@ -164,9 +194,9 @@ async fn handle_attach(
                 }
             }
             Message::Text(text) => {
-                if let Ok(ctrl) = serde_json::from_str::<ControlMessage>(&text) {
+                if let Ok(ctrl) = serde_json::from_str::<ClientControlMessage>(&text) {
                     match ctrl {
-                        ControlMessage::Resize { cols, rows } => {
+                        ClientControlMessage::Resize { cols, rows } => {
                             let master = tab.pty_master.lock().unwrap();
                             let _ = master.resize(PtySize {
                                 rows,

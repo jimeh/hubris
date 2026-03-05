@@ -4,6 +4,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::api::worktrees::{
     close_tabs_for_worktree, is_missing_worktree_remove_error, list_worktrees_for_project,
@@ -12,7 +14,7 @@ use crate::events::EventKind;
 use crate::git;
 use crate::state::AppState;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
 pub struct Project {
     pub id: String,
     pub name: String,
@@ -23,22 +25,23 @@ pub struct Project {
     pub git_error: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct AddProjectRequest {
     pub path: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateProjectRequest {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ReorderProjectsRequest {
     pub project_ids: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct DeleteProjectParams {
     #[serde(default)]
     pub force: bool,
@@ -65,6 +68,13 @@ async fn with_git_errors(mut projects: Vec<Project>) -> Vec<Project> {
     projects
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/projects",
+    responses(
+        (status = 200, description = "List projects", body = [Project]),
+    ),
+)]
 pub async fn list_projects(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Project>>, StatusCode> {
@@ -80,6 +90,17 @@ pub async fn list_projects(
     Ok(Json(with_git_errors(projects).await))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/projects",
+    request_body = AddProjectRequest,
+    responses(
+        (status = 201, description = "Project created", body = Project),
+        (status = 200, description = "Project already exists", body = Project),
+        (status = 400, description = "Invalid path"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn add_project(
     State(state): State<AppState>,
     Json(req): Json<AddProjectRequest>,
@@ -125,6 +146,19 @@ pub async fn add_project(
     Ok((StatusCode::CREATED, Json(project)))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/projects/{id}",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+    ),
+    request_body = UpdateProjectRequest,
+    responses(
+        (status = 200, description = "Project updated", body = Project),
+        (status = 404, description = "Project not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn update_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -151,6 +185,16 @@ pub async fn update_project(
     Ok(Json(updated))
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/projects/reorder",
+    request_body = ReorderProjectsRequest,
+    responses(
+        (status = 200, description = "Projects reordered", body = [Project]),
+        (status = 400, description = "Invalid order payload"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn reorder_projects(
     State(state): State<AppState>,
     Json(req): Json<ReorderProjectsRequest>,
@@ -191,6 +235,21 @@ pub async fn reorder_projects(
     Ok(Json(projects))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/projects/{id}",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        DeleteProjectParams,
+    ),
+    responses(
+        (status = 204, description = "Project removed"),
+        (status = 400, description = "Invalid project path"),
+        (status = 404, description = "Project not found"),
+        (status = 409, description = "Project has dirty linked worktrees"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn delete_project(
     State(state): State<AppState>,
     Path(id): Path<String>,

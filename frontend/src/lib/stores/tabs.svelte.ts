@@ -74,7 +74,7 @@ export function getTabStore() {
     initialized = true;
     const events = getEventClient();
 
-    events.on<{ tabs: Tab[] }>('snapshot', (data) => {
+    events.on('snapshot', (data) => {
       const incoming = sortedTabs(data.tabs);
       if (tabsEqual(tabs, incoming)) return;
 
@@ -85,17 +85,17 @@ export function getTabStore() {
       }
     });
 
-    events.on<Tab>('tab_created', (tab) => {
+    events.on('tab_created', (tab) => {
       if (!tabs.find((t) => t.id === tab.id)) {
         tabs = sortedTabs([...tabs, tab]);
       }
     });
 
-    events.on<{ tab_id: string }>('tab_closed', ({ tab_id }) => {
+    events.on('tab_closed', ({ tab_id }) => {
       removeFromState(tab_id);
     });
 
-    events.on<Tab>('tab_updated', (tab) => {
+    events.on('tab_updated', (tab) => {
       tabs = sortedTabs(tabs.map((t) => (t.id === tab.id ? tab : t)));
     });
   }

@@ -81,22 +81,23 @@ export function getWorktreeStore() {
     initialized = true;
     const events = getEventClient();
 
-    events.on<{
-      worktrees?: Record<string, Worktree[]>;
-      project_errors?: Record<string, string>;
-    }>('snapshot', (data) => {
+    events.on('snapshot', (data) => {
       if (data.worktrees) {
         const next: Record<string, Worktree[]> = {};
         for (const [projectId, worktrees] of Object.entries(data.worktrees)) {
-          next[projectId] = byPosition(worktrees);
+          next[projectId] = byPosition(worktrees ?? []);
         }
         worktreesByProject = next;
       }
-      projectErrors = data.project_errors ?? {};
+      projectErrors = Object.fromEntries(
+        Object.entries(data.project_errors ?? {}).filter(
+          ([, err]) => err !== undefined,
+        ),
+      ) as Record<string, string>;
       ensureSelection();
     });
 
-    events.on<{ project_id: string }>('project_removed', ({ project_id }) => {
+    events.on('project_removed', ({ project_id }) => {
       delete worktreesByProject[project_id];
       delete projectErrors[project_id];
       worktreesByProject = { ...worktreesByProject };
@@ -104,44 +105,37 @@ export function getWorktreeStore() {
       ensureSelection();
     });
 
-    events.on<Worktree>('worktree_created', (worktree) => {
+    events.on('worktree_created', (worktree) => {
       upsertWorktree(worktree);
     });
 
-    events.on<{ project_id: string; worktree_id: string }>(
-      'worktree_deleted',
-      ({ project_id, worktree_id }) => {
-        worktreesByProject[project_id] = (
-          worktreesByProject[project_id] ?? []
-        ).filter((wt) => wt.id !== worktree_id);
+    events.on('worktree_deleted', ({ project_id, worktree_id }) => {
+      worktreesByProject[project_id] = (
+        worktreesByProject[project_id] ?? []
+      ).filter((wt) => wt.id !== worktree_id);
+      worktreesByProject = { ...worktreesByProject };
+      ensureSelection();
+    });
+
+    events.on('worktrees_reordered', ({ project_id, worktrees }) => {
+      worktreesByProject[project_id] = byPosition(worktrees);
+      worktreesByProject = { ...worktreesByProject };
+    });
+
+    events.on(
+      'project_worktrees_updated',
+      ({ project_id, worktrees, git_error }) => {
+        worktreesByProject[project_id] = byPosition(worktrees);
+        if (git_error) {
+          projectErrors[project_id] = git_error;
+        } else {
+          delete projectErrors[project_id];
+        }
         worktreesByProject = { ...worktreesByProject };
+        projectErrors = { ...projectErrors };
         ensureSelection();
       },
     );
-
-    events.on<{ project_id: string; worktrees: Worktree[] }>(
-      'worktrees_reordered',
-      ({ project_id, worktrees }) => {
-        worktreesByProject[project_id] = byPosition(worktrees);
-        worktreesByProject = { ...worktreesByProject };
-      },
-    );
-
-    events.on<{
-      project_id: string;
-      worktrees: Worktree[];
-      git_error?: string;
-    }>('project_worktrees_updated', ({ project_id, worktrees, git_error }) => {
-      worktreesByProject[project_id] = byPosition(worktrees);
-      if (git_error) {
-        projectErrors[project_id] = git_error;
-      } else {
-        delete projectErrors[project_id];
-      }
-      worktreesByProject = { ...worktreesByProject };
-      projectErrors = { ...projectErrors };
-      ensureSelection();
-    });
   }
 
   function worktreesForProject(projectId: string): Worktree[] {

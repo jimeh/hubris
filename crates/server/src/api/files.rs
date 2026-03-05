@@ -4,8 +4,10 @@ use axum::Json;
 use axum::extract::Query;
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ListFilesParams {
     /// Directory to list. Defaults to home dir.
     pub path: Option<String>,
@@ -14,13 +16,13 @@ pub struct ListFilesParams {
     pub show_hidden: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct DirEntry {
     pub name: String,
     pub is_git_repo: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ListFilesResponse {
     /// Canonical absolute path of the listed directory.
     pub path: String,
@@ -30,6 +32,18 @@ pub struct ListFilesResponse {
     pub home_dir: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/files",
+    params(ListFilesParams),
+    responses(
+        (status = 200, description = "Directory listing", body = ListFilesResponse),
+        (status = 400, description = "Path is not a directory"),
+        (status = 403, description = "Permission denied"),
+        (status = 404, description = "Directory not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn list_files(
     Query(params): Query<ListFilesParams>,
 ) -> Result<Json<ListFilesResponse>, StatusCode> {
