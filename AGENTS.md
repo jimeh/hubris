@@ -199,3 +199,9 @@ reconciliation — drift corrects on reconnect.
 - **Stable-port reload requires socket activation in backend**:
   server startup must check inherited fd0 via `listenfd` before using
   dev fallback port binding.
+- **Rust lockfile updates may require targeted `--precise` bumps**:
+  `cargo update --workspace` can leave some crates behind even when newer
+  compatible versions exist. Use `cargo update -p <crate>@<old> --precise <new>`
+  for targeted bumps. Some transitive crates (for example `matchit` via `axum`
+  and `generic-array` via `crypto-common`) may be hard-pinned upstream and
+  therefore non-upgradable until parent deps move.
