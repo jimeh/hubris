@@ -1,6 +1,7 @@
 [tools]
 rust = "latest"
 bun = "latest"
+"github:mitsuhiko/systemfd" = "latest"
 
 [tasks.build]
 depends = ["build:frontend", "build:server"]
@@ -16,8 +17,20 @@ run = "cargo build --release --features embed-frontend"
 description = "Build server binary (release)"
 
 [tasks."dev:server"]
+run = "systemfd --no-pid -s http::0 -- mise watch --restart dev:server:raw"
+description = "Run backend dev server with hot reload"
+
+[tasks."dev:server:raw"]
 run = "cd crates/server && cargo run --bin hubris-server"
 description = "Run backend dev server"
+hide = true
+sources = [
+  "Cargo.toml",
+  "Cargo.lock",
+  "crates/server/Cargo.toml",
+  "crates/server/build.rs",
+  "crates/server/src/**/*.rs",
+]
 
 [tasks."dev:frontend"]
 run = "cd frontend && bun dev"

@@ -65,6 +65,48 @@ pub async fn bind_with_port_fallback(
     ))
 }
 
+/// Select listener from inherited socket activation fd or
+/// fallback bind behavior.
+///
+/// Priority:
+/// 1. use inherited listener when present.
+/// 2. in dev mode, bind with port fallback from offset.
+/// 3. otherwise bind exact host/base port.
+pub async fn select_listener(
+    inherited: Option<std::net::TcpListener>,
+    host: &str,
+    base_port: u16,
+    is_dev: bool,
+    dev_backend_port_offset: u16,
+    max_port_attempts: u16,
+) -> std::io::Result<tokio::net::TcpListener> {
+    if let Some(listener) = inherited {
+        listener.set_nonblocking(true)?;
+        return tokio::net::TcpListener::from_std(listener);
+    }
+
+    if is_dev {
+        let dev_port = base_port
+            .checked_add(dev_backend_port_offset)
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("invalid dev port: {base_port} + {dev_backend_port_offset}"),
+                )
+            })?;
+        return bind_with_port_fallback(host, dev_port, max_port_attempts).await;
+    }
+
+    let addr: std::net::SocketAddr = format!("{host}:{base_port}").parse().map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid address {host}:{base_port}: {e}"),
+        )
+    })?;
+
+    tokio::net::TcpListener::bind(addr).await
+}
+
 const API_METHODS: [Method; 5] = [
     Method::GET,
     Method::POST,
