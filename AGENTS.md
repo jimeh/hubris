@@ -166,3 +166,6 @@ reconciliation — drift corrects on reconnect.
   imports theme stores that read `window.matchMedia` at module eval time.
   In jsdom tests, either mock `matchMedia` before importing sidebar
   components or test lower-level stores/state instead.
+- **Sidebar resize ownership**: Keep sidebar resize customization in
+  app-level files (store/handle/CSS) instead of `components/ui/sidebar/*`
+  so shadcn sidebar upgrades remain mostly copy-merge operations.
