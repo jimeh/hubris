@@ -1,15 +1,13 @@
 <script lang="ts">
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
-  import { Ellipsis, Pencil, Plus, Trash2 } from "@lucide/svelte";
+  import { Ellipsis, Pencil, Trash2 } from "@lucide/svelte";
 
   let {
     onRename,
     onRemove,
-    onAddWorktree,
   }: {
     onRename: () => void;
     onRemove: () => void;
-    onAddWorktree: () => void;
   } = $props();
 </script>
 
@@ -25,10 +23,6 @@
     <Ellipsis class="h-3.5 w-3.5" />
   </DropdownMenu.Trigger>
   <DropdownMenu.Content align="end" class="min-w-32">
-    <DropdownMenu.Item onclick={() => onAddWorktree()}>
-      <Plus class="mr-2 h-3.5 w-3.5" />
-      New Worktree
-    </DropdownMenu.Item>
     <DropdownMenu.Item onclick={() => onRename()}>
       <Pencil class="mr-2 h-3.5 w-3.5" />
       Rename

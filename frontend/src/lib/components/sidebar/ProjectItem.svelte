@@ -6,6 +6,7 @@
     ChevronRight,
     Folder,
     FolderOpen,
+    Plus,
   } from "@lucide/svelte";
   import { dragHandle } from "svelte-dnd-action";
   import type { Worktree } from "$lib/types";
@@ -73,21 +74,22 @@
                 <div class="flex items-center gap-2 truncate">
                   <FolderOpen
                     class="h-3.5 w-3.5 shrink-0
+                      group-hover/menu-item:hidden
                       group-data-[state=closed]/collapsible:hidden"
                   />
                   <ChevronDown
                     class="hidden h-3.5 w-3.5 shrink-0
-                      group-hover/collapsible:block
+                      group-hover/menu-item:block
                       group-data-[state=closed]/collapsible:!hidden"
                   />
                   <Folder
                     class="hidden h-3.5 w-3.5 shrink-0
                       group-data-[state=closed]/collapsible:block
-                      group-data-[state=closed]/collapsible:group-hover/collapsible:!hidden"
+                      group-data-[state=closed]/collapsible:group-hover/menu-item:!hidden"
                   />
                   <ChevronRight
                     class="hidden h-3.5 w-3.5 shrink-0
-                      group-data-[state=closed]/collapsible:group-hover/collapsible:!block"
+                      group-data-[state=closed]/collapsible:group-hover/menu-item:!block"
                   />
                   <span class="truncate">{project.name}</span>
                 </div>
@@ -108,8 +110,21 @@
                 <ProjectActionMenu
                   onRename={() => onRequestRename()}
                   onRemove={() => onRequestRemove()}
-                  onAddWorktree={() => onRequestAddWorktree()}
                 />
+                <button
+                  class="rounded p-1 text-sidebar-foreground/70
+                    transition-colors
+                    hover:bg-sidebar-foreground/12
+                    hover:text-sidebar-accent-foreground
+                    focus-visible:bg-sidebar-foreground/12"
+                  title="New worktree"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    onRequestAddWorktree();
+                  }}
+                >
+                  <Plus class="h-3.5 w-3.5" />
+                </button>
               </div>
             </div>
           {/snippet}
@@ -117,7 +132,11 @@
       {/snippet}
     </Collapsible.Trigger>
 
-    <Collapsible.Content>
+    <Collapsible.Content
+      class="overflow-hidden
+        data-[state=closed]:animate-collapsible-up
+        data-[state=open]:animate-collapsible-down"
+    >
       <WorktreeList
         projectId={project.id}
         {worktrees}
