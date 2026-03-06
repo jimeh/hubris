@@ -456,7 +456,9 @@
                   >
                     {#each dndWorktrees[project.id] ?? [] as worktree (worktree.id)}
                       <div
-                        animate:flip={{ duration: draggingWorktrees ? FLIP_MS : 0 }}
+                        animate:flip={{
+                          duration: draggingWorktrees ? FLIP_MS : 0,
+                        }}
                         class="group/worktree-item relative"
                         data-worktree-drag-item="true"
                       >
