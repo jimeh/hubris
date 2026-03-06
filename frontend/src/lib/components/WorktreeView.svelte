@@ -57,6 +57,7 @@
   >
     <div
       class="flex items-center gap-1 overflow-x-auto"
+      data-tab-dragging={dragging || undefined}
       use:dndzone={{
         items: dndItems,
         flipDurationMs: FLIP_MS,
@@ -70,7 +71,7 @@
       {#each dndItems as tab (tab.id)}
         <div
           animate:flip={{ duration: dragging ? FLIP_MS : 0 }}
-          class="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors select-none
+          class="inline-flex cursor-default items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors select-none
                  {tab.id === tabStore.activeTabId
             ? 'bg-tab-active text-tab-active-foreground shadow-sm'
             : 'text-tab-inactive-foreground hover:text-foreground'}"
@@ -132,8 +133,22 @@
 </div>
 
 <style>
+  /* Override svelte-dnd-action's inline cursor: grab */
+  :global([data-tab-drag-item]) {
+    cursor: default !important;
+  }
+
+  /* Suppress hover states on tabs while dragging */
+  :global([data-tab-dragging] [data-tab-drag-item]),
+  :global([data-tab-dragging] [data-tab-drag-item] *) {
+    pointer-events: none !important;
+  }
+
   :global(#dnd-action-dragged-el[data-tab-drag-item="true"]) {
     opacity: 0.5 !important;
     z-index: 60;
+    pointer-events: none !important;
+    outline: none !important;
+    box-shadow: none !important;
   }
 </style>

@@ -184,6 +184,12 @@ export function getTabStore() {
   }
 
   function switchToWorktree(worktreeId: string): void {
+    // If the active tab already belongs to this worktree, keep it.
+    if (activeTabId) {
+      const current = tabs.find((t) => t.id === activeTabId);
+      if (current?.worktree_id === worktreeId) return;
+    }
+
     const worktreeTabs = tabsForWorktree(worktreeId);
     const remembered = activeTabByWorktree[worktreeId];
     if (remembered && worktreeTabs.find((tab) => tab.id === remembered)) {
