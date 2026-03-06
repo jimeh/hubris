@@ -67,7 +67,7 @@
     #dnd-action-dragged-el[data-worktree-drag-item="true"]
   ) {
     opacity: 0.5 !important;
-    z-index: 40 !important;
+    z-index: 60 !important;
     pointer-events: none !important;
     border-radius: var(--radius);
     outline: none !important;

@@ -2,6 +2,7 @@
   import * as Breadcrumb from "$lib/components/ui/breadcrumb/index.js";
   import { Separator } from "$lib/components/ui/separator/index.js";
   import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+  import { Folder } from "@lucide/svelte";
   import AppSidebar from "$lib/components/AppSidebar.svelte";
   import SidebarResizeHandle from "$lib/components/SidebarResizeHandle.svelte";
   import WorktreeView from "$lib/components/WorktreeView.svelte";
@@ -64,7 +65,8 @@
         <Breadcrumb.List>
           {#if selectedProject}
             <Breadcrumb.Item class="hidden md:block">
-              <Breadcrumb.Page>
+              <Breadcrumb.Page class="flex items-center gap-1.5">
+                <Folder class="h-3.5 w-3.5" />
                 {selectedProject.name}
               </Breadcrumb.Page>
             </Breadcrumb.Item>

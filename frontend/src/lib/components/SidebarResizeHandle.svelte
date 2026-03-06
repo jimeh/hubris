@@ -53,7 +53,7 @@
   }
 
   function handlePointerDown(e: PointerEvent): void {
-    if (e.button !== 0 || sidebar.isMobile || sidebar.state !== "expanded") {
+    if (e.button !== 0 || sidebar.isMobile) {
       return;
     }
 
@@ -96,7 +96,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent): void {
-    if (sidebar.isMobile || sidebar.state !== "expanded") {
+    if (sidebar.isMobile) {
       return;
     }
 
@@ -120,10 +120,18 @@
 <button
   type="button"
   aria-label="Resize sidebar"
-  class="fixed inset-y-0 left-[calc(var(--sidebar-width)-4px)] z-30 hidden w-2 cursor-e-resize touch-none bg-transparent p-0 md:block
-         after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] after:-translate-x-1/2 hover:after:bg-sidebar-border
-         focus-visible:after:bg-sidebar-border"
-  class:hidden={sidebar.isMobile || sidebar.state !== "expanded"}
+  class="fixed inset-y-0 left-[calc(var(--sidebar-width)-4px)]
+    z-30 hidden w-2 cursor-e-resize touch-none bg-transparent
+    p-0 transition-[left,opacity] duration-200 ease-linear
+    md:block
+    peer-data-[state=collapsed]:-left-10
+    peer-data-[state=collapsed]:pointer-events-none
+    peer-data-[state=collapsed]:opacity-0
+    after:absolute after:inset-y-0 after:left-1/2
+    after:w-[2px] after:-translate-x-1/2
+    hover:after:bg-sidebar-border
+    focus-visible:after:bg-sidebar-border"
+  class:!transition-none={sidebarWidthStore.isResizing}
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
   onpointerup={handlePointerEnd}
