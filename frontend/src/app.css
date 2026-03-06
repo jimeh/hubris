@@ -44,6 +44,27 @@
   --color-tab-active-foreground: var(--tab-active-foreground);
   --color-tab-inactive-foreground: var(--tab-inactive-foreground);
   --color-tab-border: var(--tab-border);
+
+  --animate-collapsible-down: collapsible-down 150ms ease-out;
+  --animate-collapsible-up: collapsible-up 150ms ease-out;
+}
+
+@keyframes collapsible-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--bits-collapsible-content-height);
+  }
+}
+
+@keyframes collapsible-up {
+  from {
+    height: var(--bits-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
 }
 
 @layer base {

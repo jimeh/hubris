@@ -1,5 +1,8 @@
 <script lang="ts">
+  import * as Breadcrumb from "$lib/components/ui/breadcrumb/index.js";
+  import { Separator } from "$lib/components/ui/separator/index.js";
   import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+  import { Folder } from "@lucide/svelte";
   import AppSidebar from "$lib/components/AppSidebar.svelte";
   import SidebarResizeHandle from "$lib/components/SidebarResizeHandle.svelte";
   import WorktreeView from "$lib/components/WorktreeView.svelte";
@@ -33,6 +36,16 @@
   // Start SSE event stream for state sync
   const events = getEventClient();
   events.connect();
+
+  // Derive the project for the currently selected worktree
+  // so breadcrumbs can show "ProjectName > WorktreeName".
+  const selectedProject = $derived(
+    worktreeStore.selectedWorktree
+      ? (projectStore.projects.find(
+          (p) => p.id === worktreeStore.selectedWorktree!.project_id,
+        ) ?? null)
+      : null,
+  );
 </script>
 
 <Sidebar.Provider
@@ -41,18 +54,47 @@
 >
   <AppSidebar {projectStore} {worktreeStore} />
   <SidebarResizeHandle />
-  <main class="flex-1 overflow-hidden">
-    <div class="flex h-screen flex-col">
+  <Sidebar.Inset>
+    <header class="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+      <Sidebar.Trigger class="-ms-1" />
+      <Separator
+        orientation="vertical"
+        class="me-2 data-[orientation=vertical]:h-4"
+      />
+      <Breadcrumb.Root>
+        <Breadcrumb.List>
+          {#if selectedProject}
+            <Breadcrumb.Item class="hidden md:block">
+              <Breadcrumb.Page class="flex items-center gap-1.5">
+                <Folder class="h-3.5 w-3.5" />
+                {selectedProject.name}
+              </Breadcrumb.Page>
+            </Breadcrumb.Item>
+          {/if}
+          {#if selectedProject && worktreeStore.selectedWorktree}
+            <Breadcrumb.Separator class="hidden md:block" />
+          {/if}
+          {#if worktreeStore.selectedWorktree}
+            <Breadcrumb.Item>
+              <Breadcrumb.Page>
+                {worktreeStore.selectedWorktree.name}
+              </Breadcrumb.Page>
+            </Breadcrumb.Item>
+          {/if}
+        </Breadcrumb.List>
+      </Breadcrumb.Root>
+    </header>
+    <div class="flex flex-1 flex-col overflow-hidden">
       {#if worktreeStore.selectedWorktree}
         <WorktreeView worktree={worktreeStore.selectedWorktree} />
       {:else}
         <div
           class="flex h-full items-center justify-center
-                    text-muted-foreground"
+            text-muted-foreground"
         >
           <p>Select a worktree from the sidebar</p>
         </div>
       {/if}
     </div>
-  </main>
+  </Sidebar.Inset>
 </Sidebar.Provider>
