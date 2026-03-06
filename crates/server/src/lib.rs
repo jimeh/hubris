@@ -17,7 +17,7 @@ use api::files::list_files;
 use api::openapi::{openapi_json, spec as openapi_spec_impl};
 use api::projects::{add_project, delete_project, list_projects, reorder_projects, update_project};
 use api::settings::{get_settings, save_settings};
-use api::tabs::{create_tab, delete_tab, list_tabs, update_tab};
+use api::tabs::{create_tab, delete_tab, list_tabs, reorder_tabs, update_tab};
 use api::terminal::ws_handler;
 use api::themes::{create_theme, delete_theme, get_theme, list_themes};
 use api::worktrees::{
@@ -143,6 +143,7 @@ pub fn build_router(state: AppState) -> Router {
             delete(delete_project_worktree),
         )
         .route("/tabs", get(list_tabs).post(create_tab))
+        .route("/tabs/reorder", put(reorder_tabs))
         .route("/tabs/{id}", delete(delete_tab).patch(update_tab))
         .route("/events", get(event_stream))
         .route("/terminal/ws", get(ws_handler))

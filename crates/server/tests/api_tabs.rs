@@ -296,6 +296,83 @@ async fn test_list_tabs_sorted_by_position() {
 }
 
 #[tokio::test]
+async fn test_reorder_tabs() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let t1 = create_tab(&client, &base, &worktree_id).await;
+    let t2 = create_tab(&client, &base, &worktree_id).await;
+    let t3 = create_tab(&client, &base, &worktree_id).await;
+    let id1 = t1["id"].as_str().unwrap();
+    let id2 = t2["id"].as_str().unwrap();
+    let id3 = t3["id"].as_str().unwrap();
+
+    // Reorder: 3, 1, 2
+    let res = client
+        .put(format!("{}/api/tabs/reorder", base))
+        .json(&serde_json::json!({
+            "worktree_id": worktree_id,
+            "tab_ids": [id3, id1, id2]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Vec<Value> = res.json().await.unwrap();
+    assert_eq!(body.len(), 3);
+    assert_eq!(body[0]["id"], id3);
+    assert_eq!(body[1]["id"], id1);
+    assert_eq!(body[2]["id"], id2);
+
+    // Verify list returns same order
+    let body = list_tabs(&client, &base).await;
+    assert_eq!(body[0]["id"], id3);
+    assert_eq!(body[1]["id"], id1);
+    assert_eq!(body[2]["id"], id2);
+}
+
+#[tokio::test]
+async fn test_reorder_tabs_wrong_ids() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    create_tab(&client, &base, &worktree_id).await;
+    create_tab(&client, &base, &worktree_id).await;
+
+    // Missing one tab
+    let res = client
+        .put(format!("{}/api/tabs/reorder", base))
+        .json(&serde_json::json!({
+            "worktree_id": worktree_id,
+            "tab_ids": ["nonexistent"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // Includes unknown ID
+    let res = client
+        .put(format!("{}/api/tabs/reorder", base))
+        .json(&serde_json::json!({
+            "worktree_id": worktree_id,
+            "tab_ids": ["nonexistent", "also-nonexistent"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_create_tab_label_increments() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();

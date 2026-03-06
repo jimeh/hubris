@@ -79,6 +79,7 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         EventKind::TabCreated(info) => info.session_id == session_id,
         EventKind::TabClosed { .. } => true,
         EventKind::TabUpdated(info) => info.session_id == session_id,
+        EventKind::TabsReordered { .. } => true,
         EventKind::ProjectAdded(_)
         | EventKind::ProjectRemoved { .. }
         | EventKind::ProjectUpdated(_)

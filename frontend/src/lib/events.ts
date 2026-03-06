@@ -13,6 +13,7 @@ const SSE_EVENT_NAMES = [
   "tab_created",
   "tab_closed",
   "tab_updated",
+  "tabs_reordered",
   "project_added",
   "project_removed",
   "project_updated",

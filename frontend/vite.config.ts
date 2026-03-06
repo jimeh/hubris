@@ -67,7 +67,10 @@ export default defineConfig(async () => {
     console.log(`Backend ready on port ${backendPort}`);
   }
 
-  const port = parseInt(process.env.HUBRIS_PORT || "3001", 10);
+  const port = parseInt(
+    process.env.PORT || process.env.HUBRIS_PORT || "3001",
+    10,
+  );
 
   return {
     plugins: [

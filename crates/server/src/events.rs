@@ -31,6 +31,11 @@ pub enum EventKind {
     TabClosed { tab_id: String },
     #[serde(rename = "tab_updated")]
     TabUpdated(TabInfo),
+    #[serde(rename = "tabs_reordered")]
+    TabsReordered {
+        worktree_id: String,
+        tabs: Vec<TabInfo>,
+    },
     #[serde(rename = "project_added")]
     ProjectAdded(Project),
     #[serde(rename = "project_removed")]
@@ -66,6 +71,7 @@ impl EventKind {
             EventKind::TabCreated(_) => "tab_created",
             EventKind::TabClosed { .. } => "tab_closed",
             EventKind::TabUpdated(_) => "tab_updated",
+            EventKind::TabsReordered { .. } => "tabs_reordered",
             EventKind::ProjectAdded(_) => "project_added",
             EventKind::ProjectRemoved { .. } => "project_removed",
             EventKind::ProjectUpdated(_) => "project_updated",
