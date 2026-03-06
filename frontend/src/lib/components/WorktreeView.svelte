@@ -32,16 +32,12 @@
     }
   });
 
-  function handleConsider(
-    e: CustomEvent<{ items: DndTab[] }>,
-  ) {
+  function handleConsider(e: CustomEvent<{ items: DndTab[] }>) {
     dragging = true;
     dndItems = e.detail.items;
   }
 
-  function handleFinalize(
-    e: CustomEvent<{ items: DndTab[] }>,
-  ) {
+  function handleFinalize(e: CustomEvent<{ items: DndTab[] }>) {
     dndItems = e.detail.items;
     dragging = false;
     tabStore.reorder(

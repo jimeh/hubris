@@ -11,9 +11,7 @@
   "paths": {
     "/api/events": {
       "get": {
-        "tags": [
-          "crate::api::events"
-        ],
+        "tags": ["crate::api::events"],
         "operationId": "event_stream",
         "parameters": [
           {
@@ -34,9 +32,7 @@
     },
     "/api/files": {
       "get": {
-        "tags": [
-          "crate::api::files"
-        ],
+        "tags": ["crate::api::files"],
         "operationId": "list_files",
         "parameters": [
           {
@@ -98,9 +94,7 @@
     },
     "/api/projects": {
       "get": {
-        "tags": [
-          "crate::api::projects"
-        ],
+        "tags": ["crate::api::projects"],
         "operationId": "list_projects",
         "responses": {
           "200": {
@@ -119,9 +113,7 @@
         }
       },
       "post": {
-        "tags": [
-          "crate::api::projects"
-        ],
+        "tags": ["crate::api::projects"],
         "operationId": "add_project",
         "requestBody": {
           "content": {
@@ -165,9 +157,7 @@
     },
     "/api/projects/reorder": {
       "put": {
-        "tags": [
-          "crate::api::projects"
-        ],
+        "tags": ["crate::api::projects"],
         "operationId": "reorder_projects",
         "requestBody": {
           "content": {
@@ -204,9 +194,7 @@
     },
     "/api/projects/{id}": {
       "delete": {
-        "tags": [
-          "crate::api::projects"
-        ],
+        "tags": ["crate::api::projects"],
         "operationId": "delete_project",
         "parameters": [
           {
@@ -246,9 +234,7 @@
         }
       },
       "patch": {
-        "tags": [
-          "crate::api::projects"
-        ],
+        "tags": ["crate::api::projects"],
         "operationId": "update_project",
         "parameters": [
           {
@@ -293,9 +279,7 @@
     },
     "/api/projects/{id}/worktrees": {
       "get": {
-        "tags": [
-          "crate::api::worktrees"
-        ],
+        "tags": ["crate::api::worktrees"],
         "operationId": "list_project_worktrees",
         "parameters": [
           {
@@ -328,9 +312,7 @@
         }
       },
       "post": {
-        "tags": [
-          "crate::api::worktrees"
-        ],
+        "tags": ["crate::api::worktrees"],
         "operationId": "create_project_worktree",
         "parameters": [
           {
@@ -381,9 +363,7 @@
     },
     "/api/projects/{id}/worktrees/reorder": {
       "put": {
-        "tags": [
-          "crate::api::worktrees"
-        ],
+        "tags": ["crate::api::worktrees"],
         "operationId": "reorder_project_worktrees",
         "parameters": [
           {
@@ -434,9 +414,7 @@
     },
     "/api/projects/{id}/worktrees/start-points": {
       "get": {
-        "tags": [
-          "crate::api::worktrees"
-        ],
+        "tags": ["crate::api::worktrees"],
         "operationId": "list_project_worktree_start_points",
         "parameters": [
           {
@@ -471,9 +449,7 @@
     },
     "/api/projects/{id}/worktrees/{worktree_id}": {
       "delete": {
-        "tags": [
-          "crate::api::worktrees"
-        ],
+        "tags": ["crate::api::worktrees"],
         "operationId": "delete_project_worktree",
         "parameters": [
           {
@@ -524,9 +500,7 @@
     },
     "/api/settings": {
       "get": {
-        "tags": [
-          "crate::api::settings"
-        ],
+        "tags": ["crate::api::settings"],
         "summary": "GET /api/settings",
         "operationId": "get_settings",
         "responses": {
@@ -546,9 +520,7 @@
         }
       },
       "put": {
-        "tags": [
-          "crate::api::settings"
-        ],
+        "tags": ["crate::api::settings"],
         "summary": "PUT /api/settings — full replace",
         "operationId": "save_settings",
         "requestBody": {
@@ -573,9 +545,7 @@
     },
     "/api/tabs": {
       "get": {
-        "tags": [
-          "crate::api::tabs"
-        ],
+        "tags": ["crate::api::tabs"],
         "operationId": "list_tabs",
         "parameters": [
           {
@@ -604,9 +574,7 @@
         }
       },
       "post": {
-        "tags": [
-          "crate::api::tabs"
-        ],
+        "tags": ["crate::api::tabs"],
         "operationId": "create_tab",
         "requestBody": {
           "content": {
@@ -640,9 +608,7 @@
     },
     "/api/tabs/reorder": {
       "put": {
-        "tags": [
-          "crate::api::tabs"
-        ],
+        "tags": ["crate::api::tabs"],
         "operationId": "reorder_tabs",
         "requestBody": {
           "content": {
@@ -676,9 +642,7 @@
     },
     "/api/tabs/{id}": {
       "delete": {
-        "tags": [
-          "crate::api::tabs"
-        ],
+        "tags": ["crate::api::tabs"],
         "operationId": "delete_tab",
         "parameters": [
           {
@@ -701,9 +665,7 @@
         }
       },
       "patch": {
-        "tags": [
-          "crate::api::tabs"
-        ],
+        "tags": ["crate::api::tabs"],
         "operationId": "update_tab",
         "parameters": [
           {
@@ -745,9 +707,7 @@
     },
     "/api/terminal/ws": {
       "get": {
-        "tags": [
-          "crate::api::terminal"
-        ],
+        "tags": ["crate::api::terminal"],
         "operationId": "ws_handler",
         "parameters": [
           {
@@ -782,9 +742,7 @@
     },
     "/api/themes": {
       "get": {
-        "tags": [
-          "crate::api::themes"
-        ],
+        "tags": ["crate::api::themes"],
         "summary": "GET /api/themes — list user theme metadata",
         "operationId": "list_themes",
         "responses": {
@@ -807,9 +765,7 @@
         }
       },
       "post": {
-        "tags": [
-          "crate::api::themes"
-        ],
+        "tags": ["crate::api::themes"],
         "summary": "POST /api/themes — upload a new theme",
         "operationId": "create_theme",
         "requestBody": {
@@ -844,9 +800,7 @@
     },
     "/api/themes/{id}": {
       "get": {
-        "tags": [
-          "crate::api::themes"
-        ],
+        "tags": ["crate::api::themes"],
         "summary": "GET /api/themes/:id — get full theme",
         "operationId": "get_theme",
         "parameters": [
@@ -880,9 +834,7 @@
         }
       },
       "delete": {
-        "tags": [
-          "crate::api::themes"
-        ],
+        "tags": ["crate::api::themes"],
         "summary": "DELETE /api/themes/:id — remove a user theme",
         "operationId": "delete_theme",
         "parameters": [
@@ -914,9 +866,7 @@
     "schemas": {
       "AddProjectRequest": {
         "type": "object",
-        "required": [
-          "path"
-        ],
+        "required": ["path"],
         "properties": {
           "path": {
             "type": "string"
@@ -941,11 +891,7 @@
         "oneOf": [
           {
             "type": "object",
-            "required": [
-              "cols",
-              "rows",
-              "type"
-            ],
+            "required": ["cols", "rows", "type"],
             "properties": {
               "cols": {
                 "type": "integer",
@@ -959,9 +905,7 @@
               },
               "type": {
                 "type": "string",
-                "enum": [
-                  "resize"
-                ]
+                "enum": ["resize"]
               }
             }
           }
@@ -969,9 +913,7 @@
       },
       "CreateTabRequest": {
         "type": "object",
-        "required": [
-          "worktree_id"
-        ],
+        "required": ["worktree_id"],
         "properties": {
           "worktree_id": {
             "type": "string"
@@ -980,27 +922,19 @@
       },
       "CreateWorktreeRequest": {
         "type": "object",
-        "required": [
-          "branch"
-        ],
+        "required": ["branch"],
         "properties": {
           "branch": {
             "type": "string"
           },
           "start_point": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         }
       },
       "DirEntry": {
         "type": "object",
-        "required": [
-          "name",
-          "is_git_repo"
-        ],
+        "required": ["name", "is_git_repo"],
         "properties": {
           "is_git_repo": {
             "type": "boolean"
@@ -1012,10 +946,7 @@
       },
       "ListFilesResponse": {
         "type": "object",
-        "required": [
-          "path",
-          "entries"
-        ],
+        "required": ["path", "entries"],
         "properties": {
           "entries": {
             "type": "array",
@@ -1025,10 +956,7 @@
             "description": "Subdirectories within `path`."
           },
           "home_dir": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": ["string", "null"],
             "description": "User's home directory (for quick-nav in UI)."
           },
           "path": {
@@ -1039,21 +967,13 @@
       },
       "ListWorktreeStartPointsResponse": {
         "type": "object",
-        "required": [
-          "start_points"
-        ],
+        "required": ["start_points"],
         "properties": {
           "default_start_point": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "git_error": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "start_points": {
             "type": "array",
@@ -1065,15 +985,10 @@
       },
       "ListWorktreesResponse": {
         "type": "object",
-        "required": [
-          "worktrees"
-        ],
+        "required": ["worktrees"],
         "properties": {
           "git_error": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "worktrees": {
             "type": "array",
@@ -1085,17 +1000,10 @@
       },
       "Project": {
         "type": "object",
-        "required": [
-          "id",
-          "name",
-          "path"
-        ],
+        "required": ["id", "name", "path"],
         "properties": {
           "git_error": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "id": {
             "type": "string"
@@ -1114,9 +1022,7 @@
       },
       "ReorderProjectsRequest": {
         "type": "object",
-        "required": [
-          "project_ids"
-        ],
+        "required": ["project_ids"],
         "properties": {
           "project_ids": {
             "type": "array",
@@ -1128,10 +1034,7 @@
       },
       "ReorderTabsRequest": {
         "type": "object",
-        "required": [
-          "worktree_id",
-          "tab_ids"
-        ],
+        "required": ["worktree_id", "tab_ids"],
         "properties": {
           "tab_ids": {
             "type": "array",
@@ -1146,9 +1049,7 @@
       },
       "ReorderWorktreesRequest": {
         "type": "object",
-        "required": [
-          "worktree_ids"
-        ],
+        "required": ["worktree_ids"],
         "properties": {
           "worktree_ids": {
             "type": "array",
@@ -1162,11 +1063,7 @@
         "oneOf": [
           {
             "type": "object",
-            "required": [
-              "byte_offset",
-              "data_lost",
-              "type"
-            ],
+            "required": ["byte_offset", "data_lost", "type"],
             "properties": {
               "byte_offset": {
                 "type": "integer",
@@ -1178,23 +1075,17 @@
               },
               "type": {
                 "type": "string",
-                "enum": [
-                  "attached"
-                ]
+                "enum": ["attached"]
               }
             }
           },
           {
             "type": "object",
-            "required": [
-              "type"
-            ],
+            "required": ["type"],
             "properties": {
               "type": {
                 "type": "string",
-                "enum": [
-                  "tab_closed"
-                ]
+                "enum": ["tab_closed"]
               }
             }
           }
@@ -1237,17 +1128,10 @@
       },
       "StartPoint": {
         "type": "object",
-        "required": [
-          "value",
-          "sha",
-          "remote_refs"
-        ],
+        "required": ["value", "sha", "remote_refs"],
         "properties": {
           "local_ref": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "remote_refs": {
             "type": "array",
@@ -1328,9 +1212,7 @@
           },
           {
             "type": "object",
-            "required": [
-              "colors"
-            ],
+            "required": ["colors"],
             "properties": {
               "colors": {
                 "type": "object",
@@ -1345,11 +1227,7 @@
       },
       "ThemeMeta": {
         "type": "object",
-        "required": [
-          "id",
-          "name",
-          "type"
-        ],
+        "required": ["id", "name", "type"],
         "properties": {
           "id": {
             "type": "string"
@@ -1366,10 +1244,7 @@
         "type": "object",
         "properties": {
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         }
       },
@@ -1377,16 +1252,10 @@
         "type": "object",
         "properties": {
           "label": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "position": {
-            "type": [
-              "number",
-              "null"
-            ],
+            "type": ["number", "null"],
             "format": "double"
           }
         }

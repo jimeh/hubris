@@ -100,8 +100,8 @@ export function getTabStore() {
     });
 
     events.on("tabs_reordered", ({ tabs: reordered }) => {
-      const reorderedIds = new Set(reordered.map((t) => t.id));
-      const other = tabs.filter((t) => !reorderedIds.has(t.id));
+      const reorderedIds = reordered.map((t) => t.id);
+      const other = tabs.filter((t) => !reorderedIds.includes(t.id));
       tabs = sortedTabs([...other, ...reordered]);
     });
   }
@@ -165,9 +165,10 @@ export function getTabStore() {
     orderedIds: string[],
   ): Promise<void> {
     // Optimistic local update
-    const byId = Object.fromEntries(
-      tabs.map((t) => [t.id, t]),
-    ) as Record<string, Tab>;
+    const byId = Object.fromEntries(tabs.map((t) => [t.id, t])) as Record<
+      string,
+      Tab
+    >;
     const reordered: Tab[] = [];
     for (let i = 0; i < orderedIds.length; i++) {
       const t = byId[orderedIds[i]];
@@ -175,9 +176,7 @@ export function getTabStore() {
         reordered.push({ ...t, position: i + 1 });
       }
     }
-    const otherTabs = tabs.filter(
-      (t) => t.worktree_id !== worktreeId,
-    );
+    const otherTabs = tabs.filter((t) => t.worktree_id !== worktreeId);
     tabs = sortedTabs([...otherTabs, ...reordered]);
 
     await reorderTabs(worktreeId, orderedIds);

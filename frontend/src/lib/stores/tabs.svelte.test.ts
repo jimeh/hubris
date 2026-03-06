@@ -49,9 +49,7 @@ vi.mock("$lib/events", async () => {
   };
 });
 
-function makeTab(
-  overrides: Partial<Tab> & { id: string },
-): Tab {
+function makeTab(overrides: Partial<Tab> & { id: string }): Tab {
   return {
     id: overrides.id,
     label: overrides.label ?? `Terminal ${overrides.id}`,
@@ -141,10 +139,7 @@ describe("Tab store", () => {
     });
 
     // w1 reordered
-    expect(store.tabsForWorktree("w1").map((t) => t.id)).toEqual([
-      "b",
-      "a",
-    ]);
+    expect(store.tabsForWorktree("w1").map((t) => t.id)).toEqual(["b", "a"]);
     // w2 untouched
     expect(store.tabsForWorktree("w2").map((t) => t.id)).toEqual(["x"]);
   });
