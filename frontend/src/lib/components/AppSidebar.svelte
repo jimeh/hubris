@@ -26,6 +26,7 @@
     SHADOW_ITEM_MARKER_PROPERTY_NAME,
   } from 'svelte-dnd-action';
   import { flip } from 'svelte/animate';
+  import { slide } from 'svelte/transition';
   import type { Project, Worktree } from '$lib/types';
 
   interface ProjectStore {
@@ -415,6 +416,7 @@
 
               {#if projectStore.isExpanded(project.id)}
                 <div
+                  transition:slide={{ duration: FLIP_MS }}
                   class="mt-1 space-y-1"
                   role="presentation"
                   onmousedown={(e) => e.stopPropagation()}
