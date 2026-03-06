@@ -1,15 +1,15 @@
-import { getSettings, saveSettings } from '$lib/api';
-import { DEFAULT_FONT_FAMILY, resolveFont } from '$lib/terminal/fonts';
-import type { TerminalSettings } from '$lib/theme/types';
+import { getSettings, saveSettings } from "$lib/api";
+import { DEFAULT_FONT_FAMILY, resolveFont } from "$lib/terminal/fonts";
+import type { TerminalSettings } from "$lib/theme/types";
 
 function clampFontSize(size: number): number {
   return Math.max(8, Math.min(32, size));
 }
 
 const DEFAULTS: TerminalSettings = {
-  fontSource: 'default',
-  systemFontFamily: '',
-  bundledFont: 'jetbrainsmono-nf',
+  fontSource: "default",
+  systemFontFamily: "",
+  bundledFont: "jetbrainsmono-nf",
   fontSize: 14,
 };
 
@@ -31,7 +31,7 @@ async function init() {
   } catch {
     // Server unreachable — try localStorage
     try {
-      const cached = localStorage.getItem('hubris-terminal');
+      const cached = localStorage.getItem("hubris-terminal");
       if (cached) {
         settings = { ...DEFAULTS, ...JSON.parse(cached) };
       }

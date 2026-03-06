@@ -1,8 +1,8 @@
-import { converter, parse } from 'culori';
+import { converter, parse } from "culori";
 
-const toOklch = converter('oklch');
+const toOklch = converter("oklch");
 
-export type DeterministicTagColorProfile = 'subtle' | 'balanced' | 'vivid';
+export type DeterministicTagColorProfile = "subtle" | "balanced" | "vivid";
 
 export interface DeterministicTagColorOptions {
   surfaceVar?: string;
@@ -22,7 +22,7 @@ interface ToneProfile {
   lightSurface: MixProfile;
 }
 
-const DEFAULT_SURFACE_VAR = '--popover';
+const DEFAULT_SURFACE_VAR = "--popover";
 const FALLBACK_SURFACE_LIGHTNESS = 0.56;
 
 const PROFILE_MAP: Record<DeterministicTagColorProfile, ToneProfile> = {
@@ -86,7 +86,7 @@ function fnv1aHash(value: string): number {
 }
 
 function surfaceLightness(surfaceVar: string): number {
-  if (typeof document === 'undefined') {
+  if (typeof document === "undefined") {
     return FALLBACK_SURFACE_LIGHTNESS;
   }
 
@@ -123,8 +123,8 @@ export function deterministicTagStyle(
   options: DeterministicTagColorOptions = {},
 ): string {
   const surfaceVar = options.surfaceVar ?? DEFAULT_SURFACE_VAR;
-  const profile = options.profile ?? 'balanced';
-  const stableKey = key.trim().toLowerCase() || 'default';
+  const profile = options.profile ?? "balanced";
+  const stableKey = key.trim().toLowerCase() || "default";
   const hue = fnv1aHash(stableKey) % 360;
   const surfaceL = surfaceLightness(surfaceVar);
   const tone = profileFor(profile, surfaceL);
@@ -134,5 +134,5 @@ export function deterministicTagStyle(
     `--tag-bg-mix: ${tone.bgMix}`,
     `--tag-border-mix: ${tone.borderMix}`,
     `--tag-fg-mix: ${tone.fgMix}`,
-  ].join('; ');
+  ].join("; ");
 }

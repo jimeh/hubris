@@ -1,12 +1,12 @@
 <script lang="ts">
-  import * as Sidebar from '$lib/components/ui/sidebar/index.js';
-  import { Button } from '$lib/components/ui/button/index.js';
-  import AddProjectDialog from './AddProjectDialog.svelte';
-  import AddWorktreeDialog from './AddWorktreeDialog.svelte';
-  import ConfirmDialog from './ConfirmDialog.svelte';
-  import RenameProjectDialog from './RenameProjectDialog.svelte';
-  import SettingsDialog from './SettingsDialog.svelte';
-  import * as Tooltip from '$lib/components/ui/tooltip/index.js';
+  import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
+  import AddProjectDialog from "./AddProjectDialog.svelte";
+  import AddWorktreeDialog from "./AddWorktreeDialog.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
+  import RenameProjectDialog from "./RenameProjectDialog.svelte";
+  import SettingsDialog from "./SettingsDialog.svelte";
+  import * as Tooltip from "$lib/components/ui/tooltip/index.js";
   import {
     AlertTriangle,
     ChevronDown,
@@ -19,15 +19,15 @@
     Plus,
     Settings,
     Trash2,
-  } from '@lucide/svelte';
+  } from "@lucide/svelte";
   import {
     dragHandle,
     dragHandleZone,
     SHADOW_ITEM_MARKER_PROPERTY_NAME,
-  } from 'svelte-dnd-action';
-  import { flip } from 'svelte/animate';
-  import { slide } from 'svelte/transition';
-  import type { Project, Worktree } from '$lib/types';
+  } from "svelte-dnd-action";
+  import { flip } from "svelte/animate";
+  import { slide } from "svelte/transition";
+  import type { Project, Worktree } from "$lib/types";
 
   interface ProjectStore {
     projects: Project[];
@@ -90,12 +90,12 @@
 
   const FLIP_MS = 150;
   const projectActionButtonClass =
-    'rounded p-1 text-sidebar-foreground/70 transition-colors ' +
-    'hover:bg-sidebar-foreground/12 hover:text-sidebar-accent-foreground ' +
-    'focus-visible:bg-sidebar-foreground/12';
+    "rounded p-1 text-sidebar-foreground/70 transition-colors " +
+    "hover:bg-sidebar-foreground/12 hover:text-sidebar-accent-foreground " +
+    "focus-visible:bg-sidebar-foreground/12";
   const projectMenuItemClass =
-    'flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm ' +
-    'transition-colors';
+    "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm " +
+    "transition-colors";
 
   type DndProject = Project & {
     [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: string;
@@ -182,7 +182,7 @@
   }
 
   function projectHeaderClass(props: Record<string, unknown>): string {
-    const baseClass = typeof props.class === 'string' ? props.class : '';
+    const baseClass = typeof props.class === "string" ? props.class : "";
     return `${baseClass} relative overflow-visible flex items-center gap-2 px-2 py-1`;
   }
 
@@ -219,7 +219,7 @@
   }
 
   function handleWindowKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Escape') {
+    if (e.key === "Escape") {
       openProjectMenuId = null;
     }
   }
@@ -237,7 +237,7 @@
       actionError = null;
     } catch (err) {
       const message = (err as Error).message;
-      if (!force && message === '409') {
+      if (!force && message === "409") {
         confirmForceRemoveWorktree = { projectId, worktree };
       } else {
         actionError = `Failed to delete worktree (${message})`;
@@ -249,7 +249,7 @@
     e: KeyboardEvent,
     worktreeId: string,
   ): void {
-    if (e.key !== 'Enter' && e.key !== ' ') {
+    if (e.key !== "Enter" && e.key !== " ") {
       return;
     }
     e.preventDefault();
@@ -264,7 +264,7 @@
       await projectStore.remove(projectId, force);
       actionError = null;
     } catch (err) {
-      if (!force && (err as Error).message === '409') {
+      if (!force && (err as Error).message === "409") {
         confirmForceRemoveProjectId = projectId;
       } else {
         actionError = `Failed to remove project (${(err as Error).message})`;
@@ -297,7 +297,7 @@
           use:dragHandleZone={{
             items: dndProjects,
             flipDurationMs: FLIP_MS,
-            type: 'projects',
+            type: "projects",
             dropTargetStyle: {},
             centreDraggedOnCursor: false,
             useCursorForDetection: true,
@@ -356,8 +356,8 @@
                     <div
                       class={`ml-auto flex items-center gap-1 transition-opacity ${
                         openProjectMenuId === project.id
-                          ? 'opacity-100'
-                          : 'opacity-0 group-hover/menu-item:opacity-100'
+                          ? "opacity-100"
+                          : "opacity-0 group-hover/menu-item:opacity-100"
                       }`}
                     >
                       <button
@@ -665,8 +665,8 @@
 
 <style>
   :global(
-    #dnd-action-dragged-el[data-project-drag-item='true'],
-    #dnd-action-dragged-el[data-worktree-drag-item='true']
+    #dnd-action-dragged-el[data-project-drag-item="true"],
+    #dnd-action-dragged-el[data-worktree-drag-item="true"]
   ) {
     opacity: 0.5 !important;
     z-index: 40 !important;

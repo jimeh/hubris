@@ -4,7 +4,7 @@
  */
 export interface VscodeThemeFile {
   name?: string;
-  type?: 'dark' | 'light' | 'hc';
+  type?: "dark" | "light" | "hc";
   colors?: Record<string, string>;
   tokenColors?: unknown;
   semanticHighlighting?: unknown;
@@ -21,7 +21,7 @@ export interface HubrisTheme {
   /** Display name. */
   name: string;
   /** Dark or light. */
-  type: 'dark' | 'light';
+  type: "dark" | "light";
   /** VS Code color key → hex value. */
   colors: Record<string, string>;
   /** True for bundled themes. */
@@ -32,14 +32,14 @@ export interface HubrisTheme {
 export interface ThemeMeta {
   id: string;
   name: string;
-  type: 'dark' | 'light';
+  type: "dark" | "light";
 }
 
 /** Union type for theme Select dropdowns (builtins + user). */
 export interface ThemeListEntry {
   id: string;
   name: string;
-  type: 'dark' | 'light';
+  type: "dark" | "light";
   builtin?: boolean;
 }
 
@@ -48,7 +48,7 @@ export interface ThemeListEntry {
  */
 export interface AppearanceSettings {
   /** 'auto' follows OS, otherwise use a fixed theme. */
-  colorScheme: 'auto' | 'light' | 'dark';
+  colorScheme: "auto" | "light" | "dark";
   /** Theme ID for light mode (used when auto or light). */
   lightTheme: string;
   /** Theme ID for dark mode (used when auto or dark). */
@@ -60,7 +60,7 @@ export interface AppearanceSettings {
  */
 export interface TerminalSettings {
   /** Which font source to use. */
-  fontSource: 'default' | 'system' | 'bundled';
+  fontSource: "default" | "system" | "bundled";
   /** CSS font-family string for system fonts. */
   systemFontFamily: string;
   /** Bundled font ID (e.g. 'jetbrainsmono-nf'). */
@@ -74,5 +74,5 @@ export interface TerminalSettings {
  */
 export interface WorktreeSettings {
   /** Global location strategy for new worktree dirs. */
-  locationMode: 'dataDir' | 'repoLocalDotHubris';
+  locationMode: "dataDir" | "repoLocalDotHubris";
 }

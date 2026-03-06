@@ -1,9 +1,9 @@
-import { createTab, deleteTab } from '$lib/api';
-import { getEventClient } from '$lib/events';
-import type { Tab } from '$lib/types';
+import { createTab, deleteTab } from "$lib/api";
+import { getEventClient } from "$lib/events";
+import type { Tab } from "$lib/types";
 
-const LS_ACTIVE_TAB = 'hubris-active-tab';
-const LS_TAB_BY_WORKTREE = 'hubris-active-tab-by-worktree';
+const LS_ACTIVE_TAB = "hubris-active-tab";
+const LS_TAB_BY_WORKTREE = "hubris-active-tab-by-worktree";
 
 function lsGet(key: string): string | null {
   try {
@@ -30,7 +30,7 @@ function lsSet(key: string, value: unknown): void {
     } else {
       localStorage.setItem(
         key,
-        typeof value === 'string' ? value : JSON.stringify(value),
+        typeof value === "string" ? value : JSON.stringify(value),
       );
     }
   } catch {
@@ -74,7 +74,7 @@ export function getTabStore() {
     initialized = true;
     const events = getEventClient();
 
-    events.on('snapshot', (data) => {
+    events.on("snapshot", (data) => {
       const incoming = sortedTabs(data.tabs);
       if (tabsEqual(tabs, incoming)) return;
 
@@ -85,17 +85,17 @@ export function getTabStore() {
       }
     });
 
-    events.on('tab_created', (tab) => {
+    events.on("tab_created", (tab) => {
       if (!tabs.find((t) => t.id === tab.id)) {
         tabs = sortedTabs([...tabs, tab]);
       }
     });
 
-    events.on('tab_closed', ({ tab_id }) => {
+    events.on("tab_closed", ({ tab_id }) => {
       removeFromState(tab_id);
     });
 
-    events.on('tab_updated', (tab) => {
+    events.on("tab_updated", (tab) => {
       tabs = sortedTabs(tabs.map((t) => (t.id === tab.id ? tab : t)));
     });
   }
@@ -110,7 +110,7 @@ export function getTabStore() {
         : tabs;
       activeTabId = remaining[remaining.length - 1]?.id ?? null;
       if (worktreeId) {
-        activeTabByWorktree[worktreeId] = activeTabId ?? '';
+        activeTabByWorktree[worktreeId] = activeTabId ?? "";
       }
       persistSelection();
     }

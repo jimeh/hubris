@@ -1,25 +1,25 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount } from "svelte";
   import {
     AlertTriangle,
     ChevronsUpDown,
     GitBranch,
     RefreshCw,
     Sparkles,
-  } from '@lucide/svelte';
+  } from "@lucide/svelte";
   import {
     listProjectWorktreeStartPoints,
     type WorktreeStartPoint,
-  } from '$lib/api';
-  import { getThemeStore } from '$lib/stores/theme.svelte';
-  import { deterministicTagStyle } from '$lib/theme/deterministicTagColor';
-  import { generateWorktreeBranchName } from '$lib/worktreeName';
-  import { Badge } from '$lib/components/ui/badge/index.js';
-  import * as Command from '$lib/components/ui/command/index.js';
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { Button } from '$lib/components/ui/button/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
-  import * as Popover from '$lib/components/ui/popover/index.js';
+  } from "$lib/api";
+  import { getThemeStore } from "$lib/stores/theme.svelte";
+  import { deterministicTagStyle } from "$lib/theme/deterministicTagColor";
+  import { generateWorktreeBranchName } from "$lib/worktreeName";
+  import { Badge } from "$lib/components/ui/badge/index.js";
+  import * as Command from "$lib/components/ui/command/index.js";
+  import * as Dialog from "$lib/components/ui/dialog/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { Input } from "$lib/components/ui/input/index.js";
+  import * as Popover from "$lib/components/ui/popover/index.js";
 
   let {
     projectId,
@@ -33,43 +33,43 @@
     onClose: () => void;
   } = $props();
 
-  let branch = $state('');
+  let branch = $state("");
   let suggestedBranch = $state(generateWorktreeBranchName());
   let startPointPopoverOpen = $state(false);
-  let selectedStartPointValue = $state('');
+  let selectedStartPointValue = $state("");
   let useCustomStartPoint = $state(false);
-  let customStartPoint = $state('');
+  let customStartPoint = $state("");
   let startPoints = $state<WorktreeStartPoint[]>([]);
-  let defaultStartPoint = $state('');
-  let startPointWarning = $state('');
+  let defaultStartPoint = $state("");
+  let startPointWarning = $state("");
   let submitting = $state(false);
-  let error = $state('');
+  let error = $state("");
   const themeStore = getThemeStore();
   const themeVersion = $derived(themeStore.version);
   const branchBadgeClass =
-    'deterministic-tag-badge max-w-full truncate text-xs';
+    "deterministic-tag-badge max-w-full truncate text-xs";
 
   function branchColorKey(
     ref: string,
-    kind: 'local' | 'remote' = 'local',
+    kind: "local" | "remote" = "local",
   ): string {
     const trimmed = ref.trim();
     if (!trimmed) {
-      return 'default';
+      return "default";
     }
 
-    if (trimmed.startsWith('refs/heads/')) {
-      return trimmed.slice('refs/heads/'.length);
+    if (trimmed.startsWith("refs/heads/")) {
+      return trimmed.slice("refs/heads/".length);
     }
 
-    if (trimmed.startsWith('refs/remotes/')) {
-      const remainder = trimmed.slice('refs/remotes/'.length);
-      const slashIndex = remainder.indexOf('/');
+    if (trimmed.startsWith("refs/remotes/")) {
+      const remainder = trimmed.slice("refs/remotes/".length);
+      const slashIndex = remainder.indexOf("/");
       return slashIndex === -1 ? remainder : remainder.slice(slashIndex + 1);
     }
 
-    if (kind === 'remote') {
-      const slashIndex = trimmed.indexOf('/');
+    if (kind === "remote") {
+      const slashIndex = trimmed.indexOf("/");
       if (slashIndex > 0) {
         return trimmed.slice(slashIndex + 1);
       }
@@ -80,12 +80,12 @@
 
   function branchBadgeStyle(
     ref: string,
-    kind: 'local' | 'remote' = 'local',
+    kind: "local" | "remote" = "local",
   ): string {
     void themeVersion;
     return deterministicTagStyle(branchColorKey(ref, kind), {
-      profile: 'balanced',
-      surfaceVar: '--popover',
+      profile: "balanced",
+      surfaceVar: "--popover",
     });
   }
 
@@ -98,7 +98,7 @@
   const hasStartPointOptions = $derived(startPoints.length > 0);
   const startPointTriggerLabel = $derived.by(() => {
     if (useCustomStartPoint) {
-      return customStartPoint.trim() || 'Custom ref…';
+      return customStartPoint.trim() || "Custom ref…";
     }
     if (selectedStartPoint?.local_ref) {
       return selectedStartPoint.local_ref;
@@ -109,7 +109,7 @@
     if (defaultStartPoint) {
       return defaultStartPoint;
     }
-    return 'Select start point';
+    return "Select start point";
   });
 
   onMount(() => {
@@ -117,11 +117,11 @@
   });
 
   async function loadStartPoints(): Promise<void> {
-    startPointWarning = '';
+    startPointWarning = "";
     try {
       const response = await listProjectWorktreeStartPoints(projectId);
       startPoints = response.start_points;
-      defaultStartPoint = response.default_start_point?.trim() ?? '';
+      defaultStartPoint = response.default_start_point?.trim() ?? "";
 
       if (!useCustomStartPoint) {
         const matchedDefault = defaultStartPoint
@@ -144,9 +144,9 @@
     } catch (err) {
       startPointWarning = `Failed to load branches (${(err as Error).message})`;
       startPoints = [];
-      defaultStartPoint = '';
+      defaultStartPoint = "";
       if (!useCustomStartPoint) {
-        selectedStartPointValue = '';
+        selectedStartPointValue = "";
       }
     }
   }
@@ -159,13 +159,13 @@
     selectedStartPointValue = value;
     useCustomStartPoint = false;
     startPointPopoverOpen = false;
-    error = '';
+    error = "";
   }
 
   function selectCustomStartPoint(): void {
     useCustomStartPoint = true;
     startPointPopoverOpen = false;
-    error = '';
+    error = "";
   }
 
   async function submit() {
@@ -178,7 +178,7 @@
     if (useCustomStartPoint) {
       const custom = customStartPoint.trim();
       if (!custom) {
-        error = 'Custom start point is required.';
+        error = "Custom start point is required.";
         return;
       }
       effectiveStartPoint = custom;
@@ -188,7 +188,7 @@
     }
 
     submitting = true;
-    error = '';
+    error = "";
     try {
       await onAdd(effectiveBranch, effectiveStartPoint);
     } catch (err) {
@@ -228,7 +228,7 @@
             class="flex-1"
             disabled={submitting}
             onkeydown={(e: KeyboardEvent) => {
-              if (e.key === 'Enter') {
+              if (e.key === "Enter") {
                 submit();
               }
             }}
@@ -283,7 +283,7 @@
                   <Badge
                     variant="outline"
                     class={branchBadgeClass}
-                    style={branchBadgeStyle(remoteRef, 'remote')}
+                    style={branchBadgeStyle(remoteRef, "remote")}
                   >
                     {remoteRef}
                   </Badge>
@@ -315,7 +315,7 @@
                         keywords={[
                           startPoint.value,
                           startPoint.sha,
-                          startPoint.local_ref ?? '',
+                          startPoint.local_ref ?? "",
                           ...startPoint.remote_refs,
                         ]}
                         class="start-point-command-item"
@@ -339,7 +339,7 @@
                               <Badge
                                 variant="outline"
                                 class={branchBadgeClass}
-                                style={branchBadgeStyle(remoteRef, 'remote')}
+                                style={branchBadgeStyle(remoteRef, "remote")}
                               >
                                 {remoteRef}
                               </Badge>
@@ -360,7 +360,7 @@
                 <Command.Group heading="Advanced">
                   <Command.Item
                     value="custom-ref-option"
-                    keywords={['custom', 'manual', 'sha', 'ref']}
+                    keywords={["custom", "manual", "sha", "ref"]}
                     class="start-point-command-item"
                     onSelect={selectCustomStartPoint}
                   >
@@ -383,15 +383,15 @@
             id="new-worktree-custom-start-point"
             type="text"
             bind:value={customStartPoint}
-            placeholder={defaultStartPoint || 'origin/main or commit SHA'}
+            placeholder={defaultStartPoint || "origin/main or commit SHA"}
             disabled={submitting}
             oninput={() => {
-              if (error === 'Custom start point is required.') {
-                error = '';
+              if (error === "Custom start point is required.") {
+                error = "";
               }
             }}
             onkeydown={(e: KeyboardEvent) => {
-              if (e.key === 'Enter') {
+              if (e.key === "Enter") {
                 submit();
               }
             }}
@@ -438,7 +438,7 @@
     color: inherit;
   }
 
-  :global(.start-point-popover [data-slot='command-input-wrapper']) {
+  :global(.start-point-popover [data-slot="command-input-wrapper"]) {
     border-color: color-mix(
       in oklab,
       var(--quick-input-border, var(--border)) 78%,
@@ -463,7 +463,7 @@
     );
   }
 
-  :global(.start-point-command-item[aria-selected='true']) {
+  :global(.start-point-command-item[aria-selected="true"]) {
     background-color: var(
       --quick-input-focus-background,
       var(--accent)

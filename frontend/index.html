@@ -10,21 +10,21 @@
       // Must match logic in theme store.
       (function () {
         try {
-          var s = JSON.parse(localStorage.getItem('hubris-appearance') || '{}');
-          var scheme = s.colorScheme || 'auto';
+          var s = JSON.parse(localStorage.getItem("hubris-appearance") || "{}");
+          var scheme = s.colorScheme || "auto";
           var prefersDark = window.matchMedia(
-            '(prefers-color-scheme: dark)',
+            "(prefers-color-scheme: dark)",
           ).matches;
           var wantDark =
-            scheme === 'dark' || (scheme !== 'light' && prefersDark);
+            scheme === "dark" || (scheme !== "light" && prefersDark);
 
           var cache = JSON.parse(
-            localStorage.getItem('hubris-theme-cache') || '{}',
+            localStorage.getItem("hubris-theme-cache") || "{}",
           );
           var entry = wantDark ? cache.dark : cache.light;
 
           if (entry) {
-            if (entry.isDark) document.documentElement.classList.add('dark');
+            if (entry.isDark) document.documentElement.classList.add("dark");
             var vars = entry.vars;
             var style = document.documentElement.style;
             for (var key in vars) {
@@ -34,10 +34,10 @@
             }
           } else {
             // No cache — at least set dark class
-            if (wantDark) document.documentElement.classList.add('dark');
+            if (wantDark) document.documentElement.classList.add("dark");
           }
         } catch (e) {
-          document.documentElement.classList.add('dark');
+          document.documentElement.classList.add("dark");
         }
       })();
     </script>

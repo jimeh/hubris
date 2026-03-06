@@ -1,6 +1,6 @@
-@import 'tailwindcss';
-@import 'tw-animate-css';
-@import './lib/theme/defaults.generated.css';
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./lib/theme/defaults.generated.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -55,7 +55,7 @@
   }
 }
 
-.sidebar-resizing [data-slot='sidebar-gap'],
-.sidebar-resizing [data-slot='sidebar-container'] {
+.sidebar-resizing [data-slot="sidebar-gap"],
+.sidebar-resizing [data-slot="sidebar-container"] {
   transition: none !important;
 }

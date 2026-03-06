@@ -1,9 +1,9 @@
 <script lang="ts">
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { Button } from '$lib/components/ui/button/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
-  import { Separator } from '$lib/components/ui/separator/index.js';
-  import FileBrowser from './FileBrowser.svelte';
+  import * as Dialog from "$lib/components/ui/dialog/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { Input } from "$lib/components/ui/input/index.js";
+  import { Separator } from "$lib/components/ui/separator/index.js";
+  import FileBrowser from "./FileBrowser.svelte";
 
   let {
     onAdd,
@@ -13,14 +13,14 @@
     onClose: () => void;
   } = $props();
 
-  let path = $state('');
+  let path = $state("");
   let submitting = $state(false);
-  let error = $state('');
+  let error = $state("");
 
   async function submit() {
     if (!path.trim()) return;
     submitting = true;
-    error = '';
+    error = "";
     try {
       await onAdd(path.trim());
     } catch (e) {
@@ -59,7 +59,7 @@
           placeholder="/home/user/repos/myproject"
           disabled={submitting}
           onkeydown={(e: KeyboardEvent) => {
-            if (e.key === 'Enter') submit();
+            if (e.key === "Enter") submit();
           }}
           class="flex-1"
         />

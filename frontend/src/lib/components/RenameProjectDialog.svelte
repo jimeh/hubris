@@ -1,7 +1,7 @@
 <script lang="ts">
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { Button } from '$lib/components/ui/button/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
+  import * as Dialog from "$lib/components/ui/dialog/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { Input } from "$lib/components/ui/input/index.js";
 
   let {
     currentName,
@@ -16,7 +16,7 @@
   // svelte-ignore state_referenced_locally
   let name = $state(currentName);
   let submitting = $state(false);
-  let error = $state('');
+  let error = $state("");
 
   async function submit() {
     const trimmed = name.trim();
@@ -26,7 +26,7 @@
     }
 
     submitting = true;
-    error = '';
+    error = "";
 
     try {
       await onRename(trimmed);
@@ -59,7 +59,7 @@
         placeholder="Project name"
         disabled={submitting}
         onkeydown={(e: KeyboardEvent) => {
-          if (e.key === 'Enter') {
+          if (e.key === "Enter") {
             submit();
           }
         }}

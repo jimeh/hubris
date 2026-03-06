@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button/index.js';
-  import * as ScrollArea from '$lib/components/ui/scroll-area/index.js';
-  import { getThemeStore } from '$lib/stores/theme.svelte';
-  import { parseVscodeTheme } from '$lib/theme/parse';
-  import type { VscodeThemeFile } from '$lib/theme/types';
-  import { Upload, Trash2 } from '@lucide/svelte';
+  import { Button } from "$lib/components/ui/button/index.js";
+  import * as ScrollArea from "$lib/components/ui/scroll-area/index.js";
+  import { getThemeStore } from "$lib/stores/theme.svelte";
+  import { parseVscodeTheme } from "$lib/theme/parse";
+  import type { VscodeThemeFile } from "$lib/theme/types";
+  import { Upload, Trash2 } from "@lucide/svelte";
 
   const theme = getThemeStore();
-  let error = $state('');
+  let error = $state("");
   let fileInput: HTMLInputElement;
 
   let userThemes = $derived(theme.allThemes.filter((t) => !t.builtin));
@@ -16,12 +16,12 @@
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    error = '';
+    error = "";
 
     try {
       const text = await file.text();
       const raw: VscodeThemeFile = JSON.parse(text);
-      if (!raw.colors || typeof raw.colors !== 'object') {
+      if (!raw.colors || typeof raw.colors !== "object") {
         throw new Error('Invalid theme: missing "colors" object');
       }
       const parsed = parseVscodeTheme(raw, file.name);
@@ -35,12 +35,12 @@
     } catch (err) {
       error = (err as Error).message;
     } finally {
-      input.value = '';
+      input.value = "";
     }
   }
 
   async function handleDelete(id: string) {
-    error = '';
+    error = "";
     try {
       await theme.removeUserTheme(id);
     } catch (err) {

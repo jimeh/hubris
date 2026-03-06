@@ -1,4 +1,4 @@
-const LS_SIDEBAR_WIDTH = 'hubris-sidebar-width';
+const LS_SIDEBAR_WIDTH = "hubris-sidebar-width";
 const SIDEBAR_WIDTH_DEFAULT_PX = 256;
 const SIDEBAR_WIDTH_MIN_PX = 192;
 const SIDEBAR_WIDTH_MAX_PX = 640;

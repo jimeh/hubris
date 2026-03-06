@@ -1,7 +1,7 @@
 <script lang="ts">
-  import * as Select from '$lib/components/ui/select/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
-  import type { ThemeListEntry } from '$lib/theme/types';
+  import * as Select from "$lib/components/ui/select/index.js";
+  import { Label } from "$lib/components/ui/label/index.js";
+  import type { ThemeListEntry } from "$lib/theme/types";
 
   let {
     label,
@@ -16,7 +16,7 @@
   } = $props();
 
   let selectedName = $derived(
-    themes.find((t) => t.id === value)?.name ?? 'Select…',
+    themes.find((t) => t.id === value)?.name ?? "Select…",
   );
 </script>
 

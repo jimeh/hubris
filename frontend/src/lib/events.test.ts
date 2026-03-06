@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { EventClient } from './events';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { EventClient } from "./events";
 
 // Mock EventSource
 class MockEventSource {
@@ -35,7 +35,7 @@ class MockEventSource {
   }
 }
 
-describe('EventClient', () => {
+describe("EventClient", () => {
   let mockEs: MockEventSource;
   let constructorCalls: string[];
 
@@ -43,7 +43,7 @@ describe('EventClient', () => {
     constructorCalls = [];
     // Use a real class so `new EventSource(...)` works
     vi.stubGlobal(
-      'EventSource',
+      "EventSource",
       class extends MockEventSource {
         constructor(url: string) {
           super(url);
@@ -55,14 +55,14 @@ describe('EventClient', () => {
     );
   });
 
-  it('connect() creates EventSource with session_id', () => {
+  it("connect() creates EventSource with session_id", () => {
     const client = new EventClient();
-    client.connect('default');
+    client.connect("default");
 
-    expect(constructorCalls).toEqual(['/api/events?session_id=default']);
+    expect(constructorCalls).toEqual(["/api/events?session_id=default"]);
   });
 
-  it('connect() is idempotent', () => {
+  it("connect() is idempotent", () => {
     const client = new EventClient();
     client.connect();
     client.connect();
@@ -70,34 +70,34 @@ describe('EventClient', () => {
     expect(constructorCalls).toHaveLength(1);
   });
 
-  it('on() registers handlers that receive events', () => {
+  it("on() registers handlers that receive events", () => {
     const client = new EventClient();
     const handler = vi.fn();
-    client.on('tab_created', handler);
+    client.on("tab_created", handler);
     client.connect();
 
     // Simulate server sending a tab_created event
-    mockEs.simulateEvent('tab_created', {
-      type: 'tab_created',
-      data: { id: 't1', label: 'Terminal 1' },
+    mockEs.simulateEvent("tab_created", {
+      type: "tab_created",
+      data: { id: "t1", label: "Terminal 1" },
     });
 
     expect(handler).toHaveBeenCalledWith({
-      id: 't1',
-      label: 'Terminal 1',
+      id: "t1",
+      label: "Terminal 1",
     });
   });
 
-  it('multiple handlers for same event all called', () => {
+  it("multiple handlers for same event all called", () => {
     const client = new EventClient();
     const handler1 = vi.fn();
     const handler2 = vi.fn();
-    client.on('snapshot', handler1);
-    client.on('snapshot', handler2);
+    client.on("snapshot", handler1);
+    client.on("snapshot", handler2);
     client.connect();
 
-    mockEs.simulateEvent('snapshot', {
-      type: 'snapshot',
+    mockEs.simulateEvent("snapshot", {
+      type: "snapshot",
       data: { tabs: [] },
     });
 
@@ -105,31 +105,31 @@ describe('EventClient', () => {
     expect(handler2).toHaveBeenCalledWith({ tabs: [] });
   });
 
-  it('on() returns unsubscribe function', () => {
+  it("on() returns unsubscribe function", () => {
     const client = new EventClient();
     const handler = vi.fn();
-    const unsub = client.on('tab_closed', handler);
+    const unsub = client.on("tab_closed", handler);
     client.connect();
 
     unsub();
 
-    mockEs.simulateEvent('tab_closed', {
-      type: 'tab_closed',
-      data: { tab_id: 't1' },
+    mockEs.simulateEvent("tab_closed", {
+      type: "tab_closed",
+      data: { tab_id: "t1" },
     });
 
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it('skips events with missing data field', () => {
+  it("skips events with missing data field", () => {
     const client = new EventClient();
     const handler = vi.fn();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    client.on('tab_created', handler);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    client.on("tab_created", handler);
     client.connect();
 
-    mockEs.simulateEvent('tab_created', {
-      type: 'tab_created',
+    mockEs.simulateEvent("tab_created", {
+      type: "tab_created",
       // no data field
     });
 
@@ -138,7 +138,7 @@ describe('EventClient', () => {
     warnSpy.mockRestore();
   });
 
-  it('disconnect() closes EventSource', () => {
+  it("disconnect() closes EventSource", () => {
     const client = new EventClient();
     client.connect();
     client.disconnect();
@@ -146,13 +146,13 @@ describe('EventClient', () => {
     expect(mockEs.closeCalled).toBe(true);
   });
 
-  it('disconnect() allows reconnect', () => {
+  it("disconnect() allows reconnect", () => {
     const client = new EventClient();
     client.connect();
     client.disconnect();
-    client.connect('other');
+    client.connect("other");
 
     expect(constructorCalls).toHaveLength(2);
-    expect(mockEs.url).toBe('/api/events?session_id=other');
+    expect(mockEs.url).toBe("/api/events?session_id=other");
   });
 });

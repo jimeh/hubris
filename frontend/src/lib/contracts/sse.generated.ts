@@ -43,7 +43,7 @@ export type Worktree = {
 
 export type EventKind =
   | {
-      type: 'snapshot';
+      type: "snapshot";
       data: {
         tabs: Array<TabInfo>;
         projects: Array<Project>;
@@ -51,24 +51,24 @@ export type EventKind =
         project_errors: { [key in string]: string };
       };
     }
-  | { type: 'tab_created'; data: TabInfo }
-  | { type: 'tab_closed'; data: { tab_id: string } }
-  | { type: 'tab_updated'; data: TabInfo }
-  | { type: 'project_added'; data: Project }
-  | { type: 'project_removed'; data: { project_id: string } }
-  | { type: 'project_updated'; data: Project }
-  | { type: 'projects_reordered'; data: Array<Project> }
-  | { type: 'worktree_created'; data: Worktree }
+  | { type: "tab_created"; data: TabInfo }
+  | { type: "tab_closed"; data: { tab_id: string } }
+  | { type: "tab_updated"; data: TabInfo }
+  | { type: "project_added"; data: Project }
+  | { type: "project_removed"; data: { project_id: string } }
+  | { type: "project_updated"; data: Project }
+  | { type: "projects_reordered"; data: Array<Project> }
+  | { type: "worktree_created"; data: Worktree }
   | {
-      type: 'worktree_deleted';
+      type: "worktree_deleted";
       data: { project_id: string; worktree_id: string };
     }
   | {
-      type: 'worktrees_reordered';
+      type: "worktrees_reordered";
       data: { project_id: string; worktrees: Array<Worktree> };
     }
   | {
-      type: 'project_worktrees_updated';
+      type: "project_worktrees_updated";
       data: {
         project_id: string;
         worktrees: Array<Worktree>;

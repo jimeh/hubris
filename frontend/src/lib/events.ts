@@ -1,26 +1,26 @@
-import type { EventKind } from '$lib/contracts/sse.generated';
+import type { EventKind } from "$lib/contracts/sse.generated";
 
 export type SseEvent = EventKind;
-export type SseEventName = SseEvent['type'];
+export type SseEventName = SseEvent["type"];
 export type SseEventData<K extends SseEventName> = Extract<
   SseEvent,
   { type: K }
->['data'];
+>["data"];
 export type EventHandler<T> = (data: T) => void;
 
 const SSE_EVENT_NAMES = [
-  'snapshot',
-  'tab_created',
-  'tab_closed',
-  'tab_updated',
-  'project_added',
-  'project_removed',
-  'project_updated',
-  'projects_reordered',
-  'worktree_created',
-  'worktree_deleted',
-  'worktrees_reordered',
-  'project_worktrees_updated',
+  "snapshot",
+  "tab_created",
+  "tab_closed",
+  "tab_updated",
+  "project_added",
+  "project_removed",
+  "project_updated",
+  "projects_reordered",
+  "worktree_created",
+  "worktree_deleted",
+  "worktrees_reordered",
+  "project_worktrees_updated",
 ] as const satisfies ReadonlyArray<SseEventName>;
 
 /**
@@ -34,7 +34,7 @@ export class EventClient {
   private es: EventSource | null = null;
   private handlers = new Map<SseEventName, Set<EventHandler<unknown>>>();
 
-  connect(sessionId = 'default'): void {
+  connect(sessionId = "default"): void {
     if (this.es) return;
 
     this.es = new EventSource(

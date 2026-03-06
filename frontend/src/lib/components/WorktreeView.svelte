@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { Button } from '$lib/components/ui/button/index.js';
-  import TerminalTab from './TerminalTab.svelte';
-  import { getTabStore } from '$lib/stores/tabs.svelte';
-  import { Plus, X } from '@lucide/svelte';
-  import type { Worktree } from '$lib/types';
+  import { Button } from "$lib/components/ui/button/index.js";
+  import TerminalTab from "./TerminalTab.svelte";
+  import { getTabStore } from "$lib/stores/tabs.svelte";
+  import { Plus, X } from "@lucide/svelte";
+  import type { Worktree } from "$lib/types";
 
   let { worktree }: { worktree: Worktree } = $props();
   const tabStore = getTabStore();
@@ -28,7 +28,7 @@
             : 'text-tab-inactive-foreground hover:text-foreground'}"
           onclick={() => tabStore.activate(tab.id)}
           onkeydown={(e) => {
-            if (e.key === 'Enter') tabStore.activate(tab.id);
+            if (e.key === "Enter") tabStore.activate(tab.id);
           }}
           role="tab"
           tabindex="0"
@@ -63,7 +63,7 @@
         class="absolute inset-0"
         class:hidden={tab.id !== tabStore.activeTabId}
       >
-        {#if tab.type === 'terminal'}
+        {#if tab.type === "terminal"}
           <TerminalTab
             tabId={tab.id}
             visible={tab.id === tabStore.activeTabId}

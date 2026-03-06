@@ -3,11 +3,11 @@ import {
   deleteProject,
   reorderProjects,
   updateProject,
-} from '$lib/api';
-import { getEventClient } from '$lib/events';
-import type { Project } from '$lib/types';
+} from "$lib/api";
+import { getEventClient } from "$lib/events";
+import type { Project } from "$lib/types";
 
-const LS_EXPANDED = 'hubris-expanded-projects';
+const LS_EXPANDED = "hubris-expanded-projects";
 
 function lsGetJson<T>(key: string): T | null {
   try {
@@ -52,34 +52,34 @@ export function getProjectStore() {
     initialized = true;
     const events = getEventClient();
 
-    events.on('snapshot', (data) => {
+    events.on("snapshot", (data) => {
       if (data.projects) {
         projects = sortedProjects(data.projects);
         ensureExpandedState();
       }
     });
 
-    events.on('project_added', (project) => {
+    events.on("project_added", (project) => {
       if (!projects.find((p) => p.id === project.id)) {
         projects = sortedProjects([...projects, project]);
         ensureExpandedState();
       }
     });
 
-    events.on('project_removed', ({ project_id }) => {
+    events.on("project_removed", ({ project_id }) => {
       projects = projects.filter((p) => p.id !== project_id);
       delete expandedById[project_id];
       expandedById = { ...expandedById };
       lsSet(LS_EXPANDED, expandedById);
     });
 
-    events.on('project_updated', (project) => {
+    events.on("project_updated", (project) => {
       projects = sortedProjects(
         projects.map((p) => (p.id === project.id ? project : p)),
       );
     });
 
-    events.on('projects_reordered', (reordered) => {
+    events.on("projects_reordered", (reordered) => {
       projects = reordered;
       ensureExpandedState();
     });

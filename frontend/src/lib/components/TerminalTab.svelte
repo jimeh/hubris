@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { createXtermAdapter } from '$lib/terminal/xterm';
-  import { terminalWsUrl } from '$lib/api';
+  import { onMount, onDestroy } from "svelte";
+  import { createXtermAdapter } from "$lib/terminal/xterm";
+  import { terminalWsUrl } from "$lib/api";
   import type {
     ClientControlMessage,
     ServerControlMessage,
-  } from '$lib/contracts/ws.generated';
-  import { getThemeStore } from '$lib/stores/theme.svelte';
-  import { getTerminalStore } from '$lib/stores/terminal.svelte';
-  import type { TerminalAdapter } from '$lib/terminal/adapter';
+  } from "$lib/contracts/ws.generated";
+  import { getThemeStore } from "$lib/stores/theme.svelte";
+  import { getTerminalStore } from "$lib/stores/terminal.svelte";
+  import type { TerminalAdapter } from "$lib/terminal/adapter";
 
   let {
     tabId,
@@ -57,7 +57,7 @@
     }
 
     ws = new WebSocket(url);
-    ws.binaryType = 'arraybuffer';
+    ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
       connected = true;
@@ -77,16 +77,16 @@
     };
 
     ws.onmessage = (ev) => {
-      if (typeof ev.data === 'string') {
+      if (typeof ev.data === "string") {
         try {
           const msg = JSON.parse(ev.data) as ServerControlMessage;
           switch (msg.type) {
-            case 'tab_closed': {
+            case "tab_closed": {
               intentionalClose = true;
               onclosed?.();
               return;
             }
-            case 'attached': {
+            case "attached": {
               bytePosition = msg.byte_offset;
               if (msg.data_lost) {
                 terminal!.clear();
@@ -144,7 +144,7 @@
   function sendResize() {
     if (!terminal) return;
     sendControlMessage({
-      type: 'resize',
+      type: "resize",
       cols: terminal.cols,
       rows: terminal.rows,
     });

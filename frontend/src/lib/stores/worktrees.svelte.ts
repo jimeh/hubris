@@ -2,11 +2,11 @@ import {
   createProjectWorktree,
   deleteProjectWorktree,
   reorderProjectWorktrees,
-} from '$lib/api';
-import { getEventClient } from '$lib/events';
-import type { Worktree } from '$lib/types';
+} from "$lib/api";
+import { getEventClient } from "$lib/events";
+import type { Worktree } from "$lib/types";
 
-const LS_SELECTED = 'hubris-selected-worktree';
+const LS_SELECTED = "hubris-selected-worktree";
 
 function lsGet(key: string): string | null {
   try {
@@ -81,7 +81,7 @@ export function getWorktreeStore() {
     initialized = true;
     const events = getEventClient();
 
-    events.on('snapshot', (data) => {
+    events.on("snapshot", (data) => {
       if (data.worktrees) {
         const next: Record<string, Worktree[]> = {};
         for (const [projectId, worktrees] of Object.entries(data.worktrees)) {
@@ -97,7 +97,7 @@ export function getWorktreeStore() {
       ensureSelection();
     });
 
-    events.on('project_removed', ({ project_id }) => {
+    events.on("project_removed", ({ project_id }) => {
       delete worktreesByProject[project_id];
       delete projectErrors[project_id];
       worktreesByProject = { ...worktreesByProject };
@@ -105,11 +105,11 @@ export function getWorktreeStore() {
       ensureSelection();
     });
 
-    events.on('worktree_created', (worktree) => {
+    events.on("worktree_created", (worktree) => {
       upsertWorktree(worktree);
     });
 
-    events.on('worktree_deleted', ({ project_id, worktree_id }) => {
+    events.on("worktree_deleted", ({ project_id, worktree_id }) => {
       worktreesByProject[project_id] = (
         worktreesByProject[project_id] ?? []
       ).filter((wt) => wt.id !== worktree_id);
@@ -117,13 +117,13 @@ export function getWorktreeStore() {
       ensureSelection();
     });
 
-    events.on('worktrees_reordered', ({ project_id, worktrees }) => {
+    events.on("worktrees_reordered", ({ project_id, worktrees }) => {
       worktreesByProject[project_id] = byPosition(worktrees);
       worktreesByProject = { ...worktreesByProject };
     });
 
     events.on(
-      'project_worktrees_updated',
+      "project_worktrees_updated",
       ({ project_id, worktrees, git_error }) => {
         worktreesByProject[project_id] = byPosition(worktrees);
         if (git_error) {

@@ -1,17 +1,17 @@
-import { SvelteMap } from 'svelte/reactivity';
+import { SvelteMap } from "svelte/reactivity";
 import {
   clearTheme,
   computeThemeVars,
   applyComputedVars,
   type ComputedThemeVars,
-} from '$lib/theme/convert';
-import { builtinThemes } from '$lib/theme/builtin';
+} from "$lib/theme/convert";
+import { builtinThemes } from "$lib/theme/builtin";
 import type {
   AppearanceSettings,
   HubrisTheme,
   ThemeListEntry,
   ThemeMeta,
-} from '$lib/theme/types';
+} from "$lib/theme/types";
 import {
   getSettings,
   saveSettings,
@@ -19,12 +19,12 @@ import {
   getUserTheme,
   uploadUserTheme,
   deleteUserTheme,
-} from '$lib/api';
+} from "$lib/api";
 
 const DEFAULTS: AppearanceSettings = {
-  colorScheme: 'auto',
-  lightTheme: 'catppuccin-latte',
-  darkTheme: 'catppuccin-mocha',
+  colorScheme: "auto",
+  lightTheme: "catppuccin-latte",
+  darkTheme: "catppuccin-mocha",
 };
 
 let settings = $state<AppearanceSettings>({ ...DEFAULTS });
@@ -34,13 +34,13 @@ let appliedTheme = $state<HubrisTheme | null>(null);
 let version = $state(0);
 
 let prefersLight = $state(
-  !window.matchMedia('(prefers-color-scheme: dark)').matches,
+  !window.matchMedia("(prefers-color-scheme: dark)").matches,
 );
 
 // Track OS preference changes
 window
-  .matchMedia('(prefers-color-scheme: dark)')
-  .addEventListener('change', (e) => {
+  .matchMedia("(prefers-color-scheme: dark)")
+  .addEventListener("change", (e) => {
     prefersLight = !e.matches;
     void applyActiveTheme();
   });
@@ -70,8 +70,8 @@ async function resolveTheme(id: string): Promise<HubrisTheme | undefined> {
 
 async function getActiveTheme(): Promise<HubrisTheme> {
   const wantLight =
-    settings.colorScheme === 'light' ||
-    (settings.colorScheme === 'auto' && prefersLight);
+    settings.colorScheme === "light" ||
+    (settings.colorScheme === "auto" && prefersLight);
 
   const id = wantLight ? settings.lightTheme : settings.darkTheme;
 
@@ -94,20 +94,20 @@ function cacheThemeVars() {
   try {
     const cache: Record<string, ComputedThemeVars> = {};
 
-    if (settings.colorScheme === 'auto' || settings.colorScheme === 'light') {
+    if (settings.colorScheme === "auto" || settings.colorScheme === "light") {
       const lightTheme =
         resolveThemeSync(settings.lightTheme) ??
         builtinThemes.find((t) => t.id === DEFAULTS.lightTheme)!;
       cache.light = computeThemeVars(lightTheme);
     }
-    if (settings.colorScheme === 'auto' || settings.colorScheme === 'dark') {
+    if (settings.colorScheme === "auto" || settings.colorScheme === "dark") {
       const darkTheme =
         resolveThemeSync(settings.darkTheme) ??
         builtinThemes.find((t) => t.id === DEFAULTS.darkTheme)!;
       cache.dark = computeThemeVars(darkTheme);
     }
 
-    localStorage.setItem('hubris-theme-cache', JSON.stringify(cache));
+    localStorage.setItem("hubris-theme-cache", JSON.stringify(cache));
   } catch {
     // localStorage full or unavailable — ignore
   }
@@ -124,7 +124,7 @@ async function init() {
   } catch {
     // Server unreachable — try localStorage fallback
     try {
-      const cached = localStorage.getItem('hubris-appearance');
+      const cached = localStorage.getItem("hubris-appearance");
       if (cached) {
         settings = { ...DEFAULTS, ...JSON.parse(cached) };
       }
@@ -180,7 +180,7 @@ export function getThemeStore() {
       return appliedTheme;
     },
     get isDark() {
-      return appliedTheme?.type === 'dark';
+      return appliedTheme?.type === "dark";
     },
     init,
     updateSettings,

@@ -1,17 +1,17 @@
 <script lang="ts">
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import * as Select from '$lib/components/ui/select/index.js';
-  import { Button } from '$lib/components/ui/button/index.js';
-  import { Input } from '$lib/components/ui/input/index.js';
-  import { Separator } from '$lib/components/ui/separator/index.js';
-  import { Label } from '$lib/components/ui/label/index.js';
-  import { getThemeStore } from '$lib/stores/theme.svelte';
-  import { getTerminalStore } from '$lib/stores/terminal.svelte';
-  import { getWorktreeSettingsStore } from '$lib/stores/worktreeSettings.svelte';
-  import { BUNDLED_FONTS } from '$lib/terminal/fonts';
-  import ThemeManager from './ThemeManager.svelte';
-  import ThemeSelect from './ThemeSelect.svelte';
-  import { Sun, Moon, Monitor, Type, Minus, Plus } from '@lucide/svelte';
+  import * as Dialog from "$lib/components/ui/dialog/index.js";
+  import * as Select from "$lib/components/ui/select/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { Input } from "$lib/components/ui/input/index.js";
+  import { Separator } from "$lib/components/ui/separator/index.js";
+  import { Label } from "$lib/components/ui/label/index.js";
+  import { getThemeStore } from "$lib/stores/theme.svelte";
+  import { getTerminalStore } from "$lib/stores/terminal.svelte";
+  import { getWorktreeSettingsStore } from "$lib/stores/worktreeSettings.svelte";
+  import { BUNDLED_FONTS } from "$lib/terminal/fonts";
+  import ThemeManager from "./ThemeManager.svelte";
+  import ThemeSelect from "./ThemeSelect.svelte";
+  import { Sun, Moon, Monitor, Type, Minus, Plus } from "@lucide/svelte";
 
   let {
     open = $bindable(false),
@@ -24,14 +24,14 @@
   const worktreeSettings = getWorktreeSettingsStore();
 
   const fontPreviewLines = [
-    'Hello, World!',
-    'ABCDEFGHIJKLM 0123456789',
-    'abcdefghijklm ~!@#$%^&*()',
+    "Hello, World!",
+    "ABCDEFGHIJKLM 0123456789",
+    "abcdefghijklm ~!@#$%^&*()",
   ];
 
-  let lightThemes = $derived(theme.allThemes.filter((t) => t.type === 'light'));
-  let darkThemes = $derived(theme.allThemes.filter((t) => t.type === 'dark'));
-  let isFixedLight = $derived(theme.settings.colorScheme === 'light');
+  let lightThemes = $derived(theme.allThemes.filter((t) => t.type === "light"));
+  let darkThemes = $derived(theme.allThemes.filter((t) => t.type === "dark"));
+  let isFixedLight = $derived(theme.settings.colorScheme === "light");
   let fixedThemes = $derived(isFixedLight ? lightThemes : darkThemes);
   let fixedCurrent = $derived(
     isFixedLight ? theme.settings.lightTheme : theme.settings.darkTheme,
@@ -53,39 +53,39 @@
           <Label>Color Scheme</Label>
           <div class="flex gap-1">
             <Button
-              variant={theme.settings.colorScheme === 'light'
-                ? 'secondary'
-                : 'ghost'}
+              variant={theme.settings.colorScheme === "light"
+                ? "secondary"
+                : "ghost"}
               size="sm"
               onclick={() =>
                 theme.updateSettings({
-                  colorScheme: 'light',
+                  colorScheme: "light",
                 })}
             >
               <Sun class="mr-1.5 h-3.5 w-3.5" />
               Light
             </Button>
             <Button
-              variant={theme.settings.colorScheme === 'dark'
-                ? 'secondary'
-                : 'ghost'}
+              variant={theme.settings.colorScheme === "dark"
+                ? "secondary"
+                : "ghost"}
               size="sm"
               onclick={() =>
                 theme.updateSettings({
-                  colorScheme: 'dark',
+                  colorScheme: "dark",
                 })}
             >
               <Moon class="mr-1.5 h-3.5 w-3.5" />
               Dark
             </Button>
             <Button
-              variant={theme.settings.colorScheme === 'auto'
-                ? 'secondary'
-                : 'ghost'}
+              variant={theme.settings.colorScheme === "auto"
+                ? "secondary"
+                : "ghost"}
               size="sm"
               onclick={() =>
                 theme.updateSettings({
-                  colorScheme: 'auto',
+                  colorScheme: "auto",
                 })}
             >
               <Monitor class="mr-1.5 h-3.5 w-3.5" />
@@ -95,7 +95,7 @@
         </div>
 
         <!-- Theme pickers -->
-        {#if theme.settings.colorScheme === 'auto'}
+        {#if theme.settings.colorScheme === "auto"}
           <ThemeSelect
             label="Light Theme"
             themes={lightThemes}
@@ -132,37 +132,37 @@
           <Label>Font</Label>
           <div class="flex gap-1">
             <Button
-              variant={termStore.settings.fontSource === 'default'
-                ? 'secondary'
-                : 'ghost'}
+              variant={termStore.settings.fontSource === "default"
+                ? "secondary"
+                : "ghost"}
               size="sm"
               onclick={() =>
                 termStore.updateSettings({
-                  fontSource: 'default',
+                  fontSource: "default",
                 })}
             >
               Default
             </Button>
             <Button
-              variant={termStore.settings.fontSource === 'system'
-                ? 'secondary'
-                : 'ghost'}
+              variant={termStore.settings.fontSource === "system"
+                ? "secondary"
+                : "ghost"}
               size="sm"
               onclick={() =>
                 termStore.updateSettings({
-                  fontSource: 'system',
+                  fontSource: "system",
                 })}
             >
               System
             </Button>
             <Button
-              variant={termStore.settings.fontSource === 'bundled'
-                ? 'secondary'
-                : 'ghost'}
+              variant={termStore.settings.fontSource === "bundled"
+                ? "secondary"
+                : "ghost"}
               size="sm"
               onclick={() =>
                 termStore.updateSettings({
-                  fontSource: 'bundled',
+                  fontSource: "bundled",
                 })}
             >
               <Type class="mr-1.5 h-3.5 w-3.5" />
@@ -172,7 +172,7 @@
         </div>
 
         <!-- System font input -->
-        {#if termStore.settings.fontSource === 'system'}
+        {#if termStore.settings.fontSource === "system"}
           <div class="grid grid-cols-[120px_1fr] items-center gap-3">
             <Label>Font Family</Label>
             <Input
@@ -188,7 +188,7 @@
         {/if}
 
         <!-- Bundled font picker -->
-        {#if termStore.settings.fontSource === 'bundled'}
+        {#if termStore.settings.fontSource === "bundled"}
           <div class="grid grid-cols-[120px_1fr] items-center gap-3">
             <Label>Bundled Font</Label>
             <Select.Root
@@ -202,7 +202,7 @@
                 <span data-slot="select-value">
                   {BUNDLED_FONTS.find(
                     (f) => f.id === termStore.settings.bundledFont,
-                  )?.name ?? 'Select…'}
+                  )?.name ?? "Select…"}
                 </span>
               </Select.Trigger>
               <Select.Content>
@@ -285,26 +285,26 @@
           <Label>Location</Label>
           <div class="flex gap-1">
             <Button
-              variant={worktreeSettings.settings.locationMode === 'dataDir'
-                ? 'secondary'
-                : 'ghost'}
+              variant={worktreeSettings.settings.locationMode === "dataDir"
+                ? "secondary"
+                : "ghost"}
               size="sm"
               onclick={() =>
                 worktreeSettings.updateSettings({
-                  locationMode: 'dataDir',
+                  locationMode: "dataDir",
                 })}
             >
               Data Dir
             </Button>
             <Button
               variant={worktreeSettings.settings.locationMode ===
-              'repoLocalDotHubris'
-                ? 'secondary'
-                : 'ghost'}
+              "repoLocalDotHubris"
+                ? "secondary"
+                : "ghost"}
               size="sm"
               onclick={() =>
                 worktreeSettings.updateSettings({
-                  locationMode: 'repoLocalDotHubris',
+                  locationMode: "repoLocalDotHubris",
                 })}
             >
               Repo .hubris

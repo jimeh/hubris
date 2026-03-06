@@ -4,14 +4,14 @@
  */
 
 export interface paths {
-  '/api/events': {
+  "/api/events": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    get: operations['event_stream'];
+    get: operations["event_stream"];
     put?: never;
     post?: never;
     delete?: never;
@@ -20,14 +20,14 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/files': {
+  "/api/files": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    get: operations['list_files'];
+    get: operations["list_files"];
     put?: never;
     post?: never;
     delete?: never;
@@ -36,7 +36,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/openapi.json': {
+  "/api/openapi.json": {
     parameters: {
       query?: never;
       header?: never;
@@ -44,7 +44,7 @@ export interface paths {
       cookie?: never;
     };
     /** Return the generated OpenAPI document as JSON. */
-    get: operations['openapi_json'];
+    get: operations["openapi_json"];
     put?: never;
     post?: never;
     delete?: never;
@@ -53,23 +53,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/projects': {
+  "/api/projects": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    get: operations['list_projects'];
+    get: operations["list_projects"];
     put?: never;
-    post: operations['add_project'];
+    post: operations["add_project"];
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/api/projects/reorder': {
+  "/api/projects/reorder": {
     parameters: {
       query?: never;
       header?: never;
@@ -77,7 +77,7 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    put: operations['reorder_projects'];
+    put: operations["reorder_projects"];
     post?: never;
     delete?: never;
     options?: never;
@@ -85,71 +85,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/projects/{id}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete: operations['delete_project'];
-    options?: never;
-    head?: never;
-    patch: operations['update_project'];
-    trace?: never;
-  };
-  '/api/projects/{id}/worktrees': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['list_project_worktrees'];
-    put?: never;
-    post: operations['create_project_worktree'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/projects/{id}/worktrees/reorder': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put: operations['reorder_project_worktrees'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/projects/{id}/worktrees/start-points': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['list_project_worktree_start_points'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/projects/{id}/worktrees/{worktree_id}': {
+  "/api/projects/{id}": {
     parameters: {
       query?: never;
       header?: never;
@@ -159,13 +95,77 @@ export interface paths {
     get?: never;
     put?: never;
     post?: never;
-    delete: operations['delete_project_worktree'];
+    delete: operations["delete_project"];
+    options?: never;
+    head?: never;
+    patch: operations["update_project"];
+    trace?: never;
+  };
+  "/api/projects/{id}/worktrees": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_project_worktrees"];
+    put?: never;
+    post: operations["create_project_worktree"];
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/api/settings': {
+  "/api/projects/{id}/worktrees/reorder": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["reorder_project_worktrees"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/projects/{id}/worktrees/start-points": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_project_worktree_start_points"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/projects/{id}/worktrees/{worktree_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations["delete_project_worktree"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/settings": {
     parameters: {
       query?: never;
       header?: never;
@@ -173,9 +173,9 @@ export interface paths {
       cookie?: never;
     };
     /** GET /api/settings */
-    get: operations['get_settings'];
+    get: operations["get_settings"];
     /** PUT /api/settings — full replace */
-    put: operations['save_settings'];
+    put: operations["save_settings"];
     post?: never;
     delete?: never;
     options?: never;
@@ -183,23 +183,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/tabs': {
+  "/api/tabs": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    get: operations['list_tabs'];
+    get: operations["list_tabs"];
     put?: never;
-    post: operations['create_tab'];
+    post: operations["create_tab"];
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/api/tabs/{id}': {
+  "/api/tabs/{id}": {
     parameters: {
       query?: never;
       header?: never;
@@ -209,20 +209,20 @@ export interface paths {
     get?: never;
     put?: never;
     post?: never;
-    delete: operations['delete_tab'];
+    delete: operations["delete_tab"];
     options?: never;
     head?: never;
-    patch: operations['update_tab'];
+    patch: operations["update_tab"];
     trace?: never;
   };
-  '/api/terminal/ws': {
+  "/api/terminal/ws": {
     parameters: {
       query?: never;
       header?: never;
       path?: never;
       cookie?: never;
     };
-    get: operations['ws_handler'];
+    get: operations["ws_handler"];
     put?: never;
     post?: never;
     delete?: never;
@@ -231,7 +231,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/themes': {
+  "/api/themes": {
     parameters: {
       query?: never;
       header?: never;
@@ -239,17 +239,17 @@ export interface paths {
       cookie?: never;
     };
     /** GET /api/themes — list user theme metadata */
-    get: operations['list_themes'];
+    get: operations["list_themes"];
     put?: never;
     /** POST /api/themes — upload a new theme */
-    post: operations['create_theme'];
+    post: operations["create_theme"];
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/api/themes/{id}': {
+  "/api/themes/{id}": {
     parameters: {
       query?: never;
       header?: never;
@@ -257,11 +257,11 @@ export interface paths {
       cookie?: never;
     };
     /** GET /api/themes/:id — get full theme */
-    get: operations['get_theme'];
+    get: operations["get_theme"];
     put?: never;
     post?: never;
     /** DELETE /api/themes/:id — remove a user theme */
-    delete: operations['delete_theme'];
+    delete: operations["delete_theme"];
     options?: never;
     head?: never;
     patch?: never;
@@ -285,7 +285,7 @@ export interface components {
       /** Format: int32 */
       rows: number;
       /** @enum {string} */
-      type: 'resize';
+      type: "resize";
     };
     CreateTabRequest: {
       worktree_id: string;
@@ -300,7 +300,7 @@ export interface components {
     };
     ListFilesResponse: {
       /** @description Subdirectories within `path`. */
-      entries: components['schemas']['DirEntry'][];
+      entries: components["schemas"]["DirEntry"][];
       /** @description User's home directory (for quick-nav in UI). */
       home_dir?: string | null;
       /** @description Canonical absolute path of the listed directory. */
@@ -309,11 +309,11 @@ export interface components {
     ListWorktreeStartPointsResponse: {
       default_start_point?: string | null;
       git_error?: string | null;
-      start_points: components['schemas']['StartPoint'][];
+      start_points: components["schemas"]["StartPoint"][];
     };
     ListWorktreesResponse: {
       git_error?: string | null;
-      worktrees: components['schemas']['Worktree'][];
+      worktrees: components["schemas"]["Worktree"][];
     };
     Project: {
       git_error?: string | null;
@@ -335,16 +335,16 @@ export interface components {
           byte_offset: number;
           data_lost: boolean;
           /** @enum {string} */
-          type: 'attached';
+          type: "attached";
         }
       | {
           /** @enum {string} */
-          type: 'tab_closed';
+          type: "tab_closed";
         };
     Settings: {
-      appearance?: null | components['schemas']['AppearanceSettings'];
-      terminal?: null | components['schemas']['TerminalSettings'];
-      worktree?: null | components['schemas']['WorktreeSettings'];
+      appearance?: null | components["schemas"]["AppearanceSettings"];
+      terminal?: null | components["schemas"]["TerminalSettings"];
+      worktree?: null | components["schemas"]["WorktreeSettings"];
     };
     StartPoint: {
       local_ref?: string | null;
@@ -374,7 +374,7 @@ export interface components {
       fontSource?: string;
       systemFontFamily?: string;
     };
-    ThemeFile: components['schemas']['ThemeMeta'] & {
+    ThemeFile: components["schemas"]["ThemeMeta"] & {
       colors: {
         [key: string]: unknown;
       };
@@ -455,7 +455,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ListFilesResponse'];
+          "application/json": components["schemas"]["ListFilesResponse"];
         };
       };
       /** @description Path is not a directory */
@@ -521,7 +521,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['Project'][];
+          "application/json": components["schemas"]["Project"][];
         };
       };
     };
@@ -535,7 +535,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': components['schemas']['AddProjectRequest'];
+        "application/json": components["schemas"]["AddProjectRequest"];
       };
     };
     responses: {
@@ -545,7 +545,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['Project'];
+          "application/json": components["schemas"]["Project"];
         };
       };
       /** @description Project created */
@@ -554,7 +554,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['Project'];
+          "application/json": components["schemas"]["Project"];
         };
       };
       /** @description Invalid path */
@@ -582,7 +582,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': components['schemas']['ReorderProjectsRequest'];
+        "application/json": components["schemas"]["ReorderProjectsRequest"];
       };
     };
     responses: {
@@ -592,7 +592,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['Project'][];
+          "application/json": components["schemas"]["Project"][];
         };
       };
       /** @description Invalid order payload */
@@ -674,7 +674,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': components['schemas']['UpdateProjectRequest'];
+        "application/json": components["schemas"]["UpdateProjectRequest"];
       };
     };
     responses: {
@@ -684,7 +684,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['Project'];
+          "application/json": components["schemas"]["Project"];
         };
       };
       /** @description Project not found */
@@ -721,7 +721,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ListWorktreesResponse'];
+          "application/json": components["schemas"]["ListWorktreesResponse"];
         };
       };
       /** @description Project not found */
@@ -752,7 +752,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': components['schemas']['CreateWorktreeRequest'];
+        "application/json": components["schemas"]["CreateWorktreeRequest"];
       };
     };
     responses: {
@@ -762,7 +762,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['Worktree'];
+          "application/json": components["schemas"]["Worktree"];
         };
       };
       /** @description Invalid request */
@@ -807,7 +807,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': components['schemas']['ReorderWorktreesRequest'];
+        "application/json": components["schemas"]["ReorderWorktreesRequest"];
       };
     };
     responses: {
@@ -817,7 +817,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['Worktree'][];
+          "application/json": components["schemas"]["Worktree"][];
         };
       };
       /** @description Invalid reorder payload */
@@ -861,7 +861,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ListWorktreeStartPointsResponse'];
+          "application/json": components["schemas"]["ListWorktreeStartPointsResponse"];
         };
       };
       /** @description Project not found */
@@ -948,7 +948,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['Settings'];
+          "application/json": components["schemas"]["Settings"];
         };
       };
       /** @description Internal server error */
@@ -969,7 +969,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': components['schemas']['Settings'];
+        "application/json": components["schemas"]["Settings"];
       };
     };
     responses: {
@@ -1006,7 +1006,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['TabInfo'][];
+          "application/json": components["schemas"]["TabInfo"][];
         };
       };
     };
@@ -1020,7 +1020,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': components['schemas']['CreateTabRequest'];
+        "application/json": components["schemas"]["CreateTabRequest"];
       };
     };
     responses: {
@@ -1030,7 +1030,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['TabInfo'];
+          "application/json": components["schemas"]["TabInfo"];
         };
       };
       /** @description Worktree not found */
@@ -1089,7 +1089,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': components['schemas']['UpdateTabRequest'];
+        "application/json": components["schemas"]["UpdateTabRequest"];
       };
     };
     responses: {
@@ -1099,7 +1099,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['TabInfo'];
+          "application/json": components["schemas"]["TabInfo"];
         };
       };
       /** @description Tab not found */
@@ -1159,7 +1159,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ThemeMeta'][];
+          "application/json": components["schemas"]["ThemeMeta"][];
         };
       };
       /** @description Internal server error */
@@ -1180,7 +1180,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': components['schemas']['ThemeFile'];
+        "application/json": components["schemas"]["ThemeFile"];
       };
     };
     responses: {
@@ -1190,7 +1190,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ThemeMeta'];
+          "application/json": components["schemas"]["ThemeMeta"];
         };
       };
       /** @description Theme already exists */
@@ -1227,7 +1227,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ThemeFile'];
+          "application/json": components["schemas"]["ThemeFile"];
         };
       };
       /** @description Theme not found */

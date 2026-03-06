@@ -1,4 +1,4 @@
-import type { HubrisTheme, VscodeThemeFile } from './types';
+import type { HubrisTheme, VscodeThemeFile } from "./types";
 
 /**
  * Generate a URL-safe slug from a theme name.
@@ -6,8 +6,8 @@ import type { HubrisTheme, VscodeThemeFile } from './types';
 function slugify(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 /**
@@ -18,11 +18,11 @@ export function parseVscodeTheme(
   raw: VscodeThemeFile,
   filename?: string,
 ): HubrisTheme {
-  const name = raw.name || filename?.replace(/\.\w+$/, '') || 'Imported Theme';
+  const name = raw.name || filename?.replace(/\.\w+$/, "") || "Imported Theme";
   return {
     id: slugify(name),
     name,
-    type: raw.type === 'light' ? 'light' : 'dark',
+    type: raw.type === "light" ? "light" : "dark",
     colors: raw.colors ?? {},
   };
 }

@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const LS_SIDEBAR_WIDTH = 'hubris-sidebar-width';
+const LS_SIDEBAR_WIDTH = "hubris-sidebar-width";
 
 async function getStore() {
-  const mod = await import('./sidebarWidth.svelte');
+  const mod = await import("./sidebarWidth.svelte");
   return mod.getSidebarWidthStore();
 }
 
-describe('Sidebar width store', () => {
+describe("Sidebar width store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
@@ -16,29 +16,29 @@ describe('Sidebar width store', () => {
     localStorage.clear();
   });
 
-  it('loads default width when storage is empty', async () => {
+  it("loads default width when storage is empty", async () => {
     const store = await getStore();
     expect(store.width).toBe(256);
   });
 
-  it('loads and clamps persisted width', async () => {
-    localStorage.setItem(LS_SIDEBAR_WIDTH, '100');
+  it("loads and clamps persisted width", async () => {
+    localStorage.setItem(LS_SIDEBAR_WIDTH, "100");
     let store = await getStore();
     expect(store.width).toBe(192);
 
     vi.resetModules();
-    localStorage.setItem(LS_SIDEBAR_WIDTH, '900');
+    localStorage.setItem(LS_SIDEBAR_WIDTH, "900");
     store = await getStore();
     expect(store.width).toBe(640);
   });
 
-  it('falls back to default width for invalid persisted value', async () => {
-    localStorage.setItem(LS_SIDEBAR_WIDTH, 'not-a-number');
+  it("falls back to default width for invalid persisted value", async () => {
+    localStorage.setItem(LS_SIDEBAR_WIDTH, "not-a-number");
     const store = await getStore();
     expect(store.width).toBe(256);
   });
 
-  it('setWidth clamps min/max bounds', async () => {
+  it("setWidth clamps min/max bounds", async () => {
     const store = await getStore();
 
     store.setWidth(10);
@@ -48,9 +48,9 @@ describe('Sidebar width store', () => {
     expect(store.width).toBe(640);
   });
 
-  it('debounces persistence to a single write for burst updates', async () => {
+  it("debounces persistence to a single write for burst updates", async () => {
     vi.useFakeTimers();
-    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
     const store = await getStore();
     setItemSpy.mockClear();
 
@@ -63,12 +63,12 @@ describe('Sidebar width store', () => {
 
     vi.advanceTimersByTime(1);
     expect(setItemSpy).toHaveBeenCalledTimes(1);
-    expect(setItemSpy).toHaveBeenCalledWith(LS_SIDEBAR_WIDTH, '340');
+    expect(setItemSpy).toHaveBeenCalledWith(LS_SIDEBAR_WIDTH, "340");
   });
 
-  it('flushPendingPersist writes immediately and cancels timer', async () => {
+  it("flushPendingPersist writes immediately and cancels timer", async () => {
     vi.useFakeTimers();
-    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
     const store = await getStore();
     setItemSpy.mockClear();
 
@@ -77,22 +77,22 @@ describe('Sidebar width store', () => {
 
     store.flushPendingPersist();
     expect(setItemSpy).toHaveBeenCalledTimes(1);
-    expect(setItemSpy).toHaveBeenCalledWith(LS_SIDEBAR_WIDTH, '333');
+    expect(setItemSpy).toHaveBeenCalledWith(LS_SIDEBAR_WIDTH, "333");
 
     vi.runAllTimers();
     expect(setItemSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('swallows localStorage errors for load and persist paths', async () => {
+  it("swallows localStorage errors for load and persist paths", async () => {
     const getItemSpy = vi
-      .spyOn(Storage.prototype, 'getItem')
+      .spyOn(Storage.prototype, "getItem")
       .mockImplementation(() => {
-        throw new Error('blocked');
+        throw new Error("blocked");
       });
     const setItemSpy = vi
-      .spyOn(Storage.prototype, 'setItem')
+      .spyOn(Storage.prototype, "setItem")
       .mockImplementation(() => {
-        throw new Error('blocked');
+        throw new Error("blocked");
       });
 
     vi.useFakeTimers();

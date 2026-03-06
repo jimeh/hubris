@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EventHandler, SseEventName } from '$lib/events';
-import type { Worktree } from '$lib/types';
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { EventHandler, SseEventName } from "$lib/events";
+import type { Worktree } from "$lib/types";
 
 const mockCreateProjectWorktree = vi.fn();
 const mockDeleteProjectWorktree = vi.fn();
 const mockReorderProjectWorktrees = vi.fn();
 
-vi.mock('$lib/api', () => ({
+vi.mock("$lib/api", () => ({
   createProjectWorktree: (...args: unknown[]) =>
     mockCreateProjectWorktree(...args),
   deleteProjectWorktree: (...args: unknown[]) =>
@@ -40,9 +40,9 @@ class MockEventClient {
 
 let mockEvents: MockEventClient;
 
-vi.mock('$lib/events', async () => {
+vi.mock("$lib/events", async () => {
   const actual =
-    await vi.importActual<typeof import('$lib/events')>('$lib/events');
+    await vi.importActual<typeof import("$lib/events")>("$lib/events");
   return {
     ...actual,
     getEventClient: () => {
@@ -58,9 +58,9 @@ function makeWorktree(
   return {
     id: overrides.id,
     project_id: overrides.project_id,
-    name: overrides.name ?? 'worktree',
-    path: overrides.path ?? '/tmp/worktree',
-    branch: overrides.branch ?? 'main',
+    name: overrides.name ?? "worktree",
+    path: overrides.path ?? "/tmp/worktree",
+    branch: overrides.branch ?? "main",
     is_local: overrides.is_local ?? false,
     missing_on_disk: overrides.missing_on_disk ?? false,
     position: overrides.position ?? 1,
@@ -68,11 +68,11 @@ function makeWorktree(
 }
 
 async function getStore() {
-  const mod = await import('./worktrees.svelte');
+  const mod = await import("./worktrees.svelte");
   return mod.getWorktreeStore();
 }
 
-describe('Worktree store', () => {
+describe("Worktree store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
@@ -80,33 +80,33 @@ describe('Worktree store', () => {
     mockEvents = new MockEventClient();
   });
 
-  it('preserves missing_on_disk from snapshot payload', async () => {
+  it("preserves missing_on_disk from snapshot payload", async () => {
     const store = await getStore();
     const local = makeWorktree({
-      id: 'local',
-      project_id: 'p1',
-      name: 'local',
+      id: "local",
+      project_id: "p1",
+      name: "local",
       is_local: true,
-      branch: 'local',
+      branch: "local",
       position: 1,
     });
     const missing = makeWorktree({
-      id: 'missing',
-      project_id: 'p1',
-      name: 'feature-a',
+      id: "missing",
+      project_id: "p1",
+      name: "feature-a",
       missing_on_disk: true,
       position: 2,
     });
 
-    mockEvents.emit('snapshot', {
+    mockEvents.emit("snapshot", {
       worktrees: {
         p1: [local, missing],
       },
       project_errors: {},
     });
 
-    const list = store.worktreesForProject('p1');
-    const missingWorktree = list.find((wt) => wt.id === 'missing');
+    const list = store.worktreesForProject("p1");
+    const missingWorktree = list.find((wt) => wt.id === "missing");
     expect(missingWorktree?.missing_on_disk).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
-import { parse, converter } from 'culori';
-import type { HubrisTheme } from './types';
+import { parse, converter } from "culori";
+import type { HubrisTheme } from "./types";
 
-const toOklch = converter('oklch');
+const toOklch = converter("oklch");
 
 /** Round to n decimal places for cross-platform consistency. */
 function round(n: number, dp: number): number {
@@ -36,104 +36,104 @@ export function hexToOklch(hex: string): string {
  */
 export const UI_TOKEN_MAP: [string, string, ...string[]][] = [
   // Core
-  ['editor.background', '--background'],
-  ['editor.foreground', '--foreground', 'foreground'],
-  ['editorWidget.background', '--card', 'editor.background'],
-  ['editorWidget.foreground', '--card-foreground', 'editor.foreground'],
-  ['editorWidget.background', '--popover', 'editor.background'],
-  ['editorWidget.foreground', '--popover-foreground', 'editor.foreground'],
-  ['button.background', '--primary'],
-  ['button.foreground', '--primary-foreground'],
-  ['button.secondaryBackground', '--secondary'],
-  ['button.secondaryForeground', '--secondary-foreground', 'editor.foreground'],
-  ['tab.inactiveBackground', '--muted', 'editorGroupHeader.tabsBackground'],
-  ['tab.inactiveForeground', '--muted-foreground'],
-  ['list.hoverBackground', '--accent'],
-  ['list.hoverForeground', '--accent-foreground', 'editor.foreground'],
-  ['errorForeground', '--destructive'],
-  ['panel.border', '--border', 'sideBar.border', 'editorGroup.border'],
-  ['input.background', '--input'],
-  ['focusBorder', '--ring'],
+  ["editor.background", "--background"],
+  ["editor.foreground", "--foreground", "foreground"],
+  ["editorWidget.background", "--card", "editor.background"],
+  ["editorWidget.foreground", "--card-foreground", "editor.foreground"],
+  ["editorWidget.background", "--popover", "editor.background"],
+  ["editorWidget.foreground", "--popover-foreground", "editor.foreground"],
+  ["button.background", "--primary"],
+  ["button.foreground", "--primary-foreground"],
+  ["button.secondaryBackground", "--secondary"],
+  ["button.secondaryForeground", "--secondary-foreground", "editor.foreground"],
+  ["tab.inactiveBackground", "--muted", "editorGroupHeader.tabsBackground"],
+  ["tab.inactiveForeground", "--muted-foreground"],
+  ["list.hoverBackground", "--accent"],
+  ["list.hoverForeground", "--accent-foreground", "editor.foreground"],
+  ["errorForeground", "--destructive"],
+  ["panel.border", "--border", "sideBar.border", "editorGroup.border"],
+  ["input.background", "--input"],
+  ["focusBorder", "--ring"],
   // Quick input / command palette
   [
-    'quickInput.background',
-    '--quick-input-background',
-    'editorWidget.background',
+    "quickInput.background",
+    "--quick-input-background",
+    "editorWidget.background",
   ],
   [
-    'quickInput.foreground',
-    '--quick-input-foreground',
-    'editorWidget.foreground',
-    'editor.foreground',
+    "quickInput.foreground",
+    "--quick-input-foreground",
+    "editorWidget.foreground",
+    "editor.foreground",
   ],
   [
-    'pickerGroup.border',
-    '--quick-input-border',
-    'panel.border',
-    'sideBar.border',
-    'editorGroup.border',
+    "pickerGroup.border",
+    "--quick-input-border",
+    "panel.border",
+    "sideBar.border",
+    "editorGroup.border",
   ],
   [
-    'pickerGroup.foreground',
-    '--quick-input-group-foreground',
-    'tab.inactiveForeground',
-    'list.hoverForeground',
-    'editor.foreground',
+    "pickerGroup.foreground",
+    "--quick-input-group-foreground",
+    "tab.inactiveForeground",
+    "list.hoverForeground",
+    "editor.foreground",
   ],
   [
-    'quickInputList.focusBackground',
-    '--quick-input-focus-background',
-    'list.activeSelectionBackground',
-    'list.hoverBackground',
+    "quickInputList.focusBackground",
+    "--quick-input-focus-background",
+    "list.activeSelectionBackground",
+    "list.hoverBackground",
   ],
   [
-    'quickInputList.focusForeground',
-    '--quick-input-focus-foreground',
-    'list.activeSelectionForeground',
-    'list.hoverForeground',
-    'editor.foreground',
+    "quickInputList.focusForeground",
+    "--quick-input-focus-foreground",
+    "list.activeSelectionForeground",
+    "list.hoverForeground",
+    "editor.foreground",
   ],
   // Sidebar
-  ['sideBar.background', '--sidebar'],
-  ['sideBar.foreground', '--sidebar-foreground', 'editor.foreground'],
-  ['list.activeSelectionBackground', '--sidebar-primary'],
-  ['list.activeSelectionForeground', '--sidebar-primary-foreground'],
-  ['list.hoverBackground', '--sidebar-accent'],
-  ['list.hoverForeground', '--sidebar-accent-foreground', 'editor.foreground'],
-  ['sideBar.border', '--sidebar-border', 'panel.border', 'editorGroup.border'],
-  ['focusBorder', '--sidebar-ring'],
+  ["sideBar.background", "--sidebar"],
+  ["sideBar.foreground", "--sidebar-foreground", "editor.foreground"],
+  ["list.activeSelectionBackground", "--sidebar-primary"],
+  ["list.activeSelectionForeground", "--sidebar-primary-foreground"],
+  ["list.hoverBackground", "--sidebar-accent"],
+  ["list.hoverForeground", "--sidebar-accent-foreground", "editor.foreground"],
+  ["sideBar.border", "--sidebar-border", "panel.border", "editorGroup.border"],
+  ["focusBorder", "--sidebar-ring"],
   // Tab bar
-  ['editorGroupHeader.tabsBackground', '--tab-bar', 'sideBar.background'],
-  ['tab.activeBackground', '--tab-active', 'editor.background'],
-  ['tab.activeForeground', '--tab-active-foreground', 'editor.foreground'],
-  ['tab.inactiveForeground', '--tab-inactive-foreground'],
-  ['tab.border', '--tab-border', 'editorGroup.border', 'panel.border'],
+  ["editorGroupHeader.tabsBackground", "--tab-bar", "sideBar.background"],
+  ["tab.activeBackground", "--tab-active", "editor.background"],
+  ["tab.activeForeground", "--tab-active-foreground", "editor.foreground"],
+  ["tab.inactiveForeground", "--tab-inactive-foreground"],
+  ["tab.border", "--tab-border", "editorGroup.border", "panel.border"],
 ];
 
 /**
  * Terminal tokens stay as hex (xterm.js consumes hex).
  */
 export const TERMINAL_TOKEN_MAP: [string, string, ...string[]][] = [
-  ['terminal.background', '--terminal-background', 'editor.background'],
-  ['terminal.foreground', '--terminal-foreground', 'editor.foreground'],
-  ['terminalCursor.foreground', '--terminal-cursor'],
-  ['terminal.selectionBackground', '--terminal-selection'],
-  ['terminal.ansiBlack', '--terminal-ansi-black'],
-  ['terminal.ansiRed', '--terminal-ansi-red'],
-  ['terminal.ansiGreen', '--terminal-ansi-green'],
-  ['terminal.ansiYellow', '--terminal-ansi-yellow'],
-  ['terminal.ansiBlue', '--terminal-ansi-blue'],
-  ['terminal.ansiMagenta', '--terminal-ansi-magenta'],
-  ['terminal.ansiCyan', '--terminal-ansi-cyan'],
-  ['terminal.ansiWhite', '--terminal-ansi-white'],
-  ['terminal.ansiBrightBlack', '--terminal-ansi-bright-black'],
-  ['terminal.ansiBrightRed', '--terminal-ansi-bright-red'],
-  ['terminal.ansiBrightGreen', '--terminal-ansi-bright-green'],
-  ['terminal.ansiBrightYellow', '--terminal-ansi-bright-yellow'],
-  ['terminal.ansiBrightBlue', '--terminal-ansi-bright-blue'],
-  ['terminal.ansiBrightMagenta', '--terminal-ansi-bright-magenta'],
-  ['terminal.ansiBrightCyan', '--terminal-ansi-bright-cyan'],
-  ['terminal.ansiBrightWhite', '--terminal-ansi-bright-white'],
+  ["terminal.background", "--terminal-background", "editor.background"],
+  ["terminal.foreground", "--terminal-foreground", "editor.foreground"],
+  ["terminalCursor.foreground", "--terminal-cursor"],
+  ["terminal.selectionBackground", "--terminal-selection"],
+  ["terminal.ansiBlack", "--terminal-ansi-black"],
+  ["terminal.ansiRed", "--terminal-ansi-red"],
+  ["terminal.ansiGreen", "--terminal-ansi-green"],
+  ["terminal.ansiYellow", "--terminal-ansi-yellow"],
+  ["terminal.ansiBlue", "--terminal-ansi-blue"],
+  ["terminal.ansiMagenta", "--terminal-ansi-magenta"],
+  ["terminal.ansiCyan", "--terminal-ansi-cyan"],
+  ["terminal.ansiWhite", "--terminal-ansi-white"],
+  ["terminal.ansiBrightBlack", "--terminal-ansi-bright-black"],
+  ["terminal.ansiBrightRed", "--terminal-ansi-bright-red"],
+  ["terminal.ansiBrightGreen", "--terminal-ansi-bright-green"],
+  ["terminal.ansiBrightYellow", "--terminal-ansi-bright-yellow"],
+  ["terminal.ansiBrightBlue", "--terminal-ansi-bright-blue"],
+  ["terminal.ansiBrightMagenta", "--terminal-ansi-bright-magenta"],
+  ["terminal.ansiBrightCyan", "--terminal-ansi-bright-cyan"],
+  ["terminal.ansiBrightWhite", "--terminal-ansi-bright-white"],
 ];
 
 /**
@@ -178,13 +178,13 @@ export function computeThemeVars(theme: HubrisTheme): ComputedThemeVars {
     if (hex) vars[cssVar] = hex;
   }
 
-  return { isDark: theme.type === 'dark', vars };
+  return { isDark: theme.type === "dark", vars };
 }
 
 /** Apply pre-computed vars to the document. */
 export function applyComputedVars(computed: ComputedThemeVars): void {
   const root = document.documentElement;
-  root.classList.toggle('dark', computed.isDark);
+  root.classList.toggle("dark", computed.isDark);
   for (const [key, value] of Object.entries(computed.vars)) {
     root.style.setProperty(key, value);
   }

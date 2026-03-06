@@ -8,13 +8,13 @@
  * Usage: bun run scripts/generate-theme-defaults.ts
  */
 
-import { catppuccinLatte, catppuccinMocha } from '../src/lib/theme/builtin';
+import { catppuccinLatte, catppuccinMocha } from "../src/lib/theme/builtin";
 import {
   hexToOklch,
   UI_TOKEN_MAP,
   TERMINAL_TOKEN_MAP,
-} from '../src/lib/theme/convert';
-import type { HubrisTheme } from '../src/lib/theme/types';
+} from "../src/lib/theme/convert";
+import type { HubrisTheme } from "../src/lib/theme/types";
 
 function resolve(
   colors: Record<string, string>,
@@ -29,28 +29,28 @@ function resolve(
 function generateBlock(theme: HubrisTheme): string {
   const lines: string[] = [];
 
-  let prevGroup = '';
+  let prevGroup = "";
   for (const [primary, cssVar, ...fallbacks] of UI_TOKEN_MAP) {
     const hex = resolve(theme.colors, [primary, ...fallbacks]);
     if (hex) {
-      const group = cssVar.startsWith('--sidebar')
-        ? 'sidebar'
-        : cssVar.startsWith('--tab')
-          ? 'tab'
-          : 'core';
-      if (group !== prevGroup && prevGroup) lines.push('');
+      const group = cssVar.startsWith("--sidebar")
+        ? "sidebar"
+        : cssVar.startsWith("--tab")
+          ? "tab"
+          : "core";
+      if (group !== prevGroup && prevGroup) lines.push("");
       prevGroup = group;
       lines.push(`  ${cssVar}: ${hexToOklch(hex)};`);
     }
   }
 
-  lines.push('');
+  lines.push("");
   for (const [primary, cssVar, ...fallbacks] of TERMINAL_TOKEN_MAP) {
     const hex = resolve(theme.colors, [primary, ...fallbacks]);
     if (hex) lines.push(`  ${cssVar}: ${hex};`);
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 const lightBlock = generateBlock(catppuccinLatte);

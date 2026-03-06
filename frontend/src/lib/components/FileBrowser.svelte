@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
-  import { listFiles } from '$lib/api';
-  import type { DirEntry } from '$lib/types';
-  import * as ScrollArea from '$lib/components/ui/scroll-area/index.js';
-  import { Button } from '$lib/components/ui/button/index.js';
-  import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+  import { untrack } from "svelte";
+  import { listFiles } from "$lib/api";
+  import type { DirEntry } from "$lib/types";
+  import * as ScrollArea from "$lib/components/ui/scroll-area/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { Skeleton } from "$lib/components/ui/skeleton/index.js";
   import {
     Folder,
     FolderGit2,
@@ -13,10 +13,10 @@
     RotateCcw,
     Eye,
     EyeOff,
-  } from '@lucide/svelte';
+  } from "@lucide/svelte";
 
   let {
-    currentPath = $bindable(''),
+    currentPath = $bindable(""),
     onSelect,
   }: {
     currentPath: string;
@@ -25,28 +25,28 @@
 
   let entries = $state<DirEntry[]>([]);
   let loading = $state(false);
-  let error = $state('');
+  let error = $state("");
   let homeDir = $state<string | null>(null);
   let showHidden = $state(false);
   let focusedIndex = $state(-1);
 
   // The path currently displayed in the browser.
   // May differ from currentPath during user typing.
-  let browsedPath = $state('');
+  let browsedPath = $state("");
 
   // Breadcrumb segments derived from browsedPath
   let pathSegments = $derived.by(() => {
     if (!browsedPath) return [];
-    const parts = browsedPath.split('/').filter(Boolean);
+    const parts = browsedPath.split("/").filter(Boolean);
     return parts.map((part, i) => ({
       name: part,
-      path: '/' + parts.slice(0, i + 1).join('/'),
+      path: "/" + parts.slice(0, i + 1).join("/"),
     }));
   });
 
   async function fetchEntries(path?: string) {
     loading = true;
-    error = '';
+    error = "";
     focusedIndex = -1;
     try {
       const res = await listFiles(path, showHidden);
@@ -67,12 +67,12 @@
   }
 
   function navigateToEntry(entry: DirEntry) {
-    const sep = browsedPath.endsWith('/') ? '' : '/';
+    const sep = browsedPath.endsWith("/") ? "" : "/";
     navigateTo(browsedPath + sep + entry.name);
   }
 
   function navigateToParent() {
-    const parent = browsedPath.replace(/\/[^/]+\/?$/, '') || '/';
+    const parent = browsedPath.replace(/\/[^/]+\/?$/, "") || "/";
     navigateTo(parent);
   }
 
@@ -114,21 +114,21 @@
     if (entries.length === 0) return;
 
     switch (e.key) {
-      case 'ArrowDown':
+      case "ArrowDown":
         e.preventDefault();
         focusedIndex = Math.min(focusedIndex + 1, entries.length - 1);
         break;
-      case 'ArrowUp':
+      case "ArrowUp":
         e.preventDefault();
         focusedIndex = Math.max(focusedIndex - 1, 0);
         break;
-      case 'Enter':
+      case "Enter":
         e.preventDefault();
         if (focusedIndex >= 0) {
           navigateToEntry(entries[focusedIndex]);
         }
         break;
-      case 'Backspace':
+      case "Backspace":
         e.preventDefault();
         navigateToParent();
         break;
@@ -146,7 +146,7 @@
   <button
     class="shrink-0 px-1 hover:text-foreground
            transition-colors"
-    onclick={() => navigateTo('/')}>/</button
+    onclick={() => navigateTo("/")}>/</button
   >
   {#each pathSegments as segment (segment.path)}
     <button
@@ -192,8 +192,8 @@
     variant="ghost"
     size="icon-sm"
     onclick={() => (showHidden = !showHidden)}
-    class={showHidden ? 'text-foreground' : ''}
-    title={showHidden ? 'Hide dotfiles' : 'Show dotfiles'}
+    class={showHidden ? "text-foreground" : ""}
+    title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
   >
     {#if showHidden}
       <EyeOff class="h-3.5 w-3.5" />
@@ -247,7 +247,7 @@
             : 'border-l-2 border-transparent'}"
           onclick={() => navigateToEntry(entry)}
           ondblclick={() => {
-            const sep = browsedPath.endsWith('/') ? '' : '/';
+            const sep = browsedPath.endsWith("/") ? "" : "/";
             onSelect(browsedPath + sep + entry.name);
           }}
           role="option"

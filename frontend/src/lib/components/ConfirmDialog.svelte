@@ -1,11 +1,11 @@
 <script lang="ts">
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
-  import { Button } from '$lib/components/ui/button/index.js';
+  import * as Dialog from "$lib/components/ui/dialog/index.js";
+  import { Button } from "$lib/components/ui/button/index.js";
 
   let {
     title,
     description,
-    confirmLabel = 'Remove',
+    confirmLabel = "Remove",
     onConfirm,
     onClose,
   }: {

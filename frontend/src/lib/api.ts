@@ -1,26 +1,26 @@
-import type { ListFilesResponse, Project, Tab, Worktree } from './types';
-import type { components } from '$lib/contracts/rest.generated';
+import type { ListFilesResponse, Project, Tab, Worktree } from "./types";
+import type { components } from "$lib/contracts/rest.generated";
 import type {
   AppearanceSettings,
   HubrisTheme,
   TerminalSettings,
   ThemeMeta,
   WorktreeSettings,
-} from './theme/types';
+} from "./theme/types";
 
-const BASE = '/api';
+const BASE = "/api";
 
-type AddProjectRequest = components['schemas']['AddProjectRequest'];
-type UpdateProjectRequest = components['schemas']['UpdateProjectRequest'];
-type ReorderProjectsRequest = components['schemas']['ReorderProjectsRequest'];
-type ListWorktreesResponse = components['schemas']['ListWorktreesResponse'];
-type StartPoint = components['schemas']['StartPoint'];
+type AddProjectRequest = components["schemas"]["AddProjectRequest"];
+type UpdateProjectRequest = components["schemas"]["UpdateProjectRequest"];
+type ReorderProjectsRequest = components["schemas"]["ReorderProjectsRequest"];
+type ListWorktreesResponse = components["schemas"]["ListWorktreesResponse"];
+type StartPoint = components["schemas"]["StartPoint"];
 type ListWorktreeStartPointsResponse =
-  components['schemas']['ListWorktreeStartPointsResponse'];
-type CreateWorktreeRequest = components['schemas']['CreateWorktreeRequest'];
-type ReorderWorktreesRequest = components['schemas']['ReorderWorktreesRequest'];
-type CreateTabRequest = components['schemas']['CreateTabRequest'];
-type UpdateTabRequest = components['schemas']['UpdateTabRequest'];
+  components["schemas"]["ListWorktreeStartPointsResponse"];
+type CreateWorktreeRequest = components["schemas"]["CreateWorktreeRequest"];
+type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
+type CreateTabRequest = components["schemas"]["CreateTabRequest"];
+type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 
 export async function listProjects(): Promise<Project[]> {
   const res = await fetch(`${BASE}/projects`);
@@ -31,8 +31,8 @@ export async function listProjects(): Promise<Project[]> {
 export async function addProject(path: string): Promise<Project> {
   const payload: AddProjectRequest = { path };
   const res = await fetch(`${BASE}/projects`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`${res.status}`);
@@ -44,8 +44,8 @@ export async function updateProject(
   updates: UpdateProjectRequest,
 ): Promise<Project> {
   const res = await fetch(`${BASE}/projects/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(updates),
   });
   if (!res.ok) throw new Error(`${res.status}`);
@@ -57,8 +57,8 @@ export async function reorderProjects(
 ): Promise<Project[]> {
   const payload: ReorderProjectsRequest = { project_ids: projectIds };
   const res = await fetch(`${BASE}/projects/reorder`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`${res.status}`);
@@ -67,10 +67,10 @@ export async function reorderProjects(
 
 export async function deleteProject(id: string, force = false): Promise<void> {
   const params = new URLSearchParams();
-  if (force) params.set('force', 'true');
+  if (force) params.set("force", "true");
   const qs = params.toString();
-  const res = await fetch(`${BASE}/projects/${id}${qs ? `?${qs}` : ''}`, {
-    method: 'DELETE',
+  const res = await fetch(`${BASE}/projects/${id}${qs ? `?${qs}` : ""}`, {
+    method: "DELETE",
   });
   if (!res.ok && res.status !== 404) {
     throw new Error(`${res.status}`);
@@ -107,8 +107,8 @@ export async function createProjectWorktree(
     body.start_point = startPoint;
   }
   const res = await fetch(`${BASE}/projects/${projectId}/worktrees`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${res.status}`);
@@ -121,8 +121,8 @@ export async function reorderProjectWorktrees(
 ): Promise<Worktree[]> {
   const payload: ReorderWorktreesRequest = { worktree_ids: worktreeIds };
   const res = await fetch(`${BASE}/projects/${projectId}/worktrees/reorder`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`${res.status}`);
@@ -135,12 +135,12 @@ export async function deleteProjectWorktree(
   force = false,
 ): Promise<void> {
   const params = new URLSearchParams();
-  if (force) params.set('force', 'true');
+  if (force) params.set("force", "true");
   const qs = params.toString();
   const res = await fetch(
-    `${BASE}/projects/${projectId}/worktrees/${worktreeId}${qs ? `?${qs}` : ''}`,
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}${qs ? `?${qs}` : ""}`,
     {
-      method: 'DELETE',
+      method: "DELETE",
     },
   );
   if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
@@ -151,13 +151,13 @@ export async function listFiles(
   showHidden = false,
 ): Promise<ListFilesResponse> {
   const params = new URLSearchParams();
-  if (path) params.set('path', path);
-  if (showHidden) params.set('show_hidden', 'true');
+  if (path) params.set("path", path);
+  if (showHidden) params.set("show_hidden", "true");
 
   const res = await fetch(`${BASE}/files?${params.toString()}`);
   if (!res.ok) {
-    if (res.status === 404) throw new Error('Directory not found');
-    if (res.status === 403) throw new Error('Permission denied');
+    if (res.status === 404) throw new Error("Directory not found");
+    if (res.status === 403) throw new Error("Permission denied");
     throw new Error(`${res.status}`);
   }
   return res.json();
@@ -172,8 +172,8 @@ export async function listTabs(): Promise<Tab[]> {
 export async function createTab(worktreeId: string): Promise<Tab> {
   const payload: CreateTabRequest = { worktree_id: worktreeId };
   const res = await fetch(`${BASE}/tabs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`${res.status}`);
@@ -182,7 +182,7 @@ export async function createTab(worktreeId: string): Promise<Tab> {
 
 export async function deleteTab(id: string): Promise<void> {
   const res = await fetch(`${BASE}/tabs/${id}`, {
-    method: 'DELETE',
+    method: "DELETE",
   });
   if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
 }
@@ -192,8 +192,8 @@ export async function updateTab(
   updates: UpdateTabRequest,
 ): Promise<Tab> {
   const res = await fetch(`${BASE}/tabs/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(updates),
   });
   if (!res.ok) throw new Error(`${res.status}`);
@@ -201,7 +201,7 @@ export async function updateTab(
 }
 
 export function terminalWsUrl(tabId: string): string {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${location.host}/api/terminal/ws?tab_id=${encodeURIComponent(tabId)}`;
 }
 
@@ -227,8 +227,8 @@ export async function saveSettings(partial: {
   const merged = { ...current, ...partial };
 
   const res = await fetch(`${BASE}/settings`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(merged),
   });
   if (!res.ok) throw new Error(`${res.status}`);
@@ -237,12 +237,12 @@ export async function saveSettings(partial: {
   // avoids desync if the save fails
   if (partial.appearance) {
     localStorage.setItem(
-      'hubris-appearance',
+      "hubris-appearance",
       JSON.stringify(partial.appearance),
     );
   }
   if (partial.terminal) {
-    localStorage.setItem('hubris-terminal', JSON.stringify(partial.terminal));
+    localStorage.setItem("hubris-terminal", JSON.stringify(partial.terminal));
   }
 }
 
@@ -262,8 +262,8 @@ export async function getUserTheme(id: string): Promise<HubrisTheme> {
 
 export async function uploadUserTheme(theme: HubrisTheme): Promise<void> {
   const res = await fetch(`${BASE}/themes`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(theme),
   });
   if (!res.ok) throw new Error(`${res.status}`);
@@ -271,7 +271,7 @@ export async function uploadUserTheme(theme: HubrisTheme): Promise<void> {
 
 export async function deleteUserTheme(id: string): Promise<void> {
   const res = await fetch(`${BASE}/themes/${id}`, {
-    method: 'DELETE',
+    method: "DELETE",
   });
   if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
 }

@@ -8,60 +8,60 @@ export interface BundledFont {
 
 export const BUNDLED_FONTS: BundledFont[] = [
   {
-    id: 'jetbrainsmono-nf',
-    name: 'JetBrains Mono NF',
-    family: 'JetBrainsMono NF',
-    regular: '/fonts/JetBrainsMonoNerdFont-Regular.woff2',
-    bold: '/fonts/JetBrainsMonoNerdFont-Bold.woff2',
+    id: "jetbrainsmono-nf",
+    name: "JetBrains Mono NF",
+    family: "JetBrainsMono NF",
+    regular: "/fonts/JetBrainsMonoNerdFont-Regular.woff2",
+    bold: "/fonts/JetBrainsMonoNerdFont-Bold.woff2",
   },
   {
-    id: 'firacode-nf',
-    name: 'FiraCode NF',
-    family: 'FiraCode Nerd Font',
-    regular: '/fonts/FiraCodeNerdFont-Regular.woff2',
-    bold: '/fonts/FiraCodeNerdFont-Bold.woff2',
+    id: "firacode-nf",
+    name: "FiraCode NF",
+    family: "FiraCode Nerd Font",
+    regular: "/fonts/FiraCodeNerdFont-Regular.woff2",
+    bold: "/fonts/FiraCodeNerdFont-Bold.woff2",
   },
   {
-    id: 'hack-nf',
-    name: 'Hack NF',
-    family: 'Hack Nerd Font',
-    regular: '/fonts/HackNerdFont-Regular.woff2',
-    bold: '/fonts/HackNerdFont-Bold.woff2',
+    id: "hack-nf",
+    name: "Hack NF",
+    family: "Hack Nerd Font",
+    regular: "/fonts/HackNerdFont-Regular.woff2",
+    bold: "/fonts/HackNerdFont-Bold.woff2",
   },
   {
-    id: 'meslolgs-nf',
-    name: 'MesloLGS NF',
-    family: 'MesloLGS Nerd Font',
-    regular: '/fonts/MesloLGSNerdFont-Regular.woff2',
-    bold: '/fonts/MesloLGSNerdFont-Bold.woff2',
+    id: "meslolgs-nf",
+    name: "MesloLGS NF",
+    family: "MesloLGS Nerd Font",
+    regular: "/fonts/MesloLGSNerdFont-Regular.woff2",
+    bold: "/fonts/MesloLGSNerdFont-Bold.woff2",
   },
   {
-    id: 'caskaydiamono-nf',
-    name: 'CaskaydiaMono NF',
-    family: 'CaskaydiaMono NF',
-    regular: '/fonts/CaskaydiaMonoNerdFont-Regular.woff2',
-    bold: '/fonts/CaskaydiaMonoNerdFont-Bold.woff2',
+    id: "caskaydiamono-nf",
+    name: "CaskaydiaMono NF",
+    family: "CaskaydiaMono NF",
+    regular: "/fonts/CaskaydiaMonoNerdFont-Regular.woff2",
+    bold: "/fonts/CaskaydiaMonoNerdFont-Bold.woff2",
   },
   {
-    id: 'geistmono-nf',
-    name: 'GeistMono NF',
-    family: 'GeistMono Nerd Font',
-    regular: '/fonts/GeistMonoNerdFont-Regular.woff2',
-    bold: '/fonts/GeistMonoNerdFont-Bold.woff2',
+    id: "geistmono-nf",
+    name: "GeistMono NF",
+    family: "GeistMono Nerd Font",
+    regular: "/fonts/GeistMonoNerdFont-Regular.woff2",
+    bold: "/fonts/GeistMonoNerdFont-Bold.woff2",
   },
   {
-    id: 'commitmono-nf',
-    name: 'CommitMono NF',
-    family: 'CommitMono Nerd Font',
-    regular: '/fonts/CommitMonoNerdFont-Regular.woff2',
-    bold: '/fonts/CommitMonoNerdFont-Bold.woff2',
+    id: "commitmono-nf",
+    name: "CommitMono NF",
+    family: "CommitMono Nerd Font",
+    regular: "/fonts/CommitMonoNerdFont-Regular.woff2",
+    bold: "/fonts/CommitMonoNerdFont-Bold.woff2",
   },
   {
-    id: '0xproto-nf',
-    name: '0xProto NF',
-    family: '0xProto Nerd Font',
-    regular: '/fonts/0xProtoNerdFont-Regular.woff2',
-    bold: '/fonts/0xProtoNerdFont-Bold.woff2',
+    id: "0xproto-nf",
+    name: "0xProto NF",
+    family: "0xProto Nerd Font",
+    regular: "/fonts/0xProtoNerdFont-Regular.woff2",
+    bold: "/fonts/0xProtoNerdFont-Bold.woff2",
   },
 ];
 
@@ -98,7 +98,7 @@ export async function loadBundledFont(id: string): Promise<string> {
   const promise = (async () => {
     // Reuse existing <style> from a previous failed attempt
     if (!document.getElementById(`bundled-font-${id}`)) {
-      const style = document.createElement('style');
+      const style = document.createElement("style");
       style.id = `bundled-font-${id}`;
       style.textContent = `
         @font-face {
@@ -145,9 +145,9 @@ export async function resolveFont(settings: {
   bundledFont: string;
 }): Promise<string> {
   switch (settings.fontSource) {
-    case 'system':
+    case "system":
       return settings.systemFontFamily || DEFAULT_FONT_FAMILY;
-    case 'bundled': {
+    case "bundled": {
       try {
         const family = await loadBundledFont(settings.bundledFont);
         return `'${family}', monospace`;
