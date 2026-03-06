@@ -25,6 +25,7 @@
     dragHandleZone,
     SHADOW_ITEM_MARKER_PROPERTY_NAME,
   } from 'svelte-dnd-action';
+  import { flip } from 'svelte/animate';
   import type { Project, Worktree } from '$lib/types';
 
   interface ProjectStore {
@@ -306,6 +307,7 @@
         >
           {#each dndProjects as project (project.id)}
             <div
+              animate:flip={{ duration: draggingProjects ? FLIP_MS : 0 }}
               class="group/menu-item relative rounded-md"
               data-project-drag-item="true"
             >
@@ -452,6 +454,7 @@
                   >
                     {#each dndWorktrees[project.id] ?? [] as worktree (worktree.id)}
                       <div
+                        animate:flip={{ duration: draggingWorktrees ? FLIP_MS : 0 }}
                         class="group/worktree-item relative"
                         data-worktree-drag-item="true"
                       >
