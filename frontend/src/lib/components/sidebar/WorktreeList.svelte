@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { dragHandleZone } from "svelte-dnd-action";
   import { flip } from "svelte/animate";
+  import { dragHandleZone } from "svelte-dnd-action";
   import type { Worktree } from "$lib/types";
   import type { DndWorktree } from "./types.js";
   import LocalWorktreeItem from "./LocalWorktreeItem.svelte";

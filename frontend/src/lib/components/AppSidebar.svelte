@@ -74,6 +74,12 @@
     box-shadow: none !important;
   }
 
+  /* Suppress collapsible height animations during drag to prevent
+     shadow placeholder elements from animating their height. */
+  :global([data-sidebar-dragging] [data-collapsible-content]) {
+    animation: none !important;
+  }
+
   /* Suppress hover states on sidebar items while dragging */
   :global([data-sidebar-dragging] [data-project-drag-item]),
   :global([data-sidebar-dragging] [data-project-drag-item] *),

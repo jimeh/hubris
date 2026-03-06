@@ -46,6 +46,13 @@
     onWorktreeReorder: (projectId: string, ids: string[]) => void;
   } = $props();
 
+  let enableAnimation = $state(false);
+
+  function handleOpenChange() {
+    enableAnimation = true;
+    onToggleExpand();
+  }
+
   function projectHeaderClass(props: Record<string, unknown>): string {
     const base = typeof props.class === "string" ? props.class : "";
     return `${base} relative overflow-visible flex items-center gap-2 px-2 py-1`;
@@ -54,7 +61,7 @@
 
 <Collapsible.Root
   open={isExpanded}
-  onOpenChange={() => onToggleExpand()}
+  onOpenChange={handleOpenChange}
   class="group/collapsible"
 >
   <Sidebar.MenuItem>
@@ -133,9 +140,9 @@
     </Collapsible.Trigger>
 
     <Collapsible.Content
-      class="overflow-hidden
-        data-[state=closed]:animate-collapsible-up
-        data-[state=open]:animate-collapsible-down"
+      class="overflow-hidden {enableAnimation
+        ? 'data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down'
+        : ''}"
     >
       <WorktreeList
         projectId={project.id}

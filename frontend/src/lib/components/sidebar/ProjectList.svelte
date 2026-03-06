@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as Sidebar from "$lib/components/ui/sidebar/index.js";
-  import { dragHandleZone } from "svelte-dnd-action";
   import { flip } from "svelte/animate";
+  import { dragHandleZone } from "svelte-dnd-action";
   import type { Project, Worktree } from "$lib/types";
   import type {
     DndProject,
