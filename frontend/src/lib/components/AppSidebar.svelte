@@ -104,6 +104,8 @@
   };
 
   let draggingProjects = $state(false);
+  let draggingWorktrees = $state(false);
+  let isDragging = $derived(draggingProjects || draggingWorktrees);
   let dndProjects = $state<DndProject[]>([]);
   let dndWorktrees = $state<Record<string, DndWorktree[]>>({});
 
@@ -114,14 +116,16 @@
       }));
     }
 
-    const next: Record<string, DndWorktree[]> = {};
-    for (const project of projectStore.projects) {
-      next[project.id] = worktreeStore
-        .worktreesForProject(project.id)
-        .filter((worktree: Worktree) => !worktree.is_local)
-        .map((worktree: Worktree) => ({ ...worktree }));
+    if (!draggingWorktrees) {
+      const next: Record<string, DndWorktree[]> = {};
+      for (const project of projectStore.projects) {
+        next[project.id] = worktreeStore
+          .worktreesForProject(project.id)
+          .filter((worktree: Worktree) => !worktree.is_local)
+          .map((worktree: Worktree) => ({ ...worktree }));
+      }
+      dndWorktrees = next;
     }
-    dndWorktrees = next;
   });
 
   function handleProjectConsider(e: CustomEvent<{ items: DndProject[] }>) {
@@ -144,6 +148,7 @@
     projectId: string,
     e: CustomEvent<{ items: DndWorktree[] }>,
   ) {
+    draggingWorktrees = true;
     dndWorktrees[projectId] = e.detail.items;
     dndWorktrees = { ...dndWorktrees };
   }
@@ -154,6 +159,7 @@
   ) {
     dndWorktrees[projectId] = e.detail.items;
     dndWorktrees = { ...dndWorktrees };
+    draggingWorktrees = false;
     worktreeStore.reorder(
       projectId,
       e.detail.items.map((wt) => wt.id),
@@ -285,6 +291,7 @@
       <Sidebar.GroupContent>
         <div
           class="flex w-full min-w-0 flex-col gap-1"
+          data-sidebar-dragging={isDragging || undefined}
           use:dragHandleZone={{
             items: dndProjects,
             flipDurationMs: FLIP_MS,
@@ -660,5 +667,13 @@
     border-radius: var(--radius);
     outline: none !important;
     box-shadow: none !important;
+  }
+
+  /* Suppress hover states on sidebar items while dragging */
+  :global([data-sidebar-dragging] [data-project-drag-item]),
+  :global([data-sidebar-dragging] [data-project-drag-item] *),
+  :global([data-sidebar-dragging] [data-worktree-drag-item]),
+  :global([data-sidebar-dragging] [data-worktree-drag-item] *) {
+    pointer-events: none !important;
   }
 </style>
