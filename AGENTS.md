@@ -82,6 +82,16 @@ reconciliation — drift corrects on reconnect.
   (`hubris-selected-worktree`). Worktree CRUD via REST under
   `/api/projects/:id/worktrees`.
 - UI primitives: shadcn-svelte (Bits UI) — grep `components/ui/`
+- Sidebar decomposition: `AppSidebar.svelte` is a thin shell; sub-components
+  live in `components/sidebar/` (ProjectList, ProjectItem, WorktreeList,
+  WorktreeItem, LocalWorktreeItem, ProjectActionMenu, SidebarDialogs).
+  Shared types/interfaces in `sidebar/types.ts`. Dialog state centralized
+  in AppSidebar via `SidebarDialogState`, passed down as props.
+- App layout: `Sidebar.Provider` > `AppSidebar` + `SidebarResizeHandle` +
+  `Sidebar.Inset` (header bar with `Sidebar.Trigger` + breadcrumbs + content).
+- Project expand/collapse: uses Collapsible (bits-ui) with `data-state`
+  attribute for CSS-based icon toggling (`group/collapsible` pattern).
+- Project action menu: uses shadcn DropdownMenu (not hand-rolled dropdown).
 - Terminal: adapter pattern — grep `TerminalAdapter`, `XtermAdapter`.
   Font registry in `terminal/fonts.ts` (bundled Nerd Fonts, dynamic
   @font-face injection). Terminal settings store manages font source
@@ -168,10 +178,11 @@ reconciliation — drift corrects on reconnect.
   In test helpers that run `git commit`, pass
   `-c commit.gpgsign=false`.
 - **Sidebar component tests pull in theme store transitively**:
-  importing `AppSidebar.svelte` also imports `AddWorktreeDialog`, which
-  imports theme stores that read `window.matchMedia` at module eval time.
-  In jsdom tests, either mock `matchMedia` before importing sidebar
-  components or test lower-level stores/state instead.
+  importing `AppSidebar.svelte` transitively imports `SidebarDialogs` →
+  `AddWorktreeDialog`, which imports theme stores that read
+  `window.matchMedia` at module eval time. In jsdom tests, either mock
+  `matchMedia` before importing sidebar components or test lower-level
+  stores/state instead.
 - **Sidebar resize ownership**: Keep sidebar resize customization in
   app-level files (store/handle/CSS) instead of `components/ui/sidebar/*`
   so shadcn sidebar upgrades remain mostly copy-merge operations.
