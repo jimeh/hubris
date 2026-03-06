@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -24,6 +25,12 @@ pub struct CreateTabRequest {
 pub struct UpdateTabRequest {
     pub label: Option<String>,
     pub position: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ReorderTabsRequest {
+    pub worktree_id: String,
+    pub tab_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -210,4 +217,65 @@ pub async fn update_tab(
     state.events.emit(EventKind::TabUpdated(updated.clone()));
 
     Ok(Json(updated))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/tabs/reorder",
+    request_body = ReorderTabsRequest,
+    responses(
+        (status = 200, description = "Tabs reordered", body = [TabInfo]),
+        (status = 400, description = "Invalid request"),
+    ),
+)]
+pub async fn reorder_tabs(
+    State(state): State<AppState>,
+    Json(req): Json<ReorderTabsRequest>,
+) -> Result<Json<Vec<TabInfo>>, StatusCode> {
+    // Collect tabs belonging to this worktree.
+    let worktree_tab_ids: HashSet<String> = state
+        .tabs
+        .iter()
+        .filter(|e| e.value().info().worktree_id == req.worktree_id)
+        .map(|e| e.key().clone())
+        .collect();
+
+    if worktree_tab_ids.len() != req.tab_ids.len() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let received: HashSet<String> = req.tab_ids.iter().cloned().collect();
+    if worktree_tab_ids != received {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Assign sequential positions based on the new order.
+    for (i, id) in req.tab_ids.iter().enumerate() {
+        if let Some(tab) = state.tabs.get(id) {
+            tab.value().update_info(|info| {
+                info.position = (i + 1) as f64;
+                info.clone()
+            });
+        }
+    }
+
+    // Collect reordered tabs for the response.
+    let mut reordered: Vec<TabInfo> = state
+        .tabs
+        .iter()
+        .filter(|e| e.value().info().worktree_id == req.worktree_id)
+        .map(|e| e.value().info())
+        .collect();
+    reordered.sort_by(|a, b| {
+        a.position
+            .partial_cmp(&b.position)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    state.events.emit(EventKind::TabsReordered {
+        worktree_id: req.worktree_id,
+        tabs: reordered.clone(),
+    });
+
+    Ok(Json(reordered))
 }

@@ -54,6 +54,10 @@ export type EventKind =
   | { type: "tab_created"; data: TabInfo }
   | { type: "tab_closed"; data: { tab_id: string } }
   | { type: "tab_updated"; data: TabInfo }
+  | {
+      type: "tabs_reordered";
+      data: { worktree_id: string; tabs: Array<TabInfo> };
+    }
   | { type: "project_added"; data: Project }
   | { type: "project_removed"; data: { project_id: string } }
   | { type: "project_updated"; data: Project }

@@ -1,9 +1,18 @@
 <script lang="ts">
+  import { flip } from "svelte/animate";
+  import { dndzone } from "svelte-dnd-action";
+  import { SHADOW_ITEM_MARKER_PROPERTY_NAME } from "svelte-dnd-action";
   import { Button } from "$lib/components/ui/button/index.js";
   import TerminalTab from "./TerminalTab.svelte";
   import { getTabStore } from "$lib/stores/tabs.svelte";
   import { Plus, X } from "@lucide/svelte";
-  import type { Worktree } from "$lib/types";
+  import type { Tab, Worktree } from "$lib/types";
+
+  type DndTab = Tab & {
+    [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: string;
+  };
+
+  const FLIP_MS = 150;
 
   let { worktree }: { worktree: Worktree } = $props();
   const tabStore = getTabStore();
@@ -13,19 +22,56 @@
   });
 
   let worktreeTabs = $derived(tabStore.tabsForWorktree(worktree.id));
+
+  let dragging = $state(false);
+  let dndItems = $state<DndTab[]>([]);
+
+  $effect(() => {
+    if (!dragging) {
+      dndItems = worktreeTabs.map((t) => ({ ...t }));
+    }
+  });
+
+  function handleConsider(e: CustomEvent<{ items: DndTab[] }>) {
+    dragging = true;
+    dndItems = e.detail.items;
+  }
+
+  function handleFinalize(e: CustomEvent<{ items: DndTab[] }>) {
+    dndItems = e.detail.items;
+    dragging = false;
+    tabStore.reorder(
+      worktree.id,
+      e.detail.items.map((t) => t.id),
+    );
+  }
 </script>
 
 <div class="flex h-full flex-col">
   <div
     class="flex items-center border-b border-tab-border bg-tab-bar px-1 py-1"
   >
-    <div class="flex items-center gap-1 overflow-x-auto">
-      {#each worktreeTabs as tab (tab.id)}
+    <div
+      class="flex items-center gap-1 overflow-x-auto"
+      data-tab-dragging={dragging || undefined}
+      use:dndzone={{
+        items: dndItems,
+        flipDurationMs: FLIP_MS,
+        type: `tabs-${worktree.id}`,
+        dropTargetStyle: {},
+        morphDisabled: true,
+      }}
+      onconsider={handleConsider}
+      onfinalize={handleFinalize}
+    >
+      {#each dndItems as tab (tab.id)}
         <div
-          class="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors select-none
+          animate:flip={{ duration: dragging ? FLIP_MS : 0 }}
+          class="inline-flex cursor-default items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors select-none
                  {tab.id === tabStore.activeTabId
             ? 'bg-tab-active text-tab-active-foreground shadow-sm'
             : 'text-tab-inactive-foreground hover:text-foreground'}"
+          data-tab-drag-item="true"
           onclick={() => tabStore.activate(tab.id)}
           onkeydown={(e) => {
             if (e.key === "Enter") tabStore.activate(tab.id);
@@ -46,15 +92,15 @@
           </button>
         </div>
       {/each}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        class="shrink-0"
-        onclick={() => tabStore.addTerminal(worktree.id)}
-      >
-        <Plus class="h-4 w-4" />
-      </Button>
     </div>
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class="shrink-0"
+      onclick={() => tabStore.addTerminal(worktree.id)}
+    >
+      <Plus class="h-4 w-4" />
+    </Button>
   </div>
 
   <div class="relative flex-1 overflow-hidden">
@@ -81,3 +127,24 @@
     {/if}
   </div>
 </div>
+
+<style>
+  /* Override svelte-dnd-action's inline cursor: grab */
+  :global([data-tab-drag-item]) {
+    cursor: default !important;
+  }
+
+  /* Suppress hover states on tabs while dragging */
+  :global([data-tab-dragging] [data-tab-drag-item]),
+  :global([data-tab-dragging] [data-tab-drag-item] *) {
+    pointer-events: none !important;
+  }
+
+  :global(#dnd-action-dragged-el[data-tab-drag-item="true"]) {
+    opacity: 0.5 !important;
+    z-index: 60;
+    pointer-events: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+</style>

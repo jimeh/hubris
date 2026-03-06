@@ -606,6 +606,40 @@
         }
       }
     },
+    "/api/tabs/reorder": {
+      "put": {
+        "tags": ["crate::api::tabs"],
+        "operationId": "reorder_tabs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderTabsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tabs reordered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TabInfo"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        }
+      }
+    },
     "/api/tabs/{id}": {
       "delete": {
         "tags": ["crate::api::tabs"],
@@ -995,6 +1029,21 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "ReorderTabsRequest": {
+        "type": "object",
+        "required": ["worktree_id", "tab_ids"],
+        "properties": {
+          "tab_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "worktree_id": {
+            "type": "string"
           }
         }
       },

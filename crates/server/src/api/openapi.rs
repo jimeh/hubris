@@ -6,7 +6,7 @@ use crate::api::projects::{
     AddProjectRequest, Project, ReorderProjectsRequest, UpdateProjectRequest,
 };
 use crate::api::settings::{AppearanceSettings, Settings, TerminalSettings, WorktreeSettings};
-use crate::api::tabs::{CreateTabRequest, UpdateTabRequest};
+use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
 use crate::api::themes::{ThemeFile, ThemeMeta};
 use crate::api::worktrees::{
@@ -33,6 +33,7 @@ use crate::pty::live_tab::TabInfo;
         crate::api::tabs::list_tabs,
         crate::api::tabs::create_tab,
         crate::api::tabs::update_tab,
+        crate::api::tabs::reorder_tabs,
         crate::api::tabs::delete_tab,
         crate::api::events::event_stream,
         crate::api::terminal::ws_handler,
@@ -60,6 +61,7 @@ use crate::pty::live_tab::TabInfo;
             TabInfo,
             CreateTabRequest,
             UpdateTabRequest,
+            ReorderTabsRequest,
             ClientControlMessage,
             ServerControlMessage,
             AppearanceSettings,

@@ -199,6 +199,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/tabs/reorder": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["reorder_tabs"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/tabs/{id}": {
     parameters: {
       query?: never;
@@ -325,6 +341,10 @@ export interface components {
     };
     ReorderProjectsRequest: {
       project_ids: string[];
+    };
+    ReorderTabsRequest: {
+      tab_ids: string[];
+      worktree_id: string;
     };
     ReorderWorktreesRequest: {
       worktree_ids: string[];
@@ -1042,6 +1062,37 @@ export interface operations {
       };
       /** @description Internal server error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  reorder_tabs: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ReorderTabsRequest"];
+      };
+    };
+    responses: {
+      /** @description Tabs reordered */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TabInfo"][];
+        };
+      };
+      /** @description Invalid request */
+      400: {
         headers: {
           [name: string]: unknown;
         };

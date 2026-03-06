@@ -1,4 +1,4 @@
-import { createTab, deleteTab } from "$lib/api";
+import { createTab, deleteTab, reorderTabs } from "$lib/api";
 import { getEventClient } from "$lib/events";
 import type { Tab } from "$lib/types";
 
@@ -98,6 +98,12 @@ export function getTabStore() {
     events.on("tab_updated", (tab) => {
       tabs = sortedTabs(tabs.map((t) => (t.id === tab.id ? tab : t)));
     });
+
+    events.on("tabs_reordered", ({ tabs: reordered }) => {
+      const reorderedIds = reordered.map((t) => t.id);
+      const other = tabs.filter((t) => !reorderedIds.includes(t.id));
+      tabs = sortedTabs([...other, ...reordered]);
+    });
   }
 
   function removeFromState(id: string): void {
@@ -154,7 +160,35 @@ export function getTabStore() {
     return tabs.filter((tab) => tab.worktree_id === worktreeId);
   }
 
+  async function reorder(
+    worktreeId: string,
+    orderedIds: string[],
+  ): Promise<void> {
+    // Optimistic local update
+    const byId = Object.fromEntries(tabs.map((t) => [t.id, t])) as Record<
+      string,
+      Tab
+    >;
+    const reordered: Tab[] = [];
+    for (let i = 0; i < orderedIds.length; i++) {
+      const t = byId[orderedIds[i]];
+      if (t) {
+        reordered.push({ ...t, position: i + 1 });
+      }
+    }
+    const otherTabs = tabs.filter((t) => t.worktree_id !== worktreeId);
+    tabs = sortedTabs([...otherTabs, ...reordered]);
+
+    await reorderTabs(worktreeId, orderedIds);
+  }
+
   function switchToWorktree(worktreeId: string): void {
+    // If the active tab already belongs to this worktree, keep it.
+    if (activeTabId) {
+      const current = tabs.find((t) => t.id === activeTabId);
+      if (current?.worktree_id === worktreeId) return;
+    }
+
     const worktreeTabs = tabsForWorktree(worktreeId);
     const remembered = activeTabByWorktree[worktreeId];
     if (remembered && worktreeTabs.find((tab) => tab.id === remembered)) {
@@ -178,6 +212,7 @@ export function getTabStore() {
     close,
     removeLocal,
     activate,
+    reorder,
     tabsForWorktree,
     switchToWorktree,
   };
