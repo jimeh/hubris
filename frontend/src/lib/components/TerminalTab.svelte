@@ -223,11 +223,13 @@
     position: relative;
     width: 100%;
     height: 100%;
+    background: var(--terminal-background);
   }
 
   .terminal-container {
     width: 100%;
     height: 100%;
+    background: var(--terminal-background);
   }
 
   .reconnect-indicator {

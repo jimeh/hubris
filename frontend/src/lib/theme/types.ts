@@ -1,41 +1,98 @@
-/**
- * A VS Code color theme file. We only consume `name`,
- * `type`, and `colors` — tokenColors are ignored.
- */
-export interface VscodeThemeFile {
-  name?: string;
-  type?: "dark" | "light" | "hc";
-  colors?: Record<string, string>;
-  tokenColors?: unknown;
-  semanticHighlighting?: unknown;
-  semanticTokenColors?: unknown;
-}
+export const UI_THEME_TOKENS = [
+  "background",
+  "foreground",
+  "card",
+  "card-foreground",
+  "popover",
+  "popover-foreground",
+  "primary",
+  "primary-foreground",
+  "secondary",
+  "secondary-foreground",
+  "muted",
+  "muted-foreground",
+  "accent",
+  "accent-foreground",
+  "destructive",
+  "destructive-foreground",
+  "border",
+  "input",
+  "ring",
+  "chart-1",
+  "chart-2",
+  "chart-3",
+  "chart-4",
+  "chart-5",
+  "quick-input-background",
+  "quick-input-foreground",
+  "quick-input-border",
+  "quick-input-group-foreground",
+  "quick-input-focus-background",
+  "quick-input-focus-foreground",
+  "sidebar",
+  "sidebar-foreground",
+  "sidebar-primary",
+  "sidebar-primary-foreground",
+  "sidebar-accent",
+  "sidebar-accent-foreground",
+  "sidebar-border",
+  "sidebar-ring",
+  "tab-bar",
+  "tab-active",
+  "tab-active-foreground",
+  "tab-inactive-foreground",
+  "tab-border",
+] as const;
 
-/**
- * Internal theme representation. Same shape as a VS Code
- * theme, but guaranteed to have name and type.
- */
+export const TERMINAL_THEME_TOKENS = [
+  "terminal-background",
+  "terminal-foreground",
+  "terminal-cursor",
+  "terminal-selection",
+  "terminal-ansi-black",
+  "terminal-ansi-red",
+  "terminal-ansi-green",
+  "terminal-ansi-yellow",
+  "terminal-ansi-blue",
+  "terminal-ansi-magenta",
+  "terminal-ansi-cyan",
+  "terminal-ansi-white",
+  "terminal-ansi-bright-black",
+  "terminal-ansi-bright-red",
+  "terminal-ansi-bright-green",
+  "terminal-ansi-bright-yellow",
+  "terminal-ansi-bright-blue",
+  "terminal-ansi-bright-magenta",
+  "terminal-ansi-bright-cyan",
+  "terminal-ansi-bright-white",
+] as const;
+
+export const ALL_THEME_TOKENS = [
+  ...UI_THEME_TOKENS,
+  ...TERMINAL_THEME_TOKENS,
+] as const;
+
+export type UiThemeToken = (typeof UI_THEME_TOKENS)[number];
+export type TerminalThemeToken = (typeof TERMINAL_THEME_TOKENS)[number];
+export type ThemeToken = (typeof ALL_THEME_TOKENS)[number];
+
+export type HubrisThemeTokens = Record<ThemeToken, string>;
+
+/** Native Hubris theme authored in shadcn-style design tokens. */
 export interface HubrisTheme {
-  /** Unique identifier (slug). Built-in: 'catppuccin-mocha'. */
+  /** Unique identifier. Built-in: 'hubris-dark'. */
   id: string;
   /** Display name. */
   name: string;
   /** Dark or light. */
   type: "dark" | "light";
-  /** VS Code color key → hex value. */
-  colors: Record<string, string>;
+  /** Explicit token values for UI and terminal styling. */
+  tokens: HubrisThemeTokens;
   /** True for bundled themes. */
   builtin?: boolean;
 }
 
-/** Lightweight theme entry from the list endpoint. */
-export interface ThemeMeta {
-  id: string;
-  name: string;
-  type: "dark" | "light";
-}
-
-/** Union type for theme Select dropdowns (builtins + user). */
+/** Theme entry shown in the appearance settings selectors. */
 export interface ThemeListEntry {
   id: string;
   name: string;

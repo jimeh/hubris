@@ -8,7 +8,6 @@ use crate::api::projects::{
 use crate::api::settings::{AppearanceSettings, Settings, TerminalSettings, WorktreeSettings};
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
-use crate::api::themes::{ThemeFile, ThemeMeta};
 use crate::api::worktrees::{
     CreateWorktreeRequest, ListWorktreeStartPointsResponse, ListWorktreesResponse,
     ReorderWorktreesRequest, StartPoint, Worktree,
@@ -39,10 +38,6 @@ use crate::pty::live_tab::TabInfo;
         crate::api::terminal::ws_handler,
         crate::api::settings::get_settings,
         crate::api::settings::save_settings,
-        crate::api::themes::list_themes,
-        crate::api::themes::get_theme,
-        crate::api::themes::create_theme,
-        crate::api::themes::delete_theme,
     ),
     components(
         schemas(
@@ -68,8 +63,6 @@ use crate::pty::live_tab::TabInfo;
             TerminalSettings,
             WorktreeSettings,
             Settings,
-            ThemeMeta,
-            ThemeFile,
         )
     ),
     tags(

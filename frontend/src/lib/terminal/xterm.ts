@@ -6,7 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { TerminalAdapter } from "./adapter";
 import { DEFAULT_FONT_FAMILY } from "./fonts";
 
-function getTerminalTheme(): Record<string, string> {
+export function getTerminalTheme(): Record<string, string> {
   const style = getComputedStyle(document.documentElement);
   const get = (prop: string): string | undefined =>
     style.getPropertyValue(prop).trim() || undefined;

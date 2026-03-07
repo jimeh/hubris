@@ -69,7 +69,7 @@
           animate:flip={{ duration: dragging ? FLIP_MS : 0 }}
           class="inline-flex cursor-default items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors select-none
                  {tab.id === tabStore.activeTabId
-            ? 'bg-tab-active text-tab-active-foreground shadow-sm'
+            ? 'bg-tab-active text-tab-active-foreground'
             : 'text-tab-inactive-foreground hover:text-foreground'}"
           data-tab-drag-item="true"
           onclick={() => tabStore.activate(tab.id)}

@@ -21,10 +21,10 @@ fn default_color_scheme() -> String {
     "auto".to_string()
 }
 fn default_light_theme() -> String {
-    "catppuccin-latte".to_string()
+    "hubris-light".to_string()
 }
 fn default_dark_theme() -> String {
-    "catppuccin-mocha".to_string()
+    "hubris-dark".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]

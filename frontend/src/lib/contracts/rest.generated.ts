@@ -247,42 +247,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/themes": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** GET /api/themes — list user theme metadata */
-    get: operations["list_themes"];
-    put?: never;
-    /** POST /api/themes — upload a new theme */
-    post: operations["create_theme"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/themes/{id}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** GET /api/themes/:id — get full theme */
-    get: operations["get_theme"];
-    put?: never;
-    post?: never;
-    /** DELETE /api/themes/:id — remove a user theme */
-    delete: operations["delete_theme"];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -393,16 +357,6 @@ export interface components {
       fontSize?: number;
       fontSource?: string;
       systemFontFamily?: string;
-    };
-    ThemeFile: components["schemas"]["ThemeMeta"] & {
-      colors: {
-        [key: string]: unknown;
-      };
-    };
-    ThemeMeta: {
-      id: string;
-      name: string;
-      type: string;
     };
     UpdateProjectRequest: {
       name?: string | null;
@@ -1188,143 +1142,6 @@ export interface operations {
       };
       /** @description Tab not found */
       404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  list_themes: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Theme metadata list */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ThemeMeta"][];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  create_theme: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["ThemeFile"];
-      };
-    };
-    responses: {
-      /** @description Theme created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ThemeMeta"];
-        };
-      };
-      /** @description Theme already exists */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  get_theme: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description Theme ID */
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Theme payload */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ThemeFile"];
-        };
-      };
-      /** @description Theme not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  delete_theme: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description Theme ID */
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Theme removed */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Theme not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Internal server error */
-      500: {
         headers: {
           [name: string]: unknown;
         };

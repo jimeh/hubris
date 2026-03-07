@@ -29,7 +29,7 @@
       rounded-md px-2 py-1 pr-8 text-sm transition-colors
       hover:bg-sidebar-accent
       {isSelected
-      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+      ? 'bg-sidebar-primary text-sidebar-primary-foreground'
       : 'text-sidebar-foreground/80'}"
   >
     <div
