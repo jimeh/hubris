@@ -1,12 +1,14 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use portable_pty::{Child, MasterPty};
+use portable_pty::{Child, MasterPty, PtySize};
 use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use ts_rs::TS;
 use utoipa::ToSchema;
 
@@ -14,6 +16,33 @@ use utoipa::ToSchema;
 /// Passed to `LiveTab::spawn()` so it can be overridden
 /// per-tab in the future (e.g., from user settings).
 pub const DEFAULT_SCROLLBACK: usize = 128 * 1024;
+pub const DEFAULT_PTY_COLS: u16 = 80;
+pub const DEFAULT_PTY_ROWS: u16 = 24;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalSize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+impl TerminalSize {
+    pub const fn new(cols: u16, rows: u16) -> Self {
+        Self { cols, rows }
+    }
+
+    pub const fn default_pty() -> Self {
+        Self::new(DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS)
+    }
+
+    pub const fn to_pty_size(self) -> PtySize {
+        PtySize {
+            rows: self.rows,
+            cols: self.cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        }
+    }
+}
 
 /// Serializable tab metadata. Sent to clients via REST
 /// and SSE.
@@ -43,8 +72,28 @@ pub struct LiveTab {
     /// Used for resumable WebSocket reconnection.
     total_bytes: Arc<AtomicU64>,
     pub output_tx: broadcast::Sender<Vec<u8>>,
+    pty_size_tx: broadcast::Sender<TerminalSize>,
     pub close_tx: broadcast::Sender<()>,
+    next_attachment_id: AtomicU64,
+    attachments: Mutex<AttachmentRegistry>,
     _reader_handle: JoinHandle<()>,
+}
+
+pub struct LiveTabAttachment {
+    pub attachment_id: u64,
+    pub scrollback: Vec<u8>,
+    pub current_size: TerminalSize,
+    pub byte_offset: u64,
+    pub data_lost: bool,
+    pub output_rx: broadcast::Receiver<Vec<u8>>,
+    pub pty_size_rx: broadcast::Receiver<TerminalSize>,
+    pub close_rx: broadcast::Receiver<()>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AttachmentUpdate {
+    candidate_size: Option<TerminalSize>,
+    shared_size: TerminalSize,
 }
 
 impl LiveTab {
@@ -56,6 +105,7 @@ impl LiveTab {
         master: Box<dyn MasterPty + Send>,
         child: Box<dyn Child + Send + Sync>,
         scrollback_size: usize,
+        initial_size: TerminalSize,
     ) -> Self {
         let mut reader = master.try_clone_reader().unwrap();
         let writer = master.take_writer().unwrap();
@@ -63,6 +113,7 @@ impl LiveTab {
         let scrollback = Arc::new(Mutex::new(VecDeque::with_capacity(scrollback_size)));
         let total_bytes = Arc::new(AtomicU64::new(0));
         let (output_tx, _) = broadcast::channel(64);
+        let (pty_size_tx, _) = broadcast::channel(16);
         let (close_tx, _) = broadcast::channel(1);
 
         let sb = scrollback.clone();
@@ -104,7 +155,10 @@ impl LiveTab {
             scrollback,
             total_bytes,
             output_tx,
+            pty_size_tx,
             close_tx,
+            next_attachment_id: AtomicU64::new(1),
+            attachments: Mutex::new(AttachmentRegistry::new(initial_size)),
             _reader_handle: reader_handle,
         }
     }
@@ -133,18 +187,15 @@ impl LiveTab {
     /// Lock ordering: scrollback mutex held while
     /// subscribing to output channel guarantees no output
     /// is missed between snapshot and subscription.
-    pub fn attach(
-        &self,
-        resume_from: Option<u64>,
-    ) -> (
-        Vec<u8>,
-        u64,
-        bool,
-        broadcast::Receiver<Vec<u8>>,
-        broadcast::Receiver<()>,
-    ) {
+    pub fn attach(&self, resume_from: Option<u64>) -> LiveTabAttachment {
         let sb = self.scrollback.lock().unwrap();
         let total = self.total_bytes.load(Ordering::Relaxed);
+        let attachment_id = self.next_attachment_id.fetch_add(1, Ordering::Relaxed);
+        let current_size = {
+            let mut attachments = self.attachments.lock().unwrap();
+            attachments.insert(attachment_id, Instant::now());
+            attachments.shared_size()
+        };
 
         let (snapshot, data_lost) = match resume_from {
             None => {
@@ -169,8 +220,93 @@ impl LiveTab {
         };
 
         let output_rx = self.output_tx.subscribe();
+        let pty_size_rx = self.pty_size_tx.subscribe();
         let close_rx = self.close_tx.subscribe();
-        (snapshot, total, data_lost, output_rx, close_rx)
+        LiveTabAttachment {
+            attachment_id,
+            scrollback: snapshot,
+            current_size,
+            byte_offset: total,
+            data_lost,
+            output_rx,
+            pty_size_rx,
+            close_rx,
+        }
+    }
+
+    pub fn update_attachment_size(&self, attachment_id: u64, size: TerminalSize, visible: bool) {
+        self.apply_attachment_update(attachment_id, Some(size), visible);
+    }
+
+    pub fn invalidate_attachment_size(&self, attachment_id: u64, visible: bool) {
+        self.apply_attachment_update(attachment_id, None, visible);
+    }
+
+    pub fn detach(&self, attachment_id: u64) {
+        let update = {
+            let mut attachments = self.attachments.lock().unwrap();
+            attachments.remove(attachment_id)
+        };
+
+        self.apply_resize_update(update);
+    }
+
+    pub fn touch_attachment(&self, attachment_id: u64) {
+        let mut attachments = self.attachments.lock().unwrap();
+        attachments.touch(attachment_id, Instant::now());
+    }
+
+    pub fn attachment_is_stale(
+        &self,
+        attachment_id: u64,
+        now: Instant,
+        stale_after: Duration,
+    ) -> bool {
+        let attachments = self.attachments.lock().unwrap();
+        attachments.is_stale(attachment_id, now, stale_after)
+    }
+
+    fn apply_attachment_update(
+        &self,
+        attachment_id: u64,
+        size: Option<TerminalSize>,
+        visible: bool,
+    ) {
+        let update = {
+            let mut attachments = self.attachments.lock().unwrap();
+            attachments.update(attachment_id, size, visible)
+        };
+
+        self.apply_resize_update(update);
+    }
+
+    fn apply_resize_update(&self, update: Option<AttachmentUpdate>) {
+        let Some(update) = update else {
+            return;
+        };
+
+        if let Some(size) = update.candidate_size
+            && self.resize_pty(size)
+        {
+            let mut attachments = self.attachments.lock().unwrap();
+            attachments.commit_shared_size(update.shared_size);
+        }
+    }
+
+    fn resize_pty(&self, size: TerminalSize) -> bool {
+        let master = self.pty_master.lock().unwrap();
+        if let Err(error) = master.resize(size.to_pty_size()) {
+            tracing::warn!(
+                "failed to resize PTY to {}x{}: {}",
+                size.cols,
+                size.rows,
+                error
+            );
+            return false;
+        }
+
+        let _ = self.pty_size_tx.send(size);
+        true
     }
 
     /// Notify all attached clients that this tab is
@@ -191,5 +327,243 @@ impl Drop for LiveTab {
     fn drop(&mut self) {
         self.kill();
         self._reader_handle.abort();
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AttachmentInfo {
+    visible: bool,
+    size: Option<TerminalSize>,
+    last_seen: Instant,
+}
+
+#[derive(Debug)]
+struct AttachmentRegistry {
+    entries: HashMap<u64, AttachmentInfo>,
+    shared_size: TerminalSize,
+}
+
+impl AttachmentRegistry {
+    fn new(shared_size: TerminalSize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            shared_size,
+        }
+    }
+
+    fn insert(&mut self, attachment_id: u64, now: Instant) {
+        self.entries.insert(
+            attachment_id,
+            AttachmentInfo {
+                visible: false,
+                size: None,
+                last_seen: now,
+            },
+        );
+    }
+
+    fn update(
+        &mut self,
+        attachment_id: u64,
+        size: Option<TerminalSize>,
+        visible: bool,
+    ) -> Option<AttachmentUpdate> {
+        let entry = self.entries.get_mut(&attachment_id)?;
+        entry.visible = visible;
+        entry.size = size;
+        Some(self.candidate_update())
+    }
+
+    fn remove(&mut self, attachment_id: u64) -> Option<AttachmentUpdate> {
+        self.entries.remove(&attachment_id)?;
+        Some(self.candidate_update())
+    }
+
+    fn touch(&mut self, attachment_id: u64, now: Instant) -> bool {
+        let Some(entry) = self.entries.get_mut(&attachment_id) else {
+            return false;
+        };
+
+        entry.last_seen = now;
+        true
+    }
+
+    fn is_stale(&self, attachment_id: u64, now: Instant, stale_after: Duration) -> bool {
+        self.entries
+            .get(&attachment_id)
+            .map(|entry| now.duration_since(entry.last_seen) >= stale_after)
+            .unwrap_or(false)
+    }
+
+    fn shared_size(&self) -> TerminalSize {
+        self.shared_size
+    }
+
+    fn commit_shared_size(&mut self, size: TerminalSize) {
+        self.shared_size = size;
+    }
+
+    fn candidate_update(&self) -> AttachmentUpdate {
+        let next = self
+            .entries
+            .values()
+            .filter(|entry| entry.visible)
+            .filter_map(|entry| entry.size)
+            .reduce(|acc, size| TerminalSize {
+                cols: acc.cols.min(size.cols),
+                rows: acc.rows.min(size.rows),
+            });
+
+        AttachmentUpdate {
+            candidate_size: next.filter(|next| *next != self.shared_size),
+            shared_size: next.unwrap_or(self.shared_size),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::time::Instant;
+
+    use super::{AttachmentRegistry, TerminalSize};
+
+    #[test]
+    fn attachment_registry_uses_smallest_visible_size() {
+        let mut registry = AttachmentRegistry::new(TerminalSize::default_pty());
+        let now = Instant::now();
+        registry.insert(1, now);
+        registry.insert(2, now);
+
+        let first = registry
+            .update(1, Some(TerminalSize::new(120, 40)), true)
+            .unwrap();
+        assert_eq!(first.candidate_size, Some(TerminalSize::new(120, 40)));
+        registry.commit_shared_size(first.shared_size);
+
+        let second = registry
+            .update(2, Some(TerminalSize::new(90, 30)), true)
+            .unwrap();
+        assert_eq!(second.candidate_size, Some(TerminalSize::new(90, 30)));
+        registry.commit_shared_size(second.shared_size);
+        assert_eq!(registry.shared_size(), TerminalSize::new(90, 30));
+    }
+
+    #[test]
+    fn attachment_registry_grows_when_smallest_client_disconnects() {
+        let mut registry = AttachmentRegistry::new(TerminalSize::new(90, 30));
+        let now = Instant::now();
+        registry.insert(1, now);
+        registry.insert(2, now);
+        let first = registry
+            .update(1, Some(TerminalSize::new(120, 40)), true)
+            .unwrap();
+        registry.commit_shared_size(first.shared_size);
+        let second = registry
+            .update(2, Some(TerminalSize::new(90, 30)), true)
+            .unwrap();
+        registry.commit_shared_size(second.shared_size);
+
+        let removed = registry.remove(2).unwrap();
+        assert_eq!(removed.candidate_size, Some(TerminalSize::new(120, 40)));
+        registry.commit_shared_size(removed.shared_size);
+        assert_eq!(registry.shared_size(), TerminalSize::new(120, 40));
+    }
+
+    #[test]
+    fn attachment_registry_ignores_hidden_clients() {
+        let mut registry = AttachmentRegistry::new(TerminalSize::new(120, 40));
+        let now = Instant::now();
+        registry.insert(1, now);
+        registry.insert(2, now);
+        let first = registry
+            .update(1, Some(TerminalSize::new(120, 40)), true)
+            .unwrap();
+        registry.commit_shared_size(first.shared_size);
+        let second = registry
+            .update(2, Some(TerminalSize::new(80, 20)), false)
+            .unwrap();
+        assert_eq!(second.candidate_size, None);
+
+        assert_eq!(registry.shared_size(), TerminalSize::new(120, 40));
+    }
+
+    #[test]
+    fn attachment_registry_preserves_size_without_visible_clients() {
+        let mut registry = AttachmentRegistry::new(TerminalSize::new(90, 30));
+        let now = Instant::now();
+        registry.insert(1, now);
+        let first = registry
+            .update(1, Some(TerminalSize::new(90, 30)), true)
+            .unwrap();
+        registry.commit_shared_size(first.shared_size);
+
+        let hidden = registry.update(1, None, false).unwrap();
+        assert_eq!(hidden.candidate_size, None);
+        assert_eq!(registry.shared_size(), TerminalSize::new(90, 30));
+    }
+
+    #[test]
+    fn attachment_registry_does_not_commit_candidate_until_explicitly_applied() {
+        let mut registry = AttachmentRegistry::new(TerminalSize::new(120, 40));
+        let now = Instant::now();
+        registry.insert(1, now);
+        registry.insert(2, now);
+
+        let first = registry
+            .update(1, Some(TerminalSize::new(120, 40)), true)
+            .unwrap();
+        registry.commit_shared_size(first.shared_size);
+
+        let second = registry
+            .update(2, Some(TerminalSize::new(90, 30)), true)
+            .unwrap();
+        assert_eq!(second.candidate_size, Some(TerminalSize::new(90, 30)));
+        assert_eq!(registry.shared_size(), TerminalSize::new(120, 40));
+    }
+
+    #[test]
+    fn attachment_registry_starts_fresh_and_becomes_stale_after_timeout() {
+        let mut registry = AttachmentRegistry::new(TerminalSize::default_pty());
+        let now = Instant::now();
+        registry.insert(1, now);
+
+        assert!(!registry.is_stale(1, now + Duration::from_secs(44), Duration::from_secs(45)));
+        assert!(registry.is_stale(1, now + Duration::from_secs(45), Duration::from_secs(45)));
+    }
+
+    #[test]
+    fn attachment_registry_touch_refreshes_last_seen() {
+        let mut registry = AttachmentRegistry::new(TerminalSize::default_pty());
+        let now = Instant::now();
+        registry.insert(1, now);
+
+        assert!(registry.touch(1, now + Duration::from_secs(20)));
+        assert!(!registry.is_stale(1, now + Duration::from_secs(64), Duration::from_secs(45)));
+        assert!(registry.is_stale(1, now + Duration::from_secs(65), Duration::from_secs(45)));
+    }
+
+    #[test]
+    fn hidden_stale_attachment_detaches_without_changing_shared_size() {
+        let mut registry = AttachmentRegistry::new(TerminalSize::new(120, 40));
+        let now = Instant::now();
+        registry.insert(1, now);
+        registry.insert(2, now);
+
+        let visible = registry
+            .update(1, Some(TerminalSize::new(120, 40)), true)
+            .unwrap();
+        registry.commit_shared_size(visible.shared_size);
+
+        registry
+            .update(2, Some(TerminalSize::new(80, 20)), false)
+            .unwrap();
+
+        assert!(registry.is_stale(2, now + Duration::from_secs(45), Duration::from_secs(45)));
+
+        let removed = registry.remove(2).unwrap();
+        assert_eq!(removed.candidate_size, None);
+        assert_eq!(registry.shared_size(), TerminalSize::new(120, 40));
     }
 }

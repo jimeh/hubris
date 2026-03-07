@@ -8,7 +8,18 @@
   } from "$lib/contracts/ws.generated";
   import { getThemeStore } from "$lib/stores/theme.svelte";
   import { getTerminalStore } from "$lib/stores/terminal.svelte";
-  import type { TerminalAdapter } from "$lib/terminal/adapter";
+  import type {
+    TerminalAdapter,
+    TerminalViewport,
+  } from "$lib/terminal/adapter";
+  import {
+    buildTerminalViewportMessage,
+    shouldApplyTerminalViewport,
+  } from "$lib/terminal/viewport";
+  import {
+    shouldFlushBufferedInputAfterResize,
+    shouldKeepBufferedInputQueued,
+  } from "$lib/terminal/reconnect";
 
   let {
     tabId,
@@ -35,6 +46,10 @@
   let reconnectDelay = 100;
   let everConnected = $state(false);
   let connected = $state(false);
+  let localViewport: TerminalViewport | null = null;
+  let appliedViewport: TerminalViewport | null = null;
+  let lastSentViewport = "";
+  let flushInputAfterResize = false;
 
   const RECONNECT_DELAY_INITIAL = 100;
   const RECONNECT_DELAY_MAX = 5000;
@@ -42,10 +57,77 @@
 
   const encoder = new TextEncoder();
 
-  function sendControlMessage(message: ClientControlMessage) {
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(message));
+  function measureViewport(): TerminalViewport | null {
+    if (!terminal) return null;
+
+    const viewport = terminal.measureViewport();
+    if (viewport) {
+      localViewport = viewport;
     }
+
+    return viewport;
+  }
+
+  function applyPtySize(cols: number, rows: number) {
+    if (!terminal) return;
+    const nextViewport = { cols, rows };
+    if (!shouldApplyTerminalViewport(appliedViewport, nextViewport)) {
+      return;
+    }
+
+    terminal.resize(cols, rows);
+    appliedViewport = nextViewport;
+  }
+
+  function buildViewportMessage(): ClientControlMessage | null {
+    const { localViewport: nextLocalViewport, message } =
+      buildTerminalViewportMessage({
+        visible,
+        measuredViewport: measureViewport(),
+        localViewport,
+        appliedViewport,
+      });
+
+    localViewport = nextLocalViewport;
+    return message;
+  }
+
+  function flushBufferedInput() {
+    if (ws?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    for (const chunk of inputBuffer) {
+      ws.send(chunk);
+    }
+    inputBuffer = [];
+    flushInputAfterResize = false;
+  }
+
+  function sendResize(force = false): boolean {
+    const message = buildViewportMessage();
+    if (!message) return false;
+
+    const serialized = JSON.stringify(message);
+    if (!force && serialized === lastSentViewport) {
+      return false;
+    }
+
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(serialized);
+      lastSentViewport = serialized;
+      if (
+        shouldFlushBufferedInputAfterResize(
+          flushInputAfterResize,
+          inputBuffer.length > 0,
+        )
+      ) {
+        flushBufferedInput();
+      }
+      return true;
+    }
+
+    return false;
   }
 
   function connectWs() {
@@ -63,17 +145,24 @@
       connected = true;
       everConnected = true;
       reconnectDelay = RECONNECT_DELAY_INITIAL;
+      lastSentViewport = "";
+      flushInputAfterResize = inputBuffer.length > 0;
 
-      // Send current terminal dimensions
-      sendResize();
-
-      // Flush buffered input
-      for (const chunk of inputBuffer) {
-        ws!.send(chunk);
+      if (!sendResize(true)) {
+        flushInputAfterResize = shouldKeepBufferedInputQueued(
+          false,
+          inputBuffer.length > 0,
+        );
+        requestAnimationFrame(() => {
+          if (sendResize(true) && visible) {
+            terminal?.focus();
+          } else if (visible) {
+            terminal?.focus();
+          }
+        });
+      } else if (visible) {
+        terminal?.focus();
       }
-      inputBuffer = [];
-
-      terminal!.focus();
     };
 
     ws.onmessage = (ev) => {
@@ -87,10 +176,15 @@
               return;
             }
             case "attached": {
+              applyPtySize(msg.cols, msg.rows);
               bytePosition = msg.byte_offset;
               if (msg.data_lost) {
                 terminal!.clear();
               }
+              return;
+            }
+            case "pty_resized": {
+              applyPtySize(msg.cols, msg.rows);
               return;
             }
           }
@@ -99,7 +193,6 @@
         }
       }
 
-      // Binary PTY data
       const data = new Uint8Array(ev.data);
       terminal!.write(data);
       bytePosition += data.byteLength;
@@ -141,15 +234,6 @@
     }
   }
 
-  function sendResize() {
-    if (!terminal) return;
-    sendControlMessage({
-      type: "resize",
-      cols: terminal.cols,
-      rows: terminal.rows,
-    });
-  }
-
   onMount(() => {
     terminal = createXtermAdapter({
       fontSize: termStore.fontSize,
@@ -161,10 +245,8 @@
     connectWs();
 
     const resizeObserver = new ResizeObserver(() => {
-      if (visible) {
-        terminal!.fit();
-        sendResize();
-      }
+      void measureViewport();
+      sendResize();
     });
     resizeObserver.observe(containerEl);
 
@@ -173,30 +255,29 @@
     };
   });
 
-  // Fit when tab becomes visible
   $effect(() => {
-    if (visible && terminal) {
-      requestAnimationFrame(() => {
-        terminal!.fit();
+    if (!terminal) return;
+
+    requestAnimationFrame(() => {
+      void measureViewport();
+      sendResize(true);
+      if (visible) {
         terminal!.focus();
-      });
-    }
+      }
+    });
   });
 
-  // Refresh terminal theme when theme changes
   $effect(() => {
     void theme.version;
     if (terminal) terminal.refreshTheme();
   });
 
-  // Update terminal font when settings change
   $effect(() => {
     void termStore.version;
     if (terminal) {
       terminal.updateFont(termStore.fontFamily, termStore.fontSize);
-      // Notify PTY of new dimensions — font change
-      // alters cols/rows via fitAddon.fit()
-      sendResize();
+      void measureViewport();
+      sendResize(true);
     }
   });
 
@@ -223,12 +304,14 @@
     position: relative;
     width: 100%;
     height: 100%;
+    overflow: hidden;
     background: var(--terminal-background);
   }
 
   .terminal-container {
     width: 100%;
     height: 100%;
+    overflow: hidden;
     background: var(--terminal-background);
   }
 
