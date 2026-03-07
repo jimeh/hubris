@@ -129,6 +129,13 @@ reconciliation — drift corrects on reconnect.
 
 ## Gotchas
 
+- **Do NOT modify shadcn components**: Files under
+  `frontend/src/lib/components/ui/` are installed by shadcn-svelte and
+  should be treated as managed vendor code. Editing them makes future
+  `npx shadcn-svelte@latest update` runs painful (manual conflict
+  resolution). Put customizations in wrapper components or app-level
+  code instead.
+
 - **SSE init ordering**: All store handlers must be registered before
   `EventClient.connect()` — snapshot fires immediately on connect.
   In App.svelte: call `getProjectStore()`, `getWorktreeStore()`, and
