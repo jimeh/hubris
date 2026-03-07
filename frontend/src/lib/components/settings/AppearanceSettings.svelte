@@ -1,9 +1,7 @@
 <script lang="ts">
   import { Button } from "$lib/components/ui/button/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
-  import { Separator } from "$lib/components/ui/separator/index.js";
   import { getThemeStore } from "$lib/stores/theme.svelte";
-  import ThemeManager from "../ThemeManager.svelte";
   import ThemeSelect from "../ThemeSelect.svelte";
   import { Sun, Moon, Monitor } from "@lucide/svelte";
 
@@ -84,12 +82,4 @@
         )}
     />
   {/if}
-</section>
-
-<Separator />
-
-<!-- Manage Themes -->
-<section class="space-y-3">
-  <h3 class="text-sm font-medium">Manage Themes</h3>
-  <ThemeManager />
 </section>

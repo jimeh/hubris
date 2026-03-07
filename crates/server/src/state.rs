@@ -32,10 +32,6 @@ impl AppState {
         self.data_dir.join("projects.json")
     }
 
-    pub fn themes_dir(&self) -> PathBuf {
-        self.data_dir.join("themes")
-    }
-
     pub fn project_meta_dir(&self) -> PathBuf {
         self.data_dir.join("project-meta")
     }

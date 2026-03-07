@@ -42,7 +42,16 @@
       Customize your settings here.
     </Dialog.Description>
     <Sidebar.Provider class="items-start">
-      <Sidebar.Root collapsible="none" class="hidden md:flex">
+      <Sidebar.Root
+        collapsible="none"
+        class="hidden border-r border-sidebar-border md:flex"
+      >
+        <Sidebar.Header
+          class="h-12 justify-center gap-0 border-b border-sidebar-border
+            px-4 py-0"
+        >
+          <h2 class="text-base font-semibold">Settings</h2>
+        </Sidebar.Header>
         <Sidebar.Content>
           <Sidebar.Group>
             <Sidebar.GroupContent>
@@ -51,6 +60,7 @@
                   <Sidebar.MenuItem>
                     <Sidebar.MenuButton
                       isActive={activeSection === item.name}
+                      class="data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground"
                       onclick={() => {
                         activeSection = item.name;
                       }}
@@ -73,10 +83,6 @@
           <!-- Desktop: breadcrumb -->
           <Breadcrumb.Root class="hidden md:block">
             <Breadcrumb.List>
-              <Breadcrumb.Item>
-                <Breadcrumb.Link href="##">Settings</Breadcrumb.Link>
-              </Breadcrumb.Item>
-              <Breadcrumb.Separator />
               <Breadcrumb.Item>
                 <Breadcrumb.Page>
                   {activeSection}

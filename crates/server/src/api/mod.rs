@@ -5,5 +5,4 @@ pub mod projects;
 pub mod settings;
 pub mod tabs;
 pub mod terminal;
-pub mod themes;
 pub mod worktrees;

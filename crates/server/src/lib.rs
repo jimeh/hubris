@@ -19,7 +19,6 @@ use api::projects::{add_project, delete_project, list_projects, reorder_projects
 use api::settings::{get_settings, save_settings};
 use api::tabs::{create_tab, delete_tab, list_tabs, reorder_tabs, update_tab};
 use api::terminal::ws_handler;
-use api::themes::{create_theme, delete_theme, get_theme, list_themes};
 use api::worktrees::{
     create_project_worktree, delete_project_worktree, list_project_worktree_start_points,
     list_project_worktrees, reorder_project_worktrees,
@@ -147,9 +146,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/tabs/{id}", delete(delete_tab).patch(update_tab))
         .route("/events", get(event_stream))
         .route("/terminal/ws", get(ws_handler))
-        .route("/settings", get(get_settings).put(save_settings))
-        .route("/themes", get(list_themes).post(create_theme))
-        .route("/themes/{id}", get(get_theme).delete(delete_theme));
+        .route("/settings", get(get_settings).put(save_settings));
 
     let cors = if cfg!(debug_assertions) {
         CorsLayer::new()

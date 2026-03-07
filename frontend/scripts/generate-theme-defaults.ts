@@ -8,53 +8,43 @@
  * Usage: bun run scripts/generate-theme-defaults.ts
  */
 
-import { catppuccinLatte, catppuccinMocha } from "../src/lib/theme/builtin";
+import { hubrisLight, hubrisDark } from "../src/lib/theme/builtin";
 import {
-  hexToOklch,
-  UI_TOKEN_MAP,
-  TERMINAL_TOKEN_MAP,
-} from "../src/lib/theme/convert";
-import type { HubrisTheme } from "../src/lib/theme/types";
-
-function resolve(
-  colors: Record<string, string>,
-  keys: string[],
-): string | undefined {
-  for (const key of keys) {
-    if (colors[key]) return colors[key];
-  }
-  return undefined;
-}
+  TERMINAL_THEME_TOKENS,
+  UI_THEME_TOKENS,
+  type HubrisTheme,
+} from "../src/lib/theme/types";
 
 function generateBlock(theme: HubrisTheme): string {
   const lines: string[] = [];
 
   let prevGroup = "";
-  for (const [primary, cssVar, ...fallbacks] of UI_TOKEN_MAP) {
-    const hex = resolve(theme.colors, [primary, ...fallbacks]);
-    if (hex) {
-      const group = cssVar.startsWith("--sidebar")
-        ? "sidebar"
-        : cssVar.startsWith("--tab")
-          ? "tab"
-          : "core";
-      if (group !== prevGroup && prevGroup) lines.push("");
-      prevGroup = group;
-      lines.push(`  ${cssVar}: ${hexToOklch(hex)};`);
-    }
+  for (const token of UI_THEME_TOKENS) {
+    const cssVar = `--${token}`;
+    const group = cssVar.startsWith("--sidebar")
+      ? "sidebar"
+      : cssVar.startsWith("--tab")
+        ? "tab"
+        : cssVar.startsWith("--chart")
+          ? "chart"
+          : cssVar.startsWith("--quick-input")
+            ? "quick-input"
+            : "core";
+    if (group !== prevGroup && prevGroup) lines.push("");
+    prevGroup = group;
+    lines.push(`  ${cssVar}: ${theme.tokens[token]};`);
   }
 
   lines.push("");
-  for (const [primary, cssVar, ...fallbacks] of TERMINAL_TOKEN_MAP) {
-    const hex = resolve(theme.colors, [primary, ...fallbacks]);
-    if (hex) lines.push(`  ${cssVar}: ${hex};`);
+  for (const token of TERMINAL_THEME_TOKENS) {
+    lines.push(`  --${token}: ${theme.tokens[token]};`);
   }
 
   return lines.join("\n");
 }
 
-const lightBlock = generateBlock(catppuccinLatte);
-const darkBlock = generateBlock(catppuccinMocha);
+const lightBlock = generateBlock(hubrisLight);
+const darkBlock = generateBlock(hubrisDark);
 
 console.log(`/* Auto-generated from builtin themes — do not edit. */
 /* Run: bun run generate:theme-defaults */

@@ -470,8 +470,8 @@ describe("API client", () => {
       const mockSettings = {
         appearance: {
           colorScheme: "dark",
-          lightTheme: "catppuccin-latte",
-          darkTheme: "catppuccin-mocha",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
         },
       };
       vi.stubGlobal(
@@ -512,8 +512,8 @@ describe("API client", () => {
 
       const appearance = {
         colorScheme: "dark" as const,
-        lightTheme: "catppuccin-latte",
-        darkTheme: "catppuccin-mocha",
+        lightTheme: "hubris-light",
+        darkTheme: "hubris-dark",
       };
       await saveSettings({ appearance });
 
@@ -548,8 +548,8 @@ describe("API client", () => {
       const existingSettings = {
         appearance: {
           colorScheme: "dark",
-          lightTheme: "catppuccin-latte",
-          darkTheme: "catppuccin-mocha",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
         },
       };
 

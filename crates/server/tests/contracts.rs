@@ -37,8 +37,12 @@ fn openapi_contains_core_paths_and_schemas() {
     assert!(spec["paths"]["/api/projects"].is_object());
     assert!(spec["paths"]["/api/tabs"].is_object());
     assert!(spec["paths"]["/api/openapi.json"].is_object());
+    assert!(spec["paths"]["/api/themes"].is_null());
+    assert!(spec["paths"]["/api/themes/{id}"].is_null());
 
     assert!(spec["components"]["schemas"]["Project"].is_object());
     assert!(spec["components"]["schemas"]["Worktree"].is_object());
     assert!(spec["components"]["schemas"]["TabInfo"].is_object());
+    assert!(spec["components"]["schemas"]["ThemeMeta"].is_null());
+    assert!(spec["components"]["schemas"]["ThemeFile"].is_null());
 }

@@ -45,6 +45,7 @@ or `pnpm-lock.yaml`. Using npm or pnpm will fail or create wrong lockfiles.
 ## Architecture
 
 ### Connection Model
+
 One SSE stream (state sync) + N WebSocket connections (PTY I/O) per
 browser. WS attaches to existing LiveTab; does NOT kill PTY on
 disconnect. WS auto-reconnects with exponential backoff and resumable
@@ -52,11 +53,13 @@ byte-position tracking (`resume_from` query param). Input buffered
 client-side while disconnected.
 
 ### State Sync
+
 SSE snapshot on connect, incremental events for changes. EventSource
 auto-reconnects; server re-snapshots on reconnect. No periodic
 reconciliation — drift corrects on reconnect.
 
 ### Backend (Rust / Axum)
+
 - State: grep for `AppState` — DashMap for tabs, EventBus for SSE
 - Persistence: JSON file. Dev: `~/.hubris-dev/`, prod: `~/.hubris/`
 - PTY: portable-pty, shell from `$SHELL` or `/bin/sh`
@@ -68,6 +71,7 @@ reconciliation — drift corrects on reconnect.
   project_worktrees_updated
 
 ### Frontend (Svelte 5 / Vite / Tailwind v4)
+
 - Stores: rune-based singletons — grep `getProjectStore`,
   `getWorktreeStore`, `getTabStore`, `getThemeStore`,
   `getTerminalStore`, `getWorktreeSettingsStore`
@@ -82,6 +86,7 @@ reconciliation — drift corrects on reconnect.
   (`hubris-selected-worktree`). Worktree CRUD via REST under
   `/api/projects/:id/worktrees`.
 - UI primitives: shadcn-svelte (Bits UI) — grep `components/ui/`
+  - Please see shadcn-svelte docs here: <https://www.shadcn-svelte.com/llms.txt>
 - Sidebar decomposition: `AppSidebar.svelte` is a thin shell; sub-components
   live in `components/sidebar/` (ProjectList, ProjectItem, WorktreeList,
   WorktreeItem, LocalWorktreeItem, ProjectActionMenu, SidebarDialogs).
@@ -96,12 +101,11 @@ reconciliation — drift corrects on reconnect.
   Font registry in `terminal/fonts.ts` (bundled Nerd Fonts, dynamic
   @font-face injection). Terminal settings store manages font source
   (default/system/bundled), font family, and font size.
-- Theme engine: VS Code color theme format, culori hex→OKLCH conversion.
-  Built-in Catppuccin themes in `theme/builtin.ts`, converter in
-  `theme/convert.ts`, parser in `theme/parse.ts`. Settings + user themes
-  persisted via REST (`/api/settings`, `/api/themes`).
-  `GET /api/themes` returns metadata only; full theme fetched lazily via
-  `GET /api/themes/:id` on selection.
+- Theme engine: native Hubris theme definitions authored as explicit
+  shadcn-style tokens in `theme/builtin.ts` and applied by
+  `theme/convert.ts`. Built-ins currently ship as `hubris-light` and
+  `hubris-dark` only; theme selection is persisted via `/api/settings`.
+  There is no active `/api/themes` import/storage flow right now.
 - Project store: expanded/collapsed state persisted to localStorage
   (`hubris-expanded-projects`), restored on page load.
 - FOUC prevention: inline script in `index.html` reads localStorage
@@ -157,6 +161,11 @@ reconciliation — drift corrects on reconnect.
 - **Settings save is read-modify-write**: `saveSettings` in `api.ts`
   GETs current settings before PUTting merged result. This prevents
   theme and terminal stores from clobbering each other's sections.
+- **Appearance settings still store per-mode theme IDs**:
+  `lightTheme`/`darkTheme` remain in settings even though only built-in
+  Hubris themes are selectable right now. Theme store init coerces
+  legacy or unknown IDs back to `hubris-light` / `hubris-dark` and
+  persists that correction when the server is reachable.
 - **Bundled fonts**: 16 woff2 files in `frontend/public/fonts/`,
   downloaded via `mise run download:fonts`. Committed to git. Fonts
   are loaded on-demand via dynamic @font-face when user selects a

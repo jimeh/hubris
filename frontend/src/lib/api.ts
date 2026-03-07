@@ -2,9 +2,7 @@ import type { ListFilesResponse, Project, Tab, Worktree } from "./types";
 import type { components } from "$lib/contracts/rest.generated";
 import type {
   AppearanceSettings,
-  HubrisTheme,
   TerminalSettings,
-  ThemeMeta,
   WorktreeSettings,
 } from "./theme/types";
 
@@ -262,34 +260,4 @@ export async function saveSettings(partial: {
   if (partial.terminal) {
     localStorage.setItem("hubris-terminal", JSON.stringify(partial.terminal));
   }
-}
-
-// --- User Themes ---
-
-export async function listUserThemes(): Promise<ThemeMeta[]> {
-  const res = await fetch(`${BASE}/themes`);
-  if (!res.ok) throw new Error(`${res.status}`);
-  return res.json();
-}
-
-export async function getUserTheme(id: string): Promise<HubrisTheme> {
-  const res = await fetch(`${BASE}/themes/${id}`);
-  if (!res.ok) throw new Error(`${res.status}`);
-  return res.json();
-}
-
-export async function uploadUserTheme(theme: HubrisTheme): Promise<void> {
-  const res = await fetch(`${BASE}/themes`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(theme),
-  });
-  if (!res.ok) throw new Error(`${res.status}`);
-}
-
-export async function deleteUserTheme(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/themes/${id}`, {
-    method: "DELETE",
-  });
-  if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
 }

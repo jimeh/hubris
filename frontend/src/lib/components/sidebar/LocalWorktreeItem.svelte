@@ -13,7 +13,7 @@
     gap-1 rounded-md px-2 py-1 text-left text-sm
     hover:bg-sidebar-accent
     {isSelected
-    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+    ? 'bg-sidebar-primary text-sidebar-primary-foreground'
     : 'text-sidebar-foreground/80'}"
   onclick={() => onSelect()}
 >

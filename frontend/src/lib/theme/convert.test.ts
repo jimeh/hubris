@@ -1,54 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
-  hexToOklch,
   applyTheme,
   clearTheme,
   computeThemeVars,
   applyComputedVars,
 } from "./convert";
-import type { HubrisTheme } from "./types";
-
-describe("hexToOklch", () => {
-  it("converts black hex to oklch", () => {
-    const result = hexToOklch("#000000");
-    expect(result).toMatch(/oklch/);
-    expect(result).toContain("0");
-  });
-
-  it("converts white hex to oklch", () => {
-    const result = hexToOklch("#ffffff");
-    expect(result).toMatch(/oklch/);
-  });
-
-  it("converts a Catppuccin color correctly", () => {
-    const result = hexToOklch("#1e1e2e");
-    expect(result).toMatch(/oklch/);
-  });
-
-  it("preserves alpha in hex colors", () => {
-    const result = hexToOklch("#585b7066");
-    expect(result).toMatch(/oklch/);
-  });
-
-  it("passes through unparseable values", () => {
-    expect(hexToOklch("not-a-color")).toBe("not-a-color");
-  });
-});
+import { hubrisDark, hubrisLight } from "./builtin";
+import { ALL_THEME_TOKENS } from "./types";
 
 describe("applyTheme / clearTheme", () => {
-  const minimalTheme: HubrisTheme = {
-    id: "test-dark",
-    name: "Test Dark",
-    type: "dark",
-    colors: {
-      "editor.background": "#1e1e2e",
-      "editor.foreground": "#cdd6f4",
-      "terminal.background": "#1e1e2e",
-      "terminal.foreground": "#cdd6f4",
-    },
-  };
-
   beforeEach(() => {
     // Reset document state
     document.documentElement.className = "";
@@ -61,32 +22,40 @@ describe("applyTheme / clearTheme", () => {
   });
 
   it("adds dark class for dark themes", () => {
-    applyTheme(minimalTheme);
+    applyTheme(hubrisDark);
     expect(document.documentElement.classList.contains("dark")).toBe(true);
   });
 
   it("removes dark class for light themes", () => {
     document.documentElement.classList.add("dark");
-    applyTheme({ ...minimalTheme, type: "light" });
+    applyTheme(hubrisLight);
     expect(document.documentElement.classList.contains("dark")).toBe(false);
   });
 
-  it("sets UI CSS variables as oklch", () => {
-    applyTheme(minimalTheme);
+  it("sets native UI and chart tokens", () => {
+    applyTheme(hubrisDark);
     const bg = document.documentElement.style.getPropertyValue("--background");
-    expect(bg).toMatch(/oklch/);
+    expect(bg).toBe(hubrisDark.tokens.background);
+    expect(document.documentElement.style.getPropertyValue("--chart-3")).toBe(
+      hubrisDark.tokens["chart-3"],
+    );
+    expect(
+      document.documentElement.style.getPropertyValue(
+        "--destructive-foreground",
+      ),
+    ).toBe(hubrisDark.tokens["destructive-foreground"]);
   });
 
   it("sets terminal CSS variables as hex", () => {
-    applyTheme(minimalTheme);
+    applyTheme(hubrisDark);
     const termBg = document.documentElement.style.getPropertyValue(
       "--terminal-background",
     );
-    expect(termBg).toBe("#1e1e2e");
+    expect(termBg).toBe(hubrisDark.tokens["terminal-background"]);
   });
 
   it("clearTheme removes all overrides", () => {
-    applyTheme(minimalTheme);
+    applyTheme(hubrisDark);
     clearTheme();
     const bg = document.documentElement.style.getPropertyValue("--background");
     expect(bg).toBe("");
@@ -98,59 +67,25 @@ describe("applyTheme / clearTheme", () => {
 });
 
 describe("computeThemeVars", () => {
-  const minimalTheme: HubrisTheme = {
-    id: "test-dark",
-    name: "Test Dark",
-    type: "dark",
-    colors: {
-      "editor.background": "#1e1e2e",
-      "editor.foreground": "#cdd6f4",
-      "terminal.background": "#1e1e2e",
-      "terminal.foreground": "#cdd6f4",
-    },
-  };
-
   it("returns isDark true for dark themes", () => {
-    const result = computeThemeVars(minimalTheme);
+    const result = computeThemeVars(hubrisDark);
     expect(result.isDark).toBe(true);
   });
 
   it("returns isDark false for light themes", () => {
-    const result = computeThemeVars({ ...minimalTheme, type: "light" });
+    const result = computeThemeVars(hubrisLight);
     expect(result.isDark).toBe(false);
   });
 
-  it("converts UI tokens to oklch", () => {
-    const result = computeThemeVars(minimalTheme);
-    expect(result.vars["--background"]).toMatch(/oklch/);
-  });
-
-  it("keeps terminal tokens as hex", () => {
-    const result = computeThemeVars(minimalTheme);
-    expect(result.vars["--terminal-background"]).toBe("#1e1e2e");
-  });
-
-  it("resolves fallback keys", () => {
-    const result = computeThemeVars(minimalTheme);
-    // --foreground falls back to 'foreground' key, but
-    // editor.foreground is the primary for this entry
-    expect(result.vars["--foreground"]).toMatch(/oklch/);
-  });
-
-  it("keeps quick input focus background distinct via fallback chain", () => {
-    const result = computeThemeVars({
-      ...minimalTheme,
-      colors: {
-        ...minimalTheme.colors,
-        "editorWidget.background": "#111111",
-        "list.activeSelectionBackground": "#2a2a2a",
-        "list.hoverBackground": "#111111",
-      },
-    });
-
-    expect(result.vars["--quick-input-background"]).toBe(hexToOklch("#111111"));
-    expect(result.vars["--quick-input-focus-background"]).toBe(
-      hexToOklch("#2a2a2a"),
+  it("writes the complete native token set", () => {
+    const result = computeThemeVars(hubrisDark);
+    expect(Object.keys(result.vars)).toHaveLength(ALL_THEME_TOKENS.length);
+    expect(result.vars["--sidebar-accent"]).toBe(
+      hubrisDark.tokens["sidebar-accent"],
+    );
+    expect(result.vars["--tab-border"]).toBe(hubrisDark.tokens["tab-border"]);
+    expect(result.vars["--terminal-background"]).toBe(
+      hubrisDark.tokens["terminal-background"],
     );
   });
 });

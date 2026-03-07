@@ -1,4 +1,3 @@
-import { SvelteMap } from "svelte/reactivity";
 import {
   clearTheme,
   computeThemeVars,
@@ -10,26 +9,17 @@ import type {
   AppearanceSettings,
   HubrisTheme,
   ThemeListEntry,
-  ThemeMeta,
 } from "$lib/theme/types";
-import {
-  getSettings,
-  saveSettings,
-  listUserThemes,
-  getUserTheme,
-  uploadUserTheme,
-  deleteUserTheme,
-} from "$lib/api";
+import { getSettings, saveSettings } from "$lib/api";
 
 const DEFAULTS: AppearanceSettings = {
   colorScheme: "auto",
-  lightTheme: "catppuccin-latte",
-  darkTheme: "catppuccin-mocha",
+  lightTheme: "hubris-light",
+  darkTheme: "hubris-dark",
 };
 
 let settings = $state<AppearanceSettings>({ ...DEFAULTS });
-let userThemeMetas = $state<ThemeMeta[]>([]);
-const userThemeCache = new SvelteMap<string, HubrisTheme>();
+const builtinsById = new Map(builtinThemes.map((theme) => [theme.id, theme]));
 let appliedTheme = $state<HubrisTheme | null>(null);
 let version = $state(0);
 
@@ -42,33 +32,51 @@ window
   .matchMedia("(prefers-color-scheme: dark)")
   .addEventListener("change", (e) => {
     prefersLight = !e.matches;
-    void applyActiveTheme();
+    applyActiveTheme();
   });
 
 function allThemeEntries(): ThemeListEntry[] {
-  return [...builtinThemes, ...userThemeMetas];
+  return [...builtinThemes];
 }
 
 function resolveThemeSync(id: string): HubrisTheme | undefined {
-  const builtin = builtinThemes.find((t) => t.id === id);
-  if (builtin) return builtin;
-  return userThemeCache.get(id);
+  return builtinsById.get(id);
 }
 
-async function resolveTheme(id: string): Promise<HubrisTheme | undefined> {
-  const cached = resolveThemeSync(id);
-  if (cached) return cached;
-  if (!userThemeMetas.find((m) => m.id === id)) return undefined;
-  try {
-    const theme = await getUserTheme(id);
-    userThemeCache.set(id, theme);
-    return theme;
-  } catch {
-    return undefined;
+function normalizeSettings(candidate: AppearanceSettings): {
+  settings: AppearanceSettings;
+  changed: boolean;
+} {
+  let changed = false;
+  let colorScheme = candidate.colorScheme;
+  if (!["auto", "light", "dark"].includes(colorScheme)) {
+    colorScheme = DEFAULTS.colorScheme;
+    changed = true;
   }
+
+  let lightTheme = candidate.lightTheme;
+  if (resolveThemeSync(lightTheme)?.type !== "light") {
+    lightTheme = DEFAULTS.lightTheme;
+    changed = true;
+  }
+
+  let darkTheme = candidate.darkTheme;
+  if (resolveThemeSync(darkTheme)?.type !== "dark") {
+    darkTheme = DEFAULTS.darkTheme;
+    changed = true;
+  }
+
+  return {
+    settings: {
+      colorScheme: colorScheme as AppearanceSettings["colorScheme"],
+      lightTheme,
+      darkTheme,
+    },
+    changed,
+  };
 }
 
-async function getActiveTheme(): Promise<HubrisTheme> {
+function getActiveTheme(): HubrisTheme {
   const wantLight =
     settings.colorScheme === "light" ||
     (settings.colorScheme === "auto" && prefersLight);
@@ -76,14 +84,14 @@ async function getActiveTheme(): Promise<HubrisTheme> {
   const id = wantLight ? settings.lightTheme : settings.darkTheme;
 
   return (
-    (await resolveTheme(id)) ??
-    (await resolveTheme(wantLight ? DEFAULTS.lightTheme : DEFAULTS.darkTheme))!
+    resolveThemeSync(id) ??
+    resolveThemeSync(wantLight ? DEFAULTS.lightTheme : DEFAULTS.darkTheme)!
   );
 }
 
-async function applyActiveTheme() {
+function applyActiveTheme() {
   clearTheme();
-  const theme = await getActiveTheme();
+  const theme = getActiveTheme();
   applyComputedVars(computeThemeVars(theme));
   appliedTheme = theme;
   version++;
@@ -113,56 +121,48 @@ function cacheThemeVars() {
   }
 }
 
-/** Load settings from server + user themes list. */
+/** Load settings from server and apply the active built-in theme. */
 async function init() {
+  let shouldPersistNormalized = false;
   try {
-    const [s, metas] = await Promise.all([getSettings(), listUserThemes()]);
+    const s = await getSettings();
     if (s.appearance) {
-      settings = { ...DEFAULTS, ...s.appearance };
+      const normalized = normalizeSettings({ ...DEFAULTS, ...s.appearance });
+      settings = normalized.settings;
+      shouldPersistNormalized = normalized.changed;
     }
-    userThemeMetas = metas;
   } catch {
     // Server unreachable — try localStorage fallback
     try {
       const cached = localStorage.getItem("hubris-appearance");
       if (cached) {
-        settings = { ...DEFAULTS, ...JSON.parse(cached) };
+        settings = normalizeSettings({
+          ...DEFAULTS,
+          ...JSON.parse(cached),
+        }).settings;
       }
     } catch {
       // Corrupted cache — stay with defaults
     }
   }
-  await applyActiveTheme();
+  applyActiveTheme();
+  if (shouldPersistNormalized) {
+    try {
+      await saveSettings({
+        appearance: $state.snapshot(settings),
+      });
+    } catch {
+      // Settings save failed — keep normalized state in memory
+    }
+  }
 }
 
 async function updateSettings(partial: Partial<AppearanceSettings>) {
-  settings = { ...settings, ...partial };
-  await applyActiveTheme();
+  settings = normalizeSettings({ ...settings, ...partial }).settings;
+  applyActiveTheme();
   await saveSettings({
     appearance: $state.snapshot(settings),
   });
-}
-
-async function addUserTheme(theme: HubrisTheme): Promise<void> {
-  await uploadUserTheme(theme);
-  userThemeMetas = [
-    ...userThemeMetas,
-    { id: theme.id, name: theme.name, type: theme.type },
-  ];
-  userThemeCache.set(theme.id, theme);
-}
-
-async function removeUserTheme(id: string): Promise<void> {
-  await deleteUserTheme(id);
-  userThemeMetas = userThemeMetas.filter((t) => t.id !== id);
-  userThemeCache.delete(id);
-  // If active theme was deleted, revert to default
-  if (settings.lightTheme === id || settings.darkTheme === id) {
-    const updated: Partial<AppearanceSettings> = {};
-    if (settings.lightTheme === id) updated.lightTheme = DEFAULTS.lightTheme;
-    if (settings.darkTheme === id) updated.darkTheme = DEFAULTS.darkTheme;
-    await updateSettings(updated);
-  }
 }
 
 export function getThemeStore() {
@@ -184,7 +184,5 @@ export function getThemeStore() {
     },
     init,
     updateSettings,
-    addUserTheme,
-    removeUserTheme,
   };
 }
