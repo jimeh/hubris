@@ -50,6 +50,7 @@
   --color-tab-active-foreground: var(--tab-active-foreground);
   --color-tab-inactive-foreground: var(--tab-inactive-foreground);
   --color-tab-border: var(--tab-border);
+  --color-tab-active-border: var(--tab-active-border);
 
   --animate-collapsible-down: collapsible-down 150ms ease-out;
   --animate-collapsible-up: collapsible-up 150ms ease-out;
@@ -112,4 +113,11 @@
 .sidebar-resizing [data-slot="sidebar-gap"],
 .sidebar-resizing [data-slot="sidebar-container"] {
   transition: none !important;
+}
+
+/* Fix sidebar-inset overflow: shadcn sets w-full which ignores
+   the sidebar gap and causes horizontal page overflow. */
+[data-slot="sidebar-inset"] {
+  width: auto;
+  min-width: 0;
 }

@@ -49,6 +49,7 @@
   --tab-active-foreground: var(--color-gray-800);
   --tab-inactive-foreground: var(--color-gray-500);
   --tab-border: oklch(0.905 0.01 255);
+  --tab-active-border: oklch(0.617 0.136 258);
 
   --terminal-background: #f9fafb;
   --terminal-foreground: #2b3141;
@@ -120,6 +121,7 @@
   --tab-active-foreground: var(--color-slate-200);
   --tab-inactive-foreground: var(--color-gray-400);
   --tab-border: oklch(0.32 0.014 260);
+  --tab-active-border: oklch(0.73 0.118 257);
 
   --terminal-background: #14171d;
   --terminal-foreground: #d7dceb;
