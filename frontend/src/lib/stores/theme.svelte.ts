@@ -32,7 +32,7 @@ window
   .matchMedia("(prefers-color-scheme: dark)")
   .addEventListener("change", (e) => {
     prefersLight = !e.matches;
-    void applyActiveTheme();
+    applyActiveTheme();
   });
 
 function allThemeEntries(): ThemeListEntry[] {
@@ -76,7 +76,7 @@ function normalizeSettings(candidate: AppearanceSettings): {
   };
 }
 
-async function getActiveTheme(): Promise<HubrisTheme> {
+function getActiveTheme(): HubrisTheme {
   const wantLight =
     settings.colorScheme === "light" ||
     (settings.colorScheme === "auto" && prefersLight);
@@ -89,9 +89,9 @@ async function getActiveTheme(): Promise<HubrisTheme> {
   );
 }
 
-async function applyActiveTheme() {
+function applyActiveTheme() {
   clearTheme();
-  const theme = await getActiveTheme();
+  const theme = getActiveTheme();
   applyComputedVars(computeThemeVars(theme));
   appliedTheme = theme;
   version++;
@@ -145,7 +145,7 @@ async function init() {
       // Corrupted cache — stay with defaults
     }
   }
-  await applyActiveTheme();
+  applyActiveTheme();
   if (shouldPersistNormalized) {
     try {
       await saveSettings({
@@ -159,7 +159,7 @@ async function init() {
 
 async function updateSettings(partial: Partial<AppearanceSettings>) {
   settings = normalizeSettings({ ...settings, ...partial }).settings;
-  await applyActiveTheme();
+  applyActiveTheme();
   await saveSettings({
     appearance: $state.snapshot(settings),
   });
