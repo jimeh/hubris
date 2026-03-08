@@ -17,6 +17,7 @@ const terminalState = {
 };
 
 let resizeObserverCallback: ResizeObserverCallback | null = null;
+const mockCreateXtermAdapter = vi.fn();
 
 class ResizeObserverMock {
   constructor(callback: ResizeObserverCallback) {
@@ -71,7 +72,7 @@ class MockWebSocket {
 }
 
 vi.mock("@/lib/terminal/xterm", () => ({
-  createXtermAdapter: () => mockTerminal,
+  createXtermAdapter: (...args: unknown[]) => mockCreateXtermAdapter(...args),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -135,6 +136,8 @@ describe("TerminalTab", () => {
       updateFont: vi.fn(),
       dispose: vi.fn(),
     };
+    mockCreateXtermAdapter.mockReset();
+    mockCreateXtermAdapter.mockReturnValue(mockTerminal);
 
     window.ResizeObserver =
       ResizeObserverMock as unknown as typeof ResizeObserver;
@@ -331,5 +334,39 @@ describe("TerminalTab", () => {
     expect(window.cancelAnimationFrame).toHaveBeenCalledWith(42);
     expect(mockTerminal.dispose).toHaveBeenCalledTimes(1);
     expect(ws.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes the adapter and reconnects cleanly after remount", () => {
+    const firstRender = render(
+      <TerminalTab tabId="tab-1" visible onClosed={vi.fn()} />,
+    );
+
+    const firstSocket = MockWebSocket.instances[0];
+    act(() => {
+      firstSocket.open();
+    });
+
+    firstRender.unmount();
+
+    expect(mockCreateXtermAdapter).toHaveBeenCalledTimes(1);
+    expect(mockTerminal.open).toHaveBeenCalledTimes(1);
+    expect(mockTerminal.dispose).toHaveBeenCalledTimes(1);
+    expect(firstSocket.close).toHaveBeenCalledTimes(1);
+
+    render(<TerminalTab tabId="tab-1" visible onClosed={vi.fn()} />);
+
+    const secondSocket = MockWebSocket.instances[1];
+    act(() => {
+      secondSocket.open();
+    });
+
+    expect(mockCreateXtermAdapter).toHaveBeenCalledTimes(2);
+    expect(mockTerminal.open).toHaveBeenCalledTimes(2);
+    expect(parseControlMessage(secondSocket.sent[0])).toEqual({
+      type: "resize",
+      cols: 100,
+      rows: 30,
+      visible: true,
+    });
   });
 });

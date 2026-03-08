@@ -36,6 +36,16 @@ type UseTerminalConnectionResult = {
   sendResize: (force?: boolean) => boolean;
 };
 
+type ScheduledReconnect = {
+  generation: number;
+  timeoutId: ReturnType<typeof setTimeout>;
+} | null;
+
+type ConnectFrame = {
+  generation: number;
+  frameId: number;
+} | null;
+
 export function useTerminalConnection({
   tabId,
   visible,
@@ -44,10 +54,12 @@ export function useTerminalConnection({
   onClosed,
 }: UseTerminalConnectionArgs): UseTerminalConnectionResult {
   const wsRef = useRef<WebSocket | null>(null);
+  const connectionGenerationRef = useRef(0);
   const bytePositionRef = useRef(0);
   const inputBufferRef = useRef<Uint8Array[]>([]);
-  const intentionalCloseRef = useRef(false);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localCleanupRef = useRef(false);
+  const serverClosedRef = useRef(false);
+  const reconnectTimerRef = useRef<ScheduledReconnect>(null);
   const reconnectDelayRef = useRef(RECONNECT_DELAY_INITIAL);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const connectWsRef = useRef<() => void>(() => {});
@@ -57,7 +69,7 @@ export function useTerminalConnection({
   const appliedViewportRef = useRef<TerminalViewport | null>(null);
   const lastSentViewportRef = useRef("");
   const flushInputAfterResizeRef = useRef(false);
-  const connectFrameRef = useRef<number | null>(null);
+  const connectFrameRef = useRef<ConnectFrame>(null);
   const encoderRef = useRef(new TextEncoder());
 
   const [everConnected, setEverConnected] = useState(false);
@@ -67,6 +79,12 @@ export function useTerminalConnection({
     visibleRef.current = visible;
     onClosedRef.current = onClosed;
   }, [onClosed, visible]);
+
+  const isCurrentConnection = useCallback(
+    (ws: WebSocket, generation: number): boolean =>
+      wsRef.current === ws && connectionGenerationRef.current === generation,
+    [],
+  );
 
   const measureViewport = useCallback((): TerminalViewport | null => {
     const terminal = terminalRef.current;
@@ -156,11 +174,25 @@ export function useTerminalConnection({
   );
 
   const scheduleReconnect = useCallback((): void => {
-    if (intentionalCloseRef.current || reconnectTimerRef.current) {
+    if (
+      localCleanupRef.current ||
+      serverClosedRef.current ||
+      reconnectTimerRef.current
+    ) {
       return;
     }
 
-    reconnectTimerRef.current = setTimeout(() => {
+    const generation = connectionGenerationRef.current;
+    const timeoutId = setTimeout(() => {
+      if (
+        reconnectTimerRef.current?.generation !== generation ||
+        localCleanupRef.current ||
+        serverClosedRef.current ||
+        connectionGenerationRef.current !== generation
+      ) {
+        return;
+      }
+
       reconnectTimerRef.current = null;
       reconnectDelayRef.current = Math.min(
         reconnectDelayRef.current * RECONNECT_DELAY_MULTIPLIER,
@@ -168,10 +200,15 @@ export function useTerminalConnection({
       );
       connectWsRef.current();
     }, reconnectDelayRef.current);
+
+    reconnectTimerRef.current = {
+      generation,
+      timeoutId,
+    };
   }, []);
 
   const connectWs = useCallback((): void => {
-    if (intentionalCloseRef.current) {
+    if (localCleanupRef.current || serverClosedRef.current) {
       return;
     }
 
@@ -180,11 +217,22 @@ export function useTerminalConnection({
       url += `&resume_from=${bytePositionRef.current}`;
     }
 
+    const generation = connectionGenerationRef.current + 1;
+    connectionGenerationRef.current = generation;
+
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
+    if (connectFrameRef.current !== null) {
+      cancelAnimationFrame(connectFrameRef.current.frameId);
+      connectFrameRef.current = null;
+    }
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (!isCurrentConnection(ws, generation)) {
+        return;
+      }
+
       setConnected(true);
       setEverConnected(true);
       reconnectDelayRef.current = RECONNECT_DELAY_INITIAL;
@@ -192,25 +240,38 @@ export function useTerminalConnection({
       flushInputAfterResizeRef.current = inputBufferRef.current.length > 0;
 
       if (!sendResize(true)) {
-        connectFrameRef.current = requestAnimationFrame(() => {
+        const frameId = requestAnimationFrame(() => {
+          if (
+            connectFrameRef.current?.generation !== generation ||
+            !isCurrentConnection(ws, generation)
+          ) {
+            return;
+          }
+
           connectFrameRef.current = null;
           sendResize(true);
           if (visibleRef.current) {
             terminalRef.current?.focus();
           }
         });
+        connectFrameRef.current = { generation, frameId };
       } else if (visibleRef.current) {
+        connectFrameRef.current = null;
         terminalRef.current?.focus();
       }
     };
 
     ws.onmessage = (event) => {
+      if (!isCurrentConnection(ws, generation)) {
+        return;
+      }
+
       if (typeof event.data === "string") {
         try {
           const message = JSON.parse(event.data) as ServerControlMessage;
           switch (message.type) {
             case "tab_closed":
-              intentionalCloseRef.current = true;
+              serverClosedRef.current = true;
               onClosedRef.current?.(tabId);
               return;
             case "attached":
@@ -235,9 +296,13 @@ export function useTerminalConnection({
     };
 
     ws.onclose = () => {
+      if (!isCurrentConnection(ws, generation)) {
+        return;
+      }
+
       setConnected(false);
       wsRef.current = null;
-      if (!intentionalCloseRef.current) {
+      if (!localCleanupRef.current && !serverClosedRef.current) {
         scheduleReconnect();
       }
     };
@@ -245,7 +310,14 @@ export function useTerminalConnection({
     ws.onerror = () => {
       // onclose fires after onerror — reconnect handled there
     };
-  }, [applyPtySize, scheduleReconnect, sendResize, tabId, terminalRef]);
+  }, [
+    applyPtySize,
+    isCurrentConnection,
+    scheduleReconnect,
+    sendResize,
+    tabId,
+    terminalRef,
+  ]);
 
   useEffect(() => {
     connectWsRef.current = connectWs;
@@ -257,7 +329,8 @@ export function useTerminalConnection({
       return;
     }
 
-    intentionalCloseRef.current = false;
+    localCleanupRef.current = false;
+    serverClosedRef.current = false;
     connectWs();
 
     const observer = new ResizeObserver(() => {
@@ -268,13 +341,16 @@ export function useTerminalConnection({
     resizeObserverRef.current = observer;
 
     return () => {
-      intentionalCloseRef.current = true;
+      // Component teardown detaches this browser attachment only. The server
+      // keeps the PTY-backed LiveTab alive so a later remount can reconnect.
+      localCleanupRef.current = true;
+      connectionGenerationRef.current += 1;
       if (connectFrameRef.current !== null) {
-        cancelAnimationFrame(connectFrameRef.current);
+        cancelAnimationFrame(connectFrameRef.current.frameId);
         connectFrameRef.current = null;
       }
       if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
+        clearTimeout(reconnectTimerRef.current.timeoutId);
         reconnectTimerRef.current = null;
       }
       resizeObserverRef.current?.disconnect();

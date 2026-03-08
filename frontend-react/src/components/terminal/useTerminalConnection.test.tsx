@@ -10,13 +10,16 @@ let resizeObserverCallback: ResizeObserverCallback | null = null;
 let mockTerminal: TerminalAdapter;
 
 class ResizeObserverMock {
+  static instances: ResizeObserverMock[] = [];
+  disconnect = vi.fn();
+
   constructor(callback: ResizeObserverCallback) {
     resizeObserverCallback = callback;
+    ResizeObserverMock.instances.push(this);
   }
 
   observe() {}
   unobserve() {}
-  disconnect() {}
 }
 
 class MockWebSocket {
@@ -113,6 +116,7 @@ function renderTerminalConnection({
 describe("useTerminalConnection", () => {
   beforeEach(() => {
     MockWebSocket.instances.length = 0;
+    ResizeObserverMock.instances.length = 0;
     resizeObserverCallback = null;
     currentViewport = { cols: 100, rows: 30 };
 
@@ -324,6 +328,139 @@ describe("useTerminalConnection", () => {
     });
 
     expect(MockWebSocket.instances).toHaveLength(2);
+  });
+
+  it("closes the current attachment and reconnects cleanly after remount", () => {
+    const cancelAnimationFrameSpy = vi.fn();
+    window.requestAnimationFrame = vi.fn(() => 42);
+    window.cancelAnimationFrame =
+      cancelAnimationFrameSpy as typeof window.cancelAnimationFrame;
+    currentViewport = null;
+
+    const firstRender = renderTerminalConnection();
+    const firstSocket = MockWebSocket.instances[0];
+
+    act(() => {
+      firstSocket.open();
+    });
+
+    firstRender.unmount();
+
+    expect(firstSocket.close).toHaveBeenCalledTimes(1);
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(42);
+    expect(ResizeObserverMock.instances[0]?.disconnect).toHaveBeenCalledTimes(
+      1,
+    );
+
+    act(() => {
+      vi.runAllTimers();
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    currentViewport = { cols: 100, rows: 30 };
+    const secondRender = renderTerminalConnection();
+    const secondSocket = MockWebSocket.instances[1];
+
+    act(() => {
+      secondSocket.open();
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(parseControlMessage(secondSocket.sent[0])).toEqual({
+      type: "resize",
+      cols: 100,
+      rows: 30,
+      visible: true,
+    });
+
+    secondRender.unmount();
+  });
+
+  it("ignores stale socket close and message events after remount", () => {
+    const firstRender = renderTerminalConnection();
+    const firstSocket = MockWebSocket.instances[0];
+
+    act(() => {
+      firstSocket.open();
+    });
+
+    firstRender.unmount();
+
+    const secondRender = renderTerminalConnection();
+    const secondSocket = MockWebSocket.instances[1];
+
+    act(() => {
+      secondSocket.open();
+    });
+
+    act(() => {
+      firstSocket.receive(
+        JSON.stringify({
+          type: "attached",
+          byte_offset: 999,
+          data_lost: true,
+          cols: 77,
+          rows: 21,
+        }),
+      );
+      firstSocket.onclose?.(new CloseEvent("close"));
+      vi.runAllTimers();
+    });
+
+    expect(mockTerminal.resize).not.toHaveBeenCalledWith(77, 21);
+    expect(mockTerminal.clear).not.toHaveBeenCalled();
+    expect(MockWebSocket.instances).toHaveLength(2);
+
+    secondRender.unmount();
+  });
+
+  it("ignores stale post-open resize frames from an earlier connection", () => {
+    const queuedFrames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 1;
+    const cancelAnimationFrameSpy = vi.fn((id: number) => {
+      queuedFrames.delete(id);
+    });
+
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      const id = nextFrameId;
+      nextFrameId += 1;
+      queuedFrames.set(id, callback);
+      return id;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame =
+      cancelAnimationFrameSpy as typeof window.cancelAnimationFrame;
+    currentViewport = null;
+
+    const firstRender = renderTerminalConnection();
+
+    const firstSocket = MockWebSocket.instances[0];
+    act(() => {
+      firstSocket.open();
+    });
+
+    const firstFrameCallback = queuedFrames.get(1);
+    expect(firstFrameCallback).toBeDefined();
+
+    firstRender.unmount();
+
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(1);
+
+    currentViewport = { cols: 100, rows: 30 };
+    const secondRender = renderTerminalConnection();
+
+    const secondSocket = MockWebSocket.instances[1];
+    act(() => {
+      secondSocket.open();
+    });
+
+    act(() => {
+      firstFrameCallback?.(0);
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+
+    secondRender.unmount();
   });
 
   it("does not reconnect after an intentional tab_closed message", () => {

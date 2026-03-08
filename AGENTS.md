@@ -190,6 +190,20 @@ reconciliation — drift corrects on reconnect.
   Hidden tabs stay connected and should still answer pings, but only
   `visible:true` attachments participate in PTY size aggregation. This
   applies to both the Svelte and React frontends.
+- **Terminal component unmount only detaches the browser attachment**:
+  React `TerminalTab` cleanup closes the current websocket connection,
+  but the backend keeps the `LiveTab` PTY alive for reconnect. Only
+  explicit tab deletion or shell exit destroys the server-side PTY.
+- **React StrictMode is enabled despite terminal warning noise**:
+  terminal remount/cleanup is generation-guarded, so StrictMode no longer
+  duplicates terminal I/O. React's dev-only double mount can still create one
+  intentionally-cancelled websocket attempt per terminal open, which may show
+  up as a browser warning during development.
+- **Stale terminal socket callbacks must be generation-guarded**:
+  React terminal reconnect logic can see `onclose`/`onmessage` from an older
+  websocket after a remount or replacement socket exists. Guard async socket,
+  reconnect-timer, and post-open RAF handlers by connection generation or old
+  sockets can schedule extra reconnects and duplicate terminal I/O.
 - **Settings save is serialized read-modify-write**: `saveSettings` in
   `api.ts` GETs current settings before PUTting merged result, and React now
   queues concurrent saves client-side. This prevents appearance, terminal,

@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./app.css";
 import App from "./App";
@@ -11,4 +12,8 @@ if (!container) {
   throw new Error("App container not found");
 }
 
-createRoot(container).render(<App />);
+createRoot(container).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);
