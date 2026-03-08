@@ -1,11 +1,11 @@
-// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
+
 import {
   buildTerminalViewportMessage,
   shouldApplyTerminalViewport,
-} from "$lib/terminal/viewport";
+} from "./viewport";
 
-describe("TerminalTab viewport logic", () => {
+describe("terminal viewport logic", () => {
   it("uses the measured local viewport for visible tabs", () => {
     const result = buildTerminalViewportMessage({
       visible: true,

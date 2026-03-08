@@ -13,9 +13,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
-use crate::pty::live_tab::{
-    DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS, DEFAULT_SCROLLBACK, LiveTab, TabInfo, TerminalSize,
-};
+use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TabInfo, TerminalSize};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -139,7 +137,7 @@ pub async fn create_tab(
         pair.master,
         child,
         DEFAULT_SCROLLBACK,
-        TerminalSize::new(DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS),
+        TerminalSize::default_pty(),
     );
     let mut close_rx = live_tab.close_tx.subscribe();
     let tab = Arc::new(live_tab);
