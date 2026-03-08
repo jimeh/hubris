@@ -22,7 +22,6 @@ import {
 import AppSidebar from "@/components/AppSidebar";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import WorktreeView from "@/components/WorktreeView";
-import { cn } from "$lib/utils";
 import { useProjectStore } from "$lib/stores/projects";
 import { useSidebarWidthStore } from "$lib/stores/sidebarWidth";
 import { useWorktreeStore } from "$lib/stores/worktrees";
@@ -35,39 +34,24 @@ function AppHeader({
   selectedWorktree: { name: string } | null;
 }) {
   const sidebar = useSidebar();
-  const showSidebarTrigger = sidebar.isMobile
-    ? !sidebar.openMobile
-    : sidebar.state === "collapsed";
+  const sidebarVisible = sidebar.isMobile
+    ? sidebar.openMobile
+    : sidebar.state !== "collapsed";
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-      <div
-        className={cn(
-          "flex items-center gap-1 transition-[max-width,opacity,margin] duration-200 ease-out",
-          showSidebarTrigger
-            ? "mr-1 max-w-14 overflow-visible opacity-100 translate-x-0"
-            : "mr-0 max-w-0 overflow-hidden opacity-0 pointer-events-none",
-        )}
-      >
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b pl-3 pr-4">
+      <div className="mr-2.5 flex items-center gap-1">
         <Tooltip>
           <TooltipTrigger asChild>
-            <SidebarTrigger
-              className={cn(
-                "shrink-0 transition-transform duration-200 ease-out",
-                showSidebarTrigger ? "translate-x-0" : "-translate-x-3",
-              )}
-              aria-hidden={!showSidebarTrigger}
-              tabIndex={showSidebarTrigger ? undefined : -1}
-            />
+            <SidebarTrigger className="mr-1 shrink-0" />
           </TooltipTrigger>
-          <TooltipContent side="bottom">Show sidebar</TooltipContent>
+          <TooltipContent side="bottom">
+            {sidebarVisible ? "Hide sidebar" : "Show sidebar"}
+          </TooltipContent>
         </Tooltip>
         <Separator
           orientation="vertical"
-          className={cn(
-            "shrink-0 transition-transform duration-200 ease-out data-[orientation=vertical]:h-4",
-            showSidebarTrigger ? "translate-x-0" : "-translate-x-3",
-          )}
+          className="shrink-0 data-[orientation=vertical]:h-4"
         />
       </div>
       <Breadcrumb>

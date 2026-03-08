@@ -209,7 +209,7 @@ export default function AppSidebarRoot() {
             <div className="flex items-center gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <SidebarTrigger className="size-8" />
+                  <SidebarTrigger className="size-8 md:hidden" />
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Hide sidebar</TooltipContent>
               </Tooltip>
