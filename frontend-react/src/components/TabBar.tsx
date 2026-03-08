@@ -1,36 +1,9 @@
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  horizontalListSortingStrategy,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
-  forwardRef,
-  memo,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentPropsWithoutRef,
-  type CSSProperties,
-  type KeyboardEvent,
-  type MouseEvent,
-} from "react";
-import { ChevronsLeft, ChevronsRight, Plus, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronsLeft, ChevronsRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "$lib/utils";
 import type { Tab } from "$lib/types";
+import SortableTabStrip from "./tab-bar/SortableTabStrip";
+export { default as SortableTabView } from "./tab-bar/SortableTabView";
 
 const SCROLL_AMOUNT = 200;
 
@@ -44,17 +17,6 @@ type Props = {
   onReorder: (orderedIds: string[]) => Promise<void>;
 };
 
-type TabChipProps = {
-  tabId: string;
-  label: string;
-  isActive: boolean;
-  dragging?: boolean;
-  isOverlay?: boolean;
-  width?: number | null;
-  onActivateTab?: (tabId: string) => void;
-  onCloseTab?: (tabId: string) => void;
-} & Omit<ComponentPropsWithoutRef<"div">, "onClick" | "children">;
-
 export default function TabBar({
   worktreeId,
   tabs,
@@ -64,25 +26,10 @@ export default function TabBar({
   onAdd,
   onReorder,
 }: Props) {
-  const [dragging, setDragging] = useState(false);
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [activeDragWidth, setActiveDragWidth] = useState<number | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const tabListRef = useRef<HTMLDivElement | null>(null);
   const prevTabCountRef = useRef(tabs.length);
-  const sortableItems = useMemo(() => tabs.map((tab) => tab.id), [tabs]);
-
-  const activeDragTab = useMemo(
-    () => tabs.find((tab) => tab.id === activeDragId) ?? null,
-    [activeDragId, tabs],
-  );
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    }),
-  );
 
   function updateScrollState(): void {
     const node = tabListRef.current;
@@ -133,36 +80,6 @@ export default function TabBar({
     };
   }, [tabs.length]);
 
-  function clearDragState(): void {
-    setDragging(false);
-    setActiveDragId(null);
-    setActiveDragWidth(null);
-  }
-
-  function handleDragStart(event: DragStartEvent): void {
-    setDragging(true);
-    setActiveDragId(String(event.active.id));
-    setActiveDragWidth(event.active.rect.current.initial?.width ?? null);
-  }
-
-  function handleDragEnd(event: DragEndEvent): void {
-    const { active, over } = event;
-    clearDragState();
-
-    if (!over || active.id === over.id) {
-      return;
-    }
-
-    const oldIndex = tabs.findIndex((tab) => tab.id === active.id);
-    const newIndex = tabs.findIndex((tab) => tab.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) {
-      return;
-    }
-
-    const next = arrayMove(tabs, oldIndex, newIndex);
-    void onReorder(next.map((tab) => tab.id));
-  }
-
   function scrollTabs(direction: "left" | "right"): void {
     if (!tabListRef.current) {
       return;
@@ -195,51 +112,15 @@ export default function TabBar({
           </button>
         ) : null}
 
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDragCancel={clearDragState}
-        >
-          <SortableContext
-            items={sortableItems}
-            strategy={horizontalListSortingStrategy}
-          >
-            <div
-              ref={tabListRef}
-              role="tablist"
-              className="flex items-center gap-1 overflow-x-auto overflow-y-hidden"
-              data-tab-list="true"
-              data-tab-dragging={dragging || undefined}
-              onScroll={updateScrollState}
-            >
-              {tabs.map((tab) => (
-                <SortableTab
-                  key={tab.id}
-                  tabId={tab.id}
-                  label={tab.label}
-                  isActive={tab.id === activeTabId}
-                  dragging={dragging}
-                  onActivateTab={onActivate}
-                  onCloseTab={onClose}
-                />
-              ))}
-            </div>
-          </SortableContext>
-
-          <DragOverlay>
-            {activeDragTab ? (
-              <SortableTabView
-                tabId={activeDragTab.id}
-                label={activeDragTab.label}
-                isActive={activeDragTab.id === activeTabId}
-                isOverlay
-                width={activeDragWidth}
-              />
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+        <SortableTabStrip
+          tabs={tabs}
+          activeTabId={activeTabId}
+          tabListRef={tabListRef}
+          onScroll={updateScrollState}
+          onActivate={onActivate}
+          onClose={onClose}
+          onReorder={onReorder}
+        />
 
         {canScrollRight ? (
           <button
@@ -269,141 +150,3 @@ export default function TabBar({
     </div>
   );
 }
-
-export const SortableTab = memo(function SortableTab({
-  tabId,
-  label,
-  isActive,
-  dragging,
-  onActivateTab,
-  onCloseTab,
-}: {
-  tabId: string;
-  label: string;
-  isActive: boolean;
-  dragging: boolean;
-  onActivateTab: (tabId: string) => void;
-  onCloseTab: (tabId: string) => void;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: tabId });
-
-  const style: CSSProperties = {
-    transform: isDragging ? undefined : CSS.Transform.toString(transform),
-    transition: isDragging ? undefined : transition,
-    opacity: isDragging ? 0 : undefined,
-    pointerEvents: isDragging ? "none" : undefined,
-  };
-
-  return (
-    <SortableTabView
-      ref={setNodeRef}
-      style={style}
-      tabId={tabId}
-      label={label}
-      isActive={isActive}
-      dragging={dragging}
-      onActivateTab={onActivateTab}
-      onCloseTab={onCloseTab}
-      {...attributes}
-      {...listeners}
-    />
-  );
-});
-
-export const SortableTabView = memo(
-  forwardRef<HTMLDivElement, TabChipProps>(function SortableTabView(
-    {
-      tabId,
-      label,
-      isActive,
-      dragging = false,
-      isOverlay = false,
-      width,
-      style,
-      onActivateTab,
-      onCloseTab,
-      className,
-      onKeyDown,
-      role: _role,
-      tabIndex: providedTabIndex,
-      ...divProps
-    },
-    ref,
-  ) {
-    const mergedStyle =
-      width == null
-        ? style
-        : ({ ...(style ?? {}), width } satisfies CSSProperties);
-
-    function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-      onKeyDown?.(event);
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        onActivateTab?.(tabId);
-      }
-    }
-
-    function handleClick(event: MouseEvent<HTMLDivElement>): void {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      onActivateTab?.(tabId);
-    }
-
-    return (
-      <div
-        ref={ref}
-        style={mergedStyle}
-        className={cn(
-          "inline-flex cursor-default select-none items-center gap-1.5 whitespace-nowrap pl-3 pr-2.5 py-2 text-sm transition-colors",
-          isActive
-            ? "bg-tab-active text-tab-active-foreground shadow-[inset_0_-2px_0_var(--tab-active-border)]"
-            : dragging
-              ? "text-tab-inactive-foreground"
-              : "text-tab-inactive-foreground hover:text-foreground",
-          isOverlay && "pointer-events-none opacity-50",
-          className,
-        )}
-        data-tab-drag-item="true"
-        data-tab-overlay={isOverlay || undefined}
-        {...divProps}
-        role="tab"
-        tabIndex={isOverlay ? -1 : (providedTabIndex ?? 0)}
-        aria-selected={isActive}
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-      >
-        <span>{label}</span>
-        {isOverlay || !onCloseTab ? null : (
-          <button
-            type="button"
-            aria-label={`Close ${label}`}
-            className="rounded-sm opacity-60 hover:opacity-100"
-            tabIndex={-1}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onCloseTab(tabId);
-            }}
-          >
-            <X className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-    );
-  }),
-);
-
-SortableTabView.displayName = "SortableTabView";
