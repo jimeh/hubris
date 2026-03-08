@@ -1,0 +1,144 @@
+/* Auto-generated from builtin themes — do not edit. */
+/* Run: bun run generate:theme-defaults */
+
+:root {
+  --background: oklch(0.985 0.002 255);
+  --foreground: oklch(0.278 0.03 257);
+  --card: oklch(0.972 0.004 255);
+  --card-foreground: var(--color-gray-800);
+  --popover: oklch(0.975 0.004 255);
+  --popover-foreground: var(--color-gray-800);
+  --primary: oklch(0.617 0.136 258);
+  --primary-foreground: var(--color-gray-50);
+  --secondary: oklch(0.948 0.007 255);
+  --secondary-foreground: oklch(0.336 0.028 257);
+  --muted: oklch(0.957 0.006 255);
+  --muted-foreground: var(--color-gray-500);
+  --accent: oklch(0.932 0.018 252);
+  --accent-foreground: oklch(0.314 0.035 258);
+  --destructive: oklch(0.637 0.208 25);
+  --destructive-foreground: var(--color-zinc-50);
+  --border: oklch(0.905 0.01 255);
+  --input: oklch(0.946 0.006 255);
+  --ring: oklch(0.617 0.136 258 / 0.45);
+
+  --chart-1: oklch(0.63 0.15 254);
+  --chart-2: oklch(0.68 0.11 195);
+  --chart-3: oklch(0.74 0.14 82);
+  --chart-4: oklch(0.67 0.16 18);
+  --chart-5: oklch(0.61 0.14 305);
+
+  --quick-input-background: oklch(0.975 0.004 255);
+  --quick-input-foreground: var(--color-gray-800);
+  --quick-input-border: oklch(0.897 0.013 255);
+  --quick-input-group-foreground: var(--color-gray-500);
+  --quick-input-focus-background: oklch(0.908 0.024 252);
+  --quick-input-focus-foreground: oklch(0.314 0.035 258);
+
+  --sidebar: oklch(0.968 0.005 255);
+  --sidebar-foreground: oklch(0.298 0.031 257);
+  --sidebar-primary: oklch(0.902 0.028 252);
+  --sidebar-primary-foreground: var(--color-gray-800);
+  --sidebar-accent: oklch(0.944 0.012 255);
+  --sidebar-accent-foreground: oklch(0.314 0.035 258);
+  --sidebar-border: oklch(0.902 0.01 255);
+  --sidebar-ring: oklch(0.617 0.136 258 / 0.45);
+
+  --tab-bar: oklch(0.962 0.005 255);
+  --tab-active: oklch(0.95 0.009 252);
+  --tab-active-foreground: var(--color-gray-800);
+  --tab-inactive-foreground: var(--color-gray-500);
+  --tab-border: oklch(0.905 0.01 255);
+
+  --terminal-background: #f9fafb;
+  --terminal-foreground: #2b3141;
+  --terminal-cursor: #6c7cff;
+  --terminal-selection: #cfd8ff80;
+  --terminal-ansi-black: #334155;
+  --terminal-ansi-red: #d62b52;
+  --terminal-ansi-green: #1f9a4f;
+  --terminal-ansi-yellow: #be840d;
+  --terminal-ansi-blue: #3269db;
+  --terminal-ansi-magenta: #8e3dd7;
+  --terminal-ansi-cyan: #128aa8;
+  --terminal-ansi-white: #94a3b8;
+  --terminal-ansi-bright-black: #64748b;
+  --terminal-ansi-bright-red: #eb5570;
+  --terminal-ansi-bright-green: #34b966;
+  --terminal-ansi-bright-yellow: #dca61c;
+  --terminal-ansi-bright-blue: #4a82ec;
+  --terminal-ansi-bright-magenta: #a061eb;
+  --terminal-ansi-bright-cyan: #1da8c3;
+  --terminal-ansi-bright-white: #cbd5e1;
+}
+
+.dark {
+  --background: oklch(0.205 0.012 260);
+  --foreground: oklch(0.92 0.015 255);
+  --card: oklch(0.245 0.013 260);
+  --card-foreground: var(--color-slate-200);
+  --popover: oklch(0.248 0.013 260);
+  --popover-foreground: var(--color-slate-200);
+  --primary: oklch(0.73 0.118 257);
+  --primary-foreground: var(--color-zinc-900);
+  --secondary: oklch(0.302 0.015 260);
+  --secondary-foreground: var(--color-slate-200);
+  --muted: oklch(0.275 0.014 260);
+  --muted-foreground: var(--color-gray-400);
+  --accent: oklch(0.345 0.023 256);
+  --accent-foreground: var(--color-slate-100);
+  --destructive: oklch(0.67 0.18 24);
+  --destructive-foreground: oklch(0.98 0.006 20);
+  --border: oklch(0.32 0.014 260);
+  --input: oklch(0.29 0.013 260);
+  --ring: oklch(0.73 0.118 257 / 0.5);
+
+  --chart-1: oklch(0.72 0.13 254);
+  --chart-2: oklch(0.75 0.1 193);
+  --chart-3: oklch(0.79 0.14 84);
+  --chart-4: oklch(0.74 0.14 20);
+  --chart-5: oklch(0.7 0.14 307);
+
+  --quick-input-background: oklch(0.248 0.013 260);
+  --quick-input-foreground: var(--color-slate-200);
+  --quick-input-border: oklch(0.33 0.015 260);
+  --quick-input-group-foreground: var(--color-gray-400);
+  --quick-input-focus-background: oklch(0.345 0.023 256);
+  --quick-input-focus-foreground: var(--color-slate-100);
+
+  --sidebar: oklch(0.225 0.012 260);
+  --sidebar-foreground: var(--color-slate-200);
+  --sidebar-primary: oklch(0.345 0.023 256);
+  --sidebar-primary-foreground: var(--color-slate-100);
+  --sidebar-accent: oklch(0.302 0.015 260);
+  --sidebar-accent-foreground: var(--color-slate-100);
+  --sidebar-border: oklch(0.32 0.014 260);
+  --sidebar-ring: oklch(0.73 0.118 257 / 0.5);
+
+  --tab-bar: oklch(0.224 0.012 260);
+  --tab-active: oklch(0.255 0.013 260);
+  --tab-active-foreground: var(--color-slate-200);
+  --tab-inactive-foreground: var(--color-gray-400);
+  --tab-border: oklch(0.32 0.014 260);
+
+  --terminal-background: #14171d;
+  --terminal-foreground: #d7dceb;
+  --terminal-cursor: #7c93ff;
+  --terminal-selection: #46507a;
+  --terminal-ansi-black: #475569;
+  --terminal-ansi-red: #f27789;
+  --terminal-ansi-green: #58cf83;
+  --terminal-ansi-yellow: #edb433;
+  --terminal-ansi-blue: #6ca4ef;
+  --terminal-ansi-magenta: #be8df0;
+  --terminal-ansi-cyan: #38c8df;
+  --terminal-ansi-white: #cbd5e1;
+  --terminal-ansi-bright-black: #64748b;
+  --terminal-ansi-bright-red: #f59ca6;
+  --terminal-ansi-bright-green: #7fe0a2;
+  --terminal-ansi-bright-yellow: #f1c857;
+  --terminal-ansi-bright-blue: #8abcf4;
+  --terminal-ansi-bright-magenta: #cda9f5;
+  --terminal-ansi-bright-cyan: #60d8eb;
+  --terminal-ansi-bright-white: #f1f5f9;
+}

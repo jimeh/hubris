@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#MISE description="Run backend + React frontend dev servers"
+set -euo pipefail
+
+TMP_DIR="$(pwd)/tmp"
+mkdir -p "$TMP_DIR"
+
+# Generate random 8-char hex ID (POSIX-portable,
+# no dependency on uuidgen).
+DEV_ID=$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')
+export HUBRIS_DEV_ID="$DEV_ID"
+export HUBRIS_DEV_TMP="$TMP_DIR"
+
+cleanup() {
+  rm -f "$TMP_DIR/dev-${DEV_ID}.backend.json" \
+    "$TMP_DIR/dev-${DEV_ID}.frontend.json"
+}
+trap cleanup EXIT INT TERM
+
+mise run --output interleave dev:server ::: dev:frontend:react

@@ -34,7 +34,11 @@ sources = [
 
 [tasks."dev:frontend"]
 run = "cd frontend && bun dev"
-description = "Run frontend dev server"
+description = "Run frontend dev server (Svelte)"
+
+[tasks."dev:frontend:react"]
+run = "cd frontend-react && bun dev"
+description = "Run frontend dev server (React)"
 
 [tasks."check:backend"]
 description = "Rust format check + clippy"
@@ -45,12 +49,16 @@ run = [
 ]
 
 [tasks."check:frontend"]
-description = "Frontend lint + format check + type check"
+description = "Frontend lint + format check + type check (Svelte)"
 run = "cd frontend && bun run lint && bun run check"
+
+[tasks."check:frontend:react"]
+description = "Frontend lint + format check + type check (React)"
+run = "cd frontend-react && bun run lint && bun run check"
 
 [tasks.check]
 description = "Run all checks"
-depends = ["check:backend", "check:frontend"]
+depends = ["check:backend", "check:frontend", "check:frontend:react"]
 
 [tasks.lint]
 description = "Alias for check"
@@ -61,30 +69,39 @@ description = "Format Rust code"
 run = "cargo fmt --all"
 
 [tasks."format:frontend"]
-description = "Format frontend code"
+description = "Format frontend code (Svelte)"
 run = "cd frontend && bun run format"
+
+[tasks."format:frontend:react"]
+description = "Format frontend code (React)"
+run = "cd frontend-react && bun run format"
 
 [tasks.format]
 description = "Format all code"
-depends = ["format:backend", "format:frontend"]
+depends = ["format:backend", "format:frontend", "format:frontend:react"]
 
 [tasks.test]
 description = "Run all tests"
 run = [
   "cd frontend && bun run test",
+  "cd frontend-react && bun run test",
   "cd crates/server && cargo test",
 ]
 
 [tasks."setup:frontend"]
 run = "cd frontend && bun install"
-description = "Install frontend dependencies"
+description = "Install frontend dependencies (Svelte)"
+
+[tasks."setup:frontend:react"]
+run = "cd frontend-react && bun install"
+description = "Install frontend dependencies (React)"
 
 [tasks."setup:server"]
 run = "cargo fetch"
 description = "Fetch backend dependencies"
 
 [tasks.setup]
-depends = ["setup:frontend", "setup:server"]
+depends = ["setup:frontend", "setup:frontend:react", "setup:server"]
 description = "Install all dependencies"
 
 [tasks.generate]
@@ -93,6 +110,8 @@ run = [
   "cargo run -p hubris-server --bin generate_contracts",
   "cd frontend && bun run generate:contracts:rest",
   "cd frontend && bun run generate:theme-defaults",
+  "cd frontend-react && bun run generate:contracts:rest",
+  "cd frontend-react && bun run generate:theme-defaults",
 ]
 
 [tasks."download:fonts"]
@@ -104,4 +123,5 @@ description = "Remove build artifacts"
 run = [
   "cargo clean",
   "rm -rf frontend/dist frontend/node_modules",
+  "rm -rf frontend-react/dist frontend-react/node_modules",
 ]
