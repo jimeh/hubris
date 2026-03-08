@@ -1,6 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
-import ProjectToggleIcon from "./ProjectToggleIcon";
 
 type ProjectHeaderRowProps = {
   projectName: string;
@@ -27,6 +27,9 @@ export default function ProjectHeaderRow({
   rowProps,
   onToggleExpand,
 }: ProjectHeaderRowProps) {
+  const FolderIcon = isExpanded ? FolderOpen : Folder;
+  const ChevronIcon = isExpanded ? ChevronDown : ChevronRight;
+
   return (
     <div
       className={cn(
@@ -46,10 +49,24 @@ export default function ProjectHeaderRow({
           onClick={onToggleExpand}
           type="button"
         >
-          <ProjectToggleIcon
-            isExpanded={isExpanded}
-            forceChevron={forceChevron}
-          />
+          <span className="relative size-3.5 shrink-0">
+            <FolderIcon
+              className={cn(
+                "absolute inset-0 h-3.5 w-3.5 transition-all duration-150",
+                forceChevron
+                  ? "scale-85 opacity-0"
+                  : "group-hover/project-row:scale-85 group-hover/project-row:opacity-0",
+              )}
+            />
+            <ChevronIcon
+              className={cn(
+                "absolute inset-0 h-3.5 w-3.5 transition-all duration-150",
+                forceChevron
+                  ? "opacity-100"
+                  : "opacity-0 group-hover/project-row:opacity-100",
+              )}
+            />
+          </span>
           <span className="truncate">{projectName}</span>
           {projectError ? (
             <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive">
@@ -64,10 +81,24 @@ export default function ProjectHeaderRow({
             contentClassName,
           )}
         >
-          <ProjectToggleIcon
-            isExpanded={isExpanded}
-            forceChevron={forceChevron}
-          />
+          <span className="relative size-3.5 shrink-0">
+            <FolderIcon
+              className={cn(
+                "absolute inset-0 h-3.5 w-3.5 transition-all duration-150",
+                forceChevron
+                  ? "scale-85 opacity-0"
+                  : "group-hover/project-row:scale-85 group-hover/project-row:opacity-0",
+              )}
+            />
+            <ChevronIcon
+              className={cn(
+                "absolute inset-0 h-3.5 w-3.5 transition-all duration-150",
+                forceChevron
+                  ? "opacity-100"
+                  : "opacity-0 group-hover/project-row:opacity-100",
+              )}
+            />
+          </span>
           <span className="truncate">{projectName}</span>
           {projectError ? (
             <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive">
