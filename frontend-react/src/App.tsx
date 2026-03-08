@@ -39,8 +39,8 @@ function AppHeader({
     : sidebar.state !== "collapsed";
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b pl-3 pr-4">
-      <div className="mr-2.5 flex items-center gap-1">
+    <header className="flex shrink-0 items-center gap-2 border-b py-2 pl-3 pr-4 md:h-12 md:py-0">
+      <div className="mr-2.5 flex shrink-0 items-center gap-1 self-start md:self-auto">
         <Tooltip>
           <TooltipTrigger asChild>
             <SidebarTrigger className="mr-1 shrink-0" />
@@ -54,26 +54,41 @@ function AppHeader({
           className="shrink-0 data-[orientation=vertical]:h-4"
         />
       </div>
-      <Breadcrumb>
-        <BreadcrumbList>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
           {selectedProject ? (
-            <BreadcrumbItem className="hidden md:flex">
-              <BreadcrumbPage className="flex items-center gap-1.5">
-                <Folder className="h-3.5 w-3.5" />
-                {selectedProject.name}
-              </BreadcrumbPage>
-            </BreadcrumbItem>
-          ) : null}
-          {selectedProject && selectedWorktree ? (
-            <BreadcrumbSeparator className="hidden md:block" />
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Folder className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{selectedProject.name}</span>
+            </div>
           ) : null}
           {selectedWorktree ? (
-            <BreadcrumbItem>
-              <BreadcrumbPage>{selectedWorktree.name}</BreadcrumbPage>
-            </BreadcrumbItem>
+            <div className="truncate text-base font-medium">
+              {selectedWorktree.name}
+            </div>
           ) : null}
-        </BreadcrumbList>
-      </Breadcrumb>
+        </div>
+        <Breadcrumb className="hidden md:block">
+          <BreadcrumbList>
+            {selectedProject ? (
+              <BreadcrumbItem>
+                <BreadcrumbPage className="flex items-center gap-1.5">
+                  <Folder className="h-3.5 w-3.5" />
+                  {selectedProject.name}
+                </BreadcrumbPage>
+              </BreadcrumbItem>
+            ) : null}
+            {selectedProject && selectedWorktree ? (
+              <BreadcrumbSeparator />
+            ) : null}
+            {selectedWorktree ? (
+              <BreadcrumbItem>
+                <BreadcrumbPage>{selectedWorktree.name}</BreadcrumbPage>
+              </BreadcrumbItem>
+            ) : null}
+          </BreadcrumbList>
+        </Breadcrumb>
+      </div>
     </header>
   );
 }

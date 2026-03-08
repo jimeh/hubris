@@ -7,7 +7,7 @@ import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import { cn } from "$lib/utils";
 import type { Project, Worktree } from "$lib/types";
 import ProjectActionMenu from "./ProjectActionMenu";
-import ProjectToggleIcon from "./ProjectToggleIcon";
+import ProjectHeaderRow from "./ProjectHeaderRow";
 import WorktreeList from "./WorktreeList";
 
 export type ProjectRowProps = {
@@ -69,63 +69,51 @@ export default function ProjectRow({
       <Collapsible open={isExpanded} onOpenChange={onToggleExpand}>
         <SidebarMenuItem>
           <SidebarMenuButton
+            asChild
             size="default"
-            className="relative h-auto items-start px-0 py-0 hover:bg-transparent"
+            className="relative h-auto items-start px-0 py-0"
           >
-            <div
-              className={cn(
-                "group/project-row flex w-full items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors",
-                !isSorting &&
-                  "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              )}
-              {...attributes}
-              {...listeners}
-            >
-              <button
-                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                onClick={() => {
-                  if (dragLock) {
-                    return;
-                  }
+            <ProjectHeaderRow
+              projectName={project.name}
+              isExpanded={isExpanded}
+              projectError={currentProjectError}
+              isSorting={isSorting}
+              rowProps={{ ...attributes, ...listeners }}
+              onToggleExpand={() => {
+                if (dragLock) {
+                  return;
+                }
 
-                  onToggleExpand();
-                }}
-                type="button"
-              >
-                <ProjectToggleIcon isExpanded={isExpanded} />
-                <span className="truncate">{project.name}</span>
-                {currentProjectError ? (
-                  <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive">
-                    git error
-                  </span>
-                ) : null}
-              </button>
-              <div
-                className={cn(
-                  "ml-auto flex items-center gap-1 transition-opacity",
-                  isSorting
-                    ? "pointer-events-none opacity-0"
-                    : "opacity-0 group-hover/project-row:opacity-100",
-                )}
-                onPointerDown={(event) => event.stopPropagation()}
-              >
-                <ProjectActionMenu
-                  onRename={onRenameProject}
-                  onRemove={onRemoveProject}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  title="New worktree"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onAddWorktree();
-                  }}
+                onToggleExpand();
+              }}
+              actionSlot={
+                <div
+                  className={cn(
+                    "ml-auto flex items-center gap-1 transition-opacity",
+                    isSorting
+                      ? "pointer-events-none opacity-0"
+                      : "opacity-0 group-hover/project-row:opacity-100",
+                  )}
+                  onPointerDown={(event) => event.stopPropagation()}
                 >
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
+                  <ProjectActionMenu
+                    onRename={onRenameProject}
+                    onRemove={onRemoveProject}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    title="New worktree"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onAddWorktree();
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              }
+            />
           </SidebarMenuButton>
 
           <CollapsibleContent

@@ -15,6 +15,7 @@ import {
 } from "@dnd-kit/sortable";
 import type { Worktree } from "$lib/types";
 import WorktreeDragOverlay from "./WorktreeDragOverlay";
+import WorktreeRowContent from "./WorktreeRowContent";
 import WorktreeRow from "./WorktreeRow";
 
 type WorktreeListProps = {
@@ -74,19 +75,18 @@ export default function WorktreeList({
   return (
     <div className="mt-1 space-y-1" role="presentation">
       {localWorktree ? (
-        <button
-          className={[
-            "flex min-h-8 w-full cursor-default select-none items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-sidebar-accent",
-            selectedWorktreeId === localWorktree.id
-              ? "bg-sidebar-primary text-sidebar-primary-foreground"
-              : "text-sidebar-foreground/80",
-          ].join(" ")}
-          onClick={() => onSelectWorktree(localWorktree.id)}
-          type="button"
-        >
-          <span className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate">local</span>
-        </button>
+        <WorktreeRowContent
+          isSelected={selectedWorktreeId === localWorktree.id}
+          contentSlot={
+            <button
+              className="flex min-w-0 flex-1 items-center text-left"
+              onClick={() => onSelectWorktree(localWorktree.id)}
+              type="button"
+            >
+              <span className="truncate">local</span>
+            </button>
+          }
+        />
       ) : null}
 
       <DndContext

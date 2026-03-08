@@ -8,6 +8,7 @@ import type { Worktree } from "$lib/types";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import WorktreeRowContent from "./WorktreeRowContent";
 
 export default function WorktreeRow({
   worktree,
@@ -47,54 +48,51 @@ export default function WorktreeRow({
       {...attributes}
       {...listeners}
     >
-      <div
-        className={[
-          "flex min-h-8 cursor-default select-none items-center gap-2 rounded-md px-2 py-1 pr-8 text-sm transition-colors",
-          isSorting ? "" : "hover:bg-sidebar-accent",
-          isSelected
-            ? "bg-sidebar-primary text-sidebar-primary-foreground"
-            : "text-sidebar-foreground/80",
-        ].join(" ")}
-      >
-        <span className="size-3.5 shrink-0" aria-hidden="true" />
-        <button
-          className="flex min-w-0 flex-1 items-center text-left"
-          onClick={onSelect}
-          type="button"
-        >
-          <span className="truncate">{worktree.name}</span>
-          {worktree.missing_on_disk ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="ml-2 inline-flex items-center text-destructive">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" align="center">
-                This worktree was deleted outside Hubris. Remove it from Hubris
-                to clear this entry.
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
-        </button>
-      </div>
-      <button
-        className={cn(
-          "pointer-events-none absolute top-1/2 right-1 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground/70 transition-[opacity,background-color,color]",
-          isSorting
-            ? "opacity-0"
-            : "opacity-0 group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        )}
-        title="Delete worktree"
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          onRemove();
-        }}
-        type="button"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+      <WorktreeRowContent
+        isSelected={isSelected}
+        isSorting={isSorting}
+        contentSlot={
+          <button
+            className="flex min-w-0 flex-1 items-center text-left"
+            onClick={onSelect}
+            type="button"
+          >
+            <span className="truncate">{worktree.name}</span>
+            {worktree.missing_on_disk ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="ml-2 inline-flex items-center text-destructive">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" align="center">
+                  This worktree was deleted outside Hubris. Remove it from
+                  Hubris to clear this entry.
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
+          </button>
+        }
+        actionSlot={
+          <button
+            className={cn(
+              "pointer-events-none absolute top-1/2 right-1 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground/70 transition-[opacity,background-color,color]",
+              isSorting
+                ? "opacity-0"
+                : "opacity-0 group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            )}
+            title="Delete worktree"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemove();
+            }}
+            type="button"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        }
+      />
     </div>
   );
 }
