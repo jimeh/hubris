@@ -4,10 +4,14 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Plus, Settings } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { FolderPlus, Settings } from "lucide-react";
 import { createDialogState, type SidebarDialogState } from "./sidebar/types";
 import { ProjectList } from "./sidebar/ProjectList";
 import { SidebarDialogs } from "./sidebar/SidebarDialogs";
@@ -20,21 +24,27 @@ export function AppSidebar() {
     <>
       <Sidebar>
         <SidebarHeader>
-          <div className="flex items-center justify-between px-2">
+          <div className="flex items-center gap-2 px-2">
             <h2 className="text-lg font-semibold">Projects</h2>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() =>
-                setDialogState((s) => ({
-                  ...s,
-                  showSettings: true,
-                }))
-              }
-              title="Settings"
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() =>
+                    setDialogState((s) => ({
+                      ...s,
+                      addProject: true,
+                    }))
+                  }
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                Add project
+              </TooltipContent>
+            </Tooltip>
           </div>
         </SidebarHeader>
 
@@ -42,21 +52,19 @@ export function AppSidebar() {
           <ProjectList setDialogState={setDialogState} />
         </SidebarContent>
 
-        <SidebarSeparator />
-
         <SidebarFooter>
           <Button
             variant="ghost"
-            className="w-full text-muted-foreground"
+            className="w-full justify-start text-muted-foreground"
             onClick={() =>
               setDialogState((s) => ({
                 ...s,
-                addProject: true,
+                showSettings: true,
               }))
             }
           >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Project
+            <Settings className="mr-2 h-4 w-4" />
+            Settings
           </Button>
         </SidebarFooter>
         {dialogState.actionError && (
