@@ -47,7 +47,7 @@ export default function SettingsDialogRoot({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 md:max-h-[500px] md:max-w-[700px] lg:max-w-[800px]">
+      <DialogContent className="max-h-[calc(100dvh-1rem)] max-w-[calc(100%-1rem)] overflow-hidden p-0 md:max-h-[500px] md:max-w-[700px] lg:max-w-[800px]">
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <DialogDescription className="sr-only">
           Customize your settings here.
@@ -84,7 +84,7 @@ export default function SettingsDialogRoot({
               </SidebarGroup>
             </SidebarContent>
           </Sidebar>
-          <main className="flex h-[calc(100dvh-2rem)] flex-1 flex-col overflow-hidden md:h-[480px]">
+          <main className="flex h-[calc(100dvh-1rem)] flex-1 flex-col overflow-hidden md:h-[480px]">
             <header className="flex h-12 shrink-0 items-center border-b px-3 pr-14 sm:px-4 md:pr-4">
               <div className="flex items-center gap-2 md:hidden">
                 <Settings2 className="h-4 w-4 shrink-0 text-muted-foreground" />
