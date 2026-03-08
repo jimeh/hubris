@@ -18,7 +18,7 @@ export default function ProjectToggleIcon({
           "absolute inset-0 h-3.5 w-3.5 transition-all duration-150",
           forceChevron
             ? "scale-85 opacity-0"
-            : "group-hover/menu-item:scale-85 group-hover/menu-item:opacity-0",
+            : "group-hover/project-row:scale-85 group-hover/project-row:opacity-0",
         )}
       />
       <ChevronIcon
@@ -26,7 +26,7 @@ export default function ProjectToggleIcon({
           "absolute inset-0 h-3.5 w-3.5 transition-all duration-150",
           forceChevron
             ? "opacity-100"
-            : "opacity-0 group-hover/menu-item:opacity-100",
+            : "opacity-0 group-hover/project-row:opacity-100",
         )}
       />
     </span>

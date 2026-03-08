@@ -65,11 +65,7 @@ export default function ProjectRow({
   };
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="group/menu-item relative rounded-lg"
-    >
+    <div ref={setNodeRef} style={style} className="relative rounded-lg">
       <Collapsible open={isExpanded} onOpenChange={onToggleExpand}>
         <SidebarMenuItem>
           <SidebarMenuButton
@@ -78,7 +74,7 @@ export default function ProjectRow({
           >
             <div
               className={cn(
-                "flex w-full items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors",
+                "group/project-row flex w-full items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors",
                 !isSorting &&
                   "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
               )}
@@ -109,7 +105,7 @@ export default function ProjectRow({
                   "ml-auto flex items-center gap-1 transition-opacity",
                   isSorting
                     ? "pointer-events-none opacity-0"
-                    : "opacity-0 group-hover/menu-item:opacity-100",
+                    : "opacity-0 group-hover/project-row:opacity-100",
                 )}
                 onPointerDown={(event) => event.stopPropagation()}
               >
