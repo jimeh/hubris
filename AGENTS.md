@@ -234,6 +234,12 @@ reconciliation — drift corrects on reconnect.
   translating the live sortable project row can expand the sidebar's
   scrollable width during sideways drags. Keep the in-list row as an
   invisible placeholder and render the dragged project in an overlay.
+- **`dnd-kit` sortable attributes override semantics if spread last**:
+  `useSortable()` injects accessibility props like `role="button"` and
+  `tabIndex`. For draggable elements that also need custom semantics
+  (for example the React tab bar using `role="tab"`), spread sortable
+  attributes before the explicit ARIA props or merge them manually so
+  the final role/tabIndex stay correct.
 - **`ts-rs` warns on some serde field attributes**:
   with `ts-rs` + `serde-compat`, attributes like
   `skip_serializing_if = "Option::is_none"` may emit warnings during

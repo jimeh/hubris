@@ -58,6 +58,7 @@
   --color-tab-active-foreground: var(--tab-active-foreground);
   --color-tab-inactive-foreground: var(--tab-inactive-foreground);
   --color-tab-border: var(--tab-border);
+  --color-tab-active-border: var(--tab-active-border);
 
   --animate-collapsible-down: collapsible-down 150ms ease-out;
   --animate-collapsible-up: collapsible-up 150ms ease-out;
@@ -120,6 +121,24 @@
 .sidebar-resizing [data-slot="sidebar-gap"],
 .sidebar-resizing [data-slot="sidebar-container"] {
   transition: none !important;
+}
+
+[data-slot="sidebar-inset"] {
+  width: auto;
+  min-width: 0;
+}
+
+[data-tab-list] {
+  scrollbar-width: none;
+}
+
+[data-tab-list]::-webkit-scrollbar {
+  display: none;
+}
+
+[data-tab-dragging] [data-tab-drag-item],
+[data-tab-dragging] [data-tab-drag-item] * {
+  pointer-events: none !important;
 }
 
 .terminal-wrapper {
