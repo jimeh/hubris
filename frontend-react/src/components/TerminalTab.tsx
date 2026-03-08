@@ -16,7 +16,7 @@ import {
 type Props = {
   tabId: string;
   visible: boolean;
-  onClosed?: () => void;
+  onClosed?: (tabId: string) => void;
 };
 
 const RECONNECT_DELAY_INITIAL = 100;
@@ -47,6 +47,7 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
   const appliedViewportRef = useRef<TerminalViewport | null>(null);
   const lastSentViewportRef = useRef("");
   const flushInputAfterResizeRef = useRef(false);
+  const connectFrameRef = useRef<number | null>(null);
 
   const [everConnected, setEverConnected] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -185,7 +186,8 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
       flushInputAfterResizeRef.current = inputBufferRef.current.length > 0;
 
       if (!sendResize(true)) {
-        requestAnimationFrame(() => {
+        connectFrameRef.current = requestAnimationFrame(() => {
+          connectFrameRef.current = null;
           sendResize(true);
           if (visibleRef.current) {
             terminalRef.current?.focus();
@@ -203,7 +205,7 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
           switch (message.type) {
             case "tab_closed":
               intentionalCloseRef.current = true;
-              onClosedRef.current?.();
+              onClosedRef.current?.(tabId);
               return;
             case "attached":
               applyPtySize(message.cols, message.rows);
@@ -278,6 +280,10 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
 
     return () => {
       intentionalCloseRef.current = true;
+      if (connectFrameRef.current !== null) {
+        cancelAnimationFrame(connectFrameRef.current);
+        connectFrameRef.current = null;
+      }
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
@@ -296,13 +302,14 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
     }
 
     const isVisible = visible;
-    requestAnimationFrame(() => {
+    const frameId = requestAnimationFrame(() => {
       void measureViewport();
       sendResize(true);
       if (isVisible) {
         terminalRef.current?.focus();
       }
     });
+    return () => cancelAnimationFrame(frameId);
   }, [measureViewport, sendResize, visible]);
 
   useEffect(() => {

@@ -34,6 +34,10 @@ class MockEventClient {
       handler(data);
     }
   }
+
+  handlerCount(event: SseEventName): number {
+    return this.handlers.get(event)?.size ?? 0;
+  }
 }
 
 let mockEvents: MockEventClient;
@@ -143,5 +147,17 @@ describe("Project store", () => {
       "a",
       "b",
     ]);
+  });
+
+  it("resetProjectStoreForTests unsubscribes SSE handlers", async () => {
+    const store = await import("./projects");
+    store.resetProjectStoreForTests();
+    store.initializeProjectStore();
+
+    expect(mockEvents.handlerCount("snapshot")).toBe(1);
+
+    store.resetProjectStoreForTests();
+
+    expect(mockEvents.handlerCount("snapshot")).toBe(0);
   });
 });

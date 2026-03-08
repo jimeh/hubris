@@ -78,6 +78,19 @@ function tabsEqual(a: Tab[], b: Tab[]): boolean {
   return true;
 }
 
+function activeTabMapEqual(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
+  const aEntries = Object.entries(a).filter(([, value]) => value);
+  const bEntries = Object.entries(b).filter(([, value]) => value);
+  if (aEntries.length !== bEntries.length) {
+    return false;
+  }
+
+  return aEntries.every(([key, value]) => b[key] === value);
+}
+
 function tabsForWorktreeInternal(tabs: Tab[], worktreeId: string): Tab[] {
   return tabs.filter((tab) => tab.worktree_id === worktreeId);
 }
@@ -204,6 +217,7 @@ export const useTabStore = create<TabsState>((set, get) => ({
 }));
 
 let initialized = false;
+let eventUnsubscribers: Array<() => void> = [];
 
 export function initializeTabStore(): void {
   if (initialized) return;
@@ -211,64 +225,78 @@ export function initializeTabStore(): void {
 
   const events = getEventClient();
 
-  events.on("snapshot", (data) => {
-    const incoming = sortedTabs(data.tabs);
-    useTabStore.setState((state) => {
-      if (tabsEqual(state.tabs, incoming)) {
-        return state;
-      }
-      const activeTabId =
-        state.activeTabId &&
-        incoming.some((tab) => tab.id === state.activeTabId)
-          ? state.activeTabId
-          : null;
-      if (activeTabId !== state.activeTabId) {
-        persistSelection(activeTabId, state.activeTabByWorktree);
-      }
-      return {
-        tabs: incoming,
-        activeTabId,
-      };
-    });
-  });
+  eventUnsubscribers = [
+    events.on("snapshot", (data) => {
+      const incoming = sortedTabs(data.tabs);
+      useTabStore.setState((state) => {
+        const incomingIds = new Set(incoming.map((tab) => tab.id));
+        const activeTabId =
+          state.activeTabId && incomingIds.has(state.activeTabId)
+            ? state.activeTabId
+            : null;
+        const activeTabByWorktree = Object.fromEntries(
+          Object.entries(state.activeTabByWorktree).filter(([, tabId]) =>
+            incomingIds.has(tabId),
+          ),
+        );
 
-  events.on("tab_created", (tab) => {
-    useTabStore.setState((state) => {
-      if (state.tabs.some((candidate) => candidate.id === tab.id)) {
-        return state;
-      }
-      return {
-        tabs: sortedTabs([...state.tabs, tab]),
-      };
-    });
-  });
+        if (
+          tabsEqual(state.tabs, incoming) &&
+          activeTabId === state.activeTabId &&
+          activeTabMapEqual(activeTabByWorktree, state.activeTabByWorktree)
+        ) {
+          return state;
+        }
 
-  events.on("tab_closed", ({ tab_id }) => {
-    useTabStore.setState((state) => removeFromState(state, tab_id));
-  });
-
-  events.on("tab_updated", (tab) => {
-    useTabStore.setState((state) => ({
-      tabs: sortedTabs(
-        state.tabs.map((candidate) =>
-          candidate.id === tab.id ? tab : candidate,
+        persistSelection(activeTabId, activeTabByWorktree);
+        return {
+          tabs: incoming,
+          activeTabId,
+          activeTabByWorktree,
+        };
+      });
+    }),
+    events.on("tab_created", (tab) => {
+      useTabStore.setState((state) => {
+        if (state.tabs.some((candidate) => candidate.id === tab.id)) {
+          return state;
+        }
+        return {
+          tabs: sortedTabs([...state.tabs, tab]),
+        };
+      });
+    }),
+    events.on("tab_closed", ({ tab_id }) => {
+      useTabStore.setState((state) => removeFromState(state, tab_id));
+    }),
+    events.on("tab_updated", (tab) => {
+      useTabStore.setState((state) => ({
+        tabs: sortedTabs(
+          state.tabs.map((candidate) =>
+            candidate.id === tab.id ? tab : candidate,
+          ),
         ),
-      ),
-    }));
-  });
-
-  events.on("tabs_reordered", ({ tabs }) => {
-    useTabStore.setState((state) => {
-      const reorderedIds = tabs.map((tab) => tab.id);
-      const other = state.tabs.filter((tab) => !reorderedIds.includes(tab.id));
-      return {
-        tabs: sortedTabs([...other, ...tabs]),
-      };
-    });
-  });
+      }));
+    }),
+    events.on("tabs_reordered", ({ tabs }) => {
+      useTabStore.setState((state) => {
+        const reorderedIds = tabs.map((tab) => tab.id);
+        const other = state.tabs.filter(
+          (tab) => !reorderedIds.includes(tab.id),
+        );
+        return {
+          tabs: sortedTabs([...other, ...tabs]),
+        };
+      });
+    }),
+  ];
 }
 
 export function resetTabStoreForTests(): void {
+  for (const unsubscribe of eventUnsubscribers) {
+    unsubscribe();
+  }
+  eventUnsubscribers = [];
   initialized = false;
   useTabStore.setState({
     tabs: [],

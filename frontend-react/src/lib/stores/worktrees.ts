@@ -190,10 +190,9 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
     set((state) => {
       const current = state.worktreesByProject[projectId] ?? [];
       const local = current.find((worktree) => worktree.is_local);
+      const nonLocal = current.filter((worktree) => !worktree.is_local);
       const nonLocalById = Object.fromEntries(
-        current
-          .filter((worktree) => !worktree.is_local)
-          .map((worktree) => [worktree.id, worktree]),
+        nonLocal.map((worktree) => [worktree.id, worktree]),
       ) as Record<string, Worktree>;
 
       const orderedNonLocal: Worktree[] = [];
@@ -203,6 +202,9 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
           orderedNonLocal.push(worktree);
         }
       }
+      const omittedNonLocal = nonLocal.filter(
+        (worktree) => !orderedIds.includes(worktree.id),
+      );
 
       return {
         worktreesByProject: {
@@ -210,6 +212,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
           [projectId]: [
             ...(local ? [{ ...local, position: 1 }] : []),
             ...orderedNonLocal,
+            ...omittedNonLocal,
           ].map((worktree, index) => ({
             ...worktree,
             position: index + 1,
@@ -223,6 +226,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
 }));
 
 let initialized = false;
+let eventUnsubscribers: Array<() => void> = [];
 
 export function initializeWorktreeStore(): void {
   if (initialized) return;
@@ -230,91 +234,33 @@ export function initializeWorktreeStore(): void {
 
   const events = getEventClient();
 
-  events.on("snapshot", (data) => {
-    const worktreesByProject = Object.fromEntries(
-      Object.entries(data.worktrees ?? {}).map(([projectId, worktrees]) => [
-        projectId,
-        byPosition(worktrees ?? []),
-      ]),
-    );
-    const projectErrors = Object.fromEntries(
-      Object.entries(data.project_errors ?? {}).filter(([, value]) => value),
-    ) as Record<string, string>;
+  eventUnsubscribers = [
+    events.on("snapshot", (data) => {
+      const worktreesByProject = Object.fromEntries(
+        Object.entries(data.worktrees ?? {}).map(([projectId, worktrees]) => [
+          projectId,
+          byPosition(worktrees ?? []),
+        ]),
+      );
+      const projectErrors = Object.fromEntries(
+        Object.entries(data.project_errors ?? {}).filter(([, value]) => value),
+      ) as Record<string, string>;
 
-    useWorktreeStore.setState((state) => ({
-      worktreesByProject,
-      projectErrors,
-      ...ensureSelection({
-        worktreesByProject,
-        selectedWorktreeId: state.selectedWorktreeId,
-      }),
-    }));
-  });
-
-  events.on("project_removed", ({ project_id }) => {
-    useWorktreeStore.setState((state) => {
-      const worktreesByProject = { ...state.worktreesByProject };
-      const projectErrors = { ...state.projectErrors };
-      delete worktreesByProject[project_id];
-      delete projectErrors[project_id];
-      return {
+      useWorktreeStore.setState((state) => ({
         worktreesByProject,
         projectErrors,
         ...ensureSelection({
           worktreesByProject,
           selectedWorktreeId: state.selectedWorktreeId,
         }),
-      };
-    });
-  });
-
-  events.on("worktree_created", (worktree) => {
-    useWorktreeStore.setState((state) => ({
-      worktreesByProject: upsertWorktree(state.worktreesByProject, worktree),
-    }));
-  });
-
-  events.on("worktree_deleted", ({ project_id, worktree_id }) => {
-    useWorktreeStore.setState((state) => {
-      const worktreesByProject = {
-        ...state.worktreesByProject,
-        [project_id]: (state.worktreesByProject[project_id] ?? []).filter(
-          (worktree) => worktree.id !== worktree_id,
-        ),
-      };
-      return {
-        worktreesByProject,
-        ...ensureSelection({
-          worktreesByProject,
-          selectedWorktreeId: state.selectedWorktreeId,
-        }),
-      };
-    });
-  });
-
-  events.on("worktrees_reordered", ({ project_id, worktrees }) => {
-    useWorktreeStore.setState((state) => ({
-      worktreesByProject: {
-        ...state.worktreesByProject,
-        [project_id]: byPosition(worktrees),
-      },
-    }));
-  });
-
-  events.on(
-    "project_worktrees_updated",
-    ({ project_id, worktrees, git_error }) => {
+      }));
+    }),
+    events.on("project_removed", ({ project_id }) => {
       useWorktreeStore.setState((state) => {
-        const worktreesByProject = {
-          ...state.worktreesByProject,
-          [project_id]: byPosition(worktrees),
-        };
+        const worktreesByProject = { ...state.worktreesByProject };
         const projectErrors = { ...state.projectErrors };
-        if (git_error) {
-          projectErrors[project_id] = git_error;
-        } else {
-          delete projectErrors[project_id];
-        }
+        delete worktreesByProject[project_id];
+        delete projectErrors[project_id];
         return {
           worktreesByProject,
           projectErrors,
@@ -324,11 +270,70 @@ export function initializeWorktreeStore(): void {
           }),
         };
       });
-    },
-  );
+    }),
+    events.on("worktree_created", (worktree) => {
+      useWorktreeStore.setState((state) => ({
+        worktreesByProject: upsertWorktree(state.worktreesByProject, worktree),
+      }));
+    }),
+    events.on("worktree_deleted", ({ project_id, worktree_id }) => {
+      useWorktreeStore.setState((state) => {
+        const worktreesByProject = {
+          ...state.worktreesByProject,
+          [project_id]: (state.worktreesByProject[project_id] ?? []).filter(
+            (worktree) => worktree.id !== worktree_id,
+          ),
+        };
+        return {
+          worktreesByProject,
+          ...ensureSelection({
+            worktreesByProject,
+            selectedWorktreeId: state.selectedWorktreeId,
+          }),
+        };
+      });
+    }),
+    events.on("worktrees_reordered", ({ project_id, worktrees }) => {
+      useWorktreeStore.setState((state) => ({
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          [project_id]: byPosition(worktrees),
+        },
+      }));
+    }),
+    events.on(
+      "project_worktrees_updated",
+      ({ project_id, worktrees, git_error }) => {
+        useWorktreeStore.setState((state) => {
+          const worktreesByProject = {
+            ...state.worktreesByProject,
+            [project_id]: byPosition(worktrees),
+          };
+          const projectErrors = { ...state.projectErrors };
+          if (git_error) {
+            projectErrors[project_id] = git_error;
+          } else {
+            delete projectErrors[project_id];
+          }
+          return {
+            worktreesByProject,
+            projectErrors,
+            ...ensureSelection({
+              worktreesByProject,
+              selectedWorktreeId: state.selectedWorktreeId,
+            }),
+          };
+        });
+      },
+    ),
+  ];
 }
 
 export function resetWorktreeStoreForTests(): void {
+  for (const unsubscribe of eventUnsubscribers) {
+    unsubscribe();
+  }
+  eventUnsubscribers = [];
   initialized = false;
   useWorktreeStore.setState({
     worktreesByProject: {},

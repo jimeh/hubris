@@ -33,6 +33,10 @@ class MockEventClient {
       handler(data);
     }
   }
+
+  handlerCount(event: SseEventName): number {
+    return this.handlers.get(event)?.size ?? 0;
+  }
 }
 
 let mockEvents: MockEventClient;
@@ -164,5 +168,40 @@ describe("Tab store", () => {
       "a",
     ]);
     expect(store.tabsForWorktree("w2").map((tab) => tab.id)).toEqual(["x"]);
+  });
+
+  it("snapshot prunes stale active-tab persistence", async () => {
+    localStorage.setItem("hubris-active-tab", "gone");
+    localStorage.setItem(
+      "hubris-active-tab-by-worktree",
+      JSON.stringify({ w1: "a", w2: "gone" }),
+    );
+
+    const store = await getStore();
+
+    mockEvents.emit("snapshot", {
+      tabs: [makeTab({ id: "a", worktree_id: "w1", position: 1 })],
+    });
+
+    expect(store.useTabStore.getState().activeTabId).toBeNull();
+    expect(store.useTabStore.getState().activeTabByWorktree).toEqual({
+      w1: "a",
+    });
+    expect(localStorage.getItem("hubris-active-tab")).toBeNull();
+    expect(localStorage.getItem("hubris-active-tab-by-worktree")).toBe(
+      JSON.stringify({ w1: "a" }),
+    );
+  });
+
+  it("resetTabStoreForTests unsubscribes SSE handlers", async () => {
+    const store = await import("./tabs");
+    store.resetTabStoreForTests();
+    store.initializeTabStore();
+
+    expect(mockEvents.handlerCount("snapshot")).toBe(1);
+
+    store.resetTabStoreForTests();
+
+    expect(mockEvents.handlerCount("snapshot")).toBe(0);
   });
 });

@@ -1,7 +1,13 @@
 import { getEventClient } from "$lib/events";
-import { initializeProjectStore } from "$lib/stores/projects";
-import { initializeWorktreeStore } from "$lib/stores/worktrees";
-import { initializeTabStore } from "$lib/stores/tabs";
+import {
+  initializeProjectStore,
+  resetProjectStoreForTests,
+} from "$lib/stores/projects";
+import {
+  initializeWorktreeStore,
+  resetWorktreeStoreForTests,
+} from "$lib/stores/worktrees";
+import { initializeTabStore, resetTabStoreForTests } from "$lib/stores/tabs";
 import { useThemeStore } from "$lib/stores/theme";
 import { useTerminalStore } from "$lib/stores/terminal";
 import { useWorktreeSettingsStore } from "$lib/stores/worktreeSettings";
@@ -25,4 +31,8 @@ export function bootstrapApp(): void {
 
 export function resetBootstrapForTests(): void {
   bootstrapped = false;
+  resetProjectStoreForTests();
+  resetWorktreeStoreForTests();
+  resetTabStoreForTests();
+  getEventClient().disconnect();
 }

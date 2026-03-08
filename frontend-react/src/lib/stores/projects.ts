@@ -122,6 +122,7 @@ export const useProjectStore = create<ProjectsState>((set) => ({
 }));
 
 let initialized = false;
+let eventUnsubscribers: Array<() => void> = [];
 
 export function initializeProjectStore(): void {
   if (initialized) return;
@@ -129,59 +130,61 @@ export function initializeProjectStore(): void {
 
   const events = getEventClient();
 
-  events.on("snapshot", (data) => {
-    if (!data.projects) return;
-    const projects = sortedProjects(data.projects);
-    useProjectStore.setState((state) => ({
-      projects,
-      expandedById: ensureExpandedState(projects, state.expandedById),
-    }));
-  });
-
-  events.on("project_added", (project) => {
-    useProjectStore.setState((state) => {
-      if (state.projects.some((candidate) => candidate.id === project.id)) {
-        return state;
-      }
-      const projects = sortedProjects([...state.projects, project]);
-      return {
+  eventUnsubscribers = [
+    events.on("snapshot", (data) => {
+      if (!data.projects) return;
+      const projects = sortedProjects(data.projects);
+      useProjectStore.setState((state) => ({
         projects,
         expandedById: ensureExpandedState(projects, state.expandedById),
-      };
-    });
-  });
-
-  events.on("project_removed", ({ project_id }) => {
-    useProjectStore.setState((state) => {
-      const projects = state.projects.filter(
-        (project) => project.id !== project_id,
-      );
-      const expandedById = { ...state.expandedById };
-      delete expandedById[project_id];
-      lsSet(LS_EXPANDED, expandedById);
-      return { projects, expandedById };
-    });
-  });
-
-  events.on("project_updated", (project) => {
-    useProjectStore.setState((state) => ({
-      projects: sortedProjects(
-        state.projects.map((candidate) =>
-          candidate.id === project.id ? project : candidate,
+      }));
+    }),
+    events.on("project_added", (project) => {
+      useProjectStore.setState((state) => {
+        if (state.projects.some((candidate) => candidate.id === project.id)) {
+          return state;
+        }
+        const projects = sortedProjects([...state.projects, project]);
+        return {
+          projects,
+          expandedById: ensureExpandedState(projects, state.expandedById),
+        };
+      });
+    }),
+    events.on("project_removed", ({ project_id }) => {
+      useProjectStore.setState((state) => {
+        const projects = state.projects.filter(
+          (project) => project.id !== project_id,
+        );
+        const expandedById = { ...state.expandedById };
+        delete expandedById[project_id];
+        lsSet(LS_EXPANDED, expandedById);
+        return { projects, expandedById };
+      });
+    }),
+    events.on("project_updated", (project) => {
+      useProjectStore.setState((state) => ({
+        projects: sortedProjects(
+          state.projects.map((candidate) =>
+            candidate.id === project.id ? project : candidate,
+          ),
         ),
-      ),
-    }));
-  });
-
-  events.on("projects_reordered", (projects) => {
-    useProjectStore.setState((state) => ({
-      projects,
-      expandedById: ensureExpandedState(projects, state.expandedById),
-    }));
-  });
+      }));
+    }),
+    events.on("projects_reordered", (projects) => {
+      useProjectStore.setState((state) => ({
+        projects,
+        expandedById: ensureExpandedState(projects, state.expandedById),
+      }));
+    }),
+  ];
 }
 
 export function resetProjectStoreForTests(): void {
+  for (const unsubscribe of eventUnsubscribers) {
+    unsubscribe();
+  }
+  eventUnsubscribers = [];
   initialized = false;
   useProjectStore.setState({
     projects: [],

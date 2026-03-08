@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useSidebar } from "@/components/ui/sidebar";
 import { useSidebarWidthStore } from "$lib/stores/sidebarWidth";
 
@@ -24,13 +24,13 @@ export default function SidebarResizeHandle() {
   const pendingClientXRef = useRef<number | null>(null);
   const resizeRafIdRef = useRef<number | null>(null);
 
-  function clearQueuedResize(): void {
+  const clearQueuedResize = useCallback((): void => {
     if (resizeRafIdRef.current !== null) {
       cancelAnimationFrame(resizeRafIdRef.current);
       resizeRafIdRef.current = null;
     }
     pendingClientXRef.current = null;
-  }
+  }, []);
 
   function applyResize(clientX: number): void {
     const resizeState = resizeStateRef.current;
@@ -63,7 +63,7 @@ export default function SidebarResizeHandle() {
       setResizing(false);
       flushPendingPersist();
     };
-  }, [flushPendingPersist, setResizing]);
+  }, [clearQueuedResize, flushPendingPersist, setResizing]);
 
   return (
     <button

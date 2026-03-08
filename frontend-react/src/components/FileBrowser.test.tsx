@@ -46,4 +46,43 @@ describe("FileBrowser", () => {
     });
     expect(onCurrentPathChange).toHaveBeenCalledWith("/tmp");
   });
+
+  it("refreshes once when show-hidden is toggled", async () => {
+    render(
+      <FileBrowser
+        currentPath=""
+        onCurrentPathChange={vi.fn()}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("option", { name: "repo" });
+    expect(mockListFiles).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTitle("Show dotfiles"));
+
+    await waitFor(() => {
+      expect(mockListFiles).toHaveBeenCalledTimes(2);
+    });
+    expect(mockListFiles).toHaveBeenLastCalledWith("/tmp", true);
+  });
+
+  it("supports keyboard-based folder selection", async () => {
+    const onSelect = vi.fn();
+    render(
+      <FileBrowser
+        currentPath=""
+        onCurrentPathChange={vi.fn()}
+        onSelect={onSelect}
+      />,
+    );
+
+    const listbox = await screen.findByRole("listbox");
+    listbox.focus();
+    fireEvent.keyDown(listbox, { key: "s" });
+
+    await waitFor(() => {
+      expect(onSelect).toHaveBeenCalledWith("/tmp");
+    });
+  });
 });

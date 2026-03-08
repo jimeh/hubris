@@ -162,6 +162,7 @@ run = [
   "cd frontend && bunx prettier --write src/lib/contracts/openapi.generated.json src/lib/contracts/sse.generated.ts src/lib/contracts/ws.generated.ts",
   "mkdir -p frontend-react/src/lib/contracts",
   "cp frontend/src/lib/contracts/openapi.generated.json frontend/src/lib/contracts/sse.generated.ts frontend/src/lib/contracts/ws.generated.ts frontend-react/src/lib/contracts/",
+  "cd frontend-react && bunx prettier --write src/lib/contracts/openapi.generated.json src/lib/contracts/sse.generated.ts src/lib/contracts/ws.generated.ts",
   "cd frontend-react && bun run generate:contracts:rest",
   "cd frontend-react && bun run generate:theme-defaults",
 ]

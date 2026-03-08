@@ -4,12 +4,12 @@ export default defineConfig({
   testDir: "./tests",
   timeout: 30_000,
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: "http://localhost:4173",
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "bun run dev -- --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173",
+    command: "bun run dev -- --host localhost --port 4173",
+    url: "http://localhost:4173",
     reuseExistingServer: true,
     timeout: 30_000,
   },

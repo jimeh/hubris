@@ -16,7 +16,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useProjectStore } from "$lib/stores/projects";
-import { useWorktreeStore, worktreesForProject } from "$lib/stores/worktrees";
+import { useWorktreeStore } from "$lib/stores/worktrees";
 import ProjectList from "./ProjectList";
 import SidebarDialogs from "./SidebarDialogs";
 import { initialDialogState } from "./types";
@@ -33,6 +33,10 @@ export default function AppSidebarRoot() {
   const selectedWorktreeId = useWorktreeStore(
     (state) => state.selectedWorktreeId,
   );
+  const worktreesByProject = useWorktreeStore(
+    (state) => state.worktreesByProject,
+  );
+  const projectErrors = useWorktreeStore((state) => state.projectErrors);
   const selectWorktree = useWorktreeStore((state) => state.select);
   const createWorktree = useWorktreeStore((state) => state.create);
   const removeWorktree = useWorktreeStore((state) => state.remove);
@@ -94,7 +98,7 @@ export default function AppSidebarRoot() {
     } catch (error) {
       const message = (error as Error).message;
       if (!force && message === "409") {
-        const worktree = worktreesForProject(projectId).find(
+        const worktree = (worktreesByProject[projectId] ?? []).find(
           (candidate) => candidate.id === worktreeId,
         );
         if (worktree) {
@@ -229,6 +233,8 @@ export default function AppSidebarRoot() {
             projects={projects}
             expandedById={expandedById}
             selectedWorktreeId={selectedWorktreeId}
+            worktreesByProject={worktreesByProject}
+            projectErrors={projectErrors}
             activeProjectDragId={activeProjectDragId}
             activeProjectDragWidth={activeProjectDragWidth}
             projectDragLock={projectDragLock}

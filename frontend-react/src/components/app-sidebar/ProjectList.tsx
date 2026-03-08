@@ -13,7 +13,6 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { SidebarMenu } from "@/components/ui/sidebar";
-import { projectError, worktreesForProject } from "$lib/stores/worktrees";
 import type { Project, Worktree } from "$lib/types";
 import ProjectDragOverlay from "./ProjectDragOverlay";
 import ProjectRow from "./ProjectRow";
@@ -22,6 +21,8 @@ type ProjectListProps = {
   projects: Project[];
   expandedById: Record<string, boolean>;
   selectedWorktreeId: string | null;
+  worktreesByProject: Record<string, Worktree[]>;
+  projectErrors: Record<string, string>;
   activeProjectDragId: string | null;
   activeProjectDragWidth: number | null;
   projectDragLock: boolean;
@@ -42,6 +43,8 @@ export default function ProjectList({
   projects,
   expandedById,
   selectedWorktreeId,
+  worktreesByProject,
+  projectErrors,
   activeProjectDragId,
   activeProjectDragWidth,
   projectDragLock,
@@ -87,8 +90,8 @@ export default function ProjectList({
               project={project}
               isExpanded={expandedById[project.id] ?? true}
               selectedWorktreeId={selectedWorktreeId}
-              projectError={projectError(project.id)}
-              worktrees={worktreesForProject(project.id)}
+              projectError={projectErrors[project.id] ?? null}
+              worktrees={worktreesByProject[project.id] ?? []}
               isSorting={activeProjectDragId !== null}
               dragLock={projectDragLock}
               suppressAnimations={
@@ -114,8 +117,8 @@ export default function ProjectList({
           <ProjectDragOverlay
             project={activeProject}
             isExpanded={expandedById[activeProject.id] ?? true}
-            projectError={projectError(activeProject.id)}
-            worktrees={worktreesForProject(activeProject.id)}
+            projectError={projectErrors[activeProject.id] ?? null}
+            worktrees={worktreesByProject[activeProject.id] ?? []}
             selectedWorktreeId={selectedWorktreeId}
             width={activeProjectDragWidth}
           />

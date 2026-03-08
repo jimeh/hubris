@@ -83,6 +83,8 @@ reconciliation — drift corrects on reconnect.
   generation all target this app.
 - Explicit React frontend: `frontend-react/` (Vite React + shadcn/ui +
   Zustand). Use explicit `:*:react` tasks when working on it.
+- `build:server` still embeds only `frontend/`. React is opt-in for local
+  development and explicit checks/tests only right now.
 - The detailed frontend notes below describe `frontend/` unless a bullet
   explicitly says otherwise.
 
@@ -149,11 +151,10 @@ reconciliation — drift corrects on reconnect.
 ## Gotchas
 
 - **Do NOT modify shadcn components**: Files under
-  `frontend/src/lib/components/ui/` are installed by shadcn-svelte
-  and should be treated as managed vendor code. Editing them makes future
-  `npx shadcn-svelte@latest update` runs painful (manual conflict
-  resolution). Put customizations in wrapper components or app-level
-  code instead.
+  `frontend/src/lib/components/ui/` and
+  `frontend-react/src/components/ui/` are managed vendor code. Editing them
+  makes future shadcn updates painful. Put customizations in wrapper
+  components or app-level code instead.
 
 - **SSE init ordering**: All store handlers must be registered before
   `EventClient.connect()` — snapshot fires immediately on connect.
@@ -189,9 +190,10 @@ reconciliation — drift corrects on reconnect.
   Hidden tabs stay connected and should still answer pings, but only
   `visible:true` attachments participate in PTY size aggregation. This
   applies to both the Svelte and React frontends.
-- **Settings save is read-modify-write**: `saveSettings` in `api.ts`
-  GETs current settings before PUTting merged result. This prevents
-  theme and terminal stores from clobbering each other's sections.
+- **Settings save is serialized read-modify-write**: `saveSettings` in
+  `api.ts` GETs current settings before PUTting merged result, and React now
+  queues concurrent saves client-side. This prevents appearance, terminal,
+  and worktree settings writes from clobbering each other.
 - **Appearance settings still store per-mode theme IDs**:
   `lightTheme`/`darkTheme` remain in settings even though only built-in
   Hubris themes are selectable right now. Theme store init coerces

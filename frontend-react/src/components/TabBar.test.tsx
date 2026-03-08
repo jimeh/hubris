@@ -182,4 +182,42 @@ describe("TabBar", () => {
       behavior: "smooth",
     });
   });
+
+  it("cancels queued auto-scroll frames on cleanup", () => {
+    window.requestAnimationFrame = vi.fn(() => 77);
+
+    const { rerender, unmount } = render(
+      <TabBar
+        worktreeId="w1"
+        tabs={[makeTab("a", 1)]}
+        activeTabId="a"
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+        onAdd={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const tabList = screen.getByRole("tablist");
+    setScrollMetrics(tabList, {
+      clientWidth: 120,
+      scrollWidth: 420,
+    });
+
+    rerender(
+      <TabBar
+        worktreeId="w1"
+        tabs={[makeTab("a", 1), makeTab("b", 2)]}
+        activeTabId="a"
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+        onAdd={vi.fn()}
+        onReorder={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    unmount();
+
+    expect(window.cancelAnimationFrame).toHaveBeenCalledWith(77);
+  });
 });

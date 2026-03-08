@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import TabBar from "@/components/TabBar";
 import { useTabStore } from "$lib/stores/tabs";
 import type { Worktree } from "$lib/types";
@@ -17,6 +17,12 @@ export default function WorktreeView({ worktree }: Props) {
   const activate = useTabStore((state) => state.activate);
   const close = useTabStore((state) => state.close);
   const removeLocal = useTabStore((state) => state.removeLocal);
+  const handleTabClosed = useCallback(
+    (tabId: string) => {
+      removeLocal(tabId);
+    },
+    [removeLocal],
+  );
 
   const worktreeTabs = useMemo(
     () => allTabs.filter((tab) => tab.worktree_id === worktree.id),
@@ -49,7 +55,7 @@ export default function WorktreeView({ worktree }: Props) {
               <TerminalTab
                 tabId={tab.id}
                 visible={tab.id === activeTabId}
-                onClosed={() => removeLocal(tab.id)}
+                onClosed={handleTabClosed}
               />
             ) : null}
           </div>

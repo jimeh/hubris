@@ -312,4 +312,24 @@ describe("TerminalTab", () => {
       visible: true,
     });
   });
+
+  it("cancels pending resize retry frames during cleanup", () => {
+    window.requestAnimationFrame = vi.fn(() => 42);
+    currentViewport = null;
+
+    const { unmount } = render(
+      <TerminalTab tabId="tab-1" visible onClosed={vi.fn()} />,
+    );
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.open();
+    });
+
+    unmount();
+
+    expect(window.cancelAnimationFrame).toHaveBeenCalledWith(42);
+    expect(mockTerminal.dispose).toHaveBeenCalledTimes(1);
+    expect(ws.close).toHaveBeenCalledTimes(1);
+  });
 });

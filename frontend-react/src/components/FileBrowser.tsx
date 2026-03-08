@@ -33,6 +33,16 @@ export default function FileBrowser({
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [browsedPath, setBrowsedPath] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHiddenRef = useRef(showHidden);
+  const browsedPathRef = useRef("");
+
+  useEffect(() => {
+    showHiddenRef.current = showHidden;
+  }, [showHidden]);
+
+  useEffect(() => {
+    browsedPathRef.current = browsedPath;
+  }, [browsedPath]);
 
   const pathSegments = useMemo(() => {
     if (!browsedPath) {
@@ -47,13 +57,19 @@ export default function FileBrowser({
   }, [browsedPath]);
 
   const fetchEntries = useCallback(
-    async (path?: string): Promise<void> => {
+    async (
+      path?: string,
+      options?: { showHidden?: boolean },
+    ): Promise<void> => {
       setLoading(true);
       setError("");
       setFocusedIndex(-1);
 
       try {
-        const response = await listFiles(path, showHidden);
+        const response = await listFiles(
+          path,
+          options?.showHidden ?? showHiddenRef.current,
+        );
         setEntries(response.entries);
         setBrowsedPath(response.path);
         onCurrentPathChange(response.path);
@@ -67,7 +83,7 @@ export default function FileBrowser({
         setLoading(false);
       }
     },
-    [onCurrentPathChange, showHidden],
+    [onCurrentPathChange],
   );
 
   useEffect(() => {
@@ -97,12 +113,12 @@ export default function FileBrowser({
   }, [browsedPath, currentPath, fetchEntries]);
 
   useEffect(() => {
-    if (!browsedPath) {
+    if (!browsedPathRef.current) {
       return;
     }
 
-    void fetchEntries(browsedPath);
-  }, [browsedPath, fetchEntries, showHidden]);
+    void fetchEntries(browsedPathRef.current, { showHidden });
+  }, [fetchEntries, showHidden]);
 
   function navigateTo(path: string): void {
     void fetchEntries(path);
@@ -171,6 +187,19 @@ export default function FileBrowser({
         </Button>
         <div className="flex-1" />
         <Button
+          variant="outline"
+          size="sm"
+          disabled={!browsedPath}
+          onClick={() => {
+            if (!browsedPath) {
+              return;
+            }
+            onSelect(browsedPath);
+          }}
+        >
+          Select folder
+        </Button>
+        <Button
           variant="ghost"
           size="icon-sm"
           onClick={() => setShowHidden((value) => !value)}
@@ -210,6 +239,13 @@ export default function FileBrowser({
                 event.preventDefault();
                 if (focusedIndex >= 0) {
                   navigateToEntry(entries[focusedIndex]);
+                }
+                break;
+              case "s":
+              case "S":
+                event.preventDefault();
+                if (browsedPath) {
+                  onSelect(browsedPath);
                 }
                 break;
               case "Backspace":

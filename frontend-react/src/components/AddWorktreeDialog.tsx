@@ -137,8 +137,6 @@ export default function AddWorktreeDialog({
     useCustomStartPoint,
   ]);
 
-  useMemo(() => themeVersion, [themeVersion]);
-
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void (async () => {

@@ -233,31 +233,44 @@ export async function getSettings(): Promise<{
   return res.json();
 }
 
+let settingsSaveQueue = Promise.resolve();
+
+export function resetApiStateForTests(): void {
+  settingsSaveQueue = Promise.resolve();
+}
+
 export async function saveSettings(partial: {
   appearance?: AppearanceSettings;
   terminal?: TerminalSettings;
   worktree?: WorktreeSettings;
 }): Promise<void> {
-  // Read-modify-write to avoid clobbering sibling sections
-  const current = await getSettings();
-  const merged = { ...current, ...partial };
+  const runSave = async (): Promise<void> => {
+    // Read-modify-write to avoid clobbering sibling sections.
+    // Serialize calls so concurrent saves do not race and overwrite each other.
+    const current = await getSettings();
+    const merged = { ...current, ...partial };
 
-  const res = await fetch(`${BASE}/settings`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(merged),
-  });
-  if (!res.ok) throw new Error(`${res.status}`);
+    const res = await fetch(`${BASE}/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(merged),
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
 
-  // Cache in localStorage only after server confirms —
-  // avoids desync if the save fails
-  if (partial.appearance) {
-    localStorage.setItem(
-      "hubris-appearance",
-      JSON.stringify(partial.appearance),
-    );
-  }
-  if (partial.terminal) {
-    localStorage.setItem("hubris-terminal", JSON.stringify(partial.terminal));
-  }
+    // Cache in localStorage only after server confirms —
+    // avoids desync if the save fails.
+    if (partial.appearance) {
+      localStorage.setItem(
+        "hubris-appearance",
+        JSON.stringify(partial.appearance),
+      );
+    }
+    if (partial.terminal) {
+      localStorage.setItem("hubris-terminal", JSON.stringify(partial.terminal));
+    }
+  };
+
+  const queuedSave = settingsSaveQueue.then(runSave, runSave);
+  settingsSaveQueue = queuedSave.catch(() => {});
+  return queuedSave;
 }

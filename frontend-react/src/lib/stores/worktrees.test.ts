@@ -29,6 +29,10 @@ class MockEventClient {
       handler(data);
     }
   }
+
+  handlerCount(event: SseEventName): number {
+    return this.handlers.get(event)?.size ?? 0;
+  }
 }
 
 let mockEvents: MockEventClient;
@@ -104,5 +108,60 @@ describe("Worktree store", () => {
     expect(
       list.find((worktree) => worktree.id === "missing")?.missing_on_disk,
     ).toBe(true);
+  });
+
+  it("reorder() preserves omitted non-local worktrees", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({
+            id: "local",
+            project_id: "p1",
+            name: "local",
+            is_local: true,
+            branch: "local",
+            position: 1,
+          }),
+          makeWorktree({
+            id: "a",
+            project_id: "p1",
+            name: "feature-a",
+            position: 2,
+          }),
+          makeWorktree({
+            id: "b",
+            project_id: "p1",
+            name: "feature-b",
+            position: 3,
+          }),
+          makeWorktree({
+            id: "c",
+            project_id: "p1",
+            name: "feature-c",
+            position: 4,
+          }),
+        ],
+      },
+      project_errors: {},
+    });
+
+    await store.useWorktreeStore.getState().reorder("p1", ["c", "a"]);
+
+    expect(
+      store.worktreesForProject("p1").map((worktree) => worktree.id),
+    ).toEqual(["local", "c", "a", "b"]);
+  });
+
+  it("resetWorktreeStoreForTests unsubscribes SSE handlers", async () => {
+    const store = await import("./worktrees");
+    store.resetWorktreeStoreForTests();
+    store.initializeWorktreeStore();
+
+    expect(mockEvents.handlerCount("snapshot")).toBe(1);
+
+    store.resetWorktreeStoreForTests();
+
+    expect(mockEvents.handlerCount("snapshot")).toBe(0);
   });
 });

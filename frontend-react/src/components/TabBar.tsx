@@ -112,8 +112,9 @@ export default function TabBar({
 
   useEffect(() => {
     const tabCount = tabs.length;
+    let frameId: number | null = null;
     if (tabCount > prevTabCountRef.current && tabListRef.current) {
-      requestAnimationFrame(() => {
+      frameId = requestAnimationFrame(() => {
         tabListRef.current?.scrollTo({
           left: tabListRef.current.scrollWidth,
           behavior: "smooth",
@@ -122,6 +123,11 @@ export default function TabBar({
     }
 
     prevTabCountRef.current = tabCount;
+    return () => {
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+      }
+    };
   }, [tabs.length]);
 
   function clearDragState(): void {
