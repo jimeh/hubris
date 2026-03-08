@@ -240,6 +240,11 @@ reconciliation — drift corrects on reconnect.
 - **Sidebar resize ownership**: Keep sidebar resize customization in
   app-level files (store/handle/CSS) instead of `components/ui/sidebar/*`
   so shadcn sidebar upgrades remain mostly copy-merge operations.
+- **React sidebar width should bypass React during drags**:
+  `frontend-react/src/App.tsx` intentionally subscribes to the sidebar width
+  store outside React and writes `--sidebar-width` directly onto the rendered
+  sidebar wrapper. Re-subscribing `width` in React makes resize drags rerender
+  the full app tree.
 - **React sidebar project drag should use `DragOverlay`**:
   translating the live sortable project row can expand the sidebar's
   scrollable width during sideways drags. Keep the in-list row as an

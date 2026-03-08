@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import TabBar from "@/components/TabBar";
 import { useTabStore } from "$lib/stores/tabs";
 import type { Worktree } from "$lib/types";
@@ -9,7 +10,6 @@ type Props = {
 };
 
 export default function WorktreeView({ worktree }: Props) {
-  const allTabs = useTabStore((state) => state.tabs);
   const activeTabId = useTabStore((state) => state.activeTabId);
   const switchToWorktree = useTabStore((state) => state.switchToWorktree);
   const addTerminal = useTabStore((state) => state.addTerminal);
@@ -17,16 +17,35 @@ export default function WorktreeView({ worktree }: Props) {
   const activate = useTabStore((state) => state.activate);
   const close = useTabStore((state) => state.close);
   const removeLocal = useTabStore((state) => state.removeLocal);
+  const worktreeTabs = useTabStore(
+    useShallow((state) =>
+      state.tabs.filter((tab) => tab.worktree_id === worktree.id),
+    ),
+  );
   const handleTabClosed = useCallback(
     (tabId: string) => {
       removeLocal(tabId);
     },
     [removeLocal],
   );
-
-  const worktreeTabs = useMemo(
-    () => allTabs.filter((tab) => tab.worktree_id === worktree.id),
-    [allTabs, worktree.id],
+  const handleActivateTab = useCallback(
+    (tabId: string) => {
+      activate(tabId);
+    },
+    [activate],
+  );
+  const handleCloseTab = useCallback(
+    (tabId: string) => {
+      void close(tabId);
+    },
+    [close],
+  );
+  const handleAddTab = useCallback(() => {
+    void addTerminal(worktree.id);
+  }, [addTerminal, worktree.id]);
+  const handleReorderTabs = useCallback(
+    (orderedIds: string[]) => reorder(worktree.id, orderedIds),
+    [reorder, worktree.id],
   );
 
   useEffect(() => {
@@ -39,10 +58,10 @@ export default function WorktreeView({ worktree }: Props) {
         worktreeId={worktree.id}
         tabs={worktreeTabs}
         activeTabId={activeTabId}
-        onActivate={activate}
-        onClose={(tabId) => void close(tabId)}
-        onAdd={() => void addTerminal(worktree.id)}
-        onReorder={(orderedIds) => reorder(worktree.id, orderedIds)}
+        onActivate={handleActivateTab}
+        onClose={handleCloseTab}
+        onAdd={handleAddTab}
+        onReorder={handleReorderTabs}
       />
 
       <div className="relative flex-1 overflow-hidden">

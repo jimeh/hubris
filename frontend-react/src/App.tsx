@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { Folder } from "lucide-react";
 import {
   Breadcrumb,
@@ -101,8 +101,9 @@ export default function App() {
   const worktreesByProject = useWorktreeStore(
     (state) => state.worktreesByProject,
   );
-  const width = useSidebarWidthStore((state) => state.width);
   const isResizing = useSidebarWidthStore((state) => state.isResizing);
+  const appRootRef = useRef<HTMLDivElement | null>(null);
+  const initialSidebarWidthRef = useRef(useSidebarWidthStore.getState().width);
 
   const selectedWorktree = useMemo(() => {
     if (!selectedWorktreeId) {
@@ -127,28 +128,54 @@ export default function App() {
     );
   }, [projects, selectedWorktree]);
 
+  useLayoutEffect(() => {
+    const host = appRootRef.current;
+    const sidebarWrapper =
+      host?.querySelector<HTMLElement>("[data-slot='sidebar-wrapper']") ?? null;
+    if (!sidebarWrapper) {
+      return;
+    }
+    const sidebarElement = sidebarWrapper;
+
+    function applySidebarWidth(width: number): void {
+      sidebarElement.style.setProperty("--sidebar-width", `${width}px`);
+    }
+
+    applySidebarWidth(useSidebarWidthStore.getState().width);
+
+    return useSidebarWidthStore.subscribe((state) => {
+      applySidebarWidth(state.width);
+    });
+  }, []);
+
   return (
-    <SidebarProvider
-      className={isResizing ? "sidebar-resizing" : undefined}
-      style={{ "--sidebar-width": `${width}px` } as React.CSSProperties}
-    >
-      <AppSidebar />
-      <SidebarResizeHandle />
-      <SidebarInset>
-        <AppHeader
-          selectedProject={selectedProject}
-          selectedWorktree={selectedWorktree}
-        />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {selectedWorktree ? (
-            <WorktreeView worktree={selectedWorktree} />
-          ) : (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              <p>Select a worktree from the sidebar</p>
-            </div>
-          )}
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+    <div ref={appRootRef}>
+      <SidebarProvider
+        className={isResizing ? "sidebar-resizing" : undefined}
+        style={
+          {
+            "--sidebar-width": `${initialSidebarWidthRef.current}px`,
+          } as React.CSSProperties
+        }
+      >
+        <AppSidebar />
+        <SidebarResizeHandle />
+        <SidebarInset>
+          <AppHeader
+            selectedProject={selectedProject}
+            selectedWorktree={selectedWorktree}
+          />
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {selectedWorktree ? (
+              <WorktreeView worktree={selectedWorktree} />
+            ) : (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                <p>Select a worktree from the sidebar</p>
+              </div>
+            )}
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </div>
   );
 }

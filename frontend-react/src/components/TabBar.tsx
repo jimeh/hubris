@@ -17,6 +17,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   forwardRef,
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -44,13 +45,14 @@ type Props = {
 };
 
 type TabChipProps = {
-  tab: Tab;
+  tabId: string;
+  label: string;
   isActive: boolean;
   dragging?: boolean;
   isOverlay?: boolean;
   width?: number | null;
-  onActivate?: () => void;
-  onClose?: () => void;
+  onActivateTab?: (tabId: string) => void;
+  onCloseTab?: (tabId: string) => void;
 } & Omit<ComponentPropsWithoutRef<"div">, "onClick" | "children">;
 
 export default function TabBar({
@@ -69,6 +71,7 @@ export default function TabBar({
   const [canScrollRight, setCanScrollRight] = useState(false);
   const tabListRef = useRef<HTMLDivElement | null>(null);
   const prevTabCountRef = useRef(tabs.length);
+  const sortableItems = useMemo(() => tabs.map((tab) => tab.id), [tabs]);
 
   const activeDragTab = useMemo(
     () => tabs.find((tab) => tab.id === activeDragId) ?? null,
@@ -200,7 +203,7 @@ export default function TabBar({
           onDragCancel={clearDragState}
         >
           <SortableContext
-            items={tabs.map((tab) => tab.id)}
+            items={sortableItems}
             strategy={horizontalListSortingStrategy}
           >
             <div
@@ -214,11 +217,12 @@ export default function TabBar({
               {tabs.map((tab) => (
                 <SortableTab
                   key={tab.id}
-                  tab={tab}
+                  tabId={tab.id}
+                  label={tab.label}
                   isActive={tab.id === activeTabId}
                   dragging={dragging}
-                  onActivate={() => onActivate(tab.id)}
-                  onClose={() => onClose(tab.id)}
+                  onActivateTab={onActivate}
+                  onCloseTab={onClose}
                 />
               ))}
             </div>
@@ -226,8 +230,9 @@ export default function TabBar({
 
           <DragOverlay>
             {activeDragTab ? (
-              <TabChip
-                tab={activeDragTab}
+              <SortableTabView
+                tabId={activeDragTab.id}
+                label={activeDragTab.label}
                 isActive={activeDragTab.id === activeTabId}
                 isOverlay
                 width={activeDragWidth}
@@ -265,18 +270,20 @@ export default function TabBar({
   );
 }
 
-function SortableTab({
-  tab,
+export const SortableTab = memo(function SortableTab({
+  tabId,
+  label,
   isActive,
   dragging,
-  onActivate,
-  onClose,
+  onActivateTab,
+  onCloseTab,
 }: {
-  tab: Tab;
+  tabId: string;
+  label: string;
   isActive: boolean;
   dragging: boolean;
-  onActivate: () => void;
-  onClose: () => void;
+  onActivateTab: (tabId: string) => void;
+  onCloseTab: (tabId: string) => void;
 }) {
   const {
     attributes,
@@ -285,7 +292,7 @@ function SortableTab({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: tab.id });
+  } = useSortable({ id: tabId });
 
   const style: CSSProperties = {
     transform: isDragging ? undefined : CSS.Transform.toString(transform),
@@ -295,100 +302,108 @@ function SortableTab({
   };
 
   return (
-    <TabChip
+    <SortableTabView
       ref={setNodeRef}
       style={style}
-      tab={tab}
+      tabId={tabId}
+      label={label}
       isActive={isActive}
       dragging={dragging}
-      onActivate={onActivate}
-      onClose={onClose}
+      onActivateTab={onActivateTab}
+      onCloseTab={onCloseTab}
       {...attributes}
       {...listeners}
     />
   );
-}
-
-const TabChip = forwardRef<HTMLDivElement, TabChipProps>(function TabChip(
-  {
-    tab,
-    isActive,
-    dragging = false,
-    isOverlay = false,
-    width,
-    style,
-    onActivate,
-    onClose,
-    className,
-    onKeyDown,
-    role: _role,
-    tabIndex: providedTabIndex,
-    ...divProps
-  },
-  ref,
-) {
-  const mergedStyle =
-    width == null
-      ? style
-      : ({ ...(style ?? {}), width } satisfies CSSProperties);
-
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-    onKeyDown?.(event);
-    if (event.defaultPrevented) {
-      return;
-    }
-
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      onActivate?.();
-    }
-  }
-
-  function handleClick(event: MouseEvent<HTMLDivElement>): void {
-    if (event.defaultPrevented) {
-      return;
-    }
-
-    onActivate?.();
-  }
-
-  return (
-    <div
-      ref={ref}
-      style={mergedStyle}
-      className={cn(
-        "inline-flex cursor-default select-none items-center gap-1.5 whitespace-nowrap pl-3 pr-2.5 py-2 text-sm transition-colors",
-        isActive
-          ? "bg-tab-active text-tab-active-foreground shadow-[inset_0_-2px_0_var(--tab-active-border)]"
-          : dragging
-            ? "text-tab-inactive-foreground"
-            : "text-tab-inactive-foreground hover:text-foreground",
-        isOverlay && "pointer-events-none opacity-50",
-        className,
-      )}
-      data-tab-drag-item="true"
-      data-tab-overlay={isOverlay || undefined}
-      {...divProps}
-      role="tab"
-      tabIndex={isOverlay ? -1 : (providedTabIndex ?? 0)}
-      aria-selected={isActive}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
-    >
-      <span>{tab.label}</span>
-      <button
-        type="button"
-        aria-label={`Close ${tab.label}`}
-        className="rounded-sm opacity-60 hover:opacity-100"
-        tabIndex={-1}
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          onClose?.();
-        }}
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
-  );
 });
+
+export const SortableTabView = memo(
+  forwardRef<HTMLDivElement, TabChipProps>(function SortableTabView(
+    {
+      tabId,
+      label,
+      isActive,
+      dragging = false,
+      isOverlay = false,
+      width,
+      style,
+      onActivateTab,
+      onCloseTab,
+      className,
+      onKeyDown,
+      role: _role,
+      tabIndex: providedTabIndex,
+      ...divProps
+    },
+    ref,
+  ) {
+    const mergedStyle =
+      width == null
+        ? style
+        : ({ ...(style ?? {}), width } satisfies CSSProperties);
+
+    function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+      onKeyDown?.(event);
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onActivateTab?.(tabId);
+      }
+    }
+
+    function handleClick(event: MouseEvent<HTMLDivElement>): void {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      onActivateTab?.(tabId);
+    }
+
+    return (
+      <div
+        ref={ref}
+        style={mergedStyle}
+        className={cn(
+          "inline-flex cursor-default select-none items-center gap-1.5 whitespace-nowrap pl-3 pr-2.5 py-2 text-sm transition-colors",
+          isActive
+            ? "bg-tab-active text-tab-active-foreground shadow-[inset_0_-2px_0_var(--tab-active-border)]"
+            : dragging
+              ? "text-tab-inactive-foreground"
+              : "text-tab-inactive-foreground hover:text-foreground",
+          isOverlay && "pointer-events-none opacity-50",
+          className,
+        )}
+        data-tab-drag-item="true"
+        data-tab-overlay={isOverlay || undefined}
+        {...divProps}
+        role="tab"
+        tabIndex={isOverlay ? -1 : (providedTabIndex ?? 0)}
+        aria-selected={isActive}
+        onClick={handleClick}
+        onKeyDown={handleKeyDown}
+      >
+        <span>{label}</span>
+        {isOverlay || !onCloseTab ? null : (
+          <button
+            type="button"
+            aria-label={`Close ${label}`}
+            className="rounded-sm opacity-60 hover:opacity-100"
+            tabIndex={-1}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onCloseTab(tabId);
+            }}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+    );
+  }),
+);
+
+SortableTabView.displayName = "SortableTabView";

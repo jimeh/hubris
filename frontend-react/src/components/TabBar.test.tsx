@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { act } from "react";
+import { act, useCallback, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import TabBar from "@/components/TabBar";
+import TabBar, { SortableTabView } from "@/components/TabBar";
 import type { Tab } from "$lib/types";
 
 let resizeCallback: ResizeObserverCallback | null = null;
@@ -219,5 +219,43 @@ describe("TabBar", () => {
     unmount();
 
     expect(window.cancelAnimationFrame).toHaveBeenCalledWith(77);
+  });
+
+  it("does not rerender a tab view when its props stay stable", () => {
+    const renderSpy = vi.spyOn(
+      (SortableTabView as unknown as { type: { render: () => unknown } }).type,
+      "render",
+    );
+
+    function Harness() {
+      const [count, setCount] = useState(0);
+      const handleActivateTab = useCallback((_tabId: string) => {}, []);
+      const handleCloseTab = useCallback((_tabId: string) => {}, []);
+
+      return (
+        <>
+          <button onClick={() => setCount((value) => value + 1)} type="button">
+            bump
+          </button>
+          <span>{count}</span>
+          <SortableTabView
+            tabId="a"
+            label="Tab A"
+            isActive={false}
+            dragging={false}
+            onActivateTab={handleActivateTab}
+            onCloseTab={handleCloseTab}
+          />
+        </>
+      );
+    }
+
+    render(<Harness />);
+
+    expect(renderSpy).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "bump" }));
+
+    expect(renderSpy).toHaveBeenCalledTimes(1);
   });
 });

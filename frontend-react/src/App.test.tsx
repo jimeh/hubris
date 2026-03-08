@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+let worktreeViewRenderCount = 0;
 
 vi.mock("@/components/SidebarResizeHandle", () => ({
   default: () => null,
@@ -36,18 +39,25 @@ vi.mock("@/components/AppSidebar", async () => {
 });
 
 vi.mock("@/components/WorktreeView", () => ({
-  default: ({ worktree }: { worktree: { name: string } }) => (
-    <div>Active worktree: {worktree.name}</div>
-  ),
+  default: ({ worktree }: { worktree: { name: string } }) =>
+    (() => {
+      worktreeViewRenderCount += 1;
+      return <div>Active worktree: {worktree.name}</div>;
+    })(),
 }));
 
 describe("App", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
     localStorage.clear();
+    worktreeViewRenderCount = 0;
 
     const { useProjectStore } = await import("$lib/stores/projects");
     const { useWorktreeStore } = await import("$lib/stores/worktrees");
+    const { resetSidebarWidthStoreForTests, useSidebarWidthStore } =
+      await import("$lib/stores/sidebarWidth");
+
+    resetSidebarWidthStoreForTests();
 
     useProjectStore.setState({
       projects: [
@@ -83,6 +93,10 @@ describe("App", () => {
       projectErrors: {},
       selectedWorktreeId: "w-local",
     });
+    useSidebarWidthStore.setState({
+      width: 256,
+      isResizing: false,
+    });
   });
 
   it("updates the main pane when the selected worktree changes", async () => {
@@ -95,5 +109,45 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "feature-a" }));
 
     expect(screen.getByText("Active worktree: feature-a")).toBeInTheDocument();
+  });
+
+  it("updates sidebar width via DOM subscription without rerendering the main pane", async () => {
+    const { useSidebarWidthStore } = await import("$lib/stores/sidebarWidth");
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    const sidebarWrapper = document.querySelector<HTMLElement>(
+      "[data-slot='sidebar-wrapper']",
+    );
+
+    expect(sidebarWrapper).not.toBeNull();
+    expect(sidebarWrapper?.style.getPropertyValue("--sidebar-width")).toBe(
+      "256px",
+    );
+    expect(worktreeViewRenderCount).toBe(1);
+
+    act(() => {
+      useSidebarWidthStore.getState().setWidth(320);
+      useSidebarWidthStore.getState().setWidth(360);
+      useSidebarWidthStore.getState().setWidth(400);
+    });
+
+    expect(sidebarWrapper?.style.getPropertyValue("--sidebar-width")).toBe(
+      "400px",
+    );
+    expect(worktreeViewRenderCount).toBe(1);
+
+    act(() => {
+      useSidebarWidthStore.getState().setResizing(true);
+    });
+
+    expect(sidebarWrapper).toHaveClass("sidebar-resizing");
+
+    act(() => {
+      useSidebarWidthStore.getState().setResizing(false);
+    });
+
+    expect(sidebarWrapper).not.toHaveClass("sidebar-resizing");
   });
 });

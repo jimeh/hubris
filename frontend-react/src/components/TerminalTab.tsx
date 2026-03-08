@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { createXtermAdapter } from "$lib/terminal/xterm";
 import { terminalWsUrl } from "$lib/api";
 import type {
@@ -23,7 +23,7 @@ const RECONNECT_DELAY_INITIAL = 100;
 const RECONNECT_DELAY_MAX = 5000;
 const RECONNECT_DELAY_MULTIPLIER = 2;
 
-export default function TerminalTab({ tabId, visible, onClosed }: Props) {
+function TerminalTab({ tabId, visible, onClosed }: Props) {
   const themeVersion = useThemeStore((state) => state.version);
   const terminalVersion = useTerminalStore((state) => state.version);
   const fontFamily = useTerminalStore((state) => state.fontFamily);
@@ -339,3 +339,9 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
     </div>
   );
 }
+
+const MemoizedTerminalTab = memo(TerminalTab);
+
+MemoizedTerminalTab.displayName = "TerminalTab";
+
+export default MemoizedTerminalTab;
