@@ -166,8 +166,7 @@ export function ProjectList({ setDialogState }: ProjectListProps) {
                 ))}
               </div>
             </SortableContext>
-            <DragOverlay
-              >
+            <DragOverlay>
               {dragSnapshotRef.current && (
                 <div
                   className="group/menu-item relative rounded-md opacity-90"

@@ -89,8 +89,8 @@ export const WorktreeItem = React.memo(function WorktreeItem({
               </span>
             </TooltipTrigger>
             <TooltipContent side="top" align="center">
-              This worktree was deleted outside Hubris. Remove it
-              from Hubris to clear this entry.
+              This worktree was deleted outside Hubris. Remove it from Hubris to
+              clear this entry.
             </TooltipContent>
           </Tooltip>
         )}

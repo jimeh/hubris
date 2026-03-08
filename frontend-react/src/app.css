@@ -58,6 +58,7 @@
   --color-tab-active-foreground: var(--tab-active-foreground);
   --color-tab-inactive-foreground: var(--tab-inactive-foreground);
   --color-tab-border: var(--tab-border);
+  --color-tab-active-border: var(--tab-active-border);
 
   --animate-collapsible-down: collapsible-down 150ms ease-out;
   --animate-collapsible-up: collapsible-up 150ms ease-out;
@@ -170,6 +171,16 @@
 [data-tab-dragging] [data-tab-drag-item],
 [data-tab-dragging] [data-tab-drag-item] * {
   pointer-events: none !important;
+}
+
+/* Hide scrollbar on tab list — chevron indicators replace it */
+[data-tab-dragging],
+div:has(> [data-tab-drag-item]) {
+  scrollbar-width: none;
+}
+[data-tab-dragging]::-webkit-scrollbar,
+div:has(> [data-tab-drag-item])::-webkit-scrollbar {
+  display: none;
 }
 
 /* Start-point popover (AddWorktreeDialog) */

@@ -133,8 +133,7 @@ export function WorktreeList({
             ))}
           </div>
         </SortableContext>
-        <DragOverlay
-          >
+        <DragOverlay>
           {dragSnapshotRef.current && (
             <div
               className="group/worktree-item relative"

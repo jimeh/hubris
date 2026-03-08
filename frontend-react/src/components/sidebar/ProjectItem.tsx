@@ -108,9 +108,7 @@ export const ProjectItem = React.memo(function ProjectItem({
                 {...listeners}
                 className="relative flex w-full items-center gap-2 overflow-visible px-2 py-1"
               >
-                <div
-                  className="flex min-w-0 flex-1 items-center gap-2"
-                >
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                   <div className="flex items-center gap-2 truncate">
                     <FolderOpen className="h-3.5 w-3.5 shrink-0 group-hover/menu-item:hidden group-data-[state=closed]/collapsible:hidden" />
                     <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 group-hover/menu-item:block group-data-[state=closed]/collapsible:!hidden" />

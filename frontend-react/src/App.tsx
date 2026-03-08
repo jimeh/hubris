@@ -89,7 +89,7 @@ export default function App() {
     >
       <AppSidebar />
       <SidebarResizeHandle />
-      <SidebarInset>
+      <SidebarInset className="min-w-0">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ms-1" />
           <Separator
