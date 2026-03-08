@@ -31,3 +31,4 @@ listenfd = "1"
 tempfile = "3"
 reqwest = { version = "0.13", features = ["json"] }
 tokio-test = "0.4"
+tokio-tungstenite = "0.28"

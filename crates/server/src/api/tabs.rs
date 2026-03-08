@@ -7,13 +7,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{CommandBuilder, NativePtySystem, PtySystem};
 use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
-use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TabInfo};
+use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TabInfo, TerminalSize};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -115,12 +115,7 @@ pub async fn create_tab(
 
     let pty_system = NativePtySystem::default();
     let pair = pty_system
-        .openpty(PtySize {
-            rows: 24,
-            cols: 80,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
+        .openpty(TerminalSize::default_pty().to_pty_size())
         .map_err(|e| {
             tracing::error!("failed to open pty: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -137,7 +132,13 @@ pub async fn create_tab(
     })?;
     drop(pair.slave);
 
-    let live_tab = LiveTab::spawn(info.clone(), pair.master, child, DEFAULT_SCROLLBACK);
+    let live_tab = LiveTab::spawn(
+        info.clone(),
+        pair.master,
+        child,
+        DEFAULT_SCROLLBACK,
+        TerminalSize::default_pty(),
+    );
     let mut close_rx = live_tab.close_tx.subscribe();
     let tab = Arc::new(live_tab);
     state.tabs.insert(info.id.clone(), tab);

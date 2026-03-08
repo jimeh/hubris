@@ -770,7 +770,7 @@
         "oneOf": [
           {
             "type": "object",
-            "required": ["cols", "rows", "type"],
+            "required": ["cols", "rows", "visible", "type"],
             "properties": {
               "cols": {
                 "type": "integer",
@@ -785,6 +785,9 @@
               "type": {
                 "type": "string",
                 "enum": ["resize"]
+              },
+              "visible": {
+                "type": "boolean"
               }
             }
           }
@@ -942,19 +945,49 @@
         "oneOf": [
           {
             "type": "object",
-            "required": ["byte_offset", "data_lost", "type"],
+            "required": ["byte_offset", "data_lost", "cols", "rows", "type"],
             "properties": {
               "byte_offset": {
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
               },
+              "cols": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
               "data_lost": {
                 "type": "boolean"
+              },
+              "rows": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
               },
               "type": {
                 "type": "string",
                 "enum": ["attached"]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["cols", "rows", "type"],
+            "properties": {
+              "cols": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "rows": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": ["pty_resized"]
               }
             }
           },
