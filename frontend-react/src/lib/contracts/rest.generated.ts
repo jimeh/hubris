@@ -266,6 +266,7 @@ export interface components {
       rows: number;
       /** @enum {string} */
       type: "resize";
+      visible: boolean;
     };
     CreateTabRequest: {
       worktree_id: string;
@@ -317,9 +318,21 @@ export interface components {
       | {
           /** Format: int64 */
           byte_offset: number;
+          /** Format: int32 */
+          cols: number;
           data_lost: boolean;
+          /** Format: int32 */
+          rows: number;
           /** @enum {string} */
           type: "attached";
+        }
+      | {
+          /** Format: int32 */
+          cols: number;
+          /** Format: int32 */
+          rows: number;
+          /** @enum {string} */
+          type: "pty_resized";
         }
       | {
           /** @enum {string} */

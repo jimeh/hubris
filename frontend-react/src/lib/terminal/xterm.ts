@@ -3,7 +3,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
-import type { TerminalAdapter } from "./adapter";
+import type { TerminalAdapter, TerminalViewport } from "./adapter";
 import { DEFAULT_FONT_FAMILY } from "./fonts";
 
 export function getTerminalTheme(): Record<string, string> {
@@ -75,8 +75,16 @@ export function createXtermAdapter(opts?: {
     resize(cols: number, rows: number) {
       term.resize(cols, rows);
     },
-    fit() {
-      fitAddon.fit();
+    measureViewport(): TerminalViewport | null {
+      const viewport = fitAddon.proposeDimensions();
+      if (!viewport) {
+        return null;
+      }
+
+      return {
+        cols: viewport.cols,
+        rows: viewport.rows,
+      };
     },
     get rows() {
       return term.rows;
@@ -96,7 +104,6 @@ export function createXtermAdapter(opts?: {
     updateFont(family: string, size: number) {
       term.options.fontFamily = family;
       term.options.fontSize = size;
-      fitAddon.fit();
     },
     dispose() {
       term.dispose();

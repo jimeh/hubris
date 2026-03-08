@@ -187,7 +187,8 @@ reconciliation — drift corrects on reconnect.
 - **Terminal WS stale cleanup uses server ping/pong**:
   terminal attachments are expired by server-driven websocket pings.
   Hidden tabs stay connected and should still answer pings, but only
-  `visible:true` attachments participate in PTY size aggregation.
+  `visible:true` attachments participate in PTY size aggregation. This
+  applies to both the Svelte and React frontends.
 - **Settings save is read-modify-write**: `saveSettings` in `api.ts`
   GETs current settings before PUTting merged result. This prevents
   theme and terminal stores from clobbering each other's sections.
@@ -224,9 +225,10 @@ reconciliation — drift corrects on reconnect.
   `matchMedia` before importing sidebar components or test lower-level
   stores/state instead.
 - **Terminal tabs stay websocket-attached while hidden**:
-  `WorktreeView.svelte` keeps inactive `TerminalTab` components mounted and
-  just toggles `hidden`, so terminal/PTY sizing logic must explicitly ignore
-  hidden tabs instead of assuming one visible tab equals one connected client.
+  `WorktreeView.svelte` and `WorktreeView.tsx` keep inactive
+  `TerminalTab` components mounted and just toggle visibility, so
+  terminal/PTY sizing logic must explicitly ignore hidden tabs instead
+  of assuming one visible tab equals one connected client.
 - **Sidebar resize ownership**: Keep sidebar resize customization in
   app-level files (store/handle/CSS) instead of `components/ui/sidebar/*`
   so shadcn sidebar upgrades remain mostly copy-merge operations.

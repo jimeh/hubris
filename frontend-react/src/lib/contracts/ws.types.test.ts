@@ -11,6 +11,7 @@ describe("WS contract typing", () => {
       type: "resize";
       cols: number;
       rows: number;
+      visible: boolean;
     }>();
 
     expectTypeOf<
@@ -19,6 +20,16 @@ describe("WS contract typing", () => {
       type: "attached";
       byte_offset: number;
       data_lost: boolean;
+      cols: number;
+      rows: number;
+    }>();
+
+    expectTypeOf<
+      Extract<ServerControlMessage, { type: "pty_resized" }>
+    >().toEqualTypeOf<{
+      type: "pty_resized";
+      cols: number;
+      rows: number;
     }>();
   });
 });

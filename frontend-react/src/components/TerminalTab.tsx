@@ -7,7 +7,11 @@ import type {
 } from "$lib/contracts/ws.generated";
 import { useThemeStore } from "$lib/stores/theme";
 import { useTerminalStore } from "$lib/stores/terminal";
-import type { TerminalAdapter } from "$lib/terminal/adapter";
+import type { TerminalAdapter, TerminalViewport } from "$lib/terminal/adapter";
+import {
+  buildTerminalViewportMessage,
+  shouldApplyTerminalViewport,
+} from "$lib/terminal/viewport";
 
 type Props = {
   tabId: string;
@@ -39,6 +43,10 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
   const onClosedRef = useRef(onClosed);
   const fontFamilyRef = useRef(fontFamily);
   const fontSizeRef = useRef(fontSize);
+  const localViewportRef = useRef<TerminalViewport | null>(null);
+  const appliedViewportRef = useRef<TerminalViewport | null>(null);
+  const lastSentViewportRef = useRef("");
+  const flushInputAfterResizeRef = useRef(false);
 
   const [everConnected, setEverConnected] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -56,29 +64,89 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
     fontSizeRef.current = fontSize;
   }, [fontFamily, fontSize]);
 
-  const sendControlMessage = useCallback(
-    (message: ClientControlMessage): void => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify(message));
-      }
-    },
-    [],
-  );
-
-  const sendResize = useCallback((): void => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const terminal = terminalRef.current;
-      if (!terminal) {
-        return;
-      }
-
-      sendControlMessage({
-        type: "resize",
-        cols: terminal.cols,
-        rows: terminal.rows,
-      });
+  const measureViewport = useCallback((): TerminalViewport | null => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return null;
     }
-  }, [sendControlMessage]);
+
+    const viewport = terminal.measureViewport();
+    if (viewport) {
+      localViewportRef.current = viewport;
+    }
+
+    return viewport;
+  }, []);
+
+  const applyPtySize = useCallback((cols: number, rows: number): void => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    const nextViewport = { cols, rows };
+    if (
+      !shouldApplyTerminalViewport(appliedViewportRef.current, nextViewport)
+    ) {
+      return;
+    }
+
+    terminal.resize(cols, rows);
+    appliedViewportRef.current = nextViewport;
+  }, []);
+
+  const buildViewportMessage = useCallback((): ClientControlMessage | null => {
+    const { localViewport, message } = buildTerminalViewportMessage({
+      visible: visibleRef.current,
+      measuredViewport: measureViewport(),
+      localViewport: localViewportRef.current,
+      appliedViewport: appliedViewportRef.current,
+    });
+
+    localViewportRef.current = localViewport;
+    return message;
+  }, [measureViewport]);
+
+  const flushBufferedInput = useCallback((): void => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    for (const chunk of inputBufferRef.current) {
+      wsRef.current.send(chunk);
+    }
+    inputBufferRef.current = [];
+    flushInputAfterResizeRef.current = false;
+  }, []);
+
+  const sendResize = useCallback(
+    (force = false): boolean => {
+      const message = buildViewportMessage();
+      if (!message) {
+        return false;
+      }
+
+      const serialized = JSON.stringify(message);
+      if (!force && serialized === lastSentViewportRef.current) {
+        return false;
+      }
+
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(serialized);
+        lastSentViewportRef.current = serialized;
+        if (
+          flushInputAfterResizeRef.current &&
+          inputBufferRef.current.length > 0
+        ) {
+          flushBufferedInput();
+        }
+        return true;
+      }
+
+      return false;
+    },
+    [buildViewportMessage, flushBufferedInput],
+  );
 
   const scheduleReconnect = useCallback((): void => {
     if (intentionalCloseRef.current || reconnectTimerRef.current) {
@@ -113,13 +181,19 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
       setConnected(true);
       setEverConnected(true);
       reconnectDelayRef.current = RECONNECT_DELAY_INITIAL;
-      sendResize();
+      lastSentViewportRef.current = "";
+      flushInputAfterResizeRef.current = inputBufferRef.current.length > 0;
 
-      for (const chunk of inputBufferRef.current) {
-        ws.send(chunk);
+      if (!sendResize(true)) {
+        requestAnimationFrame(() => {
+          sendResize(true);
+          if (visibleRef.current) {
+            terminalRef.current?.focus();
+          }
+        });
+      } else if (visibleRef.current) {
+        terminalRef.current?.focus();
       }
-      inputBufferRef.current = [];
-      terminalRef.current?.focus();
     };
 
     ws.onmessage = (event) => {
@@ -132,10 +206,14 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
               onClosedRef.current?.();
               return;
             case "attached":
+              applyPtySize(message.cols, message.rows);
               bytePositionRef.current = message.byte_offset;
               if (message.data_lost) {
                 terminalRef.current?.clear();
               }
+              return;
+            case "pty_resized":
+              applyPtySize(message.cols, message.rows);
               return;
           }
         } catch {
@@ -155,7 +233,11 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
         scheduleReconnect();
       }
     };
-  }, [scheduleReconnect, sendResize, tabId]);
+
+    ws.onerror = () => {
+      // onclose fires after onerror — reconnect handled there
+    };
+  }, [applyPtySize, scheduleReconnect, sendResize, tabId]);
 
   useEffect(() => {
     connectWsRef.current = connectWs;
@@ -176,7 +258,7 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
     terminal.open(container);
 
     const encoder = new TextEncoder();
-    terminal.onData((data) => {
+    const onDataSubscription = terminal.onData((data) => {
       const encoded = encoder.encode(data);
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(encoded);
@@ -188,10 +270,8 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
     connectWs();
 
     const observer = new ResizeObserver(() => {
-      if (visibleRef.current) {
-        terminalRef.current?.fit();
-        sendResize();
-      }
+      void measureViewport();
+      sendResize();
     });
     observer.observe(container);
     resizeObserverRef.current = observer;
@@ -204,21 +284,26 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
       }
       resizeObserverRef.current?.disconnect();
       wsRef.current?.close();
+      onDataSubscription.dispose();
       terminal.dispose();
       terminalRef.current = null;
     };
-  }, [connectWs, sendResize, tabId]);
+  }, [connectWs, measureViewport, sendResize, tabId]);
 
   useEffect(() => {
-    if (!visible || !terminalRef.current) {
+    if (!terminalRef.current) {
       return;
     }
 
+    const isVisible = visible;
     requestAnimationFrame(() => {
-      terminalRef.current?.fit();
-      terminalRef.current?.focus();
+      void measureViewport();
+      sendResize(true);
+      if (isVisible) {
+        terminalRef.current?.focus();
+      }
     });
-  }, [visible]);
+  }, [measureViewport, sendResize, visible]);
 
   useEffect(() => {
     if (!terminalRef.current) {
@@ -234,8 +319,9 @@ export default function TerminalTab({ tabId, visible, onClosed }: Props) {
     }
 
     terminalRef.current.updateFont(fontFamily, fontSize);
-    sendResize();
-  }, [fontFamily, fontSize, sendResize, terminalVersion]);
+    void measureViewport();
+    sendResize(true);
+  }, [fontFamily, fontSize, measureViewport, sendResize, terminalVersion]);
 
   return (
     <div className="terminal-wrapper">
