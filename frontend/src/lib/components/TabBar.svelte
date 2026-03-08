@@ -79,7 +79,7 @@
 
   // Re-evaluate scroll indicators when tab count changes
   $effect(() => {
-    dndItems.length;
+    void dndItems.length;
     requestAnimationFrame(() => updateScrollState());
   });
 
