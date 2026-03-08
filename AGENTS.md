@@ -237,6 +237,12 @@ reconciliation — drift corrects on reconnect.
   `TerminalTab` components mounted and just toggle visibility, so
   terminal/PTY sizing logic must explicitly ignore hidden tabs instead
   of assuming one visible tab equals one connected client.
+- **React terminal connection hook depends on layout-effect adapter setup**:
+  `frontend-react/src/components/TerminalTab.tsx` creates and opens the xterm
+  adapter in `useLayoutEffect`, while the websocket/viewport state machine lives
+  in `useTerminalConnection`. Keep that ordering so the connection hook's
+  passive effects always see a ready adapter/container before sending resize
+  messages or scheduling reconnect work.
 - **Sidebar resize ownership**: Keep sidebar resize customization in
   app-level files (store/handle/CSS) instead of `components/ui/sidebar/*`
   so shadcn sidebar upgrades remain mostly copy-merge operations.
