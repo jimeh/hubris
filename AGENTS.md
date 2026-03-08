@@ -63,8 +63,10 @@ reconciliation — drift corrects on reconnect.
 - State: grep for `AppState` — DashMap for tabs, EventBus for SSE
 - Persistence: JSON file. Dev: `~/.hubris-dev/`, prod: `~/.hubris/`
 - PTY: portable-pty, shell from `$SHELL` or `/bin/sh`
-- WS protocol: binary (PTY output), JSON control (`type: "resize"`,
-  `type: "attached"` with `byte_offset`/`data_lost`)
+- WS protocol: binary (PTY output), JSON control (`type: "resize"`
+  with `cols`/`rows`/`visible`, `type: "attached"` with
+  `byte_offset`/`data_lost`/`cols`/`rows`, `type: "pty_resized"`
+  with `cols`/`rows`)
 - SSE events: snapshot, tab_created, tab_closed, tab_updated,
   project_added, project_removed, project_updated, projects_reordered,
   worktree_created, worktree_deleted, worktrees_reordered,
