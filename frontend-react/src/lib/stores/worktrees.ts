@@ -341,16 +341,3 @@ export function resetWorktreeStoreForTests(): void {
     selectedWorktreeId: lsGet(LS_SELECTED),
   });
 }
-
-export function worktreesForProject(projectId: string): Worktree[] {
-  return useWorktreeStore.getState().worktreesByProject[projectId] ?? [];
-}
-
-export function selectedWorktree(): Worktree | null {
-  const state = useWorktreeStore.getState();
-  return resolveSelected(state.worktreesByProject, state.selectedWorktreeId);
-}
-
-export function projectError(projectId: string): string | null {
-  return useWorktreeStore.getState().projectErrors[projectId] ?? null;
-}

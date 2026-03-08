@@ -104,7 +104,7 @@ describe("Worktree store", () => {
       project_errors: {},
     });
 
-    const list = store.worktreesForProject("p1");
+    const list = store.useWorktreeStore.getState().worktreesByProject.p1 ?? [];
     expect(
       list.find((worktree) => worktree.id === "missing")?.missing_on_disk,
     ).toBe(true);
@@ -149,7 +149,9 @@ describe("Worktree store", () => {
     await store.useWorktreeStore.getState().reorder("p1", ["c", "a"]);
 
     expect(
-      store.worktreesForProject("p1").map((worktree) => worktree.id),
+      (store.useWorktreeStore.getState().worktreesByProject.p1 ?? []).map(
+        (worktree) => worktree.id,
+      ),
     ).toEqual(["local", "c", "a", "b"]);
   });
 
