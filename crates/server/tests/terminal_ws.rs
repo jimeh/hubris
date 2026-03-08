@@ -270,6 +270,46 @@ async fn smallest_visible_client_drives_shared_pty_size() {
 }
 
 #[tokio::test]
+async fn invalid_resize_drops_client_from_shared_size_calculation() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_tab(&client, &base, &worktree_id).await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let mut first = connect_terminal(&base, tab_id).await;
+    let _ = next_control_message(&mut first).await;
+    send_resize(&mut first, 120, 40, true).await;
+    let _ = next_control_message(&mut first).await;
+
+    let mut second = connect_terminal(&base, tab_id).await;
+    let _ = next_control_message(&mut second).await;
+    send_resize(&mut second, 90, 30, true).await;
+    let _ = next_control_message(&mut first).await;
+    let _ = next_control_message(&mut second).await;
+
+    send_resize(&mut second, 1, 0, true).await;
+
+    assert_eq!(
+        next_control_message(&mut first).await,
+        ServerControlMessage::PtyResized {
+            cols: 120,
+            rows: 40
+        }
+    );
+    assert_eq!(
+        next_control_message(&mut second).await,
+        ServerControlMessage::PtyResized {
+            cols: 120,
+            rows: 40
+        }
+    );
+}
+
+#[tokio::test]
 async fn disconnecting_smallest_client_restores_next_visible_size() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();

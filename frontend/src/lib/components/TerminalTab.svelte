@@ -16,10 +16,6 @@
     buildTerminalViewportMessage,
     shouldApplyTerminalViewport,
   } from "$lib/terminal/viewport";
-  import {
-    shouldFlushBufferedInputAfterResize,
-    shouldKeepBufferedInputQueued,
-  } from "$lib/terminal/reconnect";
 
   let {
     tabId,
@@ -116,12 +112,7 @@
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(serialized);
       lastSentViewport = serialized;
-      if (
-        shouldFlushBufferedInputAfterResize(
-          flushInputAfterResize,
-          inputBuffer.length > 0,
-        )
-      ) {
+      if (flushInputAfterResize && inputBuffer.length > 0) {
         flushBufferedInput();
       }
       return true;
@@ -149,14 +140,9 @@
       flushInputAfterResize = inputBuffer.length > 0;
 
       if (!sendResize(true)) {
-        flushInputAfterResize = shouldKeepBufferedInputQueued(
-          false,
-          inputBuffer.length > 0,
-        );
         requestAnimationFrame(() => {
-          if (sendResize(true) && visible) {
-            terminal?.focus();
-          } else if (visible) {
+          sendResize(true);
+          if (visible) {
             terminal?.focus();
           }
         });
@@ -256,12 +242,13 @@
   });
 
   $effect(() => {
+    const isVisible = visible;
     if (!terminal) return;
 
     requestAnimationFrame(() => {
       void measureViewport();
       sendResize(true);
-      if (visible) {
+      if (isVisible) {
         terminal!.focus();
       }
     });

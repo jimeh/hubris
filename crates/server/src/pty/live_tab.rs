@@ -76,6 +76,7 @@ pub struct LiveTab {
     pub close_tx: broadcast::Sender<()>,
     next_attachment_id: AtomicU64,
     attachments: Mutex<AttachmentRegistry>,
+    resize_update_lock: Mutex<()>,
     _reader_handle: JoinHandle<()>,
 }
 
@@ -159,6 +160,7 @@ impl LiveTab {
             close_tx,
             next_attachment_id: AtomicU64::new(1),
             attachments: Mutex::new(AttachmentRegistry::new(initial_size)),
+            resize_update_lock: Mutex::new(()),
             _reader_handle: reader_handle,
         }
     }
@@ -243,6 +245,7 @@ impl LiveTab {
     }
 
     pub fn detach(&self, attachment_id: u64) {
+        let _resize_update_guard = self.resize_update_lock.lock().unwrap();
         let update = {
             let mut attachments = self.attachments.lock().unwrap();
             attachments.remove(attachment_id)
@@ -272,6 +275,7 @@ impl LiveTab {
         size: Option<TerminalSize>,
         visible: bool,
     ) {
+        let _resize_update_guard = self.resize_update_lock.lock().unwrap();
         let update = {
             let mut attachments = self.attachments.lock().unwrap();
             attachments.update(attachment_id, size, visible)
@@ -320,6 +324,11 @@ impl LiveTab {
         let mut child = self.child.lock().unwrap();
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    #[cfg(test)]
+    fn lock_resize_updates_for_test(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.resize_update_lock.lock().unwrap()
     }
 }
 
@@ -423,11 +432,47 @@ impl AttachmentRegistry {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration as StdDuration;
     use std::time::Duration;
 
+    use portable_pty::{CommandBuilder, NativePtySystem, PtySystem};
     use tokio::time::Instant;
 
-    use super::{AttachmentRegistry, TerminalSize};
+    use super::{AttachmentRegistry, DEFAULT_SCROLLBACK, LiveTab, TabInfo, TerminalSize};
+
+    fn spawn_test_live_tab() -> Arc<LiveTab> {
+        let pty_system = NativePtySystem::default();
+        let pair = pty_system
+            .openpty(TerminalSize::default_pty().to_pty_size())
+            .unwrap();
+
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.arg("-c");
+        cmd.arg("cat");
+        cmd.env("TERM", "xterm-256color");
+
+        let child = pair.slave.spawn_command(cmd).unwrap();
+        drop(pair.slave);
+
+        Arc::new(LiveTab::spawn(
+            TabInfo {
+                id: "tab".to_string(),
+                session_id: "default".to_string(),
+                worktree_id: "worktree".to_string(),
+                label: "Terminal 1".to_string(),
+                tab_type: "terminal".to_string(),
+                position: 1.0,
+                created_at: 0,
+            },
+            pair.master,
+            child,
+            DEFAULT_SCROLLBACK,
+            TerminalSize::default_pty(),
+        ))
+    }
 
     #[test]
     fn attachment_registry_uses_smallest_visible_size() {
@@ -565,5 +610,36 @@ mod tests {
         let removed = registry.remove(2).unwrap();
         assert_eq!(removed.candidate_size, None);
         assert_eq!(registry.shared_size(), TerminalSize::new(120, 40));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn resize_updates_are_serialized() {
+        let tab = spawn_test_live_tab();
+        let first_attachment = tab.attach(None).attachment_id;
+        let second_attachment = tab.attach(None).attachment_id;
+        let resize_guard = tab.lock_resize_updates_for_test();
+        let (tx, rx) = mpsc::channel();
+        let tab_for_thread = tab.clone();
+
+        let update_thread = thread::spawn(move || {
+            tab_for_thread.update_attachment_size(
+                first_attachment,
+                TerminalSize::new(120, 40),
+                true,
+            );
+            tab_for_thread.update_attachment_size(
+                second_attachment,
+                TerminalSize::new(90, 30),
+                true,
+            );
+            tx.send(()).unwrap();
+        });
+
+        assert!(rx.recv_timeout(StdDuration::from_millis(50)).is_err());
+
+        drop(resize_guard);
+
+        rx.recv_timeout(StdDuration::from_secs(1)).unwrap();
+        update_thread.join().unwrap();
     }
 }

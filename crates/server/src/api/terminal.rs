@@ -13,7 +13,7 @@ use tokio::time::{self, Instant, MissedTickBehavior};
 use ts_rs::TS;
 use utoipa::{IntoParams, ToSchema};
 
-use crate::pty::live_tab::TerminalSize;
+use crate::pty::live_tab::{LiveTabAttachment, TerminalSize};
 use crate::state::AppState;
 
 const WS_PING_INTERVAL: Duration = Duration::from_secs(15);
@@ -91,8 +91,7 @@ async fn handle_attach(
         None => return,
     };
 
-    let attachment = tab.attach(resume_from);
-    let (
+    let LiveTabAttachment {
         attachment_id,
         scrollback,
         current_size,
@@ -101,16 +100,7 @@ async fn handle_attach(
         mut output_rx,
         mut pty_size_rx,
         mut close_rx,
-    ) = (
-        attachment.attachment_id,
-        attachment.scrollback,
-        attachment.current_size,
-        attachment.byte_offset,
-        attachment.data_lost,
-        attachment.output_rx,
-        attachment.pty_size_rx,
-        attachment.close_rx,
-    );
+    } = tab.attach(resume_from);
     let (mut ws_sender, mut ws_receiver) = socket.split();
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
 
@@ -269,6 +259,10 @@ async fn handle_attach(
                     }
                 }
                 _ = ping_interval.tick() => {
+                    // Staleness is measured from the last inbound client frame.
+                    // We check before sending the next ping on purpose so a client
+                    // that has been silent for the full timeout window expires
+                    // immediately instead of getting one extra interval.
                     if relay_tab.attachment_is_stale(
                         attachment_id,
                         Instant::now(),

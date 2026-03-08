@@ -4,10 +4,6 @@ import {
   buildTerminalViewportMessage,
   shouldApplyTerminalViewport,
 } from "$lib/terminal/viewport";
-import {
-  shouldFlushBufferedInputAfterResize,
-  shouldKeepBufferedInputQueued,
-} from "$lib/terminal/reconnect";
 
 describe("TerminalTab viewport logic", () => {
   it("uses the measured local viewport for visible tabs", () => {
@@ -59,15 +55,47 @@ describe("TerminalTab viewport logic", () => {
     ).toBe(true);
   });
 
-  it("flushes buffered input only after a resize frame is sent", () => {
-    expect(shouldFlushBufferedInputAfterResize(true, true)).toBe(true);
-    expect(shouldFlushBufferedInputAfterResize(false, true)).toBe(false);
-    expect(shouldFlushBufferedInputAfterResize(true, false)).toBe(false);
+  it("switches resize participation when tab visibility changes", () => {
+    const visibleMessage = buildTerminalViewportMessage({
+      visible: true,
+      measuredViewport: { cols: 120, rows: 40 },
+      localViewport: { cols: 120, rows: 40 },
+      appliedViewport: { cols: 80, rows: 24 },
+    });
+    const hiddenMessage = buildTerminalViewportMessage({
+      visible: false,
+      measuredViewport: null,
+      localViewport: visibleMessage.localViewport,
+      appliedViewport: { cols: 80, rows: 24 },
+    });
+
+    expect(visibleMessage.message).toEqual({
+      type: "resize",
+      cols: 120,
+      rows: 40,
+      visible: true,
+    });
+    expect(hiddenMessage.message).toEqual({
+      type: "resize",
+      cols: 120,
+      rows: 40,
+      visible: false,
+    });
   });
 
-  it("keeps buffered input queued when resize could not be sent yet", () => {
-    expect(shouldKeepBufferedInputQueued(false, true)).toBe(true);
-    expect(shouldKeepBufferedInputQueued(true, true)).toBe(false);
-    expect(shouldKeepBufferedInputQueued(false, false)).toBe(false);
+  it("falls back to the applied pty size when hiding before measurement is ready", () => {
+    const hiddenMessage = buildTerminalViewportMessage({
+      visible: false,
+      measuredViewport: null,
+      localViewport: null,
+      appliedViewport: { cols: 90, rows: 30 },
+    });
+
+    expect(hiddenMessage.message).toEqual({
+      type: "resize",
+      cols: 90,
+      rows: 30,
+      visible: false,
+    });
   });
 });

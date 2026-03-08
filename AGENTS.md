@@ -205,7 +205,7 @@ reconciliation — drift corrects on reconnect.
   stores/state instead.
 - **Terminal tabs stay websocket-attached while hidden**:
   `WorktreeView.svelte` keeps inactive `TerminalTab` components mounted and
-  just toggles `hidden`, so terminal/PTTY sizing logic must explicitly ignore
+  just toggles `hidden`, so terminal/PTY sizing logic must explicitly ignore
   hidden tabs instead of assuming one visible tab equals one connected client.
 - **Sidebar resize ownership**: Keep sidebar resize customization in
   app-level files (store/handle/CSS) instead of `components/ui/sidebar/*`
