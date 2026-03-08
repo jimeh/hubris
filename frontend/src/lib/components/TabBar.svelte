@@ -110,6 +110,8 @@
   <div class="relative min-w-0 flex-1">
     {#if canScrollLeft}
       <button
+        type="button"
+        aria-label="Scroll tabs left"
         class="absolute top-0 bottom-0 left-0 z-10 flex w-6 cursor-pointer items-center justify-center text-muted-foreground hover:text-foreground"
         style="background: linear-gradient(to right, var(--tab-bar) 40%, transparent);"
         onclick={() => scrollTabs("left")}
@@ -119,6 +121,7 @@
     {/if}
     <div
       bind:this={tabListEl}
+      role="tablist"
       class="flex items-center gap-1 overflow-x-auto overflow-y-hidden"
       data-tab-dragging={dragging || undefined}
       onscroll={updateScrollState}
@@ -142,7 +145,10 @@
           data-tab-drag-item="true"
           onclick={() => onactivate(tab.id)}
           onkeydown={(e) => {
-            if (e.key === "Enter") onactivate(tab.id);
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onactivate(tab.id);
+            }
           }}
           role="tab"
           tabindex="0"
@@ -150,6 +156,8 @@
         >
           {tab.label}
           <button
+            type="button"
+            aria-label="Close tab"
             class="rounded-sm opacity-60 hover:opacity-100"
             onclick={(e) => {
               e.stopPropagation();
@@ -163,6 +171,8 @@
     </div>
     {#if canScrollRight}
       <button
+        type="button"
+        aria-label="Scroll tabs right"
         class="absolute top-0 right-0 bottom-0 z-10 flex w-6 cursor-pointer items-center justify-center text-muted-foreground hover:text-foreground"
         style="background: linear-gradient(to left, var(--tab-bar) 40%, transparent);"
         onclick={() => scrollTabs("right")}
