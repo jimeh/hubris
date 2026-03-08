@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-#MISE description="Run backend + frontend dev servers"
+#MISE description="Run backend + default frontend dev servers"
 set -euo pipefail
 
+FRONTEND_TASK="${1:-dev:frontend}"
 TMP_DIR="$(pwd)/tmp"
 mkdir -p "$TMP_DIR"
 
@@ -17,4 +18,4 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-mise run --output interleave dev:server ::: dev:frontend
+mise run --output interleave dev:server ::: "$FRONTEND_TASK"

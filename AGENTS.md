@@ -1,13 +1,14 @@
 # Hubris
 
 Terminal-based project manager: Rust/Axum backend with persistent PTY
-sessions, Svelte 5 frontend with xterm.js.
+sessions and dual Vite frontends (Svelte default, React explicit) with xterm.js.
 
 ## Build & Run
 
 ```sh
 mise run setup     # install all deps
-mise run dev       # backend + frontend dev servers
+mise run dev       # backend + Svelte frontend dev servers
+mise run dev:react # backend + React frontend dev servers
 mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
 mise run test      # vitest + cargo test
@@ -15,18 +16,23 @@ mise run generate  # run all code generators
 ```
 
 Sub-tasks: `check:backend`, `check:frontend`, `format:backend`,
-`format:frontend`. `lint` is an alias for `check`.
+`format:frontend`. Svelte is the default frontend for unsuffixed tasks;
+use explicit `:*:react` tasks for the React app. `lint` is an alias for
+`check`.
 
-Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (frontend).
+Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (both
+frontends).
 
 **IMPORTANT: Always run `mise run check` before committing or opening PRs.**
 CI runs the same checks — format (`cargo fmt`, `prettier`), lint (`clippy`,
-`eslint`), and type check (`svelte-check`, `tsc`).
+`eslint`), and type check (`svelte-check` for the default Svelte frontend,
+`tsc` for the explicit React frontend task).
 
-**IMPORTANT: The frontend uses bun, NOT npm or pnpm.** All frontend commands
-must use `bun` (e.g., `bun install`, `bun run test`, `bun run check`).
-The `frontend/` directory has a `bun.lock` — there is no `package-lock.json`
-or `pnpm-lock.yaml`. Using npm or pnpm will fail or create wrong lockfiles.
+**IMPORTANT: Both frontends use bun, NOT npm or pnpm.** All frontend commands
+must use `bun` (for example `bun install`, `bun run test`, `bun run check`).
+`frontend/` and `frontend-react/` each have their own `bun.lock` —
+there is no `package-lock.json` or `pnpm-lock.yaml`. Using npm or pnpm will
+fail or create wrong lockfiles.
 
 ## Domain Concepts
 
@@ -69,6 +75,16 @@ reconciliation — drift corrects on reconnect.
   project_added, project_removed, project_updated, projects_reordered,
   worktree_created, worktree_deleted, worktrees_reordered,
   project_worktrees_updated
+
+### Frontends
+
+- Canonical/default frontend: `frontend/` (Svelte 5 + shadcn-svelte).
+  Unsuffixed `mise` frontend tasks, embedded assets, and Rust contract
+  generation all target this app.
+- Explicit React frontend: `frontend-react/` (Vite React + shadcn/ui +
+  Zustand). Use explicit `:*:react` tasks when working on it.
+- The detailed frontend notes below describe `frontend/` unless a bullet
+  explicitly says otherwise.
 
 ### Frontend (Svelte 5 / Vite / Tailwind v4)
 
@@ -116,22 +132,25 @@ reconciliation — drift corrects on reconnect.
   from Rust structs. `cargo run --bin generate_contracts` writes
   `frontend/src/lib/contracts/{openapi,sse,ws}.generated.*`. Then
   `bun run generate:contracts:rest` runs openapi-typescript to produce
-  `rest.generated.ts`. Frontend imports generated types from
-  `$lib/contracts/` for request/response bodies and WS/SSE messages.
+  `rest.generated.ts`. `generate:frontend:react` copies those shared
+  generated files into `frontend-react/src/lib/contracts/` before running
+  the React-side OpenAPI/theme generators. Frontends import generated types
+  from `$lib/contracts/` for request/response bodies and WS/SSE messages.
 - Dev proxy: port 3001 proxies `/api` → backend 3101
 
 ## Conventions
 
 - Conventional commits (`feat:`, `fix:`, `refactor:`)
-- Frontend: PascalCase `.svelte`, camelCase `.svelte.ts` stores
+- React frontend: PascalCase `.tsx`; Svelte frontend: PascalCase `.svelte`,
+  camelCase `.svelte.ts` stores
 - Tests colocated (`.test.ts` alongside `.ts`, `tests/` for Rust)
 - Rust edition 2024, `style_edition = "2024"` in rustfmt.toml
 
 ## Gotchas
 
 - **Do NOT modify shadcn components**: Files under
-  `frontend/src/lib/components/ui/` are installed by shadcn-svelte and
-  should be treated as managed vendor code. Editing them makes future
+  `frontend/src/lib/components/ui/` are installed by shadcn-svelte
+  and should be treated as managed vendor code. Editing them makes future
   `npx shadcn-svelte@latest update` runs painful (manual conflict
   resolution). Put customizations in wrapper components or app-level
   code instead.
@@ -177,10 +196,11 @@ reconciliation — drift corrects on reconnect.
   Hubris themes are selectable right now. Theme store init coerces
   legacy or unknown IDs back to `hubris-light` / `hubris-dark` and
   persists that correction when the server is reachable.
-- **Bundled fonts**: 16 woff2 files in `frontend/public/fonts/`,
-  downloaded via `mise run download:fonts`. Committed to git. Fonts
-  are loaded on-demand via dynamic @font-face when user selects a
-  bundled font.
+- **Bundled fonts**: 16 woff2 files live in both
+  `frontend/public/fonts/` and `frontend-react/public/fonts/`, downloaded via
+  `mise run download:fonts` or `mise run download:fonts:react`.
+  Committed to git. Fonts are loaded on-demand via dynamic @font-face when
+  user selects a bundled font.
 - **Project paths are canonicalized to Git local root**: `POST /api/projects`
   resolves input paths through Git and stores the canonical local root.
   On macOS this often normalizes `/tmp/...` to `/private/tmp/...`.
@@ -210,6 +230,10 @@ reconciliation — drift corrects on reconnect.
 - **Sidebar resize ownership**: Keep sidebar resize customization in
   app-level files (store/handle/CSS) instead of `components/ui/sidebar/*`
   so shadcn sidebar upgrades remain mostly copy-merge operations.
+- **React sidebar project drag should use `DragOverlay`**:
+  translating the live sortable project row can expand the sidebar's
+  scrollable width during sideways drags. Keep the in-list row as an
+  invisible placeholder and render the dragged project in an overlay.
 - **`ts-rs` warns on some serde field attributes**:
   with `ts-rs` + `serde-compat`, attributes like
   `skip_serializing_if = "Option::is_none"` may emit warnings during
@@ -220,9 +244,21 @@ reconciliation — drift corrects on reconnect.
   `TS::export_to_string()` now requires a `ts_rs::Config` argument
   (for example `TS::export_to_string(&Config::from_env())`), so
   `generate_contracts`-style binaries must pass config explicitly.
+- **Vitest should explicitly scope test files**:
+  after the React migration, Vite/Vitest can pick up `.test.*` files from
+  dependencies under `node_modules` unless `test.include` is set to `src/**`
+  (and any intentional e2e/unit test dirs). Keep the frontend test config
+  narrowed to repo-owned tests only.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
-  `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.
+  `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel. Default
+  `mise run dev` targets Svelte; use `mise run dev:react` for the React
+  frontend. Do not run both frontends through the same wrapper instance.
+- **Stopping dev wrappers reports task failure**:
+  interrupting `mise run dev`, `mise run dev:svelte`, or
+  `mise run dev:react` with `Ctrl-C`
+  bubbles up `task failed` from the child watcher/processes during
+  shutdown. Treat that as expected manual termination, not a regression.
 - **Backend hot reload uses random socket activation port**:
   `dev:server` runs `systemfd --no-pid -s http::0 -- mise watch --restart
   dev:server:raw`.

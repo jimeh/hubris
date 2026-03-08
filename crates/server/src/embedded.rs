@@ -1,4 +1,6 @@
+#[cfg(not(feature = "embed-frontend"))]
 use axum::http::StatusCode;
+#[cfg(not(feature = "embed-frontend"))]
 use axum::response::{IntoResponse, Response};
 
 #[cfg(feature = "embed-frontend")]

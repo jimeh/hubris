@@ -8,8 +8,16 @@ depends = ["build:frontend", "build:server"]
 description = "Build frontend + server (release)"
 
 [tasks."build:frontend"]
+depends = ["build:frontend:svelte"]
+description = "Install deps and build default frontend (Svelte)"
+
+[tasks."build:frontend:react"]
+run = "cd frontend-react && bun install && bun run build"
+description = "Install deps and build React frontend"
+
+[tasks."build:frontend:svelte"]
 run = "cd frontend && bun install && bun run build"
-description = "Install deps and build frontend"
+description = "Install deps and build Svelte frontend"
 
 [tasks."build:server"]
 depends = ["build:frontend"]
@@ -34,7 +42,23 @@ sources = [
 
 [tasks."dev:frontend"]
 run = "cd frontend && bun dev"
-description = "Run frontend dev server"
+description = "Run default frontend dev server (Svelte)"
+
+[tasks."dev:frontend:react"]
+run = "cd frontend-react && bun dev"
+description = "Run React frontend dev server"
+
+[tasks."dev:frontend:svelte"]
+run = "cd frontend && bun dev"
+description = "Run Svelte frontend dev server"
+
+[tasks."dev:react"]
+run = "./.mise/tasks/dev dev:frontend:react"
+description = "Run backend + React frontend dev servers"
+
+[tasks."dev:svelte"]
+run = "./.mise/tasks/dev dev:frontend:svelte"
+description = "Run backend + Svelte frontend dev servers"
 
 [tasks."check:backend"]
 description = "Rust format check + clippy"
@@ -45,7 +69,15 @@ run = [
 ]
 
 [tasks."check:frontend"]
+depends = ["check:frontend:svelte"]
 description = "Frontend lint + format check + type check"
+
+[tasks."check:frontend:react"]
+description = "React frontend lint + format check + type check"
+run = "cd frontend-react && bun run lint && bun run check"
+
+[tasks."check:frontend:svelte"]
+description = "Svelte frontend lint + format check + type check"
 run = "cd frontend && bun run lint && bun run check"
 
 [tasks.check]
@@ -61,23 +93,51 @@ description = "Format Rust code"
 run = "cargo fmt --all"
 
 [tasks."format:frontend"]
-description = "Format frontend code"
+depends = ["format:frontend:svelte"]
+description = "Format default frontend code (Svelte)"
+
+[tasks."format:frontend:react"]
+description = "Format React frontend code"
+run = "cd frontend-react && bun run format"
+
+[tasks."format:frontend:svelte"]
+description = "Format Svelte frontend code"
 run = "cd frontend && bun run format"
 
 [tasks.format]
 description = "Format all code"
 depends = ["format:backend", "format:frontend"]
 
+[tasks."test:frontend"]
+depends = ["test:frontend:svelte"]
+description = "Run default frontend tests (Svelte)"
+
+[tasks."test:frontend:react"]
+description = "Run React frontend tests"
+run = "cd frontend-react && bun run test"
+
+[tasks."test:frontend:svelte"]
+description = "Run Svelte frontend tests"
+run = "cd frontend && bun run test"
+
 [tasks.test]
 description = "Run all tests"
 run = [
-  "cd frontend && bun run test",
+  "mise run test:frontend",
   "cd crates/server && cargo test",
 ]
 
 [tasks."setup:frontend"]
+depends = ["setup:frontend:svelte"]
+description = "Install default frontend dependencies (Svelte)"
+
+[tasks."setup:frontend:react"]
+run = "cd frontend-react && bun install"
+description = "Install React frontend dependencies"
+
+[tasks."setup:frontend:svelte"]
 run = "cd frontend && bun install"
-description = "Install frontend dependencies"
+description = "Install Svelte frontend dependencies"
 
 [tasks."setup:server"]
 run = "cargo fetch"
@@ -89,6 +149,25 @@ description = "Install all dependencies"
 
 [tasks.generate]
 description = "Run all code generators"
+depends = ["generate:frontend"]
+
+[tasks."generate:frontend"]
+depends = ["generate:frontend:svelte"]
+description = "Run default frontend code generators (Svelte)"
+
+[tasks."generate:frontend:react"]
+description = "Generate React frontend contracts and theme defaults"
+run = [
+  "cargo run -p hubris-server --bin generate_contracts",
+  "cd frontend && bunx prettier --write src/lib/contracts/openapi.generated.json src/lib/contracts/sse.generated.ts src/lib/contracts/ws.generated.ts",
+  "mkdir -p frontend-react/src/lib/contracts",
+  "cp frontend/src/lib/contracts/openapi.generated.json frontend/src/lib/contracts/sse.generated.ts frontend/src/lib/contracts/ws.generated.ts frontend-react/src/lib/contracts/",
+  "cd frontend-react && bun run generate:contracts:rest",
+  "cd frontend-react && bun run generate:theme-defaults",
+]
+
+[tasks."generate:frontend:svelte"]
+description = "Generate Svelte frontend contracts and theme defaults"
 run = [
   "cargo run -p hubris-server --bin generate_contracts",
   "cd frontend && bun run generate:contracts:rest",
@@ -96,12 +175,32 @@ run = [
 ]
 
 [tasks."download:fonts"]
-description = "Download bundled Nerd Font woff2 files"
+depends = ["download:fonts:svelte"]
+description = "Download bundled Nerd Font woff2 files for default frontend"
+
+[tasks."download:fonts:react"]
+description = "Download bundled Nerd Font woff2 files for React frontend"
+run = "frontend-react/scripts/download-bundled-fonts.sh"
+
+[tasks."download:fonts:svelte"]
+description = "Download bundled Nerd Font woff2 files for Svelte frontend"
 run = "frontend/scripts/download-bundled-fonts.sh"
+
+[tasks."clean:frontend"]
+depends = ["clean:frontend:svelte"]
+description = "Remove default frontend build artifacts (Svelte)"
+
+[tasks."clean:frontend:react"]
+description = "Remove React frontend build artifacts"
+run = "rm -rf frontend-react/dist frontend-react/node_modules"
+
+[tasks."clean:frontend:svelte"]
+description = "Remove Svelte frontend build artifacts"
+run = "rm -rf frontend/dist frontend/node_modules"
 
 [tasks.clean]
 description = "Remove build artifacts"
 run = [
   "cargo clean",
-  "rm -rf frontend/dist frontend/node_modules",
+  "mise run clean:frontend",
 ]
