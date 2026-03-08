@@ -169,7 +169,7 @@ export function ProjectList({ setDialogState }: ProjectListProps) {
             <DragOverlay>
               {dragSnapshotRef.current && (
                 <div
-                  className="group/menu-item relative rounded-md opacity-90"
+                  className="group/menu-item relative rounded-md opacity-50"
                   style={{
                     width: dragSnapshotRef.current.width,
                   }}

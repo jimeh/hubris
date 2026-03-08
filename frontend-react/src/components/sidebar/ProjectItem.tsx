@@ -92,7 +92,7 @@ export const ProjectItem = React.memo(function ProjectItem({
       ref={setNodeRef}
       style={style}
       {...attributes}
-      className="group/menu-item relative rounded-md"
+      className="relative rounded-md"
       data-project-drag-item="true"
       data-project-id={project.id}
     >
@@ -106,14 +106,14 @@ export const ProjectItem = React.memo(function ProjectItem({
             <SidebarMenuButton asChild isActive={false} size="default">
               <div
                 {...listeners}
-                className="relative flex w-full items-center gap-2 overflow-visible px-2 py-1"
+                className="group/project-header relative flex w-full items-center gap-2 overflow-visible px-2 py-1"
               >
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   <div className="flex items-center gap-2 truncate">
-                    <FolderOpen className="h-3.5 w-3.5 shrink-0 group-hover/menu-item:hidden group-data-[state=closed]/collapsible:hidden" />
-                    <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 group-hover/menu-item:block group-data-[state=closed]/collapsible:!hidden" />
-                    <Folder className="hidden h-3.5 w-3.5 shrink-0 group-data-[state=closed]/collapsible:block group-data-[state=closed]/collapsible:group-hover/menu-item:!hidden" />
-                    <ChevronRight className="hidden h-3.5 w-3.5 shrink-0 group-data-[state=closed]/collapsible:group-hover/menu-item:!block" />
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 group-hover/project-header:hidden group-data-[state=closed]/collapsible:hidden" />
+                    <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 group-hover/project-header:block group-data-[state=closed]/collapsible:!hidden" />
+                    <Folder className="hidden h-3.5 w-3.5 shrink-0 group-data-[state=closed]/collapsible:block group-data-[state=closed]/collapsible:group-hover/project-header:!hidden" />
+                    <ChevronRight className="hidden h-3.5 w-3.5 shrink-0 group-data-[state=closed]/collapsible:group-hover/project-header:!block" />
                     <span className="truncate">{project.name}</span>
                   </div>
                   {projectError && (
@@ -122,7 +122,7 @@ export const ProjectItem = React.memo(function ProjectItem({
                     </span>
                   )}
                 </div>
-                <div className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover/menu-item:opacity-100">
+                <div className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover/project-header:opacity-100">
                   <ProjectActionMenu
                     onRename={onRequestRename}
                     onRemove={onRequestRemove}

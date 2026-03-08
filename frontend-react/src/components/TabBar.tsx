@@ -262,7 +262,7 @@ export function TabBar({
           <DragOverlay>
             {draggedTab && (
               <div
-                className={`inline-flex cursor-default items-center gap-1.5 whitespace-nowrap pl-3 pr-2.5 py-2 text-sm select-none ${
+                className={`inline-flex cursor-default items-center gap-1.5 whitespace-nowrap pl-3 pr-2.5 py-2 text-sm opacity-50 select-none ${
                   draggedTab.id === activeTabId
                     ? "bg-tab-active text-tab-active-foreground shadow-[inset_0_-2px_0_var(--tab-active-border)]"
                     : "text-tab-inactive-foreground"

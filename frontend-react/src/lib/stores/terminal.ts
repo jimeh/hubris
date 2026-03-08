@@ -27,11 +27,8 @@ interface TerminalState {
 export const useTerminalStore = create<TerminalState>((set, get) => ({
   settings: { ...DEFAULTS },
   fontFamily: DEFAULT_FONT_FAMILY,
+  fontSize: DEFAULTS.fontSize,
   version: 0,
-
-  get fontSize(): number {
-    return get().settings.fontSize;
-  },
 
   async init(): Promise<void> {
     let current = { ...DEFAULTS };
@@ -56,6 +53,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set({
       settings: current,
       fontFamily,
+      fontSize: current.fontSize,
       version: get().version + 1,
     });
   },
@@ -76,6 +74,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set({
       settings: nextSettings,
       fontFamily,
+      fontSize: nextSettings.fontSize,
       version: get().version + 1,
     });
 
@@ -86,6 +85,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       set({
         settings: prev,
         fontFamily: prevFont,
+        fontSize: prev.fontSize,
         version: get().version + 1,
       });
       throw err;

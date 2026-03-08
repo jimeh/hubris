@@ -136,7 +136,7 @@ export function WorktreeList({
         <DragOverlay>
           {dragSnapshotRef.current && (
             <div
-              className="group/worktree-item relative"
+              className="group/worktree-item relative opacity-50"
               style={{
                 width: dragSnapshotRef.current.width,
               }}
