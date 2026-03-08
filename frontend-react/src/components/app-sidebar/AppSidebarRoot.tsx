@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
-import { Plus, Settings } from "lucide-react";
+import { Plus, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -184,7 +184,7 @@ export default function AppSidebarRoot() {
               }
               title="Settings"
             >
-              <Settings className="h-4 w-4" />
+              <Settings2 className="h-4 w-4" />
             </Button>
           </div>
         </SidebarHeader>

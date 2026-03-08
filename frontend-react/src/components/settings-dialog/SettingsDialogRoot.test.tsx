@@ -1,0 +1,53 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import SettingsDialogRoot from "./SettingsDialogRoot";
+
+vi.mock("./AppearanceSettings", () => ({
+  default: () => <div>Appearance section</div>,
+}));
+
+vi.mock("./TerminalSettings", () => ({
+  default: () => <div>Terminal section</div>,
+}));
+
+vi.mock("./WorktreeSettings", () => ({
+  default: () => <div>Worktrees section</div>,
+}));
+
+describe("SettingsDialogRoot", () => {
+  it("uses sidebar menu buttons for desktop section switching", async () => {
+    const user = userEvent.setup();
+
+    render(<SettingsDialogRoot open onOpenChange={vi.fn()} />);
+
+    const appearanceButton = screen.getByRole("button", {
+      name: "Appearance",
+    });
+    const terminalButton = screen.getByRole("button", { name: "Terminal" });
+
+    expect(appearanceButton).toHaveAttribute("data-sidebar", "menu-button");
+    expect(appearanceButton).toHaveAttribute("data-active", "true");
+    expect(screen.getByText("Appearance section")).toBeInTheDocument();
+
+    await user.click(terminalButton);
+
+    expect(terminalButton).toHaveAttribute("data-active", "true");
+    expect(screen.getByText("Terminal section")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { current: "page", name: "Terminal" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the mobile select navigation working", async () => {
+    const user = userEvent.setup();
+
+    render(<SettingsDialogRoot open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "Worktrees" }));
+
+    expect(screen.getByText("Worktrees section")).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveTextContent("Worktrees");
+  });
+});

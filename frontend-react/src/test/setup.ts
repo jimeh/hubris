@@ -32,3 +32,23 @@ Object.defineProperty(window, "ResizeObserver", {
   writable: true,
   value: ResizeObserverMock,
 });
+
+Object.defineProperty(Element.prototype, "hasPointerCapture", {
+  writable: true,
+  value: () => false,
+});
+
+Object.defineProperty(Element.prototype, "setPointerCapture", {
+  writable: true,
+  value: () => {},
+});
+
+Object.defineProperty(Element.prototype, "releasePointerCapture", {
+  writable: true,
+  value: () => {},
+});
+
+Object.defineProperty(Element.prototype, "scrollIntoView", {
+  writable: true,
+  value: () => {},
+});

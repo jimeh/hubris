@@ -1,11 +1,11 @@
 import { useState } from "react";
+import { Settings2 } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +19,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
 import AppearanceSettings from "./AppearanceSettings";
 import TerminalSettings from "./TerminalSettings";
 import WorktreeSettings from "./WorktreeSettings";
@@ -36,32 +47,49 @@ export default function SettingsDialogRoot({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden p-0 md:max-h-[500px] md:max-w-[700px] lg:max-w-[800px]">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 md:max-h-[500px] md:max-w-[700px] lg:max-w-[800px]">
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <DialogDescription className="sr-only">
           Customize your settings here.
         </DialogDescription>
-        <div className="flex h-[480px] overflow-hidden">
-          <aside className="hidden w-56 shrink-0 border-r md:flex md:flex-col">
-            <div className="flex h-12 items-center border-b px-4">
-              <h2 className="text-base font-semibold">Settings</h2>
-            </div>
-            <div className="flex-1 p-2">
-              {sections.map((item) => (
-                <Button
-                  key={item.name}
-                  variant={activeSection === item.name ? "secondary" : "ghost"}
-                  className="mb-1 w-full justify-start"
-                  onClick={() => setActiveSection(item.name)}
-                >
-                  <item.icon className="h-4 w-4" />
-                  <span>{item.name}</span>
-                </Button>
-              ))}
-            </div>
-          </aside>
-          <main className="flex flex-1 flex-col overflow-hidden">
-            <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+        <SidebarProvider className="min-h-0 items-start overflow-hidden">
+          <Sidebar
+            collapsible="none"
+            className="hidden border-r border-sidebar-border md:flex"
+          >
+            <SidebarHeader className="h-12 justify-center gap-0 border-b border-sidebar-border px-4 py-0">
+              <h2 className="flex items-center gap-2 text-base font-semibold">
+                <Settings2 className="h-4 w-4" />
+                <span>Settings</span>
+              </h2>
+            </SidebarHeader>
+            <SidebarContent>
+              <SidebarGroup>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {sections.map((item) => (
+                      <SidebarMenuItem key={item.name}>
+                        <SidebarMenuButton
+                          isActive={activeSection === item.name}
+                          className="data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground"
+                          onClick={() => setActiveSection(item.name)}
+                        >
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.name}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </SidebarContent>
+          </Sidebar>
+          <main className="flex h-[calc(100dvh-2rem)] flex-1 flex-col overflow-hidden md:h-[480px]">
+            <header className="flex h-12 shrink-0 items-center border-b px-3 pr-14 sm:px-4 md:pr-4">
+              <div className="flex items-center gap-2 md:hidden">
+                <Settings2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="text-sm font-medium">Settings</span>
+              </div>
               <Breadcrumb className="hidden md:block">
                 <BreadcrumbList>
                   <BreadcrumbItem>
@@ -69,33 +97,38 @@ export default function SettingsDialogRoot({
                   </BreadcrumbItem>
                 </BreadcrumbList>
               </Breadcrumb>
-              <div className="flex-1 md:hidden">
+            </header>
+            <div className="border-b px-3 py-2 sm:px-4 md:hidden">
+              <div className="flex min-w-0 items-center gap-2">
                 <Select
                   value={activeSection}
                   onValueChange={(value) =>
                     setActiveSection(value as SectionName)
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger className="w-full min-w-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {sections.map((item) => (
                       <SelectItem key={item.name} value={item.name}>
-                        {item.name}
+                        <div className="flex items-center gap-2">
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.name}</span>
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-            </header>
-            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+            </div>
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4">
               {activeSection === "Appearance" ? <AppearanceSettings /> : null}
               {activeSection === "Terminal" ? <TerminalSettings /> : null}
               {activeSection === "Worktrees" ? <WorktreeSettings /> : null}
             </div>
           </main>
-        </div>
+        </SidebarProvider>
       </DialogContent>
     </Dialog>
   );

@@ -224,6 +224,12 @@ reconciliation — drift corrects on reconnect.
   `window.matchMedia` at module eval time. In jsdom tests, either mock
   `matchMedia` before importing sidebar components or test lower-level
   stores/state instead.
+- **Radix Select tests need extra jsdom shims**:
+  the React settings dialog uses Radix Select, which expects pointer
+  capture and `scrollIntoView()`. In Vitest/jsdom, stub
+  `hasPointerCapture`, `setPointerCapture`, `releasePointerCapture`, and
+  `scrollIntoView` in `src/test/setup.ts` or the select tests can fail
+  even when the UI code is correct.
 - **Terminal tabs stay websocket-attached while hidden**:
   `WorktreeView.svelte` and `WorktreeView.tsx` keep inactive
   `TerminalTab` components mounted and just toggle visibility, so

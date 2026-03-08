@@ -1,4 +1,4 @@
-import { Minus, Plus, Type } from "lucide-react";
+import { Minus, Plus, Terminal, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,9 @@ import {
 } from "@/components/ui/select";
 import { useTerminalStore } from "$lib/stores/terminal";
 import { BUNDLED_FONTS } from "$lib/terminal/fonts";
+
+const settingsRowClass =
+  "grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center sm:gap-3";
 
 export default function TerminalSettings() {
   const settings = useTerminalStore((state) => state.settings);
@@ -25,10 +28,15 @@ export default function TerminalSettings() {
 
   return (
     <section className="space-y-3">
-      <h3 className="text-sm font-medium">Font</h3>
-      <div className="grid grid-cols-[120px_1fr] items-center gap-3">
-        <Label>Source</Label>
-        <div className="flex gap-1">
+      <div className="flex items-center gap-2">
+        <Terminal className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-medium">Font</h3>
+      </div>
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          Source
+        </Label>
+        <div className="flex flex-wrap gap-1">
           <Button
             variant={settings.fontSource === "default" ? "secondary" : "ghost"}
             size="sm"
@@ -55,8 +63,10 @@ export default function TerminalSettings() {
       </div>
 
       {settings.fontSource === "system" ? (
-        <div className="grid grid-cols-[120px_1fr] items-center gap-3">
-          <Label>Font Family</Label>
+        <div className={settingsRowClass}>
+          <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+            Font Family
+          </Label>
           <Input
             type="text"
             placeholder="'My Font', monospace"
@@ -71,8 +81,10 @@ export default function TerminalSettings() {
       ) : null}
 
       {settings.fontSource === "bundled" ? (
-        <div className="grid grid-cols-[120px_1fr] items-center gap-3">
-          <Label>Bundled Font</Label>
+        <div className={settingsRowClass}>
+          <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+            Bundled Font
+          </Label>
           <Select
             value={settings.bundledFont}
             onValueChange={(value) =>
@@ -93,9 +105,11 @@ export default function TerminalSettings() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-[120px_1fr] items-center gap-3">
-        <Label>Font Size</Label>
-        <div className="flex items-center gap-1">
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          Font Size
+        </Label>
+        <div className="flex flex-wrap items-center gap-1">
           <Button
             variant="outline"
             size="icon-sm"
@@ -130,8 +144,10 @@ export default function TerminalSettings() {
         </div>
       </div>
 
-      <div className="grid grid-cols-[120px_1fr] items-start gap-3">
-        <Label className="pt-2">Preview</Label>
+      <div className="grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-start sm:gap-3">
+        <Label className="text-xs font-medium text-muted-foreground sm:pt-2 sm:text-sm">
+          Preview
+        </Label>
         <div
           className="overflow-hidden rounded-md border"
           style={{
