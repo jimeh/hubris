@@ -1,6 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
-import { arrayMove } from "@dnd-kit/sortable";
+import { useState } from "react";
 import { FolderPlus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,27 +41,7 @@ export default function AppSidebarRoot() {
   const reorderWorktrees = useWorktreeStore((state) => state.reorder);
 
   const [dialogState, setDialogState] = useState(initialDialogState);
-  const [activeProjectDragId, setActiveProjectDragId] = useState<string | null>(
-    null,
-  );
-  const [activeProjectDragWidth, setActiveProjectDragWidth] = useState<
-    number | null
-  >(null);
-  const [projectDragLock, setProjectDragLock] = useState(false);
   const [showTopFade, setShowTopFade] = useState(false);
-  const [suppressedProjectAnimations, setSuppressedProjectAnimations] =
-    useState<Record<string, boolean>>({});
-  const projectDragLockTimeoutRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (projectDragLockTimeoutRef.current) {
-        clearTimeout(projectDragLockTimeoutRef.current);
-      }
-    };
-  }, []);
 
   async function handleRemoveProject(
     projectId: string,
@@ -116,65 +94,8 @@ export default function AppSidebarRoot() {
     }
   }
 
-  function handleProjectDragEnd(event: DragEndEvent): void {
-    const { active, over } = event;
-    if (!over || active.id === over.id) {
-      return;
-    }
-
-    const oldIndex = projects.findIndex((project) => project.id === active.id);
-    const newIndex = projects.findIndex((project) => project.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) {
-      return;
-    }
-
-    const next = arrayMove(projects, oldIndex, newIndex);
-    void reorderProjects(next.map((project) => project.id));
-  }
-
-  function handleProjectDragStart(event: DragStartEvent): void {
-    if (projectDragLockTimeoutRef.current) {
-      clearTimeout(projectDragLockTimeoutRef.current);
-      projectDragLockTimeoutRef.current = null;
-    }
-
-    setProjectDragLock(true);
-    setSuppressedProjectAnimations(
-      Object.fromEntries(projects.map((project) => [project.id, true])),
-    );
-    setActiveProjectDragId(String(event.active.id));
-    setActiveProjectDragWidth(event.active.rect.current.initial?.width ?? null);
-  }
-
-  function releaseProjectDragLock(): void {
-    if (projectDragLockTimeoutRef.current) {
-      clearTimeout(projectDragLockTimeoutRef.current);
-    }
-
-    projectDragLockTimeoutRef.current = setTimeout(() => {
-      setProjectDragLock(false);
-      projectDragLockTimeoutRef.current = null;
-    }, 180);
-  }
-
   function handleToggleExpand(projectId: string): void {
-    setSuppressedProjectAnimations((state) => {
-      if (!state[projectId]) {
-        return state;
-      }
-
-      const next = { ...state };
-      delete next[projectId];
-      return next;
-    });
-
     toggleExpanded(projectId);
-  }
-
-  function handleProjectDragCancel(): void {
-    setActiveProjectDragId(null);
-    setActiveProjectDragWidth(null);
-    releaseProjectDragLock();
   }
 
   function handleOpenSettings(): void {
@@ -235,16 +156,7 @@ export default function AppSidebarRoot() {
             selectedWorktreeId={selectedWorktreeId}
             worktreesByProject={worktreesByProject}
             projectErrors={projectErrors}
-            activeProjectDragId={activeProjectDragId}
-            activeProjectDragWidth={activeProjectDragWidth}
-            projectDragLock={projectDragLock}
-            suppressedProjectAnimations={suppressedProjectAnimations}
-            onProjectDragStart={handleProjectDragStart}
-            onProjectDragEnd={(event) => {
-              handleProjectDragEnd(event);
-              handleProjectDragCancel();
-            }}
-            onProjectDragCancel={handleProjectDragCancel}
+            onReorderProjects={(orderedIds) => void reorderProjects(orderedIds)}
             onToggleExpand={handleToggleExpand}
             onSelectWorktree={selectWorktree}
             onAddWorktree={(project) =>

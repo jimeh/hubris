@@ -10,8 +10,10 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { useEffect, useRef, useState } from "react";
 import { SidebarMenu } from "@/components/ui/sidebar";
 import type { Project, Worktree } from "$lib/types";
 import ProjectDragOverlay from "./ProjectDragOverlay";
@@ -23,13 +25,7 @@ type ProjectListProps = {
   selectedWorktreeId: string | null;
   worktreesByProject: Record<string, Worktree[]>;
   projectErrors: Record<string, string>;
-  activeProjectDragId: string | null;
-  activeProjectDragWidth: number | null;
-  projectDragLock: boolean;
-  suppressedProjectAnimations: Record<string, boolean>;
-  onProjectDragStart: (event: DragStartEvent) => void;
-  onProjectDragEnd: (event: DragEndEvent) => void;
-  onProjectDragCancel: () => void;
+  onReorderProjects: (orderedIds: string[]) => void;
   onToggleExpand: (projectId: string) => void;
   onSelectWorktree: (id: string) => void;
   onAddWorktree: (project: Project) => void;
@@ -45,13 +41,7 @@ export default function ProjectList({
   selectedWorktreeId,
   worktreesByProject,
   projectErrors,
-  activeProjectDragId,
-  activeProjectDragWidth,
-  projectDragLock,
-  suppressedProjectAnimations,
-  onProjectDragStart,
-  onProjectDragEnd,
-  onProjectDragCancel,
+  onReorderProjects,
   onToggleExpand,
   onSelectWorktree,
   onAddWorktree,
@@ -65,19 +55,102 @@ export default function ProjectList({
       activationConstraint: { distance: 6 },
     }),
   );
+  const [activeProjectDragId, setActiveProjectDragId] = useState<string | null>(
+    null,
+  );
+  const [activeProjectDragWidth, setActiveProjectDragWidth] = useState<
+    number | null
+  >(null);
+  const [projectDragLock, setProjectDragLock] = useState(false);
+  const [suppressedProjectAnimations, setSuppressedProjectAnimations] =
+    useState<Record<string, boolean>>({});
+  const projectDragLockTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const activeProject =
     activeProjectDragId === null
       ? null
       : (projects.find((project) => project.id === activeProjectDragId) ??
         null);
 
+  useEffect(() => {
+    return () => {
+      if (projectDragLockTimeoutRef.current) {
+        clearTimeout(projectDragLockTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  function handleProjectDragStart(event: DragStartEvent): void {
+    if (projectDragLockTimeoutRef.current) {
+      clearTimeout(projectDragLockTimeoutRef.current);
+      projectDragLockTimeoutRef.current = null;
+    }
+
+    setProjectDragLock(true);
+    setSuppressedProjectAnimations(
+      Object.fromEntries(projects.map((project) => [project.id, true])),
+    );
+    setActiveProjectDragId(String(event.active.id));
+    setActiveProjectDragWidth(event.active.rect.current.initial?.width ?? null);
+  }
+
+  function releaseProjectDragLock(): void {
+    if (projectDragLockTimeoutRef.current) {
+      clearTimeout(projectDragLockTimeoutRef.current);
+    }
+
+    projectDragLockTimeoutRef.current = setTimeout(() => {
+      setProjectDragLock(false);
+      projectDragLockTimeoutRef.current = null;
+    }, 180);
+  }
+
+  function handleProjectDragCancel(): void {
+    setActiveProjectDragId(null);
+    setActiveProjectDragWidth(null);
+    releaseProjectDragLock();
+  }
+
+  function handleProjectDragEnd(event: DragEndEvent): void {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = projects.findIndex(
+        (project) => project.id === active.id,
+      );
+      const newIndex = projects.findIndex((project) => project.id === over.id);
+
+      if (oldIndex >= 0 && newIndex >= 0) {
+        const next = arrayMove(projects, oldIndex, newIndex);
+        onReorderProjects(next.map((project) => project.id));
+      }
+    }
+
+    handleProjectDragCancel();
+  }
+
+  function handleToggleExpand(projectId: string): void {
+    setSuppressedProjectAnimations((state) => {
+      if (!state[projectId]) {
+        return state;
+      }
+
+      const next = { ...state };
+      delete next[projectId];
+      return next;
+    });
+
+    onToggleExpand(projectId);
+  }
+
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
-      onDragStart={onProjectDragStart}
-      onDragEnd={onProjectDragEnd}
-      onDragCancel={onProjectDragCancel}
+      onDragStart={handleProjectDragStart}
+      onDragEnd={handleProjectDragEnd}
+      onDragCancel={handleProjectDragCancel}
     >
       <SortableContext
         items={projects.map((project) => project.id)}
@@ -97,7 +170,7 @@ export default function ProjectList({
               suppressAnimations={
                 suppressedProjectAnimations[project.id] ?? false
               }
-              onToggleExpand={() => onToggleExpand(project.id)}
+              onToggleExpand={() => handleToggleExpand(project.id)}
               onSelectWorktree={onSelectWorktree}
               onAddWorktree={() => onAddWorktree(project)}
               onRenameProject={() => onRenameProject(project)}
