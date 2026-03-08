@@ -12,13 +12,87 @@ import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import AppSidebar from "@/components/AppSidebar";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import WorktreeView from "@/components/WorktreeView";
+import { cn } from "$lib/utils";
 import { useProjectStore } from "$lib/stores/projects";
 import { useSidebarWidthStore } from "$lib/stores/sidebarWidth";
 import { useWorktreeStore } from "$lib/stores/worktrees";
+
+function AppHeader({
+  selectedProject,
+  selectedWorktree,
+}: {
+  selectedProject: { name: string } | null;
+  selectedWorktree: { name: string } | null;
+}) {
+  const sidebar = useSidebar();
+  const showSidebarTrigger = sidebar.isMobile
+    ? !sidebar.openMobile
+    : sidebar.state === "collapsed";
+
+  return (
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+      <div
+        className={cn(
+          "flex items-center gap-1 transition-[max-width,opacity,margin] duration-200 ease-out",
+          showSidebarTrigger
+            ? "mr-1 max-w-14 overflow-visible opacity-100 translate-x-0"
+            : "mr-0 max-w-0 overflow-hidden opacity-0 pointer-events-none",
+        )}
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SidebarTrigger
+              className={cn(
+                "shrink-0 transition-transform duration-200 ease-out",
+                showSidebarTrigger ? "translate-x-0" : "-translate-x-3",
+              )}
+              aria-hidden={!showSidebarTrigger}
+              tabIndex={showSidebarTrigger ? undefined : -1}
+            />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Show sidebar</TooltipContent>
+        </Tooltip>
+        <Separator
+          orientation="vertical"
+          className={cn(
+            "shrink-0 transition-transform duration-200 ease-out data-[orientation=vertical]:h-4",
+            showSidebarTrigger ? "translate-x-0" : "-translate-x-3",
+          )}
+        />
+      </div>
+      <Breadcrumb>
+        <BreadcrumbList>
+          {selectedProject ? (
+            <BreadcrumbItem className="hidden md:flex">
+              <BreadcrumbPage className="flex items-center gap-1.5">
+                <Folder className="h-3.5 w-3.5" />
+                {selectedProject.name}
+              </BreadcrumbPage>
+            </BreadcrumbItem>
+          ) : null}
+          {selectedProject && selectedWorktree ? (
+            <BreadcrumbSeparator className="hidden md:block" />
+          ) : null}
+          {selectedWorktree ? (
+            <BreadcrumbItem>
+              <BreadcrumbPage>{selectedWorktree.name}</BreadcrumbPage>
+            </BreadcrumbItem>
+          ) : null}
+        </BreadcrumbList>
+      </Breadcrumb>
+    </header>
+  );
+}
 
 export default function App() {
   const projects = useProjectStore((state) => state.projects);
@@ -62,33 +136,10 @@ export default function App() {
       <AppSidebar />
       <SidebarResizeHandle />
       <SidebarInset>
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-          <SidebarTrigger className="-ms-1" />
-          <Separator
-            orientation="vertical"
-            className="me-2 data-[orientation=vertical]:h-4"
-          />
-          <Breadcrumb>
-            <BreadcrumbList>
-              {selectedProject ? (
-                <BreadcrumbItem className="hidden md:flex">
-                  <BreadcrumbPage className="flex items-center gap-1.5">
-                    <Folder className="h-3.5 w-3.5" />
-                    {selectedProject.name}
-                  </BreadcrumbPage>
-                </BreadcrumbItem>
-              ) : null}
-              {selectedProject && selectedWorktree ? (
-                <BreadcrumbSeparator className="hidden md:block" />
-              ) : null}
-              {selectedWorktree ? (
-                <BreadcrumbItem>
-                  <BreadcrumbPage>{selectedWorktree.name}</BreadcrumbPage>
-                </BreadcrumbItem>
-              ) : null}
-            </BreadcrumbList>
-          </Breadcrumb>
-        </header>
+        <AppHeader
+          selectedProject={selectedProject}
+          selectedWorktree={selectedWorktree}
+        />
         <div className="flex flex-1 flex-col overflow-hidden">
           {selectedWorktree ? (
             <WorktreeView worktree={selectedWorktree} />

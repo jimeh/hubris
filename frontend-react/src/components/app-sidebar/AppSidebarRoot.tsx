@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
-import { Plus, Settings2 } from "lucide-react";
+import { FolderPlus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarSeparator,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useProjectStore } from "$lib/stores/projects";
 import { useWorktreeStore, worktreesForProject } from "$lib/stores/worktrees";
 import ProjectList from "./ProjectList";
@@ -41,6 +46,7 @@ export default function AppSidebarRoot() {
     number | null
   >(null);
   const [projectDragLock, setProjectDragLock] = useState(false);
+  const [showTopFade, setShowTopFade] = useState(false);
   const [suppressedProjectAnimations, setSuppressedProjectAnimations] =
     useState<Record<string, boolean>>({});
   const projectDragLockTimeoutRef = useRef<ReturnType<
@@ -167,29 +173,58 @@ export default function AppSidebarRoot() {
     releaseProjectDragLock();
   }
 
+  function handleOpenSettings(): void {
+    setDialogState((state) => ({
+      ...state,
+      showSettings: true,
+    }));
+  }
+
   return (
     <>
       <Sidebar>
         <SidebarHeader>
-          <div className="flex items-center justify-between px-2">
-            <h2 className="text-lg font-semibold">Projects</h2>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() =>
-                setDialogState((state) => ({
-                  ...state,
-                  showSettings: true,
-                }))
-              }
-              title="Settings"
-            >
-              <Settings2 className="h-4 w-4" />
-            </Button>
+          <div className="flex items-center justify-between pl-2 pr-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold">Projects</h2>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Add project"
+                    onClick={() =>
+                      setDialogState((state) => ({
+                        ...state,
+                        addProject: true,
+                      }))
+                    }
+                  >
+                    <FolderPlus className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Add project</TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SidebarTrigger className="size-8" />
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Hide sidebar</TooltipContent>
+              </Tooltip>
+            </div>
           </div>
         </SidebarHeader>
 
-        <SidebarContent className="overflow-x-hidden overflow-y-auto">
+        <SidebarContent
+          className={`h-full gap-0 overflow-x-hidden overflow-y-auto${
+            showTopFade ? " sidebar-scroll-fade-top" : ""
+          }`}
+          onScroll={(event) => {
+            setShowTopFade(event.currentTarget.scrollTop > 0);
+          }}
+        >
           <ProjectList
             projects={projects}
             expandedById={expandedById}
@@ -249,23 +284,17 @@ export default function AppSidebarRoot() {
           />
         </SidebarContent>
 
-        <div className="px-2">
-          <SidebarSeparator className="mx-0 w-full" />
-        </div>
-
-        <SidebarFooter>
+        <SidebarFooter className="relative pt-3">
+          <div className="pointer-events-none absolute inset-x-0 -top-3 h-4 bg-gradient-to-b from-transparent via-sidebar/85 to-sidebar" />
           <Button
             variant="ghost"
-            className="w-full text-muted-foreground"
-            onClick={() =>
-              setDialogState((state) => ({
-                ...state,
-                addProject: true,
-              }))
-            }
+            className="h-8 w-full justify-start text-muted-foreground"
+            title="Settings"
+            aria-label="Settings"
+            onClick={handleOpenSettings}
           >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Project
+            <Settings className="mr-2 h-4 w-4" />
+            Settings
           </Button>
         </SidebarFooter>
 
