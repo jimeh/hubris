@@ -8,8 +8,8 @@ import {
   House,
   RotateCcw,
 } from "lucide-react";
-import { listFiles } from "$lib/api";
-import type { DirEntry } from "$lib/types";
+import { listFiles } from "@/lib/api";
+import type { DirEntry } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";

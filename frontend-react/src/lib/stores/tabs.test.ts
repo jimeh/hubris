@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { EventHandler, SseEventName } from "$lib/events";
-import type { Tab } from "$lib/types";
+import type { EventHandler, SseEventName } from "@/lib/events";
+import type { Tab } from "@/lib/types";
 
 const mockCreateTab = vi.fn();
 const mockDeleteTab = vi.fn();
 const mockReorderTabs = vi.fn();
 
-vi.mock("$lib/api", () => ({
+vi.mock("@/lib/api", () => ({
   createTab: (...args: unknown[]) => mockCreateTab(...args),
   deleteTab: (...args: unknown[]) => mockDeleteTab(...args),
   reorderTabs: (...args: unknown[]) => mockReorderTabs(...args),
@@ -41,9 +41,9 @@ class MockEventClient {
 
 let mockEvents: MockEventClient;
 
-vi.mock("$lib/events", async () => {
+vi.mock("@/lib/events", async () => {
   const actual =
-    await vi.importActual<typeof import("$lib/events")>("$lib/events");
+    await vi.importActual<typeof import("@/lib/events")>("@/lib/events");
   return {
     ...actual,
     getEventClient: () => {

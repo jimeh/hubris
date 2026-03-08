@@ -4,7 +4,7 @@ import FileBrowser from "@/components/FileBrowser";
 
 const mockListFiles = vi.fn();
 
-vi.mock("$lib/api", () => ({
+vi.mock("@/lib/api", () => ({
   listFiles: (...args: unknown[]) => mockListFiles(...args),
 }));
 

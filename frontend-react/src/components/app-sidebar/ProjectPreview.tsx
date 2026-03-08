@@ -1,7 +1,7 @@
 import { AlertTriangle, Ellipsis, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
-import type { Project, Worktree } from "$lib/types";
+import type { Project, Worktree } from "@/lib/types";
 import ProjectHeaderRow from "./ProjectHeaderRow";
 import WorktreeRowContent from "./WorktreeRowContent";
 

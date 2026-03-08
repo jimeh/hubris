@@ -22,9 +22,9 @@ import {
 import AppSidebar from "@/components/AppSidebar";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import WorktreeView from "@/components/WorktreeView";
-import { useProjectStore } from "$lib/stores/projects";
-import { useSidebarWidthStore } from "$lib/stores/sidebarWidth";
-import { useWorktreeStore } from "$lib/stores/worktrees";
+import { useProjectStore } from "@/lib/stores/projects";
+import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
+import { useWorktreeStore } from "@/lib/stores/worktrees";
 
 function AppHeader({
   selectedProject,

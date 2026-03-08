@@ -1,4 +1,4 @@
-import type { ClientControlMessage } from "$lib/contracts/ws.generated";
+import type { ClientControlMessage } from "@/lib/contracts/ws.generated";
 import type { TerminalViewport } from "./adapter";
 
 export interface TerminalViewportState {

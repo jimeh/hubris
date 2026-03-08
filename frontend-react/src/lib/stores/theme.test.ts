@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockGetSettings = vi.fn();
 const mockSaveSettings = vi.fn();
 
-vi.mock("$lib/api", () => ({
+vi.mock("@/lib/api", () => ({
   getSettings: (...args: unknown[]) => mockGetSettings(...args),
   saveSettings: (...args: unknown[]) => mockSaveSettings(...args),
 }));

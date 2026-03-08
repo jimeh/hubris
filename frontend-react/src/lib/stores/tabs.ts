@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { createTab, deleteTab, reorderTabs } from "$lib/api";
-import { getEventClient } from "$lib/events";
-import type { Tab } from "$lib/types";
+import { createTab, deleteTab, reorderTabs } from "@/lib/api";
+import { getEventClient } from "@/lib/events";
+import type { Tab } from "@/lib/types";
 
 const LS_ACTIVE_TAB = "hubris-active-tab";
 const LS_TAB_BY_WORKTREE = "hubris-active-tab-by-worktree";

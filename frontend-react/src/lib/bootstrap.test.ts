@@ -17,22 +17,22 @@ const mockResetTabStore = vi.fn(() => {
   calls.push("reset-tabs");
 });
 
-vi.mock("$lib/stores/projects", () => ({
+vi.mock("@/lib/stores/projects", () => ({
   initializeProjectStore: () => calls.push("projects"),
   resetProjectStoreForTests: mockResetProjectStore,
 }));
 
-vi.mock("$lib/stores/worktrees", () => ({
+vi.mock("@/lib/stores/worktrees", () => ({
   initializeWorktreeStore: () => calls.push("worktrees"),
   resetWorktreeStoreForTests: mockResetWorktreeStore,
 }));
 
-vi.mock("$lib/stores/tabs", () => ({
+vi.mock("@/lib/stores/tabs", () => ({
   initializeTabStore: () => calls.push("tabs"),
   resetTabStoreForTests: mockResetTabStore,
 }));
 
-vi.mock("$lib/stores/theme", () => ({
+vi.mock("@/lib/stores/theme", () => ({
   useThemeStore: {
     getState: () => ({
       init: () => calls.push("theme"),
@@ -40,7 +40,7 @@ vi.mock("$lib/stores/theme", () => ({
   },
 }));
 
-vi.mock("$lib/stores/terminal", () => ({
+vi.mock("@/lib/stores/terminal", () => ({
   useTerminalStore: {
     getState: () => ({
       init: () => calls.push("terminal"),
@@ -48,7 +48,7 @@ vi.mock("$lib/stores/terminal", () => ({
   },
 }));
 
-vi.mock("$lib/stores/worktreeSettings", () => ({
+vi.mock("@/lib/stores/worktreeSettings", () => ({
   useWorktreeSettingsStore: {
     getState: () => ({
       init: () => calls.push("worktree-settings"),
@@ -56,7 +56,7 @@ vi.mock("$lib/stores/worktreeSettings", () => ({
   },
 }));
 
-vi.mock("$lib/events", () => ({
+vi.mock("@/lib/events", () => ({
   getEventClient: () => ({
     connect: mockConnect,
     disconnect: mockDisconnect,

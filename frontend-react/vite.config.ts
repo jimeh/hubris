@@ -64,7 +64,6 @@ export default defineConfig(async () => {
     resolve: {
       alias: {
         "@": path.resolve("./src"),
-        $lib: path.resolve("./src/lib"),
       },
     },
     server: {

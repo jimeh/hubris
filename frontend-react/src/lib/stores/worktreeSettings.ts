@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { getSettings, saveSettings } from "$lib/api";
-import type { WorktreeSettings } from "$lib/theme/types";
+import { getSettings, saveSettings } from "@/lib/api";
+import type { WorktreeSettings } from "@/lib/theme/types";
 
 const DEFAULTS: WorktreeSettings = {
   locationMode: "dataDir",

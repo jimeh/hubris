@@ -1,6 +1,6 @@
 import { act, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { TerminalAdapter, TerminalViewport } from "$lib/terminal/adapter";
+import type { TerminalAdapter, TerminalViewport } from "@/lib/terminal/adapter";
 import TerminalTab from "@/components/TerminalTab";
 
 let currentViewport: TerminalViewport | null = { cols: 100, rows: 30 };
@@ -70,20 +70,20 @@ class MockWebSocket {
   }
 }
 
-vi.mock("$lib/terminal/xterm", () => ({
+vi.mock("@/lib/terminal/xterm", () => ({
   createXtermAdapter: () => mockTerminal,
 }));
 
-vi.mock("$lib/api", () => ({
+vi.mock("@/lib/api", () => ({
   terminalWsUrl: (tabId: string) => `ws://example.test/${tabId}`,
 }));
 
-vi.mock("$lib/stores/theme", () => ({
+vi.mock("@/lib/stores/theme", () => ({
   useThemeStore: <T,>(selector: (state: typeof themeState) => T) =>
     selector(themeState),
 }));
 
-vi.mock("$lib/stores/terminal", () => ({
+vi.mock("@/lib/stores/terminal", () => ({
   useTerminalStore: <T,>(selector: (state: typeof terminalState) => T) =>
     selector(terminalState),
 }));

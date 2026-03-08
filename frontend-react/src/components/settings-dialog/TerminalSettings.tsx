@@ -9,8 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useTerminalStore } from "$lib/stores/terminal";
-import { BUNDLED_FONTS } from "$lib/terminal/fonts";
+import { useTerminalStore } from "@/lib/stores/terminal";
+import { BUNDLED_FONTS } from "@/lib/terminal/fonts";
 
 const settingsRowClass =
   "grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center sm:gap-3";

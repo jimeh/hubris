@@ -1,17 +1,17 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { createXtermAdapter } from "$lib/terminal/xterm";
-import { terminalWsUrl } from "$lib/api";
+import { createXtermAdapter } from "@/lib/terminal/xterm";
+import { terminalWsUrl } from "@/lib/api";
 import type {
   ClientControlMessage,
   ServerControlMessage,
-} from "$lib/contracts/ws.generated";
-import { useThemeStore } from "$lib/stores/theme";
-import { useTerminalStore } from "$lib/stores/terminal";
-import type { TerminalAdapter, TerminalViewport } from "$lib/terminal/adapter";
+} from "@/lib/contracts/ws.generated";
+import { useThemeStore } from "@/lib/stores/theme";
+import { useTerminalStore } from "@/lib/stores/terminal";
+import type { TerminalAdapter, TerminalViewport } from "@/lib/terminal/adapter";
 import {
   buildTerminalViewportMessage,
   shouldApplyTerminalViewport,
-} from "$lib/terminal/viewport";
+} from "@/lib/terminal/viewport";
 
 type Props = {
   tabId: string;

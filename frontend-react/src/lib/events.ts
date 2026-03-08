@@ -1,4 +1,4 @@
-import type { EventKind } from "$lib/contracts/sse.generated";
+import type { EventKind } from "@/lib/contracts/sse.generated";
 
 export type SseEvent = EventKind;
 export type SseEventName = SseEvent["type"];

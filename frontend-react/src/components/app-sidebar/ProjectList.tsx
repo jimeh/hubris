@@ -15,7 +15,7 @@ import {
 } from "@dnd-kit/sortable";
 import { useEffect, useRef, useState } from "react";
 import { SidebarMenu } from "@/components/ui/sidebar";
-import type { Project, Worktree } from "$lib/types";
+import type { Project, Worktree } from "@/lib/types";
 import ProjectDragOverlay from "./ProjectDragOverlay";
 import ProjectRow from "./ProjectRow";
 

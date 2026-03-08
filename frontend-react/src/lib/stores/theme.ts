@@ -4,14 +4,14 @@ import {
   clearTheme,
   computeThemeVars,
   type ComputedThemeVars,
-} from "$lib/theme/convert";
-import { builtinThemes } from "$lib/theme/builtin";
-import { getSettings, saveSettings } from "$lib/api";
+} from "@/lib/theme/convert";
+import { builtinThemes } from "@/lib/theme/builtin";
+import { getSettings, saveSettings } from "@/lib/api";
 import type {
   AppearanceSettings,
   HubrisTheme,
   ThemeListEntry,
-} from "$lib/theme/types";
+} from "@/lib/theme/types";
 
 const DEFAULTS: AppearanceSettings = {
   colorScheme: "auto",

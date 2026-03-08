@@ -1,16 +1,16 @@
-import { getEventClient } from "$lib/events";
+import { getEventClient } from "@/lib/events";
 import {
   initializeProjectStore,
   resetProjectStoreForTests,
-} from "$lib/stores/projects";
+} from "@/lib/stores/projects";
 import {
   initializeWorktreeStore,
   resetWorktreeStoreForTests,
-} from "$lib/stores/worktrees";
-import { initializeTabStore, resetTabStoreForTests } from "$lib/stores/tabs";
-import { useThemeStore } from "$lib/stores/theme";
-import { useTerminalStore } from "$lib/stores/terminal";
-import { useWorktreeSettingsStore } from "$lib/stores/worktreeSettings";
+} from "@/lib/stores/worktrees";
+import { initializeTabStore, resetTabStoreForTests } from "@/lib/stores/tabs";
+import { useThemeStore } from "@/lib/stores/theme";
+import { useTerminalStore } from "@/lib/stores/terminal";
+import { useWorktreeSettingsStore } from "@/lib/stores/worktreeSettings";
 
 let bootstrapped = false;
 

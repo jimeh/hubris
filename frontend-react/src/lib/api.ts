@@ -1,5 +1,5 @@
 import type { ListFilesResponse, Project, Tab, Worktree } from "./types";
-import type { components } from "$lib/contracts/rest.generated";
+import type { components } from "@/lib/contracts/rest.generated";
 import type {
   AppearanceSettings,
   TerminalSettings,

@@ -1,5 +1,5 @@
 import { AlertTriangle, Trash2 } from "lucide-react";
-import type { Worktree } from "$lib/types";
+import type { Worktree } from "@/lib/types";
 import WorktreeRowContent from "./WorktreeRowContent";
 
 export default function WorktreeDragOverlay({

@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { getSettings, saveSettings } from "$lib/api";
-import { DEFAULT_FONT_FAMILY, resolveFont } from "$lib/terminal/fonts";
-import type { TerminalSettings } from "$lib/theme/types";
+import { getSettings, saveSettings } from "@/lib/api";
+import { DEFAULT_FONT_FAMILY, resolveFont } from "@/lib/terminal/fonts";
+import type { TerminalSettings } from "@/lib/theme/types";
 
 const DEFAULTS: TerminalSettings = {
   fontSource: "default",

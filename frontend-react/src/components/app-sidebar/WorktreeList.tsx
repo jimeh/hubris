@@ -13,7 +13,7 @@ import {
   arrayMove,
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { Worktree } from "$lib/types";
+import type { Worktree } from "@/lib/types";
 import WorktreeDragOverlay from "./WorktreeDragOverlay";
 import WorktreeRowContent from "./WorktreeRowContent";
 import WorktreeRow from "./WorktreeRow";

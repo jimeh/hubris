@@ -240,6 +240,10 @@ reconciliation — drift corrects on reconnect.
 - **Sidebar resize ownership**: Keep sidebar resize customization in
   app-level files (store/handle/CSS) instead of `components/ui/sidebar/*`
   so shadcn sidebar upgrades remain mostly copy-merge operations.
+- **React frontend uses `@/` imports only**:
+  in `frontend-react/`, prefer `@/lib/...`, `@/components/...`, and
+  `@/hooks/...`. Do not reintroduce the Svelte-style `$lib/*` alias in React
+  files or config.
 - **React sidebar width should bypass React during drags**:
   `frontend-react/src/App.tsx` intentionally subscribes to the sidebar width
   store outside React and writes `--sidebar-width` directly onto the rendered

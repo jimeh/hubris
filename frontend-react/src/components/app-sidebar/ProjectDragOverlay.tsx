@@ -1,4 +1,4 @@
-import type { Project, Worktree } from "$lib/types";
+import type { Project, Worktree } from "@/lib/types";
 import ProjectPreview from "./ProjectPreview";
 
 export default function ProjectDragOverlay({

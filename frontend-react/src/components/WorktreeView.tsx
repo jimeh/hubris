@@ -1,8 +1,8 @@
 import { useCallback, useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import TabBar from "@/components/TabBar";
-import { useTabStore } from "$lib/stores/tabs";
-import type { Worktree } from "$lib/types";
+import { useTabStore } from "@/lib/stores/tabs";
+import type { Worktree } from "@/lib/types";
 import TerminalTab from "@/components/TerminalTab";
 
 type Props = {

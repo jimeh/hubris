@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Project } from "$lib/types";
+import type { Project } from "@/lib/types";
 import ProjectList from "./ProjectList";
 
 type CapturedDndHandlers = {

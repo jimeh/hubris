@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useSidebar } from "@/components/ui/sidebar";
-import { useSidebarWidthStore } from "$lib/stores/sidebarWidth";
+import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
 
 const KEYBOARD_RESIZE_STEP = 16;
 

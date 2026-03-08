@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { EventHandler, SseEventName } from "$lib/events";
-import type { Worktree } from "$lib/types";
+import type { EventHandler, SseEventName } from "@/lib/events";
+import type { Worktree } from "@/lib/types";
 
-vi.mock("$lib/api", () => ({
+vi.mock("@/lib/api", () => ({
   createProjectWorktree: vi.fn(),
   deleteProjectWorktree: vi.fn(),
   reorderProjectWorktrees: vi.fn(),
@@ -37,9 +37,9 @@ class MockEventClient {
 
 let mockEvents: MockEventClient;
 
-vi.mock("$lib/events", async () => {
+vi.mock("@/lib/events", async () => {
   const actual =
-    await vi.importActual<typeof import("$lib/events")>("$lib/events");
+    await vi.importActual<typeof import("@/lib/events")>("@/lib/events");
   return {
     ...actual,
     getEventClient: () => {

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Monitor, Moon, Paintbrush, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { themeEntries, useThemeStore } from "$lib/stores/theme";
+import { themeEntries, useThemeStore } from "@/lib/stores/theme";
 import ThemeSelect from "./ThemeSelect";
 
 const settingsRowClass =

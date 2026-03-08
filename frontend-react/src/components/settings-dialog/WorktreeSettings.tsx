@@ -1,7 +1,7 @@
 import { GitFork } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { useWorktreeSettingsStore } from "$lib/stores/worktreeSettings";
+import { useWorktreeSettingsStore } from "@/lib/stores/worktreeSettings";
 
 const settingsRowClass =
   "grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center sm:gap-3";

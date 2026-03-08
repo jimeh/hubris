@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { act, useCallback, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabBar, { SortableTabView } from "@/components/TabBar";
-import type { Tab } from "$lib/types";
+import type { Tab } from "@/lib/types";
 
 let resizeCallback: ResizeObserverCallback | null = null;
 

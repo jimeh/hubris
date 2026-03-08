@@ -1,4 +1,4 @@
-import type { Worktree } from "$lib/types";
+import type { Worktree } from "@/lib/types";
 
 export type DialogState = {
   addProject: boolean;

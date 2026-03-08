@@ -4,9 +4,9 @@ import {
   deleteProject,
   reorderProjects,
   updateProject,
-} from "$lib/api";
-import { getEventClient } from "$lib/events";
-import type { Project } from "$lib/types";
+} from "@/lib/api";
+import { getEventClient } from "@/lib/events";
+import type { Project } from "@/lib/types";
 
 const LS_EXPANDED = "hubris-expanded-projects";
 

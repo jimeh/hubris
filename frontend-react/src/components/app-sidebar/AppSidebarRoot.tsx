@@ -13,8 +13,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useProjectStore } from "$lib/stores/projects";
-import { useWorktreeStore } from "$lib/stores/worktrees";
+import { useProjectStore } from "@/lib/stores/projects";
+import { useWorktreeStore } from "@/lib/stores/worktrees";
 import ProjectList from "./ProjectList";
 import SidebarDialogs from "./SidebarDialogs";
 import { initialDialogState } from "./types";

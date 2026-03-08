@@ -10,7 +10,7 @@ vi.mock("@/components/SidebarResizeHandle", () => ({
 }));
 
 vi.mock("@/components/AppSidebar", async () => {
-  const { useWorktreeStore } = await import("$lib/stores/worktrees");
+  const { useWorktreeStore } = await import("@/lib/stores/worktrees");
 
   function MockSidebar() {
     const worktreesByProject = useWorktreeStore(
@@ -52,10 +52,10 @@ describe("App", () => {
     localStorage.clear();
     worktreeViewRenderCount = 0;
 
-    const { useProjectStore } = await import("$lib/stores/projects");
-    const { useWorktreeStore } = await import("$lib/stores/worktrees");
+    const { useProjectStore } = await import("@/lib/stores/projects");
+    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
     const { resetSidebarWidthStoreForTests, useSidebarWidthStore } =
-      await import("$lib/stores/sidebarWidth");
+      await import("@/lib/stores/sidebarWidth");
 
     resetSidebarWidthStoreForTests();
 
@@ -112,7 +112,7 @@ describe("App", () => {
   });
 
   it("updates sidebar width via DOM subscription without rerendering the main pane", async () => {
-    const { useSidebarWidthStore } = await import("$lib/stores/sidebarWidth");
+    const { useSidebarWidthStore } = await import("@/lib/stores/sidebarWidth");
     const { default: App } = await import("./App");
 
     render(<App />);

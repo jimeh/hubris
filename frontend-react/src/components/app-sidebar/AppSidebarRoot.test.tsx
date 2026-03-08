@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { EventHandler, SseEventName } from "$lib/events";
-import type { Project, Worktree } from "$lib/types";
+import type { EventHandler, SseEventName } from "@/lib/events";
+import type { Project, Worktree } from "@/lib/types";
 
 vi.mock("./SidebarDialogs", () => ({
   default: () => null,
@@ -33,9 +33,9 @@ class MockEventClient {
 
 let mockEvents: MockEventClient;
 
-vi.mock("$lib/events", async () => {
+vi.mock("@/lib/events", async () => {
   const actual =
-    await vi.importActual<typeof import("$lib/events")>("$lib/events");
+    await vi.importActual<typeof import("@/lib/events")>("@/lib/events");
   return {
     ...actual,
     getEventClient: () => {
@@ -79,8 +79,8 @@ function makeWorktree(
 }
 
 async function renderSidebar() {
-  const projectStore = await import("$lib/stores/projects");
-  const worktreeStore = await import("$lib/stores/worktrees");
+  const projectStore = await import("@/lib/stores/projects");
+  const worktreeStore = await import("@/lib/stores/worktrees");
   const { SidebarProvider } = await import("@/components/ui/sidebar");
   const { default: AppSidebarRoot } = await import("./AppSidebarRoot");
 

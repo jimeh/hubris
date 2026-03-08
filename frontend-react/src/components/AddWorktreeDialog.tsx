@@ -9,10 +9,10 @@ import {
 import {
   type WorktreeStartPoint,
   listProjectWorktreeStartPoints,
-} from "$lib/api";
-import { deterministicTagStyle } from "$lib/theme/deterministicTagColor";
-import { generateWorktreeBranchName } from "$lib/worktreeName";
-import { useThemeStore } from "$lib/stores/theme";
+} from "@/lib/api";
+import { deterministicTagStyle } from "@/lib/theme/deterministicTagColor";
+import { generateWorktreeBranchName } from "@/lib/worktreeName";
+import { useThemeStore } from "@/lib/stores/theme";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

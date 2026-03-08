@@ -3,8 +3,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "$lib/utils";
-import type { Worktree } from "$lib/types";
+import { cn } from "@/lib/utils";
+import type { Worktree } from "@/lib/types";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Tab, Worktree } from "$lib/types";
+import type { Tab, Worktree } from "@/lib/types";
 
 const terminalRenderSpy = vi.fn<(tabId: string) => void>();
 
@@ -70,7 +70,7 @@ describe("WorktreeView", () => {
     terminalRenderSpy.mockClear();
 
     const { resetTabStoreForTests, useTabStore } =
-      await import("$lib/stores/tabs");
+      await import("@/lib/stores/tabs");
     resetTabStoreForTests();
     useTabStore.setState({
       tabs: [],
@@ -80,7 +80,7 @@ describe("WorktreeView", () => {
   });
 
   it("does not rerender terminal tabs when sibling tabs are added", async () => {
-    const { useTabStore } = await import("$lib/stores/tabs");
+    const { useTabStore } = await import("@/lib/stores/tabs");
     const { default: WorktreeView } = await import("./WorktreeView");
     const worktree = makeWorktree();
 
@@ -107,7 +107,7 @@ describe("WorktreeView", () => {
   });
 
   it("does not rerender when tabs change in another worktree", async () => {
-    const { useTabStore } = await import("$lib/stores/tabs");
+    const { useTabStore } = await import("@/lib/stores/tabs");
     const { default: WorktreeView } = await import("./WorktreeView");
     const worktree = makeWorktree();
 

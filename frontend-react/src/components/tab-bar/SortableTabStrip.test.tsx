@@ -2,7 +2,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { createRef, type PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Tab } from "$lib/types";
+import type { Tab } from "@/lib/types";
 import SortableTabStrip from "./SortableTabStrip";
 
 type CapturedDndHandlers = {

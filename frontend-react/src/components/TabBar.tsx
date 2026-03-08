@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronsLeft, ChevronsRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { Tab } from "$lib/types";
+import type { Tab } from "@/lib/types";
 import SortableTabStrip from "./tab-bar/SortableTabStrip";
 export { default as SortableTabView } from "./tab-bar/SortableTabView";
 

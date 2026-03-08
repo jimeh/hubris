@@ -14,7 +14,7 @@ import {
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useMemo, useState, type RefObject, type UIEventHandler } from "react";
-import type { Tab } from "$lib/types";
+import type { Tab } from "@/lib/types";
 import SortableTab from "./SortableTab";
 import SortableTabView from "./SortableTabView";
 

@@ -3,9 +3,9 @@ import {
   createProjectWorktree,
   deleteProjectWorktree,
   reorderProjectWorktrees,
-} from "$lib/api";
-import { getEventClient } from "$lib/events";
-import type { Worktree } from "$lib/types";
+} from "@/lib/api";
+import { getEventClient } from "@/lib/events";
+import type { Worktree } from "@/lib/types";
 
 const LS_SELECTED = "hubris-selected-worktree";
 

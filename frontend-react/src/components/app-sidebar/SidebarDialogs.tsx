@@ -3,7 +3,7 @@ import AddWorktreeDialog from "@/components/AddWorktreeDialog";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import RenameProjectDialog from "@/components/RenameProjectDialog";
 import SettingsDialog from "@/components/SettingsDialog";
-import type { Project } from "$lib/types";
+import type { Project } from "@/lib/types";
 import type { DialogState } from "./types";
 
 type SidebarDialogsProps = {
