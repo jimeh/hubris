@@ -107,7 +107,7 @@ export default function AppSidebarRoot() {
 
   return (
     <>
-      <Sidebar>
+      <Sidebar className="z-40 md:z-10">
         <SidebarHeader>
           <div className="flex items-center justify-between pl-2 pr-1">
             <div className="flex items-center gap-2">

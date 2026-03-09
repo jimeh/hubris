@@ -197,4 +197,15 @@ describe("AppSidebarRoot", () => {
       expect(screen.queryByText("Devbox")).not.toBeInTheDocument();
     });
   });
+
+  it("applies the lower mobile sidebar panel z-layer class", async () => {
+    await renderSidebar();
+
+    const sidebarContainer = document.querySelector(
+      '[data-slot="sidebar-container"]',
+    );
+
+    expect(sidebarContainer).toHaveClass("z-40");
+    expect(sidebarContainer).toHaveClass("md:z-10");
+  });
 });
