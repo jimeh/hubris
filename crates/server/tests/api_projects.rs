@@ -70,6 +70,51 @@ async fn create_worktree(
     res.json().await.unwrap()
 }
 
+fn find_sse_separator(buffer: &[u8]) -> Option<usize> {
+    buffer
+        .windows(2)
+        .position(|window| window == b"\n\n")
+        .or_else(|| buffer.windows(4).position(|window| window == b"\r\n\r\n"))
+}
+
+async fn next_sse_event(res: &mut reqwest::Response, buffer: &mut Vec<u8>) -> (String, Value) {
+    loop {
+        if let Some(separator) = find_sse_separator(buffer) {
+            let separator_len = if buffer.get(separator..separator + 4) == Some(b"\r\n\r\n") {
+                4
+            } else {
+                2
+            };
+            let raw = buffer
+                .drain(..separator + separator_len)
+                .collect::<Vec<_>>();
+            let text = String::from_utf8(raw).unwrap();
+
+            let mut event_name = None;
+            let mut data = None;
+
+            for line in text.lines() {
+                if let Some(value) = line.strip_prefix("event:") {
+                    event_name = Some(value.trim().to_string());
+                } else if let Some(value) = line.strip_prefix("data:") {
+                    data = Some(serde_json::from_str(value.trim()).unwrap());
+                }
+            }
+
+            if let (Some(event_name), Some(data)) = (event_name, data) {
+                return (event_name, data);
+            }
+        }
+
+        let chunk = tokio::time::timeout(std::time::Duration::from_secs(2), res.chunk())
+            .await
+            .unwrap()
+            .unwrap()
+            .expect("SSE stream ended before next event");
+        buffer.extend_from_slice(&chunk);
+    }
+}
+
 #[tokio::test]
 async fn test_list_empty() {
     let (base, _tmp) = start_test_server().await;
@@ -270,6 +315,47 @@ async fn test_sse_snapshot_includes_worktrees() {
 
     assert!(parsed["data"]["projects"].is_array());
     assert!(parsed["data"]["worktrees"].is_object());
+}
+
+#[tokio::test]
+async fn test_add_project_emits_initial_worktrees_update() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let mut res = client
+        .get(format!("{}/api/events", base))
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+
+    let (event_name, snapshot) = next_sse_event(&mut res, &mut buffer).await;
+    assert_eq!(event_name, "snapshot");
+    assert_eq!(snapshot["type"], "snapshot");
+
+    let created = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let project_id = created["id"].as_str().unwrap();
+
+    let (event_name, project_added) = next_sse_event(&mut res, &mut buffer).await;
+    assert_eq!(event_name, "project_added");
+    assert_eq!(project_added["type"], "project_added");
+    assert_eq!(project_added["data"]["id"], project_id);
+
+    let (event_name, worktrees_updated) = next_sse_event(&mut res, &mut buffer).await;
+    assert_eq!(event_name, "project_worktrees_updated");
+    assert_eq!(worktrees_updated["type"], "project_worktrees_updated");
+    assert_eq!(worktrees_updated["data"]["project_id"], project_id);
+    assert!(worktrees_updated["data"]["git_error"].is_null());
+
+    let worktrees = worktrees_updated["data"]["worktrees"].as_array().unwrap();
+    assert_eq!(worktrees.len(), 1);
+    assert_eq!(worktrees[0]["project_id"], project_id);
+    assert_eq!(worktrees[0]["is_local"], true);
+    assert_eq!(worktrees[0]["name"], "local");
+    assert_eq!(worktrees[0]["missing_on_disk"], false);
+    assert_eq!(worktrees[0]["position"].as_f64(), Some(1.0));
 }
 
 #[tokio::test]
