@@ -39,6 +39,19 @@ describe("Sidebar width store", () => {
     expect(store.getState().width).toBe(256);
   });
 
+  it("swallows localStorage errors during initial load", async () => {
+    const getItemSpy = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("localStorage read denied");
+      });
+
+    const store = await getStore();
+
+    expect(store.getState().width).toBe(256);
+    expect(getItemSpy).toHaveBeenCalled();
+  });
+
   it("setWidth clamps min/max bounds", async () => {
     const store = await getStore();
 
@@ -82,5 +95,24 @@ describe("Sidebar width store", () => {
 
     vi.runAllTimers();
     expect(setItemSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("swallows localStorage errors during debounced persist", async () => {
+    vi.useFakeTimers();
+    const setItemSpy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("localStorage write denied");
+      });
+
+    const store = await getStore();
+
+    expect(() => {
+      store.getState().setWidth(300);
+      vi.runAllTimers();
+    }).not.toThrow();
+
+    expect(store.getState().width).toBe(300);
+    expect(setItemSpy).toHaveBeenCalled();
   });
 });

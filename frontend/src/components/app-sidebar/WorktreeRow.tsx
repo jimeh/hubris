@@ -61,7 +61,10 @@ export default function WorktreeRow({
             {worktree.missing_on_disk ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="ml-2 inline-flex items-center text-destructive">
+                  <span
+                    className="ml-2 inline-flex items-center text-destructive"
+                    aria-label="Worktree missing on disk"
+                  >
                     <AlertTriangle className="h-3.5 w-3.5" />
                   </span>
                 </TooltipTrigger>
