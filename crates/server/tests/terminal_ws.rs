@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use hubris_server::api::terminal::{ClientControlMessage, ServerControlMessage};
+use hubris_server::pty::live_tab::DEFAULT_SCROLLBACK;
 use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -86,10 +87,21 @@ async fn connect_terminal(
     base: &str,
     tab_id: &str,
 ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+    connect_terminal_with_resume(base, tab_id, None).await
+}
+
+async fn connect_terminal_with_resume(
+    base: &str,
+    tab_id: &str,
+    resume_from: Option<u64>,
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
     let ws_url = format!(
-        "{}/api/terminal/ws?tab_id={}",
+        "{}/api/terminal/ws?tab_id={}{}",
         base.replacen("http://", "ws://", 1),
-        tab_id
+        tab_id,
+        resume_from
+            .map(|resume_from| format!("&resume_from={resume_from}"))
+            .unwrap_or_default()
     );
     let (socket, _) = connect_async(ws_url).await.unwrap();
     socket
@@ -191,6 +203,47 @@ async fn send_resize(
     socket.send(Message::Text(message.into())).await.unwrap();
 }
 
+async fn send_input(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    input: &[u8],
+) {
+    socket
+        .send(Message::Binary(input.to_vec().into()))
+        .await
+        .unwrap();
+}
+
+async fn read_binary_bytes(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    minimum: usize,
+) -> usize {
+    timeout(Duration::from_secs(5), async {
+        let mut total = 0;
+        while total < minimum {
+            match next_ws_message(socket).await {
+                Message::Binary(data) => total += data.len(),
+                Message::Ping(payload) => {
+                    socket.send(Message::Pong(payload)).await.unwrap();
+                }
+                Message::Text(text) => {
+                    if let Ok(control) = serde_json::from_str::<ServerControlMessage>(&text) {
+                        panic!("expected binary output, got control message: {control:?}");
+                    }
+                }
+                Message::Close(frame) => panic!("websocket closed before binary output: {frame:?}"),
+                _ => {}
+            }
+        }
+        total
+    })
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn attached_message_includes_current_pty_size() {
     let (base, _tmp) = start_test_server().await;
@@ -207,11 +260,13 @@ async fn attached_message_includes_current_pty_size() {
 
     match attached {
         ServerControlMessage::Attached {
+            snapshot,
             data_lost,
             cols,
             rows,
             ..
         } => {
+            assert!(snapshot);
             assert!(!data_lost);
             assert_eq!(cols, 80);
             assert_eq!(rows, 24);
@@ -246,11 +301,13 @@ async fn smallest_visible_client_drives_shared_pty_size() {
     let mut second = connect_terminal(&base, tab_id).await;
     match next_control_message(&mut second).await {
         ServerControlMessage::Attached {
+            snapshot,
             data_lost,
             cols,
             rows,
             ..
         } => {
+            assert!(snapshot);
             assert!(!data_lost);
             assert_eq!(cols, 120);
             assert_eq!(rows, 40);
@@ -415,4 +472,94 @@ async fn stale_smallest_client_expires_and_restores_next_visible_size() {
             rows: 40
         }
     );
+}
+
+#[tokio::test]
+async fn resume_attach_uses_raw_delta_when_gap_fits_scrollback() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_tab(&client, &base, &worktree_id).await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let mut first = connect_terminal(&base, tab_id).await;
+    let base_offset = match next_control_message(&mut first).await {
+        ServerControlMessage::Attached {
+            byte_offset,
+            snapshot,
+            data_lost,
+            ..
+        } => {
+            assert!(snapshot);
+            assert!(!data_lost);
+            byte_offset
+        }
+        other => panic!("expected attached message, got {other:?}"),
+    };
+    let _ = read_binary_bytes(&mut first, 1).await;
+
+    send_input(&mut first, b"printf 'hubris-resume'\n").await;
+    let _ = read_binary_bytes(&mut first, 1).await;
+
+    let mut resumed = connect_terminal_with_resume(&base, tab_id, Some(base_offset)).await;
+    match next_control_message(&mut resumed).await {
+        ServerControlMessage::Attached {
+            snapshot,
+            data_lost,
+            ..
+        } => {
+            assert!(!snapshot);
+            assert!(!data_lost);
+        }
+        other => panic!("expected attached message, got {other:?}"),
+    }
+    assert!(read_binary_bytes(&mut resumed, 1).await > 0);
+}
+
+#[tokio::test]
+async fn resume_attach_uses_snapshot_when_gap_exceeds_scrollback() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_tab(&client, &base, &worktree_id).await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let mut first = connect_terminal(&base, tab_id).await;
+    let base_offset = match next_control_message(&mut first).await {
+        ServerControlMessage::Attached {
+            byte_offset,
+            snapshot,
+            data_lost,
+            ..
+        } => {
+            assert!(snapshot);
+            assert!(!data_lost);
+            byte_offset
+        }
+        other => panic!("expected attached message, got {other:?}"),
+    };
+    let _ = read_binary_bytes(&mut first, 1).await;
+
+    send_input(&mut first, b"perl -e 'print \"x\" x 150000'\n").await;
+    assert!(read_binary_bytes(&mut first, DEFAULT_SCROLLBACK + 1).await > DEFAULT_SCROLLBACK);
+
+    let mut resumed = connect_terminal_with_resume(&base, tab_id, Some(base_offset)).await;
+    match next_control_message(&mut resumed).await {
+        ServerControlMessage::Attached {
+            snapshot,
+            data_lost,
+            ..
+        } => {
+            assert!(snapshot);
+            assert!(data_lost);
+        }
+        other => panic!("expected attached message, got {other:?}"),
+    }
+    assert!(read_binary_bytes(&mut resumed, 1).await > 0);
 }

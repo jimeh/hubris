@@ -17,6 +17,7 @@ fn sse_event_uses_type_and_data_envelope() {
 fn ws_server_message_uses_stable_keys() {
     let attached = serde_json::to_value(ServerControlMessage::Attached {
         byte_offset: 42,
+        snapshot: true,
         data_lost: true,
         cols: 80,
         rows: 24,
@@ -25,6 +26,7 @@ fn ws_server_message_uses_stable_keys() {
 
     assert_eq!(attached["type"], "attached");
     assert_eq!(attached["byte_offset"], 42);
+    assert_eq!(attached["snapshot"], true);
     assert_eq!(attached["data_lost"], true);
     assert_eq!(attached["cols"], 80);
     assert_eq!(attached["rows"], 24);

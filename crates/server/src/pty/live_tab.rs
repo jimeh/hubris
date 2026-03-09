@@ -67,10 +67,7 @@ pub struct LiveTab {
     pub pty_master: Mutex<Box<dyn MasterPty + Send>>,
     pub pty_writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
-    pub scrollback: Arc<Mutex<VecDeque<u8>>>,
-    /// Monotonic count of all bytes ever output by the PTY.
-    /// Used for resumable WebSocket reconnection.
-    total_bytes: Arc<AtomicU64>,
+    output_state: Arc<Mutex<OutputState>>,
     pub output_tx: broadcast::Sender<Vec<u8>>,
     pty_size_tx: broadcast::Sender<TerminalSize>,
     pub close_tx: broadcast::Sender<()>,
@@ -82,7 +79,8 @@ pub struct LiveTab {
 
 pub struct LiveTabAttachment {
     pub attachment_id: u64,
-    pub scrollback: Vec<u8>,
+    pub initial_payload: Vec<u8>,
+    pub snapshot: bool,
     pub current_size: TerminalSize,
     pub byte_offset: u64,
     pub data_lost: bool,
@@ -95,6 +93,62 @@ pub struct LiveTabAttachment {
 struct AttachmentUpdate {
     candidate_size: Option<TerminalSize>,
     shared_size: TerminalSize,
+}
+
+struct OutputState {
+    scrollback: VecDeque<u8>,
+    total_bytes: u64,
+    parser: vt100::Parser,
+}
+
+impl OutputState {
+    fn new(scrollback_size: usize, initial_size: TerminalSize) -> Self {
+        Self {
+            scrollback: VecDeque::with_capacity(scrollback_size),
+            total_bytes: 0,
+            parser: vt100::Parser::new(initial_size.rows, initial_size.cols, 0),
+        }
+    }
+
+    fn record_output(&mut self, data: &[u8], scrollback_size: usize) {
+        for &byte in data {
+            if self.scrollback.len() >= scrollback_size {
+                self.scrollback.pop_front();
+            }
+            self.scrollback.push_back(byte);
+        }
+        self.total_bytes += data.len() as u64;
+        self.parser.process(data);
+    }
+
+    fn build_attach_payload(&self, resume_from: Option<u64>) -> (Vec<u8>, bool, bool) {
+        match resume_from {
+            None => (self.snapshot_state(), true, false),
+            Some(pos) if pos >= self.total_bytes => (Vec::new(), false, false),
+            Some(pos) => {
+                let missed = (self.total_bytes - pos) as usize;
+                if missed <= self.scrollback.len() {
+                    let start = self.scrollback.len() - missed;
+                    (
+                        self.scrollback.iter().skip(start).copied().collect(),
+                        false,
+                        false,
+                    )
+                } else {
+                    (self.snapshot_state(), true, true)
+                }
+            }
+        }
+    }
+
+    fn snapshot_state(&self) -> Vec<u8> {
+        let mut snapshot = vec![];
+        if self.parser.screen().alternate_screen() {
+            snapshot.extend_from_slice(b"\x1b[?1049h");
+        }
+        snapshot.extend(self.parser.screen().state_formatted());
+        snapshot
+    }
 }
 
 impl LiveTab {
@@ -111,14 +165,12 @@ impl LiveTab {
         let mut reader = master.try_clone_reader().unwrap();
         let writer = master.take_writer().unwrap();
 
-        let scrollback = Arc::new(Mutex::new(VecDeque::with_capacity(scrollback_size)));
-        let total_bytes = Arc::new(AtomicU64::new(0));
+        let output_state = Arc::new(Mutex::new(OutputState::new(scrollback_size, initial_size)));
         let (output_tx, _) = broadcast::channel(64);
         let (pty_size_tx, _) = broadcast::channel(16);
         let (close_tx, _) = broadcast::channel(1);
 
-        let sb = scrollback.clone();
-        let tb = total_bytes.clone();
+        let output_state_clone = output_state.clone();
         let tx = output_tx.clone();
         let ctx = close_tx.clone();
 
@@ -130,15 +182,9 @@ impl LiveTab {
                     Ok(n) => {
                         let data = buf[..n].to_vec();
                         {
-                            let mut sb = sb.lock().unwrap();
-                            for &byte in &data {
-                                if sb.len() >= scrollback_size {
-                                    sb.pop_front();
-                                }
-                                sb.push_back(byte);
-                            }
+                            let mut output_state = output_state_clone.lock().unwrap();
+                            output_state.record_output(&data, scrollback_size);
                         }
-                        tb.fetch_add(n as u64, Ordering::Relaxed);
                         let _ = tx.send(data);
                     }
                     Err(_) => break,
@@ -153,8 +199,7 @@ impl LiveTab {
             pty_master: Mutex::new(master),
             pty_writer: Mutex::new(writer),
             child: Mutex::new(child),
-            scrollback,
-            total_bytes,
+            output_state,
             output_tx,
             pty_size_tx,
             close_tx,
@@ -178,20 +223,21 @@ impl LiveTab {
     }
 
     /// Attach to this tab's output stream. Returns:
-    /// - scrollback snapshot (missed bytes, or full buffer)
+    /// - initial payload (raw replay bytes or a full snapshot)
+    /// - snapshot flag (true when the initial payload is a
+    ///   full terminal snapshot)
     /// - byte_offset (total bytes ever output — the
     ///   client's new position counter)
-    /// - data_lost (true if gap exceeds scrollback; client
-    ///   should clear its terminal before writing snapshot)
+    /// - data_lost (true if byte-resume was impossible)
     /// - output receiver (live PTY output)
     /// - close receiver (shell exit notification)
     ///
-    /// Lock ordering: scrollback mutex held while
+    /// Lock ordering: output-state mutex held while
     /// subscribing to output channel guarantees no output
     /// is missed between snapshot and subscription.
     pub fn attach(&self, resume_from: Option<u64>) -> LiveTabAttachment {
-        let sb = self.scrollback.lock().unwrap();
-        let total = self.total_bytes.load(Ordering::Relaxed);
+        let output_state = self.output_state.lock().unwrap();
+        let total = output_state.total_bytes;
         let attachment_id = self.next_attachment_id.fetch_add(1, Ordering::Relaxed);
         let current_size = {
             let mut attachments = self.attachments.lock().unwrap();
@@ -199,34 +245,14 @@ impl LiveTab {
             attachments.shared_size()
         };
 
-        let (snapshot, data_lost) = match resume_from {
-            None => {
-                // First connect: send full scrollback
-                (sb.iter().copied().collect(), false)
-            }
-            Some(pos) if pos >= total => {
-                // Client is caught up (or somehow ahead)
-                (Vec::new(), false)
-            }
-            Some(pos) => {
-                let missed = (total - pos) as usize;
-                if missed <= sb.len() {
-                    // Gap fits in scrollback — send tail
-                    let start = sb.len() - missed;
-                    (sb.iter().skip(start).copied().collect(), false)
-                } else {
-                    // Gap exceeds scrollback — data lost
-                    (sb.iter().copied().collect(), true)
-                }
-            }
-        };
-
+        let (initial_payload, snapshot, data_lost) = output_state.build_attach_payload(resume_from);
         let output_rx = self.output_tx.subscribe();
         let pty_size_rx = self.pty_size_tx.subscribe();
         let close_rx = self.close_tx.subscribe();
         LiveTabAttachment {
             attachment_id,
-            scrollback: snapshot,
+            initial_payload,
+            snapshot,
             current_size,
             byte_offset: total,
             data_lost,
@@ -309,6 +335,11 @@ impl LiveTab {
             return false;
         }
 
+        let mut output_state = self.output_state.lock().unwrap();
+        output_state
+            .parser
+            .screen_mut()
+            .set_size(size.rows, size.cols);
         let _ = self.pty_size_tx.send(size);
         true
     }
@@ -329,6 +360,17 @@ impl LiveTab {
     #[cfg(test)]
     fn lock_resize_updates_for_test(&self) -> std::sync::MutexGuard<'_, ()> {
         self.resize_update_lock.lock().unwrap()
+    }
+
+    #[cfg(test)]
+    fn record_output_for_test(&self, data: &[u8], scrollback_size: usize) {
+        let mut output_state = self.output_state.lock().unwrap();
+        output_state.record_output(data, scrollback_size);
+    }
+
+    #[cfg(test)]
+    fn screen_for_test(&self) -> vt100::Screen {
+        self.output_state.lock().unwrap().parser.screen().clone()
     }
 }
 
@@ -441,7 +483,10 @@ mod tests {
     use portable_pty::{CommandBuilder, NativePtySystem, PtySystem};
     use tokio::time::Instant;
 
-    use super::{AttachmentRegistry, DEFAULT_SCROLLBACK, LiveTab, TabInfo, TerminalSize};
+    use super::{
+        AttachmentRegistry, DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS, DEFAULT_SCROLLBACK, LiveTab,
+        TabInfo, TerminalSize,
+    };
 
     fn spawn_test_live_tab() -> Arc<LiveTab> {
         let pty_system = NativePtySystem::default();
@@ -641,5 +686,87 @@ mod tests {
 
         rx.recv_timeout(StdDuration::from_secs(1)).unwrap();
         update_thread.join().unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn initial_attach_returns_snapshot_payload() {
+        let tab = spawn_test_live_tab();
+
+        tab.record_output_for_test(b"hello", DEFAULT_SCROLLBACK);
+
+        let attachment = tab.attach(None);
+        let mut parser = vt100::Parser::new(DEFAULT_PTY_ROWS, DEFAULT_PTY_COLS, 0);
+        parser.process(&attachment.initial_payload);
+
+        assert!(attachment.snapshot);
+        assert!(!attachment.data_lost);
+        assert!(!attachment.initial_payload.is_empty());
+        assert!(parser.screen().contents().contains("hello"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn resumable_attach_replays_raw_bytes_without_snapshot() {
+        let tab = spawn_test_live_tab();
+
+        tab.record_output_for_test(b"hello", DEFAULT_SCROLLBACK);
+
+        let attachment = tab.attach(Some(2));
+
+        assert!(!attachment.snapshot);
+        assert!(!attachment.data_lost);
+        assert_eq!(attachment.initial_payload, b"llo");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn overflow_attach_falls_back_to_snapshot() {
+        let tab = spawn_test_live_tab();
+
+        tab.record_output_for_test(b"abcdef", 3);
+
+        let attachment = tab.attach(Some(0));
+        let mut parser = vt100::Parser::new(DEFAULT_PTY_ROWS, DEFAULT_PTY_COLS, 0);
+        parser.process(&attachment.initial_payload);
+
+        assert!(attachment.snapshot);
+        assert!(attachment.data_lost);
+        assert!(!attachment.initial_payload.is_empty());
+        assert!(parser.screen().contents().contains("abcdef"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn snapshot_preserves_mouse_mode_after_scrollback_overflow() {
+        let tab = spawn_test_live_tab();
+        let enable_mouse = b"\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1006h";
+        let overflow = vec![b'x'; DEFAULT_SCROLLBACK + 32];
+
+        tab.record_output_for_test(enable_mouse, DEFAULT_SCROLLBACK);
+        tab.record_output_for_test(&overflow, DEFAULT_SCROLLBACK);
+
+        let attachment = tab.attach(Some(0));
+
+        assert!(attachment.snapshot);
+        assert!(attachment.data_lost);
+
+        let mut parser = vt100::Parser::new(DEFAULT_PTY_ROWS, DEFAULT_PTY_COLS, 0);
+        parser.process(&attachment.initial_payload);
+
+        assert!(parser.screen().alternate_screen());
+        assert_eq!(
+            parser.screen().mouse_protocol_mode(),
+            vt100::MouseProtocolMode::ButtonMotion
+        );
+        assert_eq!(
+            parser.screen().mouse_protocol_encoding(),
+            vt100::MouseProtocolEncoding::Sgr
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn resize_updates_parser_size() {
+        let tab = spawn_test_live_tab();
+
+        assert!(tab.resize_pty(TerminalSize::new(120, 40)));
+
+        assert_eq!(tab.screen_for_test().size(), (40, 120));
     }
 }

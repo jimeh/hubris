@@ -15,6 +15,7 @@ export type ServerControlMessage =
   | {
       type: "attached";
       byte_offset: number;
+      snapshot: boolean;
       data_lost: boolean;
       cols: number;
       rows: number;

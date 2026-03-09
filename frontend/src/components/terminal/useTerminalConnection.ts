@@ -32,6 +32,7 @@ type UseTerminalConnectionArgs = {
 type UseTerminalConnectionResult = {
   connected: boolean;
   everConnected: boolean;
+  handleTerminalBinary: (data: string) => void;
   handleTerminalData: (data: string) => void;
   sendResize: (force?: boolean) => boolean;
 };
@@ -45,6 +46,15 @@ type ConnectFrame = {
   generation: number;
   frameId: number;
 } | null;
+
+function encodeBinaryInput(data: string): Uint8Array {
+  const bytes = new Uint8Array(data.length);
+  for (let index = 0; index < data.length; index += 1) {
+    bytes[index] = data.charCodeAt(index) & 0xff;
+  }
+
+  return bytes;
+}
 
 export function useTerminalConnection({
   tabId,
@@ -277,7 +287,7 @@ export function useTerminalConnection({
             case "attached":
               applyPtySize(message.cols, message.rows);
               bytePositionRef.current = message.byte_offset;
-              if (message.data_lost) {
+              if (message.snapshot) {
                 terminalRef.current?.clear();
               }
               return;
@@ -394,9 +404,19 @@ export function useTerminalConnection({
     }
   }, []);
 
+  const handleTerminalBinary = useCallback((data: string): void => {
+    const encoded = encodeBinaryInput(data);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(encoded);
+    } else {
+      inputBufferRef.current.push(encoded);
+    }
+  }, []);
+
   return {
     connected,
     everConnected,
+    handleTerminalBinary,
     handleTerminalData,
     sendResize,
   };

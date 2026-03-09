@@ -323,6 +323,7 @@ export interface components {
           data_lost: boolean;
           /** Format: int32 */
           rows: number;
+          snapshot: boolean;
           /** @enum {string} */
           type: "attached";
         }

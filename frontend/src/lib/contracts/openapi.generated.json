@@ -953,7 +953,14 @@
         "oneOf": [
           {
             "type": "object",
-            "required": ["byte_offset", "data_lost", "cols", "rows", "type"],
+            "required": [
+              "byte_offset",
+              "snapshot",
+              "data_lost",
+              "cols",
+              "rows",
+              "type"
+            ],
             "properties": {
               "byte_offset": {
                 "type": "integer",
@@ -972,6 +979,9 @@
                 "type": "integer",
                 "format": "int32",
                 "minimum": 0
+              },
+              "snapshot": {
+                "type": "boolean"
               },
               "type": {
                 "type": "string",
