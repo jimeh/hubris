@@ -39,8 +39,8 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import WorktreeGitSidebarResizeHandle from "@/components/WorktreeGitSidebarResizeHandle";
 
-const DESKTOP_PANEL_WIDTH_PX = 320;
 const DESKTOP_RAIL_WIDTH_PX = 44;
 
 type Props = {
@@ -307,15 +307,17 @@ export default function WorktreeGitSidebar({ worktree }: Props) {
   return (
     <>
       <div
-        className="hidden shrink-0 border-l bg-background md:flex md:flex-col"
+        data-worktree-git-sidebar-wrapper
+        className="relative hidden shrink-0 border-l bg-background transition-[width] duration-200 ease-linear md:flex md:flex-col"
         style={{
           width: desktopOpen
-            ? `${DESKTOP_PANEL_WIDTH_PX}px`
+            ? "var(--worktree-git-sidebar-width, 320px)"
             : `${DESKTOP_RAIL_WIDTH_PX}px`,
         }}
       >
         {desktopOpen ? (
           <>
+            {!isMobile ? <WorktreeGitSidebarResizeHandle /> : null}
             <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
               <div className="flex min-w-0 items-center gap-2">
                 <GitBranch className="h-4 w-4 shrink-0 text-muted-foreground" />

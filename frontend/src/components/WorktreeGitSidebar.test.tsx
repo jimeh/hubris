@@ -64,7 +64,10 @@ describe("WorktreeGitSidebar", () => {
 
     const { resetWorktreeGitSidebarStoreForTests } =
       await import("@/lib/stores/worktreeGitSidebar");
+    const { resetWorktreeGitSidebarWidthStoreForTests } =
+      await import("@/lib/stores/worktreeGitSidebarWidth");
     resetWorktreeGitSidebarStoreForTests();
+    resetWorktreeGitSidebarWidthStoreForTests();
   });
 
   it("fetches on mount and only again on manual refresh", async () => {
@@ -83,7 +86,18 @@ describe("WorktreeGitSidebar", () => {
     });
   });
 
-  it("shows a collapsed desktop rail and can expand it", async () => {
+  it("shows the desktop resize handle when expanded", async () => {
+    const { default: WorktreeGitSidebar } =
+      await import("./WorktreeGitSidebar");
+
+    render(<WorktreeGitSidebar worktree={makeWorktree()} />);
+
+    expect(
+      await screen.findByRole("button", { name: "Resize git sidebar" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a collapsed desktop rail without the resize handle", async () => {
     const { useWorktreeGitSidebarStore } =
       await import("@/lib/stores/worktreeGitSidebar");
     useWorktreeGitSidebarStore.setState({
@@ -95,6 +109,9 @@ describe("WorktreeGitSidebar", () => {
 
     render(<WorktreeGitSidebar worktree={makeWorktree()} />);
 
+    expect(
+      screen.queryByRole("button", { name: "Resize git sidebar" }),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Expand git sidebar" }));
 
     expect(
@@ -118,5 +135,8 @@ describe("WorktreeGitSidebar", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByText("Git status")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Resize git sidebar" }),
+    ).not.toBeInTheDocument();
   });
 });

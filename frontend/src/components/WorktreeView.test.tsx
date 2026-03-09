@@ -1,30 +1,29 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Tab, Worktree } from "@/lib/types";
 
 const terminalRenderSpy = vi.fn<(tabId: string) => void>();
+const mockGetProjectWorktreeGitStatus = vi.fn();
 
 vi.mock("@/components/TabBar", () => ({
   default: () => null,
 }));
 
-vi.mock("@/components/WorktreeGitSidebar", () => ({
-  default: function MockWorktreeGitSidebar() {
-    return (
-      <button
-        type="button"
-        onClick={async () => {
-          const { useWorktreeGitSidebarStore } =
-            await import("@/lib/stores/worktreeGitSidebar");
-          useWorktreeGitSidebarStore.getState().toggleDesktop();
-        }}
-      >
-        Toggle git sidebar
-      </button>
-    );
-  },
-}));
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return {
+    ...actual,
+    getProjectWorktreeGitStatus: (...args: unknown[]) =>
+      mockGetProjectWorktreeGitStatus(...args),
+  };
+});
 
 vi.mock("@/components/TerminalTab", async () => {
   const { memo } = await vi.importActual<typeof import("react")>("react");
@@ -50,6 +49,17 @@ function getTerminalRenderCounts(): Record<string, number> {
     counts[tabId] = (counts[tabId] ?? 0) + 1;
   }
   return counts;
+}
+
+function setMobile(matches: boolean): void {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation(() => ({
+      matches,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
 }
 
 function makeWorktree(): Worktree {
@@ -85,14 +95,30 @@ function makeTab(
 describe("WorktreeView", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
+    vi.resetModules();
     terminalRenderSpy.mockClear();
+    localStorage.clear();
+    setMobile(false);
+    mockGetProjectWorktreeGitStatus.mockReset();
+    mockGetProjectWorktreeGitStatus.mockResolvedValue({
+      source_ref: "main",
+      unstaged_files: [],
+      staged_files: [],
+      ahead_count: 0,
+      ahead_commits: [],
+      comparison_available: true,
+      comparison_error: null,
+    });
 
     const { resetTabStoreForTests, useTabStore } =
       await import("@/lib/stores/tabs");
     const { resetWorktreeGitSidebarStoreForTests } =
       await import("@/lib/stores/worktreeGitSidebar");
+    const { resetWorktreeGitSidebarWidthStoreForTests } =
+      await import("@/lib/stores/worktreeGitSidebarWidth");
     resetTabStoreForTests();
     resetWorktreeGitSidebarStoreForTests();
+    resetWorktreeGitSidebarWidthStoreForTests();
     useTabStore.setState({
       tabs: [],
       activeTabId: null,
@@ -115,6 +141,9 @@ describe("WorktreeView", () => {
     });
 
     render(<WorktreeView worktree={worktree} />);
+    await waitFor(() => {
+      expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(1);
+    });
 
     expect(getTerminalRenderCounts()).toEqual({ a: 1, b: 1 });
 
@@ -142,6 +171,9 @@ describe("WorktreeView", () => {
     });
 
     render(<WorktreeView worktree={worktree} />);
+    await waitFor(() => {
+      expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(1);
+    });
 
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
 
@@ -156,10 +188,14 @@ describe("WorktreeView", () => {
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
   });
 
-  it("does not rerender terminal tabs when git sidebar state changes", async () => {
+  it("updates git sidebar width without rerendering terminal tabs", async () => {
     const { default: WorktreeView } = await import("./WorktreeView");
     const worktree = makeWorktree();
     const { useTabStore } = await import("@/lib/stores/tabs");
+    const { useWorktreeGitSidebarStore } =
+      await import("@/lib/stores/worktreeGitSidebar");
+    const { useWorktreeGitSidebarWidthStore } =
+      await import("@/lib/stores/worktreeGitSidebarWidth");
 
     useTabStore.setState({
       tabs: [makeTab("a", worktree.id, { position: 1 })],
@@ -168,10 +204,50 @@ describe("WorktreeView", () => {
     });
 
     render(<WorktreeView worktree={worktree} />);
+    await waitFor(() => {
+      expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(1);
+    });
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
 
-    fireEvent.click(screen.getByRole("button", { name: "Toggle git sidebar" }));
+    const host = document.querySelector<HTMLElement>(
+      "[data-worktree-git-sidebar-wrapper]",
+    );
+    expect(host).not.toBeNull();
+    expect(host?.style.getPropertyValue("--worktree-git-sidebar-width")).toBe(
+      "320px",
+    );
 
+    act(() => {
+      useWorktreeGitSidebarWidthStore.getState().setWidth(412);
+    });
+
+    expect(host?.style.getPropertyValue("--worktree-git-sidebar-width")).toBe(
+      "412px",
+    );
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    fireEvent.keyDown(
+      await screen.findByRole("button", { name: "Resize git sidebar" }),
+      { key: "ArrowLeft" },
+    );
+
+    expect(host?.style.getPropertyValue("--worktree-git-sidebar-width")).toBe(
+      "428px",
+    );
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    act(() => {
+      useWorktreeGitSidebarStore.getState().toggleDesktop();
+    });
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    act(() => {
+      useWorktreeGitSidebarStore.getState().toggleDesktop();
+    });
+
+    expect(host?.style.getPropertyValue("--worktree-git-sidebar-width")).toBe(
+      "428px",
+    );
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
   });
 });
