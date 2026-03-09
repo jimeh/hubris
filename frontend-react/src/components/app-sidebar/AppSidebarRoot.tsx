@@ -128,7 +128,7 @@ export default function AppSidebarRoot() {
                     <FolderPlus className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">Add project</TooltipContent>
+                <TooltipContent side="right">Add project</TooltipContent>
               </Tooltip>
             </div>
             <div className="flex items-center gap-1">

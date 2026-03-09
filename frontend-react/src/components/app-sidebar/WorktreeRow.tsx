@@ -74,23 +74,28 @@ export default function WorktreeRow({
           </button>
         }
         actionSlot={
-          <button
-            className={cn(
-              "pointer-events-none absolute top-1/2 right-1 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center text-sidebar-foreground/55 transition-[opacity,color]",
-              isSorting
-                ? "opacity-0"
-                : "opacity-0 group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-70 hover:opacity-100 hover:text-sidebar-foreground",
-            )}
-            title="Delete worktree"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onRemove();
-            }}
-            type="button"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className={cn(
+                  "pointer-events-none absolute top-1/2 right-1 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center text-sidebar-foreground/55 transition-[opacity,color]",
+                  isSorting
+                    ? "opacity-0"
+                    : "opacity-0 group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-70 hover:opacity-100 hover:text-sidebar-foreground",
+                )}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRemove();
+                }}
+                type="button"
+                aria-label="Delete worktree"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Delete worktree</TooltipContent>
+          </Tooltip>
         }
       />
     </div>

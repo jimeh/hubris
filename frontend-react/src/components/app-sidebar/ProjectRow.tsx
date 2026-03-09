@@ -3,6 +3,11 @@ import { CSS } from "@dnd-kit/utilities";
 import { Plus } from "lucide-react";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Project, Worktree } from "@/lib/types";
 import ProjectActionMenu from "./ProjectActionMenu";
@@ -100,18 +105,22 @@ export default function ProjectRow({
                     onRemove={onRemoveProject}
                     triggerClassName="text-sidebar-foreground/55"
                   />
-                  <button
-                    type="button"
-                    className="inline-flex size-6 items-center justify-center text-sidebar-foreground/55 transition-[color,opacity] outline-none hover:opacity-100 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground"
-                    title="New worktree"
-                    aria-label="New worktree"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onAddWorktree();
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex size-6 items-center justify-center text-sidebar-foreground/55 transition-[color,opacity] outline-none hover:opacity-100 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground"
+                        aria-label="New worktree"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onAddWorktree();
+                        }}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">New worktree</TooltipContent>
+                  </Tooltip>
                 </div>
               }
             />
