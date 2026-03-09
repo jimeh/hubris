@@ -1,7 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
@@ -89,28 +88,30 @@ export default function ProjectRow({
               actionSlot={
                 <div
                   className={cn(
-                    "ml-auto flex items-center gap-1 transition-opacity",
+                    "ml-auto flex items-center gap-0.5 transition-opacity",
                     isSorting
                       ? "pointer-events-none opacity-0"
-                      : "opacity-0 group-hover/project-row:opacity-100",
+                      : "opacity-0 group-hover/project-row:opacity-70",
                   )}
                   onPointerDown={(event) => event.stopPropagation()}
                 >
                   <ProjectActionMenu
                     onRename={onRenameProject}
                     onRemove={onRemoveProject}
+                    triggerClassName="text-sidebar-foreground/55"
                   />
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
+                  <button
+                    type="button"
+                    className="inline-flex size-6 items-center justify-center text-sidebar-foreground/55 transition-[color,opacity] outline-none hover:opacity-100 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground"
                     title="New worktree"
+                    aria-label="New worktree"
                     onClick={(event) => {
                       event.stopPropagation();
                       onAddWorktree();
                     }}
                   >
                     <Plus className="h-3.5 w-3.5" />
-                  </Button>
+                  </button>
                 </div>
               }
             />

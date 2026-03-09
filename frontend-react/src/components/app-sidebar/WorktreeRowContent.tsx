@@ -21,7 +21,9 @@ export default function WorktreeRowContent({
       <div
         className={cn(
           "flex min-h-8 cursor-default select-none items-center gap-2 rounded-md px-2 py-1 pr-8 text-sm transition-colors",
-          !isSorting && "hover:bg-sidebar-accent",
+          !isSorting &&
+            !isSelected &&
+            "hover:bg-sidebar-accent group-hover/worktree-item:bg-sidebar-accent",
           isSelected
             ? "bg-sidebar-primary text-sidebar-primary-foreground"
             : "text-sidebar-foreground/80",
