@@ -1,16 +1,12 @@
-import { defineConfig, type Plugin } from "vite";
-import { svelte } from "@sveltejs/vite-plugin-svelte";
-import tailwindcss from "@tailwindcss/vite";
-import fs from "node:fs";
 import path from "node:path";
+import fs from "node:fs";
+import { defineConfig, type Plugin } from "vite";
+import react from "@vitejs/plugin-react-swc";
+import tailwindcss from "@tailwindcss/vite";
 
 const devId = process.env.HUBRIS_DEV_ID;
 const devTmp = process.env.HUBRIS_DEV_TMP;
 
-/**
- * Poll for the backend state file and return its
- * contents once the port is available.
- */
 async function waitForBackendState(
   timeoutMs = 120_000,
 ): Promise<{ pid: number; port: number } | null> {
@@ -25,17 +21,14 @@ async function waitForBackendState(
       const data = JSON.parse(fs.readFileSync(stateFile, "utf-8"));
       if (data.port) return data;
     } catch {
-      // File doesn't exist yet or is incomplete.
+      // File does not exist yet or is incomplete.
     }
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
+
   throw new Error("Backend did not start within timeout");
 }
 
-/**
- * Vite plugin that writes frontend state file after
- * the dev server starts listening.
- */
 function devInstancePlugin(): Plugin {
   return {
     name: "hubris-dev-instance",
@@ -43,7 +36,7 @@ function devInstancePlugin(): Plugin {
       if (!devId || !devTmp) return;
 
       server.httpServer?.once("listening", () => {
-        const addr = server.httpServer!.address();
+        const addr = server.httpServer?.address();
         if (typeof addr === "object" && addr) {
           fs.writeFileSync(
             path.join(devTmp, `dev-${devId}.frontend.json`),
@@ -58,38 +51,41 @@ function devInstancePlugin(): Plugin {
   };
 }
 
-// https://vite.dev/config/
 export default defineConfig(async () => {
   const backend = await waitForBackendState();
   const backendPort = backend?.port ?? 3101;
-
-  if (backend) {
-    console.log(`Backend ready on port ${backendPort}`);
-  }
-
-  const port = parseInt(
+  const port = Number.parseInt(
     process.env.PORT || process.env.HUBRIS_PORT || "3001",
     10,
   );
 
   return {
-    plugins: [
-      svelte({ inspector: { toggleKeyCombo: "meta-shift" } }),
-      tailwindcss(),
-      devInstancePlugin(),
-    ],
+    plugins: [react(), tailwindcss(), devInstancePlugin()],
     resolve: {
       alias: {
-        $lib: path.resolve("./src/lib"),
+        "@": path.resolve("./src"),
       },
     },
     server: {
+      // allowedHosts: ["localhost", "127.0.0.1", "0.0.0.0", "noct"],
+      // host: true,
       port,
       proxy: {
         "/api": {
           target: `http://localhost:${backendPort}`,
           ws: true,
         },
+      },
+    },
+    test: {
+      environment: "jsdom",
+      globals: true,
+      setupFiles: ["./src/test/setup.ts"],
+      css: true,
+      include: ["src/**/*.{test,spec}.{ts,tsx}"],
+      exclude: ["src/lib/components/**"],
+      coverage: {
+        reporter: ["text", "lcov"],
       },
     },
   };

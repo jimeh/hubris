@@ -24,12 +24,14 @@ const {
   updateTab,
   getSettings,
   saveSettings,
+  resetApiStateForTests,
 } = await import("./api");
 
 describe("API client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
+    resetApiStateForTests();
   });
 
   describe("listProjects", () => {
@@ -615,6 +617,81 @@ describe("API client", () => {
       const putBody = JSON.parse(putCall[1]!.body as string);
       expect(putBody.appearance).toEqual(existingSettings.appearance);
       expect(putBody.terminal).toEqual(terminal);
+    });
+
+    it("serializes concurrent saves so later calls see earlier writes", async () => {
+      const appearance = {
+        colorScheme: "dark" as const,
+        lightTheme: "hubris-light",
+        darkTheme: "hubris-dark",
+      };
+      const terminal = {
+        fontSource: "bundled" as const,
+        systemFontFamily: "",
+        bundledFont: "hack-nf",
+        fontSize: 16,
+      };
+      const methods: string[] = [];
+      let putCount = 0;
+      let firstPutResolve: ((value: { ok: true }) => void) | null = null;
+      let serverSettings: Record<string, unknown> = {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "",
+          fontSize: 14,
+        },
+      };
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+          const method = init?.method ?? "GET";
+          methods.push(method);
+
+          if (method === "PUT") {
+            putCount += 1;
+            serverSettings = JSON.parse(init!.body as string);
+
+            if (putCount === 1) {
+              return new Promise((resolve) => {
+                firstPutResolve = resolve;
+              });
+            }
+
+            return Promise.resolve({ ok: true });
+          }
+
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(serverSettings),
+          });
+        }),
+      );
+
+      const firstSave = saveSettings({ appearance });
+      const secondSave = saveSettings({ terminal });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(methods).toEqual(["GET", "PUT"]);
+
+      if (firstPutResolve) {
+        (firstPutResolve as unknown as (value: { ok: true }) => void)({
+          ok: true,
+        });
+      }
+      await Promise.all([firstSave, secondSave]);
+
+      expect(methods).toEqual(["GET", "PUT", "GET", "PUT"]);
+      expect(serverSettings).toEqual({
+        appearance,
+        terminal,
+      });
     });
 
     it("throws on non-OK PUT response", async () => {
