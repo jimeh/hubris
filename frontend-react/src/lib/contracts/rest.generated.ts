@@ -602,6 +602,7 @@ export interface operations {
     parameters: {
       query?: {
         force?: boolean;
+        delete_managed_worktrees?: boolean;
       };
       header?: never;
       path: {
@@ -633,7 +634,7 @@ export interface operations {
         };
         content?: never;
       };
-      /** @description Project has dirty linked worktrees */
+      /** @description Project has dirty or busy managed worktrees */
       409: {
         headers: {
           [name: string]: unknown;

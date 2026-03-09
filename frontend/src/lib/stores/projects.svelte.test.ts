@@ -103,13 +103,19 @@ describe("Project store", () => {
     expect(store.projects.map((p) => p.id)).toEqual(["n"]);
   });
 
-  it("remove() passes force flag through to API", async () => {
+  it("remove() passes delete options through to API", async () => {
     const store = await getStore();
     mockDeleteProject.mockResolvedValue(undefined);
 
-    await store.remove("a", true);
+    await store.remove("a", {
+      deleteManagedWorktrees: true,
+      force: true,
+    });
 
-    expect(mockDeleteProject).toHaveBeenCalledWith("a", true);
+    expect(mockDeleteProject).toHaveBeenCalledWith("a", {
+      deleteManagedWorktrees: true,
+      force: true,
+    });
   });
 
   it("reorder() resequences locally and calls API", async () => {

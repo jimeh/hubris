@@ -340,6 +340,64 @@ async fn test_reorder_projects_invalid_ids() {
 }
 
 #[tokio::test]
+async fn test_delete_project_remove_only_leaves_managed_worktree_on_disk() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let id = project["id"].as_str().unwrap();
+
+    let created = create_worktree(&client, &base, id, "feature-keep").await;
+    let worktree_path = created["path"].as_str().unwrap();
+
+    let res = client
+        .delete(format!("{}/api/projects/{}", base, id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert!(std::path::Path::new(worktree_path).exists());
+}
+
+#[tokio::test]
+async fn test_delete_project_delete_managed_removes_only_managed_worktrees() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let id = project["id"].as_str().unwrap();
+
+    let managed = create_worktree(&client, &base, id, "feature-managed").await;
+    let managed_path = managed["path"].as_str().unwrap().to_string();
+
+    let external_path = repo.path().join("external-linked");
+    run_git(
+        repo.path(),
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "feature-external",
+            external_path.to_str().unwrap(),
+        ],
+    );
+
+    let res = client
+        .delete(format!(
+            "{}/api/projects/{}?delete_managed_worktrees=true",
+            base, id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert!(!std::path::Path::new(&managed_path).exists());
+    assert!(external_path.exists());
+}
+
+#[tokio::test]
 async fn test_delete_project_succeeds_when_managed_worktree_missing_on_disk() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
@@ -353,7 +411,10 @@ async fn test_delete_project_succeeds_when_managed_worktree_missing_on_disk() {
     std::fs::remove_dir_all(worktree_path).unwrap();
 
     let res = client
-        .delete(format!("{}/api/projects/{}", base, id))
+        .delete(format!(
+            "{}/api/projects/{}?delete_managed_worktrees=true",
+            base, id
+        ))
         .send()
         .await
         .unwrap();
@@ -370,7 +431,33 @@ async fn test_delete_project_succeeds_when_managed_worktree_missing_on_disk() {
 }
 
 #[tokio::test]
-async fn test_delete_project_respects_force_for_existing_dirty_worktree() {
+async fn test_delete_project_remove_only_ignores_dirty_managed_worktrees() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let id = project["id"].as_str().unwrap();
+
+    let created = create_worktree(&client, &base, id, "feature-dirty-keep").await;
+    let worktree_path = created["path"].as_str().unwrap();
+    std::fs::write(
+        std::path::Path::new(worktree_path).join("dirty.txt"),
+        "uncommitted\n",
+    )
+    .unwrap();
+
+    let res = client
+        .delete(format!("{}/api/projects/{}", base, id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert!(std::path::Path::new(worktree_path).exists());
+}
+
+#[tokio::test]
+async fn test_delete_project_respects_force_for_existing_dirty_managed_worktree() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -387,14 +474,20 @@ async fn test_delete_project_respects_force_for_existing_dirty_worktree() {
     .unwrap();
 
     let res = client
-        .delete(format!("{}/api/projects/{}", base, id))
+        .delete(format!(
+            "{}/api/projects/{}?delete_managed_worktrees=true",
+            base, id
+        ))
         .send()
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::CONFLICT);
 
     let res = client
-        .delete(format!("{}/api/projects/{}?force=true", base, id))
+        .delete(format!(
+            "{}/api/projects/{}?delete_managed_worktrees=true&force=true",
+            base, id
+        ))
         .send()
         .await
         .unwrap();

@@ -222,9 +222,10 @@ reconciliation — drift corrects on reconnect.
   resolves input paths through Git and stores the canonical local root.
   On macOS this often normalizes `/tmp/...` to `/private/tmp/...`.
 - **Removing a project is now destructive for linked worktrees**:
-  `DELETE /api/projects/:id` deletes all non-local worktrees first.
-  If any worktree is dirty/busy, the request returns `409` unless
-  `?force=true` is supplied.
+  `DELETE /api/projects/:id` now defaults to **remove-only**. Pass
+  `?delete_managed_worktrees=true` to also delete Hubris-managed
+  non-local worktrees. Dirty/busy conflicts (`409`) only apply on that
+  managed-delete path and can be overridden with `?force=true`.
 - **Git remote HEAD aliases with `%(refname:short)` are lossy**:
   `refs/remotes/origin/HEAD` becomes `origin` when formatted as short.
   To reliably filter remote HEAD aliases, inspect full refname

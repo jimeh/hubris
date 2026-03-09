@@ -64,9 +64,22 @@ export async function reorderProjects(
   return res.json();
 }
 
-export async function deleteProject(id: string, force = false): Promise<void> {
+export type DeleteProjectOptions = {
+  deleteManagedWorktrees?: boolean;
+  force?: boolean;
+};
+
+export async function deleteProject(
+  id: string,
+  options: DeleteProjectOptions = {},
+): Promise<void> {
   const params = new URLSearchParams();
-  if (force) params.set("force", "true");
+  if (options.deleteManagedWorktrees) {
+    params.set("delete_managed_worktrees", "true");
+  }
+  if (options.force) {
+    params.set("force", "true");
+  }
   const qs = params.toString();
   const res = await fetch(`${BASE}/projects/${id}${qs ? `?${qs}` : ""}`, {
     method: "DELETE",

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   addProject,
   deleteProject,
+  type DeleteProjectOptions,
   reorderProjects,
   updateProject,
 } from "@/lib/api";
@@ -14,7 +15,7 @@ type ProjectsState = {
   projects: Project[];
   expandedById: Record<string, boolean>;
   add: (path: string) => Promise<Project>;
-  remove: (id: string, force?: boolean) => Promise<void>;
+  remove: (id: string, options?: DeleteProjectOptions) => Promise<void>;
   reorder: (orderedIds: string[]) => Promise<void>;
   rename: (id: string, name: string) => Promise<void>;
   toggleExpanded: (projectId: string) => void;
@@ -81,8 +82,8 @@ export const useProjectStore = create<ProjectsState>((set) => ({
     });
     return project;
   },
-  async remove(id, force = false) {
-    await deleteProject(id, force);
+  async remove(id, options = {}) {
+    await deleteProject(id, options);
   },
   async reorder(orderedIds) {
     set((state) => ({

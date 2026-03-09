@@ -148,6 +148,35 @@ describe("API client", () => {
       });
     });
 
+    it("sends delete_managed_worktrees for managed deletion", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+
+      await deleteProject("abc-123", { deleteManagedWorktrees: true });
+
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/abc-123?delete_managed_worktrees=true",
+        {
+          method: "DELETE",
+        },
+      );
+    });
+
+    it("sends both delete_managed_worktrees and force when forcing deletion", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+
+      await deleteProject("abc-123", {
+        deleteManagedWorktrees: true,
+        force: true,
+      });
+
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/abc-123?delete_managed_worktrees=true&force=true",
+        {
+          method: "DELETE",
+        },
+      );
+    });
+
     it("tolerates 404 (already gone)", async () => {
       vi.stubGlobal(
         "fetch",

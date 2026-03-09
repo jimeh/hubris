@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
+import type { DeleteProjectOptions } from "@/lib/api";
 import ProjectList from "./ProjectList";
 import SidebarDialogs from "./SidebarDialogs";
 import { initialDialogState } from "./types";
@@ -45,13 +46,17 @@ export default function AppSidebarRoot() {
 
   async function handleRemoveProject(
     projectId: string,
-    force = false,
+    options: DeleteProjectOptions = {},
   ): Promise<void> {
     try {
-      await removeProject(projectId, force);
+      await removeProject(projectId, options);
       setDialogState((state) => ({ ...state, actionError: null }));
     } catch (error) {
-      if (!force && (error as Error).message === "409") {
+      if (
+        options.deleteManagedWorktrees &&
+        !options.force &&
+        (error as Error).message === "409"
+      ) {
         setDialogState((state) => ({
           ...state,
           confirmForceRemoveProject: projectId,

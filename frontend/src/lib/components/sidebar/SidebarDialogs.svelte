@@ -2,8 +2,10 @@
   import AddProjectDialog from "../AddProjectDialog.svelte";
   import AddWorktreeDialog from "../AddWorktreeDialog.svelte";
   import ConfirmDialog from "../ConfirmDialog.svelte";
+  import ProjectRemoveDialog from "../ProjectRemoveDialog.svelte";
   import RenameProjectDialog from "../RenameProjectDialog.svelte";
   import SettingsDialog from "../SettingsDialog.svelte";
+  import type { DeleteProjectOptions } from "$lib/api";
   import type { Project } from "$lib/types";
   import type {
     ProjectStore,
@@ -23,13 +25,17 @@
 
   async function removeProject(
     projectId: string,
-    force = false,
+    options: DeleteProjectOptions = {},
   ): Promise<void> {
     try {
-      await projectStore.remove(projectId, force);
+      await projectStore.remove(projectId, options);
       dialogState.actionError = null;
     } catch (err) {
-      if (!force && (err as Error).message === "409") {
+      if (
+        options.deleteManagedWorktrees &&
+        !options.force &&
+        (err as Error).message === "409"
+      ) {
         dialogState.confirmForceRemoveProject = projectId;
       } else {
         dialogState.actionError = `Failed to remove project (${(err as Error).message})`;
@@ -105,15 +111,17 @@
   {@const project = projectStore.projects.find(
     (p: Project) => p.id === dialogState.confirmRemoveProject,
   )}
-  <ConfirmDialog
-    title="Remove Project"
-    description="Remove {project?.name ??
-      'this project'} and delete all non-local worktrees for it?"
-    confirmLabel="Remove"
-    onConfirm={() => {
+  <ProjectRemoveDialog
+    projectName={project?.name ?? "this project"}
+    onRemoveOnly={() => {
       const id = dialogState.confirmRemoveProject!;
       dialogState.confirmRemoveProject = null;
-      void removeProject(id);
+      void removeProject(id, { deleteManagedWorktrees: false });
+    }}
+    onRemoveAndDeleteManaged={() => {
+      const id = dialogState.confirmRemoveProject!;
+      dialogState.confirmRemoveProject = null;
+      void removeProject(id, { deleteManagedWorktrees: true });
     }}
     onClose={() => (dialogState.confirmRemoveProject = null)}
   />
@@ -123,15 +131,21 @@
   {@const project = projectStore.projects.find(
     (p: Project) => p.id === dialogState.confirmForceRemoveProject,
   )}
-  <ConfirmDialog
-    title="Force Remove Project"
-    description="Project {project?.name ??
-      'this project'} has linked worktrees with uncommitted changes or busy state. Force remove it anyway?"
-    confirmLabel="Force Remove"
-    onConfirm={() => {
+  <ProjectRemoveDialog
+    projectName={project?.name ?? "this project"}
+    forceManagedDelete
+    onRemoveOnly={() => {
       const id = dialogState.confirmForceRemoveProject!;
       dialogState.confirmForceRemoveProject = null;
-      void removeProject(id, true);
+      void removeProject(id, { deleteManagedWorktrees: false });
+    }}
+    onRemoveAndDeleteManaged={() => {
+      const id = dialogState.confirmForceRemoveProject!;
+      dialogState.confirmForceRemoveProject = null;
+      void removeProject(id, {
+        deleteManagedWorktrees: true,
+        force: true,
+      });
     }}
     onClose={() => (dialogState.confirmForceRemoveProject = null)}
   />

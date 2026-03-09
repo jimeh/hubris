@@ -213,6 +213,14 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "delete_managed_worktrees",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -226,7 +234,7 @@
             "description": "Project not found"
           },
           "409": {
-            "description": "Project has dirty linked worktrees"
+            "description": "Project has dirty or busy managed worktrees"
           },
           "500": {
             "description": "Internal server error"

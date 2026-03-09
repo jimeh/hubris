@@ -1,6 +1,7 @@
 import {
   addProject,
   deleteProject,
+  type DeleteProjectOptions,
   reorderProjects,
   updateProject,
 } from "$lib/api";
@@ -94,8 +95,11 @@ export function getProjectStore() {
     return project;
   }
 
-  async function remove(id: string, force = false): Promise<void> {
-    await deleteProject(id, force);
+  async function remove(
+    id: string,
+    options: DeleteProjectOptions = {},
+  ): Promise<void> {
+    await deleteProject(id, options);
   }
 
   async function reorder(orderedIds: string[]): Promise<void> {

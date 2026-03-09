@@ -67,6 +67,8 @@ export default defineConfig(async () => {
       },
     },
     server: {
+      // allowedHosts: ["localhost", "127.0.0.1", "0.0.0.0", "noct"],
+      // host: true,
       port,
       proxy: {
         "/api": {

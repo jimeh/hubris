@@ -45,6 +45,8 @@ pub struct ReorderProjectsRequest {
 pub struct DeleteProjectParams {
     #[serde(default)]
     pub force: bool,
+    #[serde(default)]
+    pub delete_managed_worktrees: bool,
 }
 
 async fn save_projects(state: &AppState, projects: &[Project]) -> Result<(), std::io::Error> {
@@ -246,7 +248,10 @@ pub async fn reorder_projects(
         (status = 204, description = "Project removed"),
         (status = 400, description = "Invalid project path"),
         (status = 404, description = "Project not found"),
-        (status = 409, description = "Project has dirty linked worktrees"),
+        (
+            status = 409,
+            description = "Project has dirty or busy managed worktrees"
+        ),
         (status = 500, description = "Internal server error"),
     ),
 )]
@@ -270,37 +275,39 @@ pub async fn delete_project(
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
     };
 
-    let non_local_worktrees: Vec<_> = worktrees.iter().filter(|wt| !wt.is_local).collect();
-    if !non_local_worktrees.is_empty() {
-        let should_resolve_root = non_local_worktrees.iter().any(|wt| !wt.missing_on_disk);
-        if should_resolve_root {
-            let local_root =
-                match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await {
-                    Ok(root) => root,
-                    Err(_) => return StatusCode::BAD_REQUEST,
-                };
+    if params.delete_managed_worktrees {
+        let managed_worktrees: Vec<_> = worktrees.iter().filter(|wt| !wt.is_local).collect();
+        if !managed_worktrees.is_empty() {
+            let should_resolve_root = managed_worktrees.iter().any(|wt| !wt.missing_on_disk);
+            if should_resolve_root {
+                let local_root =
+                    match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await {
+                        Ok(root) => root,
+                        Err(_) => return StatusCode::BAD_REQUEST,
+                    };
 
-            for worktree in non_local_worktrees {
-                if worktree.missing_on_disk {
-                    continue;
-                }
-
-                if let Err(err) = git::remove_worktree(
-                    &local_root,
-                    PathBuf::from(&worktree.path).as_path(),
-                    params.force,
-                )
-                .await
-                {
-                    if is_missing_worktree_remove_error(&err.message) {
+                for worktree in managed_worktrees {
+                    if worktree.missing_on_disk {
                         continue;
                     }
 
-                    return if params.force {
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    } else {
-                        StatusCode::CONFLICT
-                    };
+                    if let Err(err) = git::remove_worktree(
+                        &local_root,
+                        PathBuf::from(&worktree.path).as_path(),
+                        params.force,
+                    )
+                    .await
+                    {
+                        if is_missing_worktree_remove_error(&err.message) {
+                            continue;
+                        }
+
+                        return if params.force {
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        } else {
+                            StatusCode::CONFLICT
+                        };
+                    }
                 }
             }
         }

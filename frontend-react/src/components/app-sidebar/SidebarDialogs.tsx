@@ -1,8 +1,10 @@
 import AddProjectDialog from "@/components/AddProjectDialog";
 import AddWorktreeDialog from "@/components/AddWorktreeDialog";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import ProjectRemoveDialog from "@/components/ProjectRemoveDialog";
 import RenameProjectDialog from "@/components/RenameProjectDialog";
 import SettingsDialog from "@/components/SettingsDialog";
+import type { DeleteProjectOptions } from "@/lib/api";
 import type { Project } from "@/lib/types";
 import type { DialogState } from "./types";
 
@@ -17,7 +19,10 @@ type SidebarDialogsProps = {
     startPoint?: string,
   ) => Promise<unknown>;
   onRenameProject: (projectId: string, name: string) => Promise<unknown>;
-  onRemoveProject: (projectId: string, force?: boolean) => Promise<void>;
+  onRemoveProject: (
+    projectId: string,
+    options?: DeleteProjectOptions,
+  ) => Promise<void>;
   onRemoveWorktree: (
     projectId: string,
     worktreeId: string,
@@ -80,21 +85,31 @@ export default function SidebarDialogs({
       ) : null}
 
       {dialogState.confirmRemoveProject ? (
-        <ConfirmDialog
-          title="Remove Project"
-          description={`Remove ${
+        <ProjectRemoveDialog
+          projectName={
             projects.find(
               (project) => project.id === dialogState.confirmRemoveProject,
             )?.name ?? "this project"
-          } and delete all non-local worktrees for it?`}
-          confirmLabel="Remove"
-          onConfirm={() => {
+          }
+          onRemoveOnly={() => {
             const projectId = dialogState.confirmRemoveProject!;
             setDialogState((state) => ({
               ...state,
               confirmRemoveProject: null,
             }));
-            void onRemoveProject(projectId);
+            void onRemoveProject(projectId, {
+              deleteManagedWorktrees: false,
+            });
+          }}
+          onRemoveAndDeleteManaged={() => {
+            const projectId = dialogState.confirmRemoveProject!;
+            setDialogState((state) => ({
+              ...state,
+              confirmRemoveProject: null,
+            }));
+            void onRemoveProject(projectId, {
+              deleteManagedWorktrees: true,
+            });
           }}
           onClose={() =>
             setDialogState((state) => ({
@@ -106,21 +121,33 @@ export default function SidebarDialogs({
       ) : null}
 
       {dialogState.confirmForceRemoveProject ? (
-        <ConfirmDialog
-          title="Force Remove Project"
-          description={`Project ${
+        <ProjectRemoveDialog
+          projectName={
             projects.find(
               (project) => project.id === dialogState.confirmForceRemoveProject,
             )?.name ?? "this project"
-          } has linked worktrees with uncommitted changes or busy state. Force remove it anyway?`}
-          confirmLabel="Force Remove"
-          onConfirm={() => {
+          }
+          forceManagedDelete
+          onRemoveOnly={() => {
             const projectId = dialogState.confirmForceRemoveProject!;
             setDialogState((state) => ({
               ...state,
               confirmForceRemoveProject: null,
             }));
-            void onRemoveProject(projectId, true);
+            void onRemoveProject(projectId, {
+              deleteManagedWorktrees: false,
+            });
+          }}
+          onRemoveAndDeleteManaged={() => {
+            const projectId = dialogState.confirmForceRemoveProject!;
+            setDialogState((state) => ({
+              ...state,
+              confirmForceRemoveProject: null,
+            }));
+            void onRemoveProject(projectId, {
+              deleteManagedWorktrees: true,
+              force: true,
+            });
           }}
           onClose={() =>
             setDialogState((state) => ({
