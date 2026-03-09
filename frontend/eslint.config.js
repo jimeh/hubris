@@ -1,22 +1,41 @@
 import js from "@eslint/js";
-import svelte from "eslint-plugin-svelte";
 import globals from "globals";
-import ts from "typescript-eslint";
-import svelteConfig from "./svelte.config.js";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+import tseslint from "typescript-eslint";
 
-export default ts.config(
+export default tseslint.config(
   js.configs.recommended,
-  ...ts.configs.recommended,
-  ...svelte.configs.recommended,
-  ...svelte.configs.prettier,
+  ...tseslint.configs.recommended,
   {
+    ignores: [
+      "dist/",
+      "node_modules/",
+      "playwright-report/",
+      "test-results/",
+      "src/lib/components/**",
+    ],
+  },
+  {
+    files: ["**/*.{ts,tsx}"],
     languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: "module",
       globals: {
         ...globals.browser,
         ...globals.node,
       },
     },
+    plugins: {
+      "react-hooks": reactHooks,
+      "react-refresh": reactRefresh,
+    },
     rules: {
+      ...reactHooks.configs.recommended.rules,
+      "react-refresh/only-export-components": [
+        "warn",
+        { allowConstantExport: true },
+      ],
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
@@ -24,17 +43,9 @@ export default ts.config(
     },
   },
   {
-    files: ["**/*.svelte", "**/*.svelte.ts", "**/*.svelte.js"],
-    languageOptions: {
-      parserOptions: {
-        projectService: true,
-        extraFileExtensions: [".svelte"],
-        parser: ts.parser,
-        svelteConfig,
-      },
+    files: ["src/components/ui/**/*.{ts,tsx}"],
+    rules: {
+      "react-refresh/only-export-components": "off",
     },
-  },
-  {
-    ignores: ["dist/", "node_modules/"],
   },
 );

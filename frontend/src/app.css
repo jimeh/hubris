@@ -6,6 +6,14 @@
 
 :root {
   --radius: 0.625rem;
+  --sidebar: hsl(0 0% 98%);
+  --sidebar-foreground: hsl(240 5.3% 26.1%);
+  --sidebar-primary: hsl(240 5.9% 10%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(240 4.8% 95.9%);
+  --sidebar-accent-foreground: hsl(240 5.9% 10%);
+  --sidebar-border: hsl(220 13% 91%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }
 
 @theme inline {
@@ -61,13 +69,13 @@
     height: 0;
   }
   to {
-    height: var(--bits-collapsible-content-height);
+    height: var(--radix-collapsible-content-height);
   }
 }
 
 @keyframes collapsible-up {
   from {
-    height: var(--bits-collapsible-content-height);
+    height: var(--radix-collapsible-content-height);
   }
   to {
     height: 0;
@@ -115,9 +123,154 @@
   transition: none !important;
 }
 
-/* Fix sidebar-inset overflow: shadcn sets w-full which ignores
-   the sidebar gap and causes horizontal page overflow. */
 [data-slot="sidebar-inset"] {
   width: auto;
   min-width: 0;
+}
+
+[data-tab-list] {
+  scrollbar-width: none;
+}
+
+[data-tab-list]::-webkit-scrollbar {
+  display: none;
+}
+
+[data-tab-dragging] [data-tab-drag-item],
+[data-tab-dragging] [data-tab-drag-item] * {
+  pointer-events: none !important;
+}
+
+.sidebar-scroll-fade-top {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black 12px,
+    black 100%
+  );
+  mask-image: linear-gradient(to bottom, transparent 0, black 12px, black 100%);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+.terminal-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--terminal-background);
+}
+
+.terminal-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--terminal-background);
+}
+
+.reconnect-indicator {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: oklch(0.25 0.05 25 / 0.85);
+  color: oklch(0.7 0.12 25);
+  font-size: 12px;
+  font-family: sans-serif;
+  pointer-events: none;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.start-point-popover {
+  background-color: var(--quick-input-background, var(--popover));
+  border-color: var(--quick-input-border, var(--border));
+  color: var(--quick-input-foreground, var(--popover-foreground));
+  box-shadow: 0 14px 36px
+    color-mix(
+      in oklab,
+      var(--quick-input-border, var(--border)) 22%,
+      transparent
+    );
+}
+
+.start-point-command {
+  background-color: transparent;
+  color: inherit;
+}
+
+.start-point-popover [data-slot="command-input-wrapper"] {
+  border-color: color-mix(
+    in oklab,
+    var(--quick-input-border, var(--border)) 78%,
+    transparent
+  );
+  background-color: color-mix(
+    in oklab,
+    var(--quick-input-background, var(--popover)) 90%,
+    var(--background)
+  );
+}
+
+.start-point-popover [cmdk-group-heading] {
+  color: var(--quick-input-group-foreground, var(--muted-foreground));
+}
+
+.start-point-command-separator {
+  background-color: color-mix(
+    in oklab,
+    var(--quick-input-border, var(--border)) 74%,
+    transparent
+  );
+}
+
+.start-point-command-item[data-selected="true"] {
+  background-color: var(
+    --quick-input-focus-background,
+    var(--accent)
+  ) !important;
+  color: var(
+    --quick-input-focus-foreground,
+    var(--accent-foreground)
+  ) !important;
+}
+
+.deterministic-tag-badge {
+  border-color: color-mix(
+    in oklab,
+    var(--tag-seed) calc(var(--tag-border-mix) * 1%),
+    var(--border)
+  );
+  background-color: color-mix(
+    in oklab,
+    var(--tag-seed) calc(var(--tag-bg-mix) * 1%),
+    var(--popover)
+  );
+  color: color-mix(
+    in oklab,
+    var(--tag-seed) calc(var(--tag-fg-mix) * 1%),
+    var(--foreground)
+  );
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.dark {
+  --sidebar: hsl(240 5.9% 10%);
+  --sidebar-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-primary: hsl(224.3 76.3% 48%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(240 3.7% 15.9%);
+  --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-border: hsl(240 3.7% 15.9%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }

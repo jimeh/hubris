@@ -266,6 +266,7 @@ export interface components {
       rows: number;
       /** @enum {string} */
       type: "resize";
+      visible: boolean;
     };
     CreateTabRequest: {
       worktree_id: string;
@@ -317,9 +318,21 @@ export interface components {
       | {
           /** Format: int64 */
           byte_offset: number;
+          /** Format: int32 */
+          cols: number;
           data_lost: boolean;
+          /** Format: int32 */
+          rows: number;
           /** @enum {string} */
           type: "attached";
+        }
+      | {
+          /** Format: int32 */
+          cols: number;
+          /** Format: int32 */
+          rows: number;
+          /** @enum {string} */
+          type: "pty_resized";
         }
       | {
           /** @enum {string} */
@@ -589,6 +602,7 @@ export interface operations {
     parameters: {
       query?: {
         force?: boolean;
+        delete_managed_worktrees?: boolean;
       };
       header?: never;
       path: {
@@ -620,7 +634,7 @@ export interface operations {
         };
         content?: never;
       };
-      /** @description Project has dirty linked worktrees */
+      /** @description Project has dirty or busy managed worktrees */
       409: {
         headers: {
           [name: string]: unknown;

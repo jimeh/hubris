@@ -1,5 +1,5 @@
 import type { ListFilesResponse, Project, Tab, Worktree } from "./types";
-import type { components } from "$lib/contracts/rest.generated";
+import type { components } from "@/lib/contracts/rest.generated";
 import type {
   AppearanceSettings,
   TerminalSettings,
@@ -64,9 +64,22 @@ export async function reorderProjects(
   return res.json();
 }
 
-export async function deleteProject(id: string, force = false): Promise<void> {
+export type DeleteProjectOptions = {
+  deleteManagedWorktrees?: boolean;
+  force?: boolean;
+};
+
+export async function deleteProject(
+  id: string,
+  options: DeleteProjectOptions = {},
+): Promise<void> {
   const params = new URLSearchParams();
-  if (force) params.set("force", "true");
+  if (options.deleteManagedWorktrees) {
+    params.set("delete_managed_worktrees", "true");
+  }
+  if (options.force) {
+    params.set("force", "true");
+  }
   const qs = params.toString();
   const res = await fetch(`${BASE}/projects/${id}${qs ? `?${qs}` : ""}`, {
     method: "DELETE",
@@ -233,31 +246,44 @@ export async function getSettings(): Promise<{
   return res.json();
 }
 
+let settingsSaveQueue = Promise.resolve();
+
+export function resetApiStateForTests(): void {
+  settingsSaveQueue = Promise.resolve();
+}
+
 export async function saveSettings(partial: {
   appearance?: AppearanceSettings;
   terminal?: TerminalSettings;
   worktree?: WorktreeSettings;
 }): Promise<void> {
-  // Read-modify-write to avoid clobbering sibling sections
-  const current = await getSettings();
-  const merged = { ...current, ...partial };
+  const runSave = async (): Promise<void> => {
+    // Read-modify-write to avoid clobbering sibling sections.
+    // Serialize calls so concurrent saves do not race and overwrite each other.
+    const current = await getSettings();
+    const merged = { ...current, ...partial };
 
-  const res = await fetch(`${BASE}/settings`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(merged),
-  });
-  if (!res.ok) throw new Error(`${res.status}`);
+    const res = await fetch(`${BASE}/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(merged),
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
 
-  // Cache in localStorage only after server confirms —
-  // avoids desync if the save fails
-  if (partial.appearance) {
-    localStorage.setItem(
-      "hubris-appearance",
-      JSON.stringify(partial.appearance),
-    );
-  }
-  if (partial.terminal) {
-    localStorage.setItem("hubris-terminal", JSON.stringify(partial.terminal));
-  }
+    // Cache in localStorage only after server confirms —
+    // avoids desync if the save fails.
+    if (partial.appearance) {
+      localStorage.setItem(
+        "hubris-appearance",
+        JSON.stringify(partial.appearance),
+      );
+    }
+    if (partial.terminal) {
+      localStorage.setItem("hubris-terminal", JSON.stringify(partial.terminal));
+    }
+  };
+
+  const queuedSave = settingsSaveQueue.then(runSave, runSave);
+  settingsSaveQueue = queuedSave.catch(() => {});
+  return queuedSave;
 }

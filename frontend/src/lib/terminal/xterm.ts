@@ -50,6 +50,7 @@ export function createXtermAdapter(opts?: {
   });
 
   const fitAddon = new FitAddon();
+  let contextLossSubscription: { dispose(): void } | null = null;
 
   return {
     open(container: HTMLElement) {
@@ -58,7 +59,7 @@ export function createXtermAdapter(opts?: {
       term.loadAddon(new WebLinksAddon());
       try {
         const webgl = new WebglAddon();
-        webgl.onContextLoss(() => {
+        contextLossSubscription = webgl.onContextLoss(() => {
           webgl.dispose();
         });
         term.loadAddon(webgl);
@@ -106,6 +107,8 @@ export function createXtermAdapter(opts?: {
       term.options.fontSize = size;
     },
     dispose() {
+      contextLossSubscription?.dispose();
+      contextLossSubscription = null;
       term.dispose();
     },
   };

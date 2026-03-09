@@ -1,0 +1,343 @@
+import { create } from "zustand";
+import {
+  createProjectWorktree,
+  deleteProjectWorktree,
+  reorderProjectWorktrees,
+} from "@/lib/api";
+import { getEventClient } from "@/lib/events";
+import type { Worktree } from "@/lib/types";
+
+const LS_SELECTED = "hubris-selected-worktree";
+
+type WorktreesState = {
+  worktreesByProject: Record<string, Worktree[]>;
+  projectErrors: Record<string, string>;
+  selectedWorktreeId: string | null;
+  select: (worktreeId: string) => void;
+  create: (
+    projectId: string,
+    branch: string,
+    startPoint?: string,
+  ) => Promise<Worktree>;
+  remove: (
+    projectId: string,
+    worktreeId: string,
+    force?: boolean,
+  ) => Promise<void>;
+  reorder: (projectId: string, orderedIds: string[]) => Promise<void>;
+};
+
+function lsGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key: string, value: string | null): void {
+  try {
+    if (value == null) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, value);
+    }
+  } catch {
+    // localStorage unavailable
+  }
+}
+
+function byPosition(list: Worktree[]): Worktree[] {
+  return [...list].sort((a, b) => a.position - b.position);
+}
+
+function allWorktrees(
+  worktreesByProject: Record<string, Worktree[]>,
+): Worktree[] {
+  return Object.values(worktreesByProject).flat();
+}
+
+function byStableFallback(a: Worktree, b: Worktree): number {
+  const byProjectId = a.project_id.localeCompare(b.project_id);
+  if (byProjectId !== 0) return byProjectId;
+
+  const byPositionValue = a.position - b.position;
+  if (byPositionValue !== 0) return byPositionValue;
+
+  return a.id.localeCompare(b.id);
+}
+
+function resolveSelected(
+  worktreesByProject: Record<string, Worktree[]>,
+  selectedWorktreeId: string | null,
+): Worktree | null {
+  if (!selectedWorktreeId) return null;
+  return (
+    allWorktrees(worktreesByProject).find(
+      (worktree) => worktree.id === selectedWorktreeId,
+    ) ?? null
+  );
+}
+
+function ensureSelection(
+  state: Pick<WorktreesState, "worktreesByProject" | "selectedWorktreeId">,
+): { selectedWorktreeId: string | null } {
+  if (resolveSelected(state.worktreesByProject, state.selectedWorktreeId)) {
+    return { selectedWorktreeId: state.selectedWorktreeId };
+  }
+
+  const first = allWorktrees(state.worktreesByProject).sort(
+    byStableFallback,
+  )[0];
+  const selectedWorktreeId = first?.id ?? null;
+  lsSet(LS_SELECTED, selectedWorktreeId);
+  return { selectedWorktreeId };
+}
+
+function upsertWorktree(
+  worktreesByProject: Record<string, Worktree[]>,
+  worktree: Worktree,
+): Record<string, Worktree[]> {
+  const list = worktreesByProject[worktree.project_id] ?? [];
+  const nextList = list.some((candidate) => candidate.id === worktree.id)
+    ? byPosition(
+        list.map((candidate) =>
+          candidate.id === worktree.id ? worktree : candidate,
+        ),
+      )
+    : byPosition([...list, worktree]);
+
+  return {
+    ...worktreesByProject,
+    [worktree.project_id]: nextList,
+  };
+}
+
+export const useWorktreeStore = create<WorktreesState>((set, get) => ({
+  worktreesByProject: {},
+  projectErrors: {},
+  selectedWorktreeId: lsGet(LS_SELECTED),
+  select(worktreeId) {
+    lsSet(LS_SELECTED, worktreeId);
+    set({ selectedWorktreeId: worktreeId });
+  },
+  async create(projectId, branch, startPoint) {
+    const worktree = await createProjectWorktree(projectId, branch, startPoint);
+    set((state) => {
+      const list = state.worktreesByProject[projectId] ?? [];
+      const local = list.find((candidate) => candidate.is_local);
+      const nonLocal = list.filter(
+        (candidate) => !candidate.is_local && candidate.id !== worktree.id,
+      );
+      const next = [
+        ...(local ? [{ ...local, position: 1 }] : []),
+        { ...worktree, position: 2 },
+        ...nonLocal,
+      ].map((candidate, index) => ({
+        ...candidate,
+        position: index + 1,
+      }));
+
+      lsSet(LS_SELECTED, worktree.id);
+      return {
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          [projectId]: next,
+        },
+        selectedWorktreeId: worktree.id,
+      };
+    });
+    return worktree;
+  },
+  async remove(projectId, worktreeId, force = false) {
+    const before = get().worktreesByProject[projectId] ?? [];
+    set((state) => {
+      const worktreesByProject = {
+        ...state.worktreesByProject,
+        [projectId]: before
+          .filter((worktree) => worktree.id !== worktreeId)
+          .map((worktree, index) => ({ ...worktree, position: index + 1 })),
+      };
+      return {
+        worktreesByProject,
+        ...ensureSelection({
+          worktreesByProject,
+          selectedWorktreeId: state.selectedWorktreeId,
+        }),
+      };
+    });
+
+    try {
+      await deleteProjectWorktree(projectId, worktreeId, force);
+    } catch (error) {
+      set((state) => {
+        const worktreesByProject = {
+          ...state.worktreesByProject,
+          [projectId]: before,
+        };
+        return {
+          worktreesByProject,
+          ...ensureSelection({
+            worktreesByProject,
+            selectedWorktreeId: state.selectedWorktreeId,
+          }),
+        };
+      });
+      throw error;
+    }
+  },
+  async reorder(projectId, orderedIds) {
+    set((state) => {
+      const current = state.worktreesByProject[projectId] ?? [];
+      const local = current.find((worktree) => worktree.is_local);
+      const nonLocal = current.filter((worktree) => !worktree.is_local);
+      const nonLocalById = Object.fromEntries(
+        nonLocal.map((worktree) => [worktree.id, worktree]),
+      ) as Record<string, Worktree>;
+
+      const orderedNonLocal: Worktree[] = [];
+      for (const id of orderedIds) {
+        const worktree = nonLocalById[id];
+        if (worktree) {
+          orderedNonLocal.push(worktree);
+        }
+      }
+      const omittedNonLocal = nonLocal.filter(
+        (worktree) => !orderedIds.includes(worktree.id),
+      );
+
+      return {
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          [projectId]: [
+            ...(local ? [{ ...local, position: 1 }] : []),
+            ...orderedNonLocal,
+            ...omittedNonLocal,
+          ].map((worktree, index) => ({
+            ...worktree,
+            position: index + 1,
+          })),
+        },
+      };
+    });
+
+    await reorderProjectWorktrees(projectId, orderedIds);
+  },
+}));
+
+let initialized = false;
+let eventUnsubscribers: Array<() => void> = [];
+
+export function initializeWorktreeStore(): void {
+  if (initialized) return;
+  initialized = true;
+
+  const events = getEventClient();
+
+  eventUnsubscribers = [
+    events.on("snapshot", (data) => {
+      const worktreesByProject = Object.fromEntries(
+        Object.entries(data.worktrees ?? {}).map(([projectId, worktrees]) => [
+          projectId,
+          byPosition(worktrees ?? []),
+        ]),
+      );
+      const projectErrors = Object.fromEntries(
+        Object.entries(data.project_errors ?? {}).filter(([, value]) => value),
+      ) as Record<string, string>;
+
+      useWorktreeStore.setState((state) => ({
+        worktreesByProject,
+        projectErrors,
+        ...ensureSelection({
+          worktreesByProject,
+          selectedWorktreeId: state.selectedWorktreeId,
+        }),
+      }));
+    }),
+    events.on("project_removed", ({ project_id }) => {
+      useWorktreeStore.setState((state) => {
+        const worktreesByProject = { ...state.worktreesByProject };
+        const projectErrors = { ...state.projectErrors };
+        delete worktreesByProject[project_id];
+        delete projectErrors[project_id];
+        return {
+          worktreesByProject,
+          projectErrors,
+          ...ensureSelection({
+            worktreesByProject,
+            selectedWorktreeId: state.selectedWorktreeId,
+          }),
+        };
+      });
+    }),
+    events.on("worktree_created", (worktree) => {
+      useWorktreeStore.setState((state) => ({
+        worktreesByProject: upsertWorktree(state.worktreesByProject, worktree),
+      }));
+    }),
+    events.on("worktree_deleted", ({ project_id, worktree_id }) => {
+      useWorktreeStore.setState((state) => {
+        const worktreesByProject = {
+          ...state.worktreesByProject,
+          [project_id]: (state.worktreesByProject[project_id] ?? []).filter(
+            (worktree) => worktree.id !== worktree_id,
+          ),
+        };
+        return {
+          worktreesByProject,
+          ...ensureSelection({
+            worktreesByProject,
+            selectedWorktreeId: state.selectedWorktreeId,
+          }),
+        };
+      });
+    }),
+    events.on("worktrees_reordered", ({ project_id, worktrees }) => {
+      useWorktreeStore.setState((state) => ({
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          [project_id]: byPosition(worktrees),
+        },
+      }));
+    }),
+    events.on(
+      "project_worktrees_updated",
+      ({ project_id, worktrees, git_error }) => {
+        useWorktreeStore.setState((state) => {
+          const worktreesByProject = {
+            ...state.worktreesByProject,
+            [project_id]: byPosition(worktrees),
+          };
+          const projectErrors = { ...state.projectErrors };
+          if (git_error) {
+            projectErrors[project_id] = git_error;
+          } else {
+            delete projectErrors[project_id];
+          }
+          return {
+            worktreesByProject,
+            projectErrors,
+            ...ensureSelection({
+              worktreesByProject,
+              selectedWorktreeId: state.selectedWorktreeId,
+            }),
+          };
+        });
+      },
+    ),
+  ];
+}
+
+export function resetWorktreeStoreForTests(): void {
+  for (const unsubscribe of eventUnsubscribers) {
+    unsubscribe();
+  }
+  eventUnsubscribers = [];
+  initialized = false;
+  useWorktreeStore.setState({
+    worktreesByProject: {},
+    projectErrors: {},
+    selectedWorktreeId: lsGet(LS_SELECTED),
+  });
+}

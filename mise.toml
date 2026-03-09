@@ -45,8 +45,8 @@ run = [
 ]
 
 [tasks."check:frontend"]
-description = "Frontend lint + format check + type check"
 run = "cd frontend && bun run lint && bun run check"
+description = "Frontend lint + format check + type check"
 
 [tasks.check]
 description = "Run all checks"
@@ -61,17 +61,21 @@ description = "Format Rust code"
 run = "cargo fmt --all"
 
 [tasks."format:frontend"]
-description = "Format frontend code"
 run = "cd frontend && bun run format"
+description = "Format frontend code"
 
 [tasks.format]
 description = "Format all code"
 depends = ["format:backend", "format:frontend"]
 
+[tasks."test:frontend"]
+run = "cd frontend && bun run test"
+description = "Run frontend tests"
+
 [tasks.test]
 description = "Run all tests"
 run = [
-  "cd frontend && bun run test",
+  "mise run test:frontend",
   "cd crates/server && cargo test",
 ]
 
@@ -89,19 +93,27 @@ description = "Install all dependencies"
 
 [tasks.generate]
 description = "Run all code generators"
+depends = ["generate:frontend"]
+
+[tasks."generate:frontend"]
 run = [
   "cargo run -p hubris-server --bin generate_contracts",
   "cd frontend && bun run generate:contracts:rest",
   "cd frontend && bun run generate:theme-defaults",
 ]
+description = "Generate frontend contracts and theme defaults"
 
 [tasks."download:fonts"]
-description = "Download bundled Nerd Font woff2 files"
 run = "frontend/scripts/download-bundled-fonts.sh"
+description = "Download bundled Nerd Font woff2 files"
+
+[tasks."clean:frontend"]
+run = "rm -rf frontend/dist frontend/node_modules"
+description = "Remove frontend build artifacts"
 
 [tasks.clean]
 description = "Remove build artifacts"
 run = [
   "cargo clean",
-  "rm -rf frontend/dist frontend/node_modules",
+  "mise run clean:frontend",
 ]

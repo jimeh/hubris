@@ -1,4 +1,4 @@
-import type { components } from "$lib/contracts/rest.generated";
+import type { components } from "@/lib/contracts/rest.generated";
 
 export type Project = components["schemas"]["Project"];
 export type Worktree = components["schemas"]["Worktree"];
