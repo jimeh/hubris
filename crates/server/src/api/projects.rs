@@ -145,6 +145,22 @@ pub async fn add_project(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     state.events.emit(EventKind::ProjectAdded(project.clone()));
+    match list_worktrees_for_project(&state, &project).await {
+        Ok(worktrees) => {
+            state.events.emit(EventKind::ProjectWorktreesUpdated {
+                project_id: project.id.clone(),
+                worktrees,
+                git_error: None,
+            });
+        }
+        Err(err) => {
+            state.events.emit(EventKind::ProjectWorktreesUpdated {
+                project_id: project.id.clone(),
+                worktrees: vec![],
+                git_error: Some(err),
+            });
+        }
+    }
     Ok((StatusCode::CREATED, Json(project)))
 }
 
