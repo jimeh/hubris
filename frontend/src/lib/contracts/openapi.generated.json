@@ -506,6 +506,50 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/{worktree_id}/git-status": {
+      "get": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "get_project_worktree_git_status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Git status for a worktree",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorktreeGitStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or worktree not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/settings": {
       "get": {
         "tags": ["crate::api::settings"],
@@ -817,6 +861,9 @@
           "branch": {
             "type": "string"
           },
+          "source_ref": {
+            "type": ["string", "null"]
+          },
           "start_point": {
             "type": ["string", "null"]
           }
@@ -833,6 +880,37 @@
             "type": "string"
           }
         }
+      },
+      "GitCommitSummary": {
+        "type": "object",
+        "required": ["id", "short_id", "summary"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "short_id": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "GitFileChange": {
+        "type": "object",
+        "required": ["path", "change_type"],
+        "properties": {
+          "change_type": {
+            "$ref": "#/components/schemas/GitFileChangeType"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "GitFileChangeType": {
+        "type": "string",
+        "enum": ["added", "modified", "deleted", "typechange", "untracked"]
       },
       "ListFilesResponse": {
         "type": "object",
@@ -1191,6 +1269,52 @@
           },
           "project_id": {
             "type": "string"
+          },
+          "source_ref": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "WorktreeGitStatusResponse": {
+        "type": "object",
+        "required": [
+          "unstaged_files",
+          "staged_files",
+          "ahead_count",
+          "ahead_commits",
+          "comparison_available"
+        ],
+        "properties": {
+          "ahead_commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitCommitSummary"
+            }
+          },
+          "ahead_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "comparison_available": {
+            "type": "boolean"
+          },
+          "comparison_error": {
+            "type": ["string", "null"]
+          },
+          "source_ref": {
+            "type": ["string", "null"]
+          },
+          "staged_files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitFileChange"
+            }
+          },
+          "unstaged_files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitFileChange"
+            }
           }
         }
       },

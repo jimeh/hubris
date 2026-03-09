@@ -40,7 +40,11 @@ import { Popover as PopoverPrimitive } from "radix-ui";
 type Props = {
   projectId: string;
   projectName: string;
-  onAdd: (branch: string, startPoint?: string) => Promise<void>;
+  onAdd: (
+    branch: string,
+    startPoint?: string,
+    sourceRef?: string,
+  ) => Promise<void>;
   onClose: () => void;
 };
 
@@ -140,6 +144,17 @@ export default function AddWorktreeDialog({
       ) ?? null,
     [selectedStartPointValue, startPoints],
   );
+  const selectedSourceRef = useMemo(() => {
+    if (useCustomStartPoint) {
+      return undefined;
+    }
+
+    return (
+      selectedStartPoint?.local_ref ??
+      selectedStartPoint?.remote_refs[0] ??
+      undefined
+    );
+  }, [selectedStartPoint, useCustomStartPoint]);
 
   const startPointTriggerLabel = useMemo(() => {
     if (useCustomStartPoint) {
@@ -221,7 +236,7 @@ export default function AddWorktreeDialog({
     setSubmitting(true);
     setError("");
     try {
-      await onAdd(effectiveBranch, effectiveStartPoint);
+      await onAdd(effectiveBranch, effectiveStartPoint, selectedSourceRef);
     } catch (submitError) {
       setError((submitError as Error).message);
       setSubmitting(false);

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
-import { Folder } from "lucide-react";
+import { Folder, GitBranch } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -22,8 +22,11 @@ import {
 import AppSidebar from "@/components/AppSidebar";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import WorktreeView from "@/components/WorktreeView";
+import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
+import { useWorktreeGitSidebarStore } from "@/lib/stores/worktreeGitSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 
 function AppHeader({
@@ -34,9 +37,19 @@ function AppHeader({
   selectedWorktree: { name: string } | null;
 }) {
   const sidebar = useSidebar();
+  const isMobile = useIsMobile();
   const sidebarVisible = sidebar.isMobile
     ? sidebar.openMobile
     : sidebar.state !== "collapsed";
+  const desktopOpen = useWorktreeGitSidebarStore((state) => state.desktopOpen);
+  const toggleForViewport = useWorktreeGitSidebarStore(
+    (state) => state.toggleForViewport,
+  );
+  const gitStatusLabel = isMobile
+    ? "Show git status"
+    : desktopOpen
+      ? "Hide git status"
+      : "Show git status";
 
   return (
     <header className="flex shrink-0 items-center gap-2 border-b py-2 pl-3 pr-4 md:h-12 md:py-0">
@@ -89,6 +102,21 @@ function AppHeader({
           </BreadcrumbList>
         </Breadcrumb>
       </div>
+      {selectedWorktree ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={gitStatusLabel}
+              onClick={() => toggleForViewport(isMobile)}
+            >
+              <GitBranch className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{gitStatusLabel}</TooltipContent>
+        </Tooltip>
+      ) : null}
     </header>
   );
 }

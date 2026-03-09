@@ -49,6 +49,7 @@ describe("WorktreeRowContent", () => {
             project_id: "project-1",
             path: "/tmp/missing",
             branch: "feature-a",
+            source_ref: null,
             name: "feature-a",
             position: 2,
             is_local: false,

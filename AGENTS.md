@@ -70,13 +70,17 @@ No periodic reconciliation — drift corrects on reconnect.
   project_added, project_removed, project_updated, projects_reordered,
   worktree_created, worktree_deleted, worktrees_reordered,
   project_worktrees_updated
+- Git status: `GET /api/projects/{id}/worktrees/{wt_id}/git-status`
+  uses `gix` (not CLI) to read staged/unstaged/ahead-of-source info.
+  `source_ref` on worktrees tracks the branch it was created from.
 
 ### Frontend (React / Vite / Tailwind v4)
 
 - App location: `frontend/`
 - State: Zustand singletons — grep `useProjectStore`,
   `useWorktreeStore`, `useTabStore`, `useThemeStore`,
-  `useTerminalStore`, `useWorktreeSettingsStore`
+  `useTerminalStore`, `useWorktreeSettingsStore`,
+  `useWorktreeGitSidebarStore`
 - SSE bootstrap: `src/lib/bootstrap.ts`
 - UI primitives: shadcn/ui React under `src/components/ui/`
 - Sidebar decomposition: `AppSidebar.tsx` is a thin façade;
@@ -192,6 +196,10 @@ No periodic reconciliation — drift corrects on reconnect.
   rather than special select-content wrappers. Prefer the shared
   `SelectContent` unless a future dialog introduces a real layering
   conflict.
+- **`bunx shadcn` can fail with `EEXIST` in this repo/worktree setup**:
+  for inspection-only tasks like checking component docs, use
+  `npx shadcn@latest docs ...` as a fallback instead of assuming
+  `bunx shadcn@latest ...` will work.
 - **Rust integration tests should disable Git commit signing**:
   local/global Git config may enforce GPG signing and break ephemeral
   test-repo commits. In test helpers that run `git commit`, pass

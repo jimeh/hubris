@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Tab, Worktree } from "@/lib/types";
 
@@ -7,6 +7,23 @@ const terminalRenderSpy = vi.fn<(tabId: string) => void>();
 
 vi.mock("@/components/TabBar", () => ({
   default: () => null,
+}));
+
+vi.mock("@/components/WorktreeGitSidebar", () => ({
+  default: function MockWorktreeGitSidebar() {
+    return (
+      <button
+        type="button"
+        onClick={async () => {
+          const { useWorktreeGitSidebarStore } =
+            await import("@/lib/stores/worktreeGitSidebar");
+          useWorktreeGitSidebarStore.getState().toggleDesktop();
+        }}
+      >
+        Toggle git sidebar
+      </button>
+    );
+  },
 }));
 
 vi.mock("@/components/TerminalTab", async () => {
@@ -42,6 +59,7 @@ function makeWorktree(): Worktree {
     name: "local",
     path: "/tmp/devbox",
     branch: "main",
+    source_ref: null,
     is_local: true,
     missing_on_disk: false,
     position: 1,
@@ -71,7 +89,10 @@ describe("WorktreeView", () => {
 
     const { resetTabStoreForTests, useTabStore } =
       await import("@/lib/stores/tabs");
+    const { resetWorktreeGitSidebarStoreForTests } =
+      await import("@/lib/stores/worktreeGitSidebar");
     resetTabStoreForTests();
+    resetWorktreeGitSidebarStoreForTests();
     useTabStore.setState({
       tabs: [],
       activeTabId: null,
@@ -131,6 +152,25 @@ describe("WorktreeView", () => {
         ),
       }));
     });
+
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+  });
+
+  it("does not rerender terminal tabs when git sidebar state changes", async () => {
+    const { default: WorktreeView } = await import("./WorktreeView");
+    const worktree = makeWorktree();
+    const { useTabStore } = await import("@/lib/stores/tabs");
+
+    useTabStore.setState({
+      tabs: [makeTab("a", worktree.id, { position: 1 })],
+      activeTabId: "a",
+      activeTabByWorktree: { [worktree.id]: "a" },
+    });
+
+    render(<WorktreeView worktree={worktree} />);
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle git sidebar" }));
 
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
   });

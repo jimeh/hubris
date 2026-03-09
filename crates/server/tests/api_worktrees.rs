@@ -86,9 +86,24 @@ async fn create_worktree(
     project_id: &str,
     branch: &str,
 ) -> Value {
+    create_worktree_with_payload(
+        client,
+        base,
+        project_id,
+        serde_json::json!({ "branch": branch }),
+    )
+    .await
+}
+
+async fn create_worktree_with_payload(
+    client: &reqwest::Client,
+    base: &str,
+    project_id: &str,
+    payload: serde_json::Value,
+) -> Value {
     let res = client
         .post(format!("{}/api/projects/{}/worktrees", base, project_id))
-        .json(&serde_json::json!({ "branch": branch }))
+        .json(&payload)
         .send()
         .await
         .unwrap();
@@ -322,6 +337,36 @@ async fn test_create_worktree_with_start_point_succeeds() {
 }
 
 #[tokio::test]
+async fn test_create_worktree_persists_source_ref() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let body = create_worktree_with_payload(
+        &client,
+        &base,
+        &project_id,
+        serde_json::json!({
+            "branch": "feature-source-ref",
+            "start_point": "main",
+            "source_ref": "origin/main"
+        }),
+    )
+    .await;
+
+    assert_eq!(body["source_ref"], "origin/main");
+
+    let listed = list_worktrees(&client, &base, &project_id).await;
+    let worktrees = listed["worktrees"].as_array().unwrap();
+    let created = worktrees
+        .iter()
+        .find(|worktree| worktree["branch"] == "feature-source-ref")
+        .unwrap();
+    assert_eq!(created["source_ref"], "origin/main");
+}
+
+#[tokio::test]
 async fn test_create_worktree_with_invalid_start_point_conflicts() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
@@ -338,6 +383,177 @@ async fn test_create_worktree_with_invalid_start_point_conflicts() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_list_worktrees_reads_legacy_meta_without_source_ref() {
+    let (base, tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let legacy_path = tmp
+        .path()
+        .join("project-meta")
+        .join(format!("{project_id}.json"));
+    std::fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &legacy_path,
+        serde_json::json!({
+            "worktree_order": ["legacy-id"],
+            "managed_worktrees": [{
+                "id": "legacy-id",
+                "path": "/tmp/legacy-worktree",
+                "branch": "legacy-branch",
+                "name": "legacy-branch"
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let body = list_worktrees(&client, &base, &project_id).await;
+    let worktrees = body["worktrees"].as_array().unwrap();
+    let legacy = worktrees
+        .iter()
+        .find(|worktree| worktree["id"] == "legacy-id");
+
+    assert!(legacy.is_some());
+    assert!(legacy.unwrap()["source_ref"].is_null());
+}
+
+#[tokio::test]
+async fn test_worktree_git_status_reports_staged_unstaged_and_ahead() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let created = create_worktree_with_payload(
+        &client,
+        &base,
+        &project_id,
+        serde_json::json!({
+            "branch": "feature-status",
+            "start_point": "main",
+            "source_ref": "main"
+        }),
+    )
+    .await;
+    let worktree_path = created["path"].as_str().unwrap();
+
+    std::fs::write(Path::new(worktree_path).join("ahead.txt"), "ahead commit\n").unwrap();
+    run_git(Path::new(worktree_path), &["add", "ahead.txt"]);
+    run_git(
+        Path::new(worktree_path),
+        &["commit", "-q", "-m", "feat: ahead"],
+    );
+
+    std::fs::write(
+        Path::new(worktree_path).join("staged.txt"),
+        "staged change\n",
+    )
+    .unwrap();
+    run_git(Path::new(worktree_path), &["add", "staged.txt"]);
+
+    std::fs::write(
+        Path::new(worktree_path).join("README.md"),
+        "hello\nunstaged\n",
+    )
+    .unwrap();
+
+    let res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git-status",
+            base,
+            project_id,
+            created["id"].as_str().unwrap()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+
+    assert_eq!(body["source_ref"], "main");
+    assert_eq!(body["ahead_count"], 1);
+    assert_eq!(body["comparison_available"], true);
+    assert!(body["comparison_error"].is_null());
+    assert_eq!(body["ahead_commits"][0]["summary"], "feat: ahead");
+    assert_eq!(body["staged_files"][0]["path"], "staged.txt");
+    assert_eq!(body["staged_files"][0]["change_type"], "added");
+    assert_eq!(body["unstaged_files"][0]["path"], "README.md");
+    assert_eq!(body["unstaged_files"][0]["change_type"], "modified");
+}
+
+#[tokio::test]
+async fn test_worktree_git_status_marks_missing_source_ref_as_unavailable() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let created = create_worktree(&client, &base, &project_id, "feature-no-source");
+
+    let res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git-status",
+            base,
+            project_id,
+            created.await["id"].as_str().unwrap()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+
+    assert_eq!(body["comparison_available"], false);
+    assert!(body["comparison_error"].is_null());
+    assert!(body["ahead_commits"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_worktree_git_status_returns_comparison_error_for_bad_source_ref() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let created = create_worktree_with_payload(
+        &client,
+        &base,
+        &project_id,
+        serde_json::json!({
+            "branch": "feature-bad-source",
+            "source_ref": "does/not/exist"
+        }),
+    )
+    .await;
+    let worktree_path = created["path"].as_str().unwrap();
+
+    std::fs::write(
+        Path::new(worktree_path).join("README.md"),
+        "hello\nstill works\n",
+    )
+    .unwrap();
+
+    let res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git-status",
+            base,
+            project_id,
+            created["id"].as_str().unwrap()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+
+    assert_eq!(body["comparison_available"], true);
+    assert!(body["comparison_error"].is_string());
+    assert_eq!(body["unstaged_files"][0]["path"], "README.md");
 }
 
 #[tokio::test]

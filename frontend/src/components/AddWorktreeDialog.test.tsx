@@ -54,4 +54,32 @@ describe("AddWorktreeDialog", () => {
     expect(portalContainer).not.toBeNull();
     expect(portalContainer).toContainElement(popoverContent);
   });
+
+  it("submits source_ref for selected branch start points", async () => {
+    const onAdd = vi.fn(async () => {});
+    render(
+      <AddWorktreeDialog
+        projectId="project-1"
+        projectName="Devbox"
+        onAdd={onAdd}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("combobox", { name: "Start from" }),
+      ).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(onAdd).toHaveBeenCalledWith(
+        expect.any(String),
+        "refs/heads/main",
+        "main",
+      );
+    });
+  });
 });

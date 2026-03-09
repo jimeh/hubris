@@ -18,6 +18,7 @@ type WorktreesState = {
     projectId: string,
     branch: string,
     startPoint?: string,
+    sourceRef?: string,
   ) => Promise<Worktree>;
   remove: (
     projectId: string,
@@ -121,8 +122,13 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
     lsSet(LS_SELECTED, worktreeId);
     set({ selectedWorktreeId: worktreeId });
   },
-  async create(projectId, branch, startPoint) {
-    const worktree = await createProjectWorktree(projectId, branch, startPoint);
+  async create(projectId, branch, startPoint, sourceRef) {
+    const worktree = await createProjectWorktree(
+      projectId,
+      branch,
+      startPoint,
+      sourceRef,
+    );
     set((state) => {
       const list = state.worktreesByProject[projectId] ?? [];
       const local = list.find((candidate) => candidate.is_local);

@@ -22,6 +22,8 @@ pub struct Worktree {
     pub name: String,
     pub path: String,
     pub branch: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
     pub is_local: bool,
     #[serde(default)]
     pub missing_on_disk: bool,
@@ -58,6 +60,8 @@ pub struct CreateWorktreeRequest {
     pub branch: String,
     #[serde(default)]
     pub start_point: Option<String>,
+    #[serde(default)]
+    pub source_ref: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -86,6 +90,44 @@ struct ManagedWorktree {
     branch: String,
     #[serde(default)]
     name: Option<String>,
+    #[serde(default)]
+    source_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum GitFileChangeType {
+    Added,
+    Modified,
+    Deleted,
+    Typechange,
+    Untracked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+pub struct GitFileChange {
+    pub path: String,
+    pub change_type: GitFileChangeType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+pub struct GitCommitSummary {
+    pub id: String,
+    pub short_id: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema, TS)]
+pub struct WorktreeGitStatusResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
+    pub unstaged_files: Vec<GitFileChange>,
+    pub staged_files: Vec<GitFileChange>,
+    pub ahead_count: usize,
+    pub ahead_commits: Vec<GitCommitSummary>,
+    pub comparison_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comparison_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -236,6 +278,7 @@ pub async fn list_worktrees_for_project(
         name: "local".to_string(),
         path: local_path,
         branch: "local".to_string(),
+        source_ref: None,
         is_local: true,
         missing_on_disk: tokio::fs::metadata(&local_path_buf).await.is_err(),
         position: 0.0,
@@ -253,6 +296,7 @@ pub async fn list_worktrees_for_project(
                 .unwrap_or_else(|| managed.branch.clone()),
             path: managed.path.clone(),
             branch: managed.branch.clone(),
+            source_ref: managed.source_ref.clone(),
             is_local: false,
             missing_on_disk: tokio::fs::metadata(&path_buf).await.is_err(),
             position: 0.0,
@@ -376,6 +420,12 @@ pub async fn create_project_worktree(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    let source_ref = req
+        .source_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     if !validate_branch(branch) {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -409,6 +459,7 @@ pub async fn create_project_worktree(
         name: branch.to_string(),
         path: created_path.clone(),
         branch: branch.to_string(),
+        source_ref: source_ref.clone(),
         is_local: false,
         missing_on_disk: false,
         position: 0.0,
@@ -421,6 +472,7 @@ pub async fn create_project_worktree(
         path: created.path.clone(),
         branch: created.branch.clone(),
         name: Some(created.name.clone()),
+        source_ref,
     });
     meta.worktree_order.retain(|id| id != &created.id);
     meta.worktree_order.insert(0, created.id.clone());
@@ -441,6 +493,60 @@ pub async fn create_project_worktree(
     });
 
     Ok((StatusCode::CREATED, Json(created)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/git-status",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Git status for a worktree",
+            body = WorktreeGitStatusResponse
+        ),
+        (status = 404, description = "Project or worktree not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn get_project_worktree_git_status(
+    State(state): State<AppState>,
+    Path((project_id, worktree_id)): Path<(String, String)>,
+) -> Result<Json<WorktreeGitStatusResponse>, StatusCode> {
+    let projects = state
+        .load_projects()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let worktrees = list_worktrees_for_project(&state, project)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let worktree = worktrees
+        .into_iter()
+        .find(|wt| wt.id == worktree_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let status = git::read_worktree_status(
+        PathBuf::from(&worktree.path).as_path(),
+        worktree.source_ref.as_deref(),
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(WorktreeGitStatusResponse {
+        source_ref: worktree.source_ref,
+        unstaged_files: status.unstaged_files,
+        staged_files: status.staged_files,
+        ahead_count: status.ahead_count,
+        ahead_commits: status.ahead_commits,
+        comparison_available: status.comparison_available,
+        comparison_error: status.comparison_error,
+    }))
 }
 
 #[utoipa::path(
