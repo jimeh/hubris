@@ -33,11 +33,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
+import { Popover as PopoverPrimitive } from "radix-ui";
 
 type Props = {
   projectId: string;
@@ -45,6 +43,31 @@ type Props = {
   onAdd: (branch: string, startPoint?: string) => Promise<void>;
   onClose: () => void;
 };
+
+function DialogScopedPopoverContent({
+  portalContainer,
+  className,
+  align = "center",
+  sideOffset = 4,
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Content> & {
+  portalContainer: HTMLElement | null;
+}) {
+  return (
+    <PopoverPrimitive.Portal container={portalContainer ?? undefined}>
+      <PopoverPrimitive.Content
+        data-slot="popover-content"
+        align={align}
+        sideOffset={sideOffset}
+        className={cn(
+          "pointer-events-auto z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-hidden data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+          className,
+        )}
+        {...props}
+      />
+    </PopoverPrimitive.Portal>
+  );
+}
 
 function tagStyle(
   ref: string,
@@ -107,6 +130,8 @@ export default function AddWorktreeDialog({
   const [startPointWarning, setStartPointWarning] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [startPointPopoverContainer, setStartPointPopoverContainer] =
+    useState<HTMLDivElement | null>(null);
 
   const selectedStartPoint = useMemo(
     () =>
@@ -206,6 +231,11 @@ export default function AddWorktreeDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-md">
+        <div
+          ref={setStartPointPopoverContainer}
+          className="pointer-events-none absolute inset-0 z-50"
+          data-start-point-popover-container
+        />
         <DialogHeader>
           <DialogTitle>New Worktree</DialogTitle>
           <DialogDescription>
@@ -319,7 +349,8 @@ export default function AddWorktreeDialog({
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent
+              <DialogScopedPopoverContent
+                portalContainer={startPointPopoverContainer}
                 className="start-point-popover w-[var(--radix-popover-trigger-width)] p-0"
                 align="start"
               >
@@ -410,7 +441,7 @@ export default function AddWorktreeDialog({
                     </CommandGroup>
                   </CommandList>
                 </Command>
-              </PopoverContent>
+              </DialogScopedPopoverContent>
             </Popover>
 
             {useCustomStartPoint ? (

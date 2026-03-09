@@ -246,6 +246,12 @@ reconciliation — drift corrects on reconnect.
   `hasPointerCapture`, `setPointerCapture`, `releasePointerCapture`, and
   `scrollIntoView` in `src/test/setup.ts` or the select tests can fail
   even when the UI code is correct.
+- **Popover lists inside React dialogs may need a dialog-local portal**:
+  `frontend-react/src/components/AddWorktreeDialog.tsx` mounts the
+  start-point `Popover` into a container inside the dialog instead of the
+  default body portal. Portalling the popover outside the dialog can break
+  wheel/trackpad scrolling on `CommandList` content even though dragging the
+  scrollbar thumb still works.
 - **Terminal tabs stay websocket-attached while hidden**:
   `WorktreeView.svelte` and `WorktreeView.tsx` keep inactive
   `TerminalTab` components mounted and just toggle visibility, so
