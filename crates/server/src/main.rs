@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use listenfd::ListenFd;
 use tracing_subscriber::EnvFilter;
 
-use hubris_server::{AppState, build_router, select_listener};
+use hubris_server::{FrontendAssets, ServerOptions, resolve_data_dir, run_server, select_listener};
 
 const DEFAULT_PORT: u16 = 3001;
 const DEV_BACKEND_PORT_OFFSET: u16 = 100;
@@ -18,24 +18,8 @@ async fn main() {
         .init();
 
     let is_dev = cfg!(debug_assertions);
-
-    let data_dir = std::env::var("HUBRIS_DATA_DIR").map_or_else(
-        |_| {
-            let home = dirs::home_dir().expect("no home directory");
-            if is_dev {
-                home.join(".hubris-dev")
-            } else {
-                home.join(".hubris")
-            }
-        },
-        PathBuf::from,
-    );
-    tokio::fs::create_dir_all(&data_dir)
-        .await
-        .expect("failed to create data dir");
-
-    let state = AppState::new(data_dir).await;
-    let app = build_router(state);
+    let data_dir = resolve_data_dir(if is_dev { ".hubris-dev" } else { ".hubris" })
+        .expect("failed to resolve data dir");
 
     let host = std::env::var("HUBRIS_HOST").unwrap_or_else(|_| {
         if is_dev {
@@ -84,5 +68,13 @@ async fn main() {
     }
 
     tracing::info!("listening on http://{}", addr);
-    axum::serve(listener, app).await.unwrap();
+    run_server(
+        listener,
+        data_dir,
+        ServerOptions {
+            frontend: FrontendAssets::default(),
+        },
+    )
+    .await
+    .unwrap();
 }

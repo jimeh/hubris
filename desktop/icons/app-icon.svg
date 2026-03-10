@@ -1,0 +1,13 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 512 512"
+  role="img"
+  aria-label="Hubris icon"
+>
+  <rect width="512" height="512" rx="116" fill="#121116" />
+  <rect x="104" y="96" width="304" height="320" rx="52" fill="#f5f1e8" />
+  <path
+    d="M164 180h56v56h72v-56h56v152h-56v-48h-72v48h-56z"
+    fill="#121116"
+  />
+</svg>

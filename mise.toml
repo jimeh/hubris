@@ -1,6 +1,7 @@
 [tools]
 rust = "latest"
 bun = "latest"
+"cargo:tauri-cli" = "2"
 "github:mitsuhiko/systemfd" = "latest"
 
 [tasks.build]
@@ -15,6 +16,13 @@ description = "Install deps and build frontend"
 depends = ["build:frontend"]
 run = "cargo build --release --features embed-frontend"
 description = "Build server binary (release)"
+
+[tasks."build:desktop"]
+run = [
+  "cd frontend && bun install",
+  "cd desktop && cargo tauri build --bundles app",
+]
+description = "Build the Tauri desktop app"
 
 [tasks."dev:server"]
 run = "systemfd --no-pid -s http::0 -- mise watch --restart dev:server:raw"
@@ -35,6 +43,10 @@ sources = [
 [tasks."dev:frontend"]
 run = "cd frontend && bun dev"
 description = "Run frontend dev server"
+
+[tasks."dev:desktop"]
+run = ".mise/tasks/dev-desktop"
+description = "Run the Tauri desktop app in dev mode"
 
 [tasks."check:backend"]
 description = "Rust format check + clippy"

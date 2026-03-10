@@ -1,7 +1,7 @@
 pub mod api;
-mod embedded;
 pub mod events;
 mod fs_sync;
+mod frontend;
 pub mod git;
 pub mod pty;
 mod settings_manager;
@@ -33,8 +33,52 @@ use api::worktrees::{
     list_project_worktree_start_points, list_project_worktrees, reorder_project_worktrees,
     stage_project_worktree_path, unstage_project_worktree_path,
 };
-use embedded::spa_handler;
+pub use frontend::FrontendAssets;
+use frontend::apply_frontend_fallback;
 pub use state::AppState;
+
+/// Runtime options for the Hubris server.
+#[derive(Clone, Debug)]
+pub struct ServerOptions {
+    pub frontend: FrontendAssets,
+}
+
+impl Default for ServerOptions {
+    fn default() -> Self {
+        let frontend = {
+            #[cfg(feature = "embed-frontend")]
+            {
+                FrontendAssets::embedded()
+            }
+            #[cfg(not(feature = "embed-frontend"))]
+            {
+                FrontendAssets::disabled()
+            }
+        };
+
+        Self { frontend }
+    }
+}
+
+/// Resolve the Hubris data directory from the environment or
+/// a provided default directory name under the user's home.
+pub fn resolve_data_dir(default_dir_name: &str) -> std::io::Result<std::path::PathBuf> {
+    if let Ok(path) = std::env::var("HUBRIS_DATA_DIR") {
+        return Ok(std::path::PathBuf::from(path));
+    }
+
+    let home = dirs::home_dir()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no home directory"))?;
+
+    Ok(home.join(default_dir_name))
+}
+
+/// Create the app state for a given data directory,
+/// ensuring the directory exists first.
+pub async fn create_app_state(data_dir: std::path::PathBuf) -> std::io::Result<AppState> {
+    tokio::fs::create_dir_all(&data_dir).await?;
+    Ok(AppState::new(data_dir))
+}
 
 /// Try binding to `host:start_port`, incrementing port up
 /// to `max_attempts` times if already in use.
@@ -126,6 +170,11 @@ const API_METHODS: [Method; 5] = [
 
 /// Build the API router for a given AppState.
 pub fn build_router(state: AppState) -> Router {
+    build_router_with_options(state, ServerOptions::default())
+}
+
+/// Build the API router with explicit runtime options.
+pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Router {
     let api = Router::new()
         .route("/openapi.json", get(openapi_json))
         .route("/files", get(list_files))
@@ -210,12 +259,25 @@ pub fn build_router(state: AppState) -> Router {
             .allow_headers([CONTENT_TYPE])
     };
 
-    Router::new()
+    let router = Router::new()
         .nest("/api", api)
-        .fallback(spa_handler)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .with_state(state)
+        .with_state(state);
+
+    apply_frontend_fallback(router, options.frontend)
+}
+
+/// Run the Hubris server on an existing listener.
+pub async fn run_server(
+    listener: tokio::net::TcpListener,
+    data_dir: std::path::PathBuf,
+    options: ServerOptions,
+) -> std::io::Result<()> {
+    let app = build_router_with_options(create_app_state(data_dir).await?, options);
+    axum::serve(listener, app)
+        .await
+        .map_err(std::io::Error::other)
 }
 
 pub fn openapi_spec() -> utoipa::openapi::OpenApi {
