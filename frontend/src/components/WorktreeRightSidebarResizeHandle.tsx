@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { useWorktreeGitSidebarWidthStore } from "@/lib/stores/worktreeGitSidebarWidth";
+import { useWorktreeRightSidebarWidthStore } from "@/lib/stores/worktreeRightSidebarWidth";
 
 const KEYBOARD_RESIZE_STEP = 16;
 
@@ -9,13 +9,13 @@ type ResizeState = {
   startWidth: number;
 };
 
-export default function WorktreeGitSidebarResizeHandle() {
-  const width = useWorktreeGitSidebarWidthStore((state) => state.width);
-  const setWidth = useWorktreeGitSidebarWidthStore((state) => state.setWidth);
-  const setResizing = useWorktreeGitSidebarWidthStore(
+export default function WorktreeRightSidebarResizeHandle() {
+  const width = useWorktreeRightSidebarWidthStore((state) => state.width);
+  const setWidth = useWorktreeRightSidebarWidthStore((state) => state.setWidth);
+  const setResizing = useWorktreeRightSidebarWidthStore(
     (state) => state.setResizing,
   );
-  const flushPendingPersist = useWorktreeGitSidebarWidthStore(
+  const flushPendingPersist = useWorktreeRightSidebarWidthStore(
     (state) => state.flushPendingPersist,
   );
 
@@ -67,8 +67,8 @@ export default function WorktreeGitSidebarResizeHandle() {
   return (
     <button
       type="button"
-      aria-label="Resize git sidebar"
-      data-worktree-git-sidebar-resize-handle
+      aria-label="Resize right sidebar"
+      data-worktree-right-sidebar-resize-handle
       className={[
         "absolute inset-y-0 -left-1 z-20 hidden w-2 cursor-w-resize",
         "touch-none bg-transparent p-0 md:block",

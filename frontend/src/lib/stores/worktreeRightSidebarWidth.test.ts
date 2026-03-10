@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const LS_WORKTREE_GIT_SIDEBAR_WIDTH = "hubris-worktree-git-sidebar-width";
+const LS_RIGHT_SIDEBAR_WIDTH = "hubris-worktree-right-sidebar-width";
 
 async function getStore() {
-  const mod = await import("./worktreeGitSidebarWidth");
-  mod.resetWorktreeGitSidebarWidthStoreForTests();
-  return mod.useWorktreeGitSidebarWidthStore;
+  const mod = await import("./worktreeRightSidebarWidth");
+  mod.resetWorktreeRightSidebarWidthStoreForTests();
+  return mod.useWorktreeRightSidebarWidthStore;
 }
 
-describe("Worktree git sidebar width store", () => {
+describe("Worktree right sidebar width store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
@@ -23,18 +23,18 @@ describe("Worktree git sidebar width store", () => {
   });
 
   it("loads and clamps persisted width", async () => {
-    localStorage.setItem(LS_WORKTREE_GIT_SIDEBAR_WIDTH, "100");
+    localStorage.setItem(LS_RIGHT_SIDEBAR_WIDTH, "100");
     let store = await getStore();
     expect(store.getState().width).toBe(240);
 
     vi.resetModules();
-    localStorage.setItem(LS_WORKTREE_GIT_SIDEBAR_WIDTH, "900");
+    localStorage.setItem(LS_RIGHT_SIDEBAR_WIDTH, "900");
     store = await getStore();
     expect(store.getState().width).toBe(640);
   });
 
   it("falls back to default width for invalid persisted value", async () => {
-    localStorage.setItem(LS_WORKTREE_GIT_SIDEBAR_WIDTH, "not-a-number");
+    localStorage.setItem(LS_RIGHT_SIDEBAR_WIDTH, "not-a-number");
     const store = await getStore();
     expect(store.getState().width).toBe(320);
   });
@@ -64,10 +64,7 @@ describe("Worktree git sidebar width store", () => {
 
     vi.advanceTimersByTime(1);
     expect(setItemSpy).toHaveBeenCalledTimes(1);
-    expect(setItemSpy).toHaveBeenCalledWith(
-      LS_WORKTREE_GIT_SIDEBAR_WIDTH,
-      "440",
-    );
+    expect(setItemSpy).toHaveBeenCalledWith(LS_RIGHT_SIDEBAR_WIDTH, "440");
   });
 
   it("flushPendingPersist writes immediately and cancels timer", async () => {
@@ -81,10 +78,7 @@ describe("Worktree git sidebar width store", () => {
 
     store.getState().flushPendingPersist();
     expect(setItemSpy).toHaveBeenCalledTimes(1);
-    expect(setItemSpy).toHaveBeenCalledWith(
-      LS_WORKTREE_GIT_SIDEBAR_WIDTH,
-      "444",
-    );
+    expect(setItemSpy).toHaveBeenCalledWith(LS_RIGHT_SIDEBAR_WIDTH, "444");
 
     vi.runAllTimers();
     expect(setItemSpy).toHaveBeenCalledTimes(1);

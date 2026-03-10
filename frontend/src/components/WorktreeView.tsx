@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import TabBar from "@/components/TabBar";
-import WorktreeGitSidebar from "@/components/WorktreeGitSidebar";
+import WorktreeRightSidebar from "@/components/WorktreeRightSidebar";
 import { useTabStore } from "@/lib/stores/tabs";
-import { useWorktreeGitSidebarWidthStore } from "@/lib/stores/worktreeGitSidebarWidth";
+import { useWorktreeRightSidebarWidthStore } from "@/lib/stores/worktreeRightSidebarWidth";
 import type { Worktree } from "@/lib/types";
 import TerminalTab from "@/components/TerminalTab";
 import { cn } from "@/lib/utils";
@@ -13,7 +13,7 @@ type Props = {
 };
 
 export default function WorktreeView({ worktree }: Props) {
-  const isGitSidebarResizing = useWorktreeGitSidebarWidthStore(
+  const isRightSidebarResizing = useWorktreeRightSidebarWidthStore(
     (state) => state.isResizing,
   );
   const activeTabId = useTabStore((state) => state.activeTabId);
@@ -62,7 +62,7 @@ export default function WorktreeView({ worktree }: Props) {
   useLayoutEffect(() => {
     const host =
       viewRef.current?.querySelector<HTMLElement>(
-        "[data-worktree-git-sidebar-wrapper]",
+        "[data-worktree-right-sidebar-wrapper]",
       ) ?? null;
     if (!host) {
       return;
@@ -71,14 +71,14 @@ export default function WorktreeView({ worktree }: Props) {
 
     function applyWidth(width: number): void {
       sidebarHost.style.setProperty(
-        "--worktree-git-sidebar-width",
+        "--worktree-right-sidebar-width",
         `${width}px`,
       );
     }
 
-    applyWidth(useWorktreeGitSidebarWidthStore.getState().width);
+    applyWidth(useWorktreeRightSidebarWidthStore.getState().width);
 
-    return useWorktreeGitSidebarWidthStore.subscribe((state) => {
+    return useWorktreeRightSidebarWidthStore.subscribe((state) => {
       applyWidth(state.width);
     });
   }, []);
@@ -88,7 +88,7 @@ export default function WorktreeView({ worktree }: Props) {
       ref={viewRef}
       className={cn(
         "flex h-full overflow-hidden",
-        isGitSidebarResizing && "worktree-git-sidebar-resizing",
+        isRightSidebarResizing && "worktree-right-sidebar-resizing",
       )}
     >
       <div className="flex min-w-0 flex-1 flex-col">
@@ -126,7 +126,7 @@ export default function WorktreeView({ worktree }: Props) {
         </div>
       </div>
 
-      <WorktreeGitSidebar worktree={worktree} />
+      <WorktreeRightSidebar worktree={worktree} />
     </div>
   );
 }

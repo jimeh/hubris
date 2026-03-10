@@ -123,8 +123,8 @@
   transition: none !important;
 }
 
-.worktree-git-sidebar-resizing [data-worktree-git-sidebar-wrapper],
-.worktree-git-sidebar-resizing [data-worktree-git-sidebar-resize-handle] {
+.worktree-right-sidebar-resizing [data-worktree-right-sidebar-wrapper],
+.worktree-right-sidebar-resizing [data-worktree-right-sidebar-resize-handle] {
   transition: none !important;
 }
 

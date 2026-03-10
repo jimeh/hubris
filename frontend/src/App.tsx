@@ -26,7 +26,8 @@ import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
-import { useWorktreeGitSidebarStore } from "@/lib/stores/worktreeGitSidebar";
+import { WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL } from "@/lib/worktreeRightSidebar";
+import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 
 function AppHeader({
@@ -41,13 +42,25 @@ function AppHeader({
   const sidebarVisible = sidebar.isMobile
     ? sidebar.openMobile
     : sidebar.state !== "collapsed";
-  const desktopOpen = useWorktreeGitSidebarStore((state) => state.desktopOpen);
-  const toggleForViewport = useWorktreeGitSidebarStore(
-    (state) => state.toggleForViewport,
+  const desktopOpen = useWorktreeRightSidebarStore(
+    (state) => state.desktopOpen,
   );
+  const mobileOpen = useWorktreeRightSidebarStore((state) => state.mobileOpen);
+  const activePanel = useWorktreeRightSidebarStore(
+    (state) => state.activePanel,
+  );
+  const closeForViewport = useWorktreeRightSidebarStore(
+    (state) => state.closeForViewport,
+  );
+  const openPanel = useWorktreeRightSidebarStore((state) => state.openPanel);
+  const gitStatusVisible =
+    (isMobile ? mobileOpen : desktopOpen) &&
+    activePanel === WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL;
   const gitStatusLabel = isMobile
-    ? "Show git status"
-    : desktopOpen
+    ? gitStatusVisible
+      ? "Hide git status"
+      : "Show git status"
+    : gitStatusVisible
       ? "Hide git status"
       : "Show git status";
 
@@ -109,7 +122,13 @@ function AppHeader({
               variant="ghost"
               size="icon-sm"
               aria-label={gitStatusLabel}
-              onClick={() => toggleForViewport(isMobile)}
+              onClick={() => {
+                if (gitStatusVisible) {
+                  closeForViewport(isMobile);
+                } else {
+                  openPanel(WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL, isMobile);
+                }
+              }}
             >
               <GitBranch className="h-4 w-4" />
             </Button>

@@ -80,7 +80,8 @@ No periodic reconciliation — drift corrects on reconnect.
 - State: Zustand singletons — grep `useProjectStore`,
   `useWorktreeStore`, `useTabStore`, `useThemeStore`,
   `useTerminalStore`, `useWorktreeSettingsStore`,
-  `useWorktreeGitSidebarStore`
+  `useWorktreeRightSidebarStore`,
+  `useWorktreeRightSidebarWidthStore`
 - SSE bootstrap: `src/lib/bootstrap.ts`
 - UI primitives: shadcn/ui React under `src/components/ui/`
 - Sidebar decomposition: `AppSidebar.tsx` is a thin façade;
