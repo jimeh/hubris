@@ -6,6 +6,10 @@ import tailwindcss from "@tailwindcss/vite";
 
 const devId = process.env.HUBRIS_DEV_ID;
 const devTmp = process.env.HUBRIS_DEV_TMP;
+const desktopBootstrapToken = process.env.HUBRIS_DESKTOP_BOOTSTRAP_TOKEN;
+const desktopSessionToken = process.env.HUBRIS_DESKTOP_SESSION_TOKEN;
+const DESKTOP_BOOTSTRAP_PATH = "/_hubris/desktop/bootstrap";
+const DESKTOP_SESSION_COOKIE_NAME = "hubris_desktop_session";
 
 async function waitForBackendState(
   timeoutMs = 120_000,
@@ -30,9 +34,41 @@ async function waitForBackendState(
 }
 
 function devInstancePlugin(): Plugin {
+  let bootstrapSpent = false;
+
   return {
     name: "hubris-dev-instance",
     configureServer(server) {
+      if (desktopBootstrapToken && desktopSessionToken) {
+        server.middlewares.use((req, res, next) => {
+          const url = req.url ? new URL(req.url, "http://localhost") : null;
+          if (!url || url.pathname !== DESKTOP_BOOTSTRAP_PATH) {
+            next();
+            return;
+          }
+
+          if (
+            bootstrapSpent ||
+            url.searchParams.get("token") !== desktopBootstrapToken
+          ) {
+            res.statusCode = 401;
+            res.setHeader("Cache-Control", "no-store");
+            res.end("unauthorized");
+            return;
+          }
+
+          bootstrapSpent = true;
+          res.statusCode = 302;
+          res.setHeader("Location", "/");
+          res.setHeader("Cache-Control", "no-store");
+          res.setHeader(
+            "Set-Cookie",
+            `${DESKTOP_SESSION_COOKIE_NAME}=${desktopSessionToken}; Path=/; HttpOnly; SameSite=Strict`,
+          );
+          res.end();
+        });
+      }
+
       if (!devId || !devTmp) return;
 
       server.httpServer?.once("listening", () => {

@@ -40,6 +40,7 @@ async fn serves_spa_assets_from_filesystem_with_index_fallback() {
         hubris_server::AppState::new(temp.path().join("data")),
         ServerOptions {
             frontend: FrontendAssets::from_dir(&assets).unwrap(),
+            access: hubris_server::ServerAccess::Open,
         },
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

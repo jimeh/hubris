@@ -1,11 +1,15 @@
 use std::error::Error;
 use std::net::Ipv4Addr;
 
-use hubris_server::{FrontendAssets, ServerOptions, resolve_data_dir, run_server};
+use hubris_server::{
+    DESKTOP_BOOTSTRAP_PATH, DesktopAccess, FrontendAssets, ServerAccess, ServerOptions,
+    resolve_data_dir, run_server,
+};
 use tauri::path::BaseDirectory;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tracing_subscriber::EnvFilter;
 use url::Url;
+use uuid::Uuid;
 
 const APP_DATA_DIR_NAME: &str = ".hubris";
 const DESKTOP_HOST: Ipv4Addr = Ipv4Addr::LOCALHOST;
@@ -47,6 +51,9 @@ fn start_embedded_server<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<Url, 
         .resolve(DIST_RESOURCE_DIR, BaseDirectory::Resource)?;
     let frontend = FrontendAssets::from_dir(dist_dir)?;
     let data_dir = resolve_data_dir(APP_DATA_DIR_NAME)?;
+    let session_token = generate_token();
+    let bootstrap_token = generate_token();
+    let bootstrap_url_token = bootstrap_token.clone();
     std::fs::create_dir_all(&data_dir)?;
 
     let listener = tauri::async_runtime::block_on(async {
@@ -55,12 +62,27 @@ fn start_embedded_server<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<Url, 
     let port = listener.local_addr()?.port();
 
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = run_server(listener, data_dir, ServerOptions { frontend }).await {
+        if let Err(error) = run_server(
+            listener,
+            data_dir,
+            ServerOptions {
+                frontend,
+                access: ServerAccess::DesktopLocked(DesktopAccess::packaged(
+                    session_token,
+                    bootstrap_token.clone(),
+                )),
+            },
+        )
+        .await
+        {
             tracing::error!("desktop server exited: {error}");
         }
     });
 
-    Ok(format!("http://{DESKTOP_HOST}:{port}").parse()?)
+    Ok(
+        format!("http://{DESKTOP_HOST}:{port}{DESKTOP_BOOTSTRAP_PATH}?token={bootstrap_url_token}")
+            .parse()?,
+    )
 }
 
 fn init_tracing() {
@@ -71,4 +93,8 @@ fn init_tracing() {
                 .add_directive("hubris_desktop=debug".parse().unwrap()),
         )
         .try_init();
+}
+
+fn generate_token() -> String {
+    Uuid::new_v4().simple().to_string()
 }

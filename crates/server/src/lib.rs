@@ -1,3 +1,4 @@
+mod access;
 pub mod api;
 pub mod events;
 mod fs_sync;
@@ -10,13 +11,19 @@ pub mod tab;
 pub mod worktree_files;
 pub mod worktree_path_policy;
 
+use axum::Extension;
 use axum::Router;
 use axum::http::Method;
 use axum::http::header::CONTENT_TYPE;
+use axum::middleware;
 use axum::routing::{delete, get, post, put};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+pub use access::{
+    DESKTOP_BOOTSTRAP_PATH, DESKTOP_SESSION_COOKIE_NAME, DesktopAccess, ServerAccess,
+};
+use access::{desktop_auth_middleware, desktop_bootstrap_handler};
 use api::events::event_stream;
 use api::files::{
     get_project_worktree_file_content, get_project_worktree_git_diff, list_files,
@@ -41,6 +48,7 @@ pub use state::AppState;
 #[derive(Clone, Debug)]
 pub struct ServerOptions {
     pub frontend: FrontendAssets,
+    pub access: ServerAccess,
 }
 
 impl Default for ServerOptions {
@@ -56,7 +64,10 @@ impl Default for ServerOptions {
             }
         };
 
-        Self { frontend }
+        Self {
+            frontend,
+            access: ServerAccess::Open,
+        }
     }
 }
 
@@ -175,6 +186,7 @@ pub fn build_router(state: AppState) -> Router {
 
 /// Build the API router with explicit runtime options.
 pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Router {
+    let ServerOptions { frontend, access } = options;
     let api = Router::new()
         .route("/openapi.json", get(openapi_json))
         .route("/files", get(list_files))
@@ -246,7 +258,7 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
             get(get_settings).put(put_settings).patch(patch_settings),
         );
 
-    let cors = if cfg!(debug_assertions) {
+    let cors = if cfg!(debug_assertions) && !access.is_desktop_locked() {
         CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
             .allow_methods(API_METHODS)
@@ -259,13 +271,42 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
             .allow_headers([CONTENT_TYPE])
     };
 
-    let router = Router::new()
-        .nest("/api", api)
-        .layer(cors)
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let mut router = Router::new().nest("/api", api).with_state(state);
 
-    apply_frontend_fallback(router, options.frontend)
+    if access
+        .desktop()
+        .is_some_and(|desktop| desktop.has_bootstrap())
+    {
+        router = router.route(DESKTOP_BOOTSTRAP_PATH, get(desktop_bootstrap_handler));
+    }
+
+    let redact_query = access.is_desktop_locked();
+    let trace =
+        TraceLayer::new_for_http().make_span_with(move |request: &axum::http::Request<_>| {
+            let uri = if redact_query {
+                request.uri().path().to_string()
+            } else {
+                request.uri().to_string()
+            };
+
+            tracing::debug_span!(
+                "request",
+                method = %request.method(),
+                uri = %uri,
+                version = ?request.version(),
+            )
+        });
+
+    let router = apply_frontend_fallback(router, frontend);
+    let router = router.layer(cors).layer(trace);
+
+    if let Some(desktop) = access.desktop().cloned() {
+        router
+            .layer(middleware::from_fn(desktop_auth_middleware))
+            .layer(Extension(desktop))
+    } else {
+        router
+    }
 }
 
 /// Run the Hubris server on an existing listener.

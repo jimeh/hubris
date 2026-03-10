@@ -528,3 +528,10 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
   the Vite `devInstancePlugin()` output shape, and keep
   `desktop/src/main.rs` reading `app.config().build.dev_url` in debug
   mode instead of hardcoding a localhost port.
+- **Desktop loopback auth uses a one-time bootstrap plus an `HttpOnly`
+  cookie**: packaged desktop hits
+  `/_hubris/desktop/bootstrap?token=...` on the embedded server, while
+  `mise run dev:desktop` hits the same path on the Vite dev server.
+  The backend trusts only the `hubris_desktop_session` cookie in
+  desktop mode, so keep desktop auth out of frontend JS fetch/SSE/WS
+  code.

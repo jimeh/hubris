@@ -6,8 +6,12 @@ TMP_DIR="${HUBRIS_DEV_TMP:-$(pwd)/tmp}"
 mkdir -p "$TMP_DIR"
 
 DEV_ID="${HUBRIS_DEV_ID:-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')}"
+BOOTSTRAP_TOKEN="${HUBRIS_DESKTOP_BOOTSTRAP_TOKEN:-$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')}"
+SESSION_TOKEN="${HUBRIS_DESKTOP_SESSION_TOKEN:-$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')}"
 export HUBRIS_DEV_ID="$DEV_ID"
 export HUBRIS_DEV_TMP="$TMP_DIR"
+export HUBRIS_DESKTOP_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
+export HUBRIS_DESKTOP_SESSION_TOKEN="$SESSION_TOKEN"
 
 FRONTEND_STATE_FILE="$TMP_DIR/dev-${DEV_ID}.frontend.json"
 TAURI_CONFIG_OVERRIDE="$TMP_DIR/dev-${DEV_ID}.tauri.dev.json"
@@ -53,8 +57,10 @@ wait_for_frontend_port() {
 DEV_STACK_PID=$!
 
 FRONTEND_PORT="$(wait_for_frontend_port)"
-printf '{\n  "build": {\n    "devUrl": "http://localhost:%s"\n  }\n}\n' \
-  "$FRONTEND_PORT" >"$TAURI_CONFIG_OVERRIDE"
+printf \
+  '{\n  "build": {\n    "devUrl": "http://localhost:%s/_hubris/desktop/bootstrap?token=%s"\n  }\n}\n' \
+  "$FRONTEND_PORT" \
+  "$BOOTSTRAP_TOKEN" >"$TAURI_CONFIG_OVERRIDE"
 
 cd desktop
 cargo tauri dev --config "$TAURI_CONFIG_OVERRIDE" "$@"

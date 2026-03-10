@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use listenfd::ListenFd;
 use tracing_subscriber::EnvFilter;
 
-use hubris_server::{FrontendAssets, ServerOptions, resolve_data_dir, run_server, select_listener};
+use hubris_server::{
+    DesktopAccess, FrontendAssets, ServerAccess, ServerOptions, resolve_data_dir, run_server,
+    select_listener,
+};
 
 const DEFAULT_PORT: u16 = 3001;
 const DEV_BACKEND_PORT_OFFSET: u16 = 100;
@@ -68,11 +71,18 @@ async fn main() {
     }
 
     tracing::info!("listening on http://{}", addr);
+    let access = std::env::var("HUBRIS_DESKTOP_SESSION_TOKEN")
+        .ok()
+        .map(DesktopAccess::api_only)
+        .map(ServerAccess::DesktopLocked)
+        .unwrap_or(ServerAccess::Open);
+
     run_server(
         listener,
         data_dir,
         ServerOptions {
             frontend: FrontendAssets::default(),
+            access,
         },
     )
     .await
