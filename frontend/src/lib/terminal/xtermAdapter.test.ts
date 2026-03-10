@@ -12,6 +12,7 @@ class MockTerminal {
   open = vi.fn();
   write = vi.fn();
   onData = vi.fn(() => ({ dispose: vi.fn() }));
+  onBinary = vi.fn(() => ({ dispose: vi.fn() }));
   resize = vi.fn();
   focus = vi.fn();
   reset = vi.fn();
@@ -80,5 +81,16 @@ describe("createXtermAdapter", () => {
     expect(terminal.options.fontFamily).toBe("Fira Code");
     expect(terminal.options.fontSize).toBe(16);
     expect(fitAddon.proposeDimensions).not.toHaveBeenCalled();
+  });
+
+  it("exposes xterm binary input events", async () => {
+    const { createXtermAdapter } = await import("./xterm");
+    const adapter = createXtermAdapter();
+    const terminal = terminalInstances[0];
+    const onBinary = vi.fn();
+
+    adapter.onBinary(onBinary);
+
+    expect(terminal.onBinary).toHaveBeenCalledWith(onBinary);
   });
 });

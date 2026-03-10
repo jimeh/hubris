@@ -44,6 +44,7 @@ pub enum ServerControlMessage {
     Attached {
         #[ts(type = "number")]
         byte_offset: u64,
+        snapshot: bool,
         data_lost: bool,
         cols: u16,
         rows: u16,
@@ -93,7 +94,8 @@ async fn handle_attach(
 
     let LiveTabAttachment {
         attachment_id,
-        scrollback,
+        initial_payload,
+        snapshot,
         current_size,
         byte_offset,
         data_lost,
@@ -107,6 +109,7 @@ async fn handle_attach(
     // Send attach metadata so client can track position
     let attached_msg = serde_json::to_string(&ServerControlMessage::Attached {
         byte_offset,
+        snapshot,
         data_lost,
         cols: current_size.cols,
         rows: current_size.rows,
@@ -121,10 +124,10 @@ async fn handle_attach(
         return;
     }
 
-    // Replay scrollback (missed bytes or full buffer)
-    if !scrollback.is_empty()
+    // Send the initial snapshot or replay payload.
+    if !initial_payload.is_empty()
         && ws_sender
-            .send(Message::Binary(scrollback.into()))
+            .send(Message::Binary(initial_payload.into()))
             .await
             .is_err()
     {

@@ -20,14 +20,19 @@ function TerminalTab({ tabId, visible, onClosed }: Props) {
   const terminalRef = useRef<TerminalAdapter | null>(null);
   const fontFamilyRef = useRef(fontFamily);
   const fontSizeRef = useRef(fontSize);
-  const { connected, everConnected, handleTerminalData, sendResize } =
-    useTerminalConnection({
-      tabId,
-      visible,
-      terminalRef,
-      containerRef,
-      onClosed,
-    });
+  const {
+    connected,
+    everConnected,
+    handleTerminalBinary,
+    handleTerminalData,
+    sendResize,
+  } = useTerminalConnection({
+    tabId,
+    visible,
+    terminalRef,
+    containerRef,
+    onClosed,
+  });
 
   useEffect(() => {
     fontFamilyRef.current = fontFamily;
@@ -48,13 +53,15 @@ function TerminalTab({ tabId, visible, onClosed }: Props) {
     terminal.open(container);
 
     const onDataSubscription = terminal.onData(handleTerminalData);
+    const onBinarySubscription = terminal.onBinary(handleTerminalBinary);
 
     return () => {
+      onBinarySubscription.dispose();
       onDataSubscription.dispose();
       terminal.dispose();
       terminalRef.current = null;
     };
-  }, [handleTerminalData, tabId]);
+  }, [handleTerminalBinary, handleTerminalData, tabId]);
 
   useEffect(() => {
     if (!terminalRef.current) {

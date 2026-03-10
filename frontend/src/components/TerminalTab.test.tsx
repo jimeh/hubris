@@ -122,6 +122,7 @@ describe("TerminalTab", () => {
         terminalDataHandler = callback;
         return { dispose: vi.fn() };
       }),
+      onBinary: vi.fn(() => ({ dispose: vi.fn() })),
       resize: vi.fn(),
       measureViewport: vi.fn(() => currentViewport),
       get rows() {
@@ -169,6 +170,7 @@ describe("TerminalTab", () => {
         JSON.stringify({
           type: "attached",
           byte_offset: 12,
+          snapshot: true,
           data_lost: true,
           cols: 90,
           rows: 25,

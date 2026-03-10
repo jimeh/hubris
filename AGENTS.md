@@ -167,6 +167,11 @@ No periodic reconciliation — drift corrects on reconnect.
   React terminal cleanup closes the current websocket connection, but
   the backend keeps the `LiveTab` PTY alive for reconnect. Only
   explicit tab deletion or shell exit destroys the server-side PTY.
+- **Fresh terminal attaches need a full state snapshot**: resumable raw
+  byte replay is only safe when reconnecting the same mounted xterm
+  instance. Reloads/new browser attachments must use the server-side
+  terminal snapshot path to restore alternate-screen and mouse/input
+  modes for TUIs like `htop`.
 - **StrictMode is enabled**: terminal remount/cleanup is
   generation-guarded. Keep websocket, reconnect timer, and post-open
   `requestAnimationFrame` handlers scoped to the active connection so

@@ -124,6 +124,7 @@ describe("useTerminalConnection", () => {
       open: vi.fn(),
       write: vi.fn(),
       onData: vi.fn(),
+      onBinary: vi.fn(),
       resize: vi.fn(),
       measureViewport: vi.fn(() => currentViewport),
       get rows() {
@@ -172,6 +173,7 @@ describe("useTerminalConnection", () => {
         JSON.stringify({
           type: "attached",
           byte_offset: 12,
+          snapshot: true,
           data_lost: true,
           cols: 90,
           rows: 25,
@@ -399,6 +401,7 @@ describe("useTerminalConnection", () => {
         JSON.stringify({
           type: "attached",
           byte_offset: 999,
+          snapshot: true,
           data_lost: true,
           cols: 77,
           rows: 21,
@@ -488,5 +491,49 @@ describe("useTerminalConnection", () => {
     });
 
     expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("does not clear the terminal on byte-resume attach", () => {
+    renderTerminalConnection();
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.open();
+      ws.receive(
+        JSON.stringify({
+          type: "attached",
+          byte_offset: 12,
+          snapshot: false,
+          data_lost: false,
+          cols: 90,
+          rows: 25,
+        }),
+      );
+    });
+
+    expect(mockTerminal.clear).not.toHaveBeenCalled();
+  });
+
+  it("buffers and sends binary terminal input as websocket frames", () => {
+    const { result } = renderTerminalConnection();
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      result.current.handleTerminalBinary("\u0000A\u00ff");
+    });
+
+    expect(ws.sent).toHaveLength(0);
+
+    act(() => {
+      ws.open();
+    });
+
+    expect(parseControlMessage(ws.sent[0])).toEqual({
+      type: "resize",
+      cols: 100,
+      rows: 30,
+      visible: true,
+    });
+    expect(Array.from(ws.sent[1] as ArrayLike<number>)).toEqual([0, 65, 255]);
   });
 });

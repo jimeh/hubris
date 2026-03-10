@@ -73,6 +73,9 @@ export function createXtermAdapter(opts?: {
     onData(cb: (data: string) => void) {
       return term.onData(cb);
     },
+    onBinary(cb: (data: string) => void) {
+      return term.onBinary(cb);
+    },
     resize(cols: number, rows: number) {
       term.resize(cols, rows);
     },
