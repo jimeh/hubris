@@ -111,11 +111,21 @@ impl OutputState {
     }
 
     fn record_output(&mut self, data: &[u8], scrollback_size: usize) {
-        for &byte in data {
-            if self.scrollback.len() >= scrollback_size {
-                self.scrollback.pop_front();
+        if scrollback_size > 0 {
+            let retained_data = if data.len() > scrollback_size {
+                &data[data.len() - scrollback_size..]
+            } else {
+                data
+            };
+            let overflow = self
+                .scrollback
+                .len()
+                .saturating_add(retained_data.len())
+                .saturating_sub(scrollback_size);
+            if overflow > 0 {
+                self.scrollback.drain(..overflow);
             }
-            self.scrollback.push_back(byte);
+            self.scrollback.extend(retained_data.iter().copied());
         }
         self.total_bytes += data.len() as u64;
         self.parser.process(data);
@@ -123,6 +133,7 @@ impl OutputState {
 
     fn build_attach_payload(&self, resume_from: Option<u64>) -> (Vec<u8>, bool, bool) {
         match resume_from {
+            None if self.total_bytes == 0 => (Vec::new(), false, false),
             None => (self.snapshot_state(), true, false),
             Some(pos) if pos >= self.total_bytes => (Vec::new(), false, false),
             Some(pos) => {
@@ -143,6 +154,10 @@ impl OutputState {
 
     fn snapshot_state(&self) -> Vec<u8> {
         let mut snapshot = vec![];
+        // vt100::Screen::state_formatted() restores cursor position, drawing
+        // state, and input modes including xterm mouse tracking. Alternate
+        // screen needs an explicit switch first so those restored modes apply
+        // to the correct screen buffer.
         if self.parser.screen().alternate_screen() {
             snapshot.extend_from_slice(b"\x1b[?1049h");
         }
@@ -705,6 +720,17 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn fresh_attach_without_output_returns_empty_non_snapshot_payload() {
+        let tab = spawn_test_live_tab();
+
+        let attachment = tab.attach(None);
+
+        assert!(!attachment.snapshot);
+        assert!(!attachment.data_lost);
+        assert!(attachment.initial_payload.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn resumable_attach_replays_raw_bytes_without_snapshot() {
         let tab = spawn_test_live_tab();
 
@@ -715,6 +741,19 @@ mod tests {
         assert!(!attachment.snapshot);
         assert!(!attachment.data_lost);
         assert_eq!(attachment.initial_payload, b"llo");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn caught_up_resume_returns_empty_payload_without_snapshot() {
+        let tab = spawn_test_live_tab();
+
+        tab.record_output_for_test(b"hello", DEFAULT_SCROLLBACK);
+
+        let attachment = tab.attach(Some(5));
+
+        assert!(!attachment.snapshot);
+        assert!(!attachment.data_lost);
+        assert!(attachment.initial_payload.is_empty());
     }
 
     #[tokio::test(flavor = "current_thread")]

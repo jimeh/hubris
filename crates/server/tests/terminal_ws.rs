@@ -266,7 +266,7 @@ async fn attached_message_includes_current_pty_size() {
             rows,
             ..
         } => {
-            assert!(snapshot);
+            assert!(!snapshot);
             assert!(!data_lost);
             assert_eq!(cols, 80);
             assert_eq!(rows, 24);
@@ -307,7 +307,7 @@ async fn smallest_visible_client_drives_shared_pty_size() {
             rows,
             ..
         } => {
-            assert!(snapshot);
+            assert!(!snapshot);
             assert!(!data_lost);
             assert_eq!(cols, 120);
             assert_eq!(rows, 40);
@@ -493,7 +493,7 @@ async fn resume_attach_uses_raw_delta_when_gap_fits_scrollback() {
             data_lost,
             ..
         } => {
-            assert!(snapshot);
+            assert!(!snapshot);
             assert!(!data_lost);
             byte_offset
         }
@@ -520,6 +520,46 @@ async fn resume_attach_uses_raw_delta_when_gap_fits_scrollback() {
 }
 
 #[tokio::test]
+async fn caught_up_resume_returns_empty_non_snapshot_payload() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_tab(&client, &base, &worktree_id).await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let mut first = connect_terminal(&base, tab_id).await;
+    let base_offset = match next_control_message(&mut first).await {
+        ServerControlMessage::Attached {
+            byte_offset,
+            snapshot,
+            data_lost,
+            ..
+        } => {
+            assert!(!snapshot);
+            assert!(!data_lost);
+            byte_offset
+        }
+        other => panic!("expected attached message, got {other:?}"),
+    };
+
+    let mut resumed = connect_terminal_with_resume(&base, tab_id, Some(base_offset)).await;
+    match next_control_message(&mut resumed).await {
+        ServerControlMessage::Attached {
+            snapshot,
+            data_lost,
+            ..
+        } => {
+            assert!(!snapshot);
+            assert!(!data_lost);
+        }
+        other => panic!("expected attached message, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn resume_attach_uses_snapshot_when_gap_exceeds_scrollback() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
@@ -538,7 +578,7 @@ async fn resume_attach_uses_snapshot_when_gap_exceeds_scrollback() {
             data_lost,
             ..
         } => {
-            assert!(snapshot);
+            assert!(!snapshot);
             assert!(!data_lost);
             byte_offset
         }
