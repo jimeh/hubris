@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type CSSProperties,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import TabBar from "@/components/TabBar";
 import WorktreeRightSidebar from "@/components/WorktreeRightSidebar";
@@ -15,6 +21,9 @@ type Props = {
 export default function WorktreeView({ worktree }: Props) {
   const isRightSidebarResizing = useWorktreeRightSidebarWidthStore(
     (state) => state.isResizing,
+  );
+  const initialRightSidebarWidthRef = useRef(
+    useWorktreeRightSidebarWidthStore.getState().width,
   );
   const activeTabId = useTabStore((state) => state.activeTabId);
   const switchToWorktree = useTabStore((state) => state.switchToWorktree);
@@ -86,10 +95,16 @@ export default function WorktreeView({ worktree }: Props) {
   return (
     <div
       ref={viewRef}
+      data-worktree-view
       className={cn(
         "flex h-full overflow-hidden",
         isRightSidebarResizing && "worktree-right-sidebar-resizing",
       )}
+      style={
+        {
+          "--worktree-right-sidebar-width": `${initialRightSidebarWidthRef.current}px`,
+        } as CSSProperties
+      }
     >
       <div className="flex min-w-0 flex-1 flex-col">
         <TabBar

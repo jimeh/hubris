@@ -132,6 +132,10 @@ No periodic reconciliation — drift corrects on reconnect.
 - **Sidebar resize ownership**: Keep sidebar resize customization in
   app-level files instead of `components/ui/sidebar.tsx` so shadcn
   sidebar upgrades remain copy-merge operations.
+- **Sidebar menu primitives require provider context**:
+  `SidebarMenuButton` and related `SidebarMenu*` primitives call
+  `useSidebar()`. When reusing them outside a full `Sidebar`, wrap the
+  render tree in `SidebarProvider` in app code/tests.
 - **Sidebar width updates are imperative during drag**:
   `frontend/src/App.tsx` subscribes to sidebar width store changes and
   writes `--sidebar-width` directly to the rendered sidebar wrapper.

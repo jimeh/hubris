@@ -177,6 +177,14 @@ describe("WorktreeView", () => {
 
     render(<WorktreeView worktree={worktree} />);
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(screen.getByText("Git panel")).toBeInTheDocument();
+
+    const viewRoot = document.querySelector<HTMLElement>(
+      "[data-worktree-view]",
+    );
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("320px");
 
     const host = document.querySelector<HTMLElement>(
       "[data-worktree-right-sidebar-wrapper]",
@@ -208,6 +216,7 @@ describe("WorktreeView", () => {
     act(() => {
       useWorktreeRightSidebarStore.getState().toggleDesktop();
     });
+    expect(screen.getByText("Git panel")).toBeInTheDocument();
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
 
     act(() => {

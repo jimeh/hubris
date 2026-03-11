@@ -11,6 +11,7 @@ describe("useIsMobile", () => {
   it("uses the current media query match on first render", () => {
     const addEventListener = vi.fn();
     const removeEventListener = vi.fn();
+    window.innerWidth = 640;
 
     vi.stubGlobal(
       "matchMedia",
@@ -37,6 +38,7 @@ describe("useIsMobile", () => {
 
   it("updates when the media query listener fires", () => {
     let changeListener: ((event: MediaQueryListEvent) => void) | undefined;
+    window.innerWidth = 1280;
 
     vi.stubGlobal(
       "matchMedia",
@@ -60,6 +62,7 @@ describe("useIsMobile", () => {
     expect(screen.getByText("desktop")).toBeInTheDocument();
 
     act(() => {
+      window.innerWidth = 640;
       changeListener?.({ matches: true } as MediaQueryListEvent);
     });
 

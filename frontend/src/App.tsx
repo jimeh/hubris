@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
-import { Folder, GitBranch } from "lucide-react";
+import { Folder, PanelRight } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -130,7 +130,7 @@ function AppHeader({
                 }
               }}
             >
-              <GitBranch className="h-4 w-4" />
+              <PanelRight className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">{gitStatusLabel}</TooltipContent>

@@ -21,6 +21,7 @@ vi.mock("@/components/WorktreeGitStatusPanel", () => ({
 }));
 
 function setMobile(matches: boolean): void {
+  window.innerWidth = matches ? 640 : 1280;
   vi.stubGlobal(
     "matchMedia",
     vi.fn().mockImplementation(() => ({
@@ -67,9 +68,20 @@ describe("WorktreeRightSidebar", () => {
     render(<WorktreeRightSidebar worktree={makeWorktree()} />);
 
     expect(screen.getByText("Git panel body")).toBeInTheDocument();
+    const panel = document.querySelector<HTMLElement>(
+      "[data-worktree-right-sidebar-panel]",
+    );
+    expect(panel).toHaveClass("h-full");
+    const gap = document.querySelector<HTMLElement>(
+      "[data-worktree-right-sidebar-gap]",
+    );
+    expect(gap?.style.width).toBe("var(--worktree-right-sidebar-width, 320px)");
     expect(
       screen.getByRole("button", { name: "Resize right sidebar" }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Collapse right sidebar" }),
+    ).not.toBeInTheDocument();
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: "Panel action" }),
@@ -77,7 +89,7 @@ describe("WorktreeRightSidebar", () => {
     });
   });
 
-  it("shows a collapsed desktop rail without the resize handle", async () => {
+  it("hides completely when collapsed on desktop", async () => {
     const { useWorktreeRightSidebarStore } =
       await import("@/lib/stores/worktreeRightSidebar");
     useWorktreeRightSidebarStore.setState({
@@ -89,13 +101,23 @@ describe("WorktreeRightSidebar", () => {
 
     render(<WorktreeRightSidebar worktree={makeWorktree()} />);
 
+    const host = document.querySelector<HTMLElement>(
+      "[data-worktree-right-sidebar-wrapper]",
+    );
+    const gap = document.querySelector<HTMLElement>(
+      "[data-worktree-right-sidebar-gap]",
+    );
+    const panel = document.querySelector<HTMLElement>(
+      "[data-worktree-right-sidebar-panel]",
+    );
+    expect(host).not.toBeNull();
+    expect(host?.dataset.state).toBe("closed");
+    expect(gap?.style.width).toBe("0px");
+    expect(panel).toHaveClass("translate-x-full");
     expect(
       screen.queryByRole("button", { name: "Resize right sidebar" }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByText("Git panel body")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Expand right sidebar" }),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Git panel body")).toBeInTheDocument();
   });
 
   it("renders the mobile sheet with the active panel content", async () => {
