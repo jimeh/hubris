@@ -2,25 +2,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setMobile } from "@/test/mobile";
 
 let worktreeViewRenderCount = 0;
-
-function setMobile(matches: boolean): void {
-  window.innerWidth = matches ? 640 : 1280;
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn().mockImplementation(() => ({
-      matches,
-      media: "(max-width: 767px)",
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  );
-}
 
 vi.mock("@/components/SidebarResizeHandle", () => ({
   default: () => null,

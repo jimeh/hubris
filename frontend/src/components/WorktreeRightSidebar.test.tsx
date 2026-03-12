@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setMobile } from "@/test/mobile";
 import type { Worktree } from "@/lib/types";
 
 vi.mock("@/components/WorktreeGitStatusPanel", () => ({
@@ -32,18 +33,6 @@ vi.mock("@/components/WorktreeGitStatusPanel", () => ({
     return <div>Git panel body {open ? "open" : "closed"}</div>;
   },
 }));
-
-function setMobile(matches: boolean): void {
-  window.innerWidth = matches ? 640 : 1280;
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn().mockImplementation(() => ({
-      matches,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    })),
-  );
-}
 
 function makeWorktree(): Worktree {
   return {

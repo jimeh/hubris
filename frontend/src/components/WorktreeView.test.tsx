@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setMobile } from "@/test/mobile";
 import type { Tab, Worktree } from "@/lib/types";
 
 const terminalRenderSpy = vi.fn<(tabId: string) => void>();
@@ -37,17 +38,6 @@ function getTerminalRenderCounts(): Record<string, number> {
     counts[tabId] = (counts[tabId] ?? 0) + 1;
   }
   return counts;
-}
-
-function setMobile(matches: boolean): void {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn().mockImplementation(() => ({
-      matches,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    })),
-  );
 }
 
 function makeWorktree(): Worktree {
