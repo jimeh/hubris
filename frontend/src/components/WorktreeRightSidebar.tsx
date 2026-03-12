@@ -164,6 +164,7 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
             : "0px",
         }}
       />
+      {desktopOpen ? <WorktreeRightSidebarResizeHandle /> : null}
       <div
         data-worktree-right-sidebar-panel
         aria-hidden={!desktopOpen}
@@ -177,7 +178,6 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
           "border-l",
         ].join(" ")}
       >
-        {desktopOpen ? <WorktreeRightSidebarResizeHandle /> : null}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <RightSidebarHeader
             title={panel.title}

@@ -70,9 +70,9 @@ export default function WorktreeRightSidebarResizeHandle() {
       aria-label="Resize right sidebar"
       data-worktree-right-sidebar-resize-handle
       className={[
-        "absolute inset-y-0 -left-1 z-20 hidden w-2 cursor-w-resize",
-        "touch-none bg-transparent p-0 md:block",
-        "transition-[left,opacity] duration-200 ease-linear",
+        "fixed inset-y-0 right-[calc(var(--worktree-right-sidebar-width)-4px)]",
+        "z-30 hidden w-2 cursor-w-resize touch-none bg-transparent p-0 md:block",
+        "transition-[right,opacity] duration-200 ease-linear",
         "after:absolute after:inset-y-0 after:left-1/2 after:w-[2px]",
         "after:-translate-x-1/2 hover:after:bg-border",
         "focus-visible:after:bg-border",

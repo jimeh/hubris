@@ -181,26 +181,93 @@ describe("WorktreeView", () => {
     );
     expect(host).not.toBeNull();
     expect(host?.style.getPropertyValue("--worktree-right-sidebar-width")).toBe(
-      "320px",
+      "",
     );
 
     act(() => {
       useWorktreeRightSidebarWidthStore.getState().setWidth(412);
     });
 
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("412px");
     expect(host?.style.getPropertyValue("--worktree-right-sidebar-width")).toBe(
-      "412px",
+      "",
     );
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
 
-    fireEvent.keyDown(
-      await screen.findByRole("button", { name: "Resize right sidebar" }),
-      { key: "ArrowLeft" },
-    );
+    const resizeHandle = await screen.findByRole("button", {
+      name: "Resize right sidebar",
+    });
 
-    expect(host?.style.getPropertyValue("--worktree-right-sidebar-width")).toBe(
-      "428px",
-    );
+    fireEvent.keyDown(resizeHandle, { key: "ArrowLeft" });
+
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("428px");
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    Object.defineProperty(resizeHandle, "setPointerCapture", {
+      value: vi.fn(),
+      configurable: true,
+    });
+    Object.defineProperty(resizeHandle, "releasePointerCapture", {
+      value: vi.fn(),
+      configurable: true,
+    });
+    Object.defineProperty(resizeHandle, "hasPointerCapture", {
+      value: vi.fn(() => true),
+      configurable: true,
+    });
+
+    fireEvent.pointerDown(resizeHandle, {
+      button: 0,
+      pointerId: 1,
+      clientX: 900,
+    });
+    fireEvent.pointerMove(resizeHandle, {
+      pointerId: 1,
+      clientX: 860,
+    });
+    await act(async () => {
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => resolve(null)),
+      );
+    });
+    fireEvent.pointerUp(resizeHandle, {
+      pointerId: 1,
+      clientX: 860,
+    });
+
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("468px");
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    act(() => {
+      setMobile(true);
+    });
+    expect(
+      screen.queryByRole("button", { name: "Resize right sidebar" }),
+    ).not.toBeInTheDocument();
+
+    act(() => {
+      setMobile(false);
+    });
+
+    const resizeHandleAfterViewportReset = await screen.findByRole("button", {
+      name: "Resize right sidebar",
+    });
+
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("468px");
+
+    fireEvent.keyDown(resizeHandleAfterViewportReset, { key: "ArrowLeft" });
+
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("484px");
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
 
     act(() => {
@@ -213,9 +280,9 @@ describe("WorktreeView", () => {
       useWorktreeRightSidebarStore.getState().toggleDesktop();
     });
 
-    expect(host?.style.getPropertyValue("--worktree-right-sidebar-width")).toBe(
-      "428px",
-    );
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("484px");
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
   });
 });

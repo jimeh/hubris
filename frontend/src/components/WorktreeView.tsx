@@ -69,17 +69,14 @@ export default function WorktreeView({ worktree }: Props) {
   }, [switchToWorktree, worktree.id]);
 
   useLayoutEffect(() => {
-    const host =
-      viewRef.current?.querySelector<HTMLElement>(
-        "[data-worktree-right-sidebar-wrapper]",
-      ) ?? null;
-    if (!host) {
+    const viewRoot = viewRef.current;
+    if (!viewRoot) {
       return;
     }
-    const sidebarHost = host;
+    const viewRootElement = viewRoot;
 
     function applyWidth(width: number): void {
-      sidebarHost.style.setProperty(
+      viewRootElement.style.setProperty(
         "--worktree-right-sidebar-width",
         `${width}px`,
       );
