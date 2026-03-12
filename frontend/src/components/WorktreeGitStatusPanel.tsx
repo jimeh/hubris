@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -43,6 +44,7 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   worktree: Worktree;
+  open?: boolean;
   onActionsChange?: (actions: ReactNode | null) => void;
 };
 
@@ -415,15 +417,20 @@ function AheadCommitList({
 
 export default function WorktreeGitStatusPanel({
   worktree,
+  open = true,
   onActionsChange,
 }: Props) {
+  const worktreeStatusKey = `${worktree.project_id}:${worktree.id}`;
   const [status, setStatus] = useState<WorktreeGitStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [viewMode, setViewMode] = useState<FileViewMode>("list");
   const [showLoadingSkeleton, setShowLoadingSkeleton] = useState(false);
+  const requestIdRef = useRef(0);
 
   const loadStatus = useCallback(async () => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
     setLoading(true);
     setError("");
 
@@ -432,11 +439,19 @@ export default function WorktreeGitStatusPanel({
         worktree.project_id,
         worktree.id,
       );
+      if (requestIdRef.current !== requestId) {
+        return;
+      }
       setStatus(nextStatus);
     } catch (loadError) {
+      if (requestIdRef.current !== requestId) {
+        return;
+      }
       setError(`Failed to load git status (${(loadError as Error).message})`);
     } finally {
-      setLoading(false);
+      if (requestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [worktree.id, worktree.project_id]);
 
@@ -459,10 +474,20 @@ export default function WorktreeGitStatusPanel({
   );
 
   useEffect(() => {
+    requestIdRef.current += 1;
     setStatus(null);
     setError("");
+    setLoading(false);
+    setShowLoadingSkeleton(false);
+  }, [worktreeStatusKey]);
+
+  useEffect(() => {
+    if (!open || status || error) {
+      return;
+    }
+
     void loadStatus();
-  }, [loadStatus]);
+  }, [error, loadStatus, open, status]);
 
   useEffect(() => {
     if (!loading || status || error) {
@@ -478,9 +503,14 @@ export default function WorktreeGitStatusPanel({
   }, [error, loading, status]);
 
   useEffect(() => {
+    if (!open) {
+      onActionsChange?.(null);
+      return;
+    }
+
     onActionsChange?.(headerActions);
     return () => onActionsChange?.(null);
-  }, [headerActions, onActionsChange]);
+  }, [headerActions, onActionsChange, open]);
 
   return (
     <ScrollArea className="min-h-0 flex-1">

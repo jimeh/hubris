@@ -1,22 +1,35 @@
 // @vitest-environment jsdom
 import { useEffect, type ReactNode } from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Worktree } from "@/lib/types";
 
 vi.mock("@/components/WorktreeGitStatusPanel", () => ({
   default: function MockWorktreeGitStatusPanel({
+    open = true,
     onActionsChange,
   }: {
     worktree: Worktree;
+    open?: boolean;
     onActionsChange?: (actions: ReactNode | null) => void;
   }) {
     useEffect(() => {
+      if (!open) {
+        onActionsChange?.(null);
+        return;
+      }
+
       onActionsChange?.(<button type="button">Panel action</button>);
       return () => onActionsChange?.(null);
-    }, [onActionsChange]);
+    }, [onActionsChange, open]);
 
-    return <div>Git panel body</div>;
+    return <div>Git panel body {open ? "open" : "closed"}</div>;
   },
 }));
 
@@ -67,7 +80,7 @@ describe("WorktreeRightSidebar", () => {
 
     render(<WorktreeRightSidebar worktree={makeWorktree()} />);
 
-    expect(screen.getByText("Git panel body")).toBeInTheDocument();
+    expect(screen.getByText("Git panel body open")).toBeInTheDocument();
     const panel = document.querySelector<HTMLElement>(
       "[data-worktree-right-sidebar-panel]",
     );
@@ -113,11 +126,16 @@ describe("WorktreeRightSidebar", () => {
     expect(host).not.toBeNull();
     expect(host?.dataset.state).toBe("closed");
     expect(gap?.style.width).toBe("0px");
+    expect(panel).toHaveAttribute("aria-hidden", "true");
+    expect(panel).toHaveAttribute("inert");
     expect(panel).toHaveClass("translate-x-full");
     expect(
       screen.queryByRole("button", { name: "Resize right sidebar" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Git panel body")).toBeInTheDocument();
+    expect(screen.getByText("Git panel body closed")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Panel action" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders the mobile sheet with the active panel content", async () => {
@@ -135,9 +153,20 @@ describe("WorktreeRightSidebar", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toBeInTheDocument();
-    expect(within(dialog).getByText("Git panel body")).toBeInTheDocument();
+    expect(within(dialog).getByText("Git panel body open")).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: "Hide right sidebar" }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Resize right sidebar" }),
     ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Hide right sidebar" }),
+    );
+
+    await waitFor(() => {
+      expect(useWorktreeRightSidebarStore.getState().mobileOpen).toBe(false);
+    });
   });
 });

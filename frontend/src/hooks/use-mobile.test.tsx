@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useIsMobile } from "./use-mobile";
 
 function TestComponent() {
@@ -7,7 +7,20 @@ function TestComponent() {
   return <span>{isMobile ? "mobile" : "desktop"}</span>;
 }
 
+const originalInnerWidth = window.innerWidth;
+const originalMatchMedia = window.matchMedia;
+
 describe("useIsMobile", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    window.innerWidth = originalInnerWidth;
+    window.matchMedia = originalMatchMedia;
+    vi.unstubAllGlobals();
+  });
+
   it("uses the current media query match on first render", () => {
     const addEventListener = vi.fn();
     const removeEventListener = vi.fn();

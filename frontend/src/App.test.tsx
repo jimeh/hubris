@@ -5,6 +5,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let worktreeViewRenderCount = 0;
 
+function setMobile(matches: boolean): void {
+  window.innerWidth = matches ? 640 : 1280;
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation(() => ({
+      matches,
+      media: "(max-width: 767px)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
+
 vi.mock("@/components/SidebarResizeHandle", () => ({
   default: () => null,
 }));
@@ -51,13 +68,17 @@ describe("App", () => {
     vi.restoreAllMocks();
     localStorage.clear();
     worktreeViewRenderCount = 0;
+    setMobile(false);
 
     const { useProjectStore } = await import("@/lib/stores/projects");
     const { useWorktreeStore } = await import("@/lib/stores/worktrees");
     const { resetSidebarWidthStoreForTests, useSidebarWidthStore } =
       await import("@/lib/stores/sidebarWidth");
+    const { resetWorktreeRightSidebarStoreForTests } =
+      await import("@/lib/stores/worktreeRightSidebar");
 
     resetSidebarWidthStoreForTests();
+    resetWorktreeRightSidebarStoreForTests();
 
     useProjectStore.setState({
       projects: [
@@ -151,5 +172,40 @@ describe("App", () => {
     });
 
     expect(sidebarWrapper).not.toHaveClass("sidebar-resizing");
+  });
+
+  it("opens the mobile right sidebar on the first tap in mobile view", async () => {
+    setMobile(true);
+    const { useWorktreeRightSidebarStore } =
+      await import("@/lib/stores/worktreeRightSidebar");
+    useWorktreeRightSidebarStore.setState({
+      desktopOpen: false,
+      mobileOpen: false,
+    });
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show git status" }));
+
+    expect(useWorktreeRightSidebarStore.getState().mobileOpen).toBe(true);
+    expect(useWorktreeRightSidebarStore.getState().desktopOpen).toBe(false);
+  });
+
+  it("opens the desktop right sidebar in desktop view", async () => {
+    const { useWorktreeRightSidebarStore } =
+      await import("@/lib/stores/worktreeRightSidebar");
+    useWorktreeRightSidebarStore.setState({
+      desktopOpen: false,
+      mobileOpen: false,
+    });
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show git status" }));
+
+    expect(useWorktreeRightSidebarStore.getState().desktopOpen).toBe(true);
+    expect(useWorktreeRightSidebarStore.getState().mobileOpen).toBe(false);
   });
 });

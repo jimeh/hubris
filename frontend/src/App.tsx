@@ -23,7 +23,6 @@ import AppSidebar from "@/components/AppSidebar";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import WorktreeView from "@/components/WorktreeView";
 import { Button } from "@/components/ui/button";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
 import { WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL } from "@/lib/worktreeRightSidebar";
@@ -38,7 +37,7 @@ function AppHeader({
   selectedWorktree: { name: string } | null;
 }) {
   const sidebar = useSidebar();
-  const isMobile = useIsMobile();
+  const isMobile = sidebar.isMobile;
   const sidebarVisible = sidebar.isMobile
     ? sidebar.openMobile
     : sidebar.state !== "collapsed";
@@ -56,13 +55,9 @@ function AppHeader({
   const gitStatusVisible =
     (isMobile ? mobileOpen : desktopOpen) &&
     activePanel === WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL;
-  const gitStatusLabel = isMobile
-    ? gitStatusVisible
-      ? "Hide git status"
-      : "Show git status"
-    : gitStatusVisible
-      ? "Hide git status"
-      : "Show git status";
+  const gitStatusLabel = gitStatusVisible
+    ? "Hide git status"
+    : "Show git status";
 
   return (
     <header className="flex shrink-0 items-center gap-2 border-b py-2 pl-3 pr-4 md:h-12 md:py-0">

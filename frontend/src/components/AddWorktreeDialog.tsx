@@ -144,17 +144,6 @@ export default function AddWorktreeDialog({
       ) ?? null,
     [selectedStartPointValue, startPoints],
   );
-  const selectedSourceRef = useMemo(() => {
-    if (useCustomStartPoint) {
-      return undefined;
-    }
-
-    return (
-      selectedStartPoint?.remote_refs[0] ??
-      selectedStartPoint?.local_ref ??
-      undefined
-    );
-  }, [selectedStartPoint, useCustomStartPoint]);
 
   const startPointTriggerLabel = useMemo(() => {
     if (useCustomStartPoint) {
@@ -236,7 +225,21 @@ export default function AddWorktreeDialog({
     setSubmitting(true);
     setError("");
     try {
-      await onAdd(effectiveBranch, effectiveStartPoint, selectedSourceRef);
+      const matchedStartPoint =
+        useCustomStartPoint || !effectiveStartPoint
+          ? undefined
+          : startPoints.find(
+              (startPoint) =>
+                startPoint.value === effectiveStartPoint ||
+                startPoint.local_ref === effectiveStartPoint ||
+                startPoint.remote_refs.includes(effectiveStartPoint),
+            );
+      const sourceRef =
+        matchedStartPoint?.remote_refs[0] ??
+        matchedStartPoint?.local_ref ??
+        undefined;
+
+      await onAdd(effectiveBranch, effectiveStartPoint, sourceRef);
     } catch (submitError) {
       setError((submitError as Error).message);
       setSubmitting(false);

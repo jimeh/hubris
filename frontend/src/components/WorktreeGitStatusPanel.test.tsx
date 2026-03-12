@@ -38,7 +38,11 @@ function makeWorktree(): Worktree {
 }
 
 function renderPanel(): RenderResult {
-  function Harness() {
+  return renderPanelWithOpen(true);
+}
+
+function renderPanelWithOpen(open: boolean): RenderResult {
+  function Harness({ open: isOpen }: { open: boolean }) {
     const [actions, setActions] = useState<ReactNode>(null);
 
     return (
@@ -48,6 +52,7 @@ function renderPanel(): RenderResult {
           {/* height ensures ScrollArea has a real container in tests */}
           <WorktreeGitStatusPanel
             worktree={makeWorktree()}
+            open={isOpen}
             onActionsChange={setActions}
           />
         </div>
@@ -55,7 +60,7 @@ function renderPanel(): RenderResult {
     );
   }
 
-  return render(<Harness />);
+  return render(<Harness open={open} />);
 }
 
 describe("WorktreeGitStatusPanel", () => {
@@ -96,6 +101,102 @@ describe("WorktreeGitStatusPanel", () => {
     await waitFor(() => {
       expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("does not fetch or publish header actions while closed", async () => {
+    renderPanelWithOpen(false);
+
+    expect(mockGetProjectWorktreeGitStatus).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Refresh git status" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("fetches once when opened after mounting closed", async () => {
+    function Harness() {
+      const [actions, setActions] = useState<ReactNode>(null);
+      const [open, setOpen] = useState(false);
+
+      return (
+        <SidebarProvider defaultOpen>
+          <div>{actions}</div>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open panel
+          </button>
+          <div className="h-96">
+            <WorktreeGitStatusPanel
+              worktree={makeWorktree()}
+              open={open}
+              onActionsChange={setActions}
+            />
+          </div>
+        </SidebarProvider>
+      );
+    }
+
+    render(<Harness />);
+
+    expect(mockGetProjectWorktreeGitStatus).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open panel" }));
+
+    await waitFor(() => {
+      expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      screen.getByRole("button", { name: "Refresh git status" }),
+    ).toBeInTheDocument();
+  });
+
+  it("fetches when reopened and preserves expanded tree state", async () => {
+    function Harness() {
+      const [actions, setActions] = useState<ReactNode>(null);
+      const [open, setOpen] = useState(true);
+
+      return (
+        <SidebarProvider defaultOpen>
+          <div>{actions}</div>
+          <button type="button" onClick={() => setOpen((value) => !value)}>
+            Toggle open
+          </button>
+          <div className="h-96">
+            <WorktreeGitStatusPanel
+              worktree={makeWorktree()}
+              open={open}
+              onActionsChange={setActions}
+            />
+          </div>
+        </SidebarProvider>
+      );
+    }
+
+    render(<Harness />);
+
+    await screen.findByText("Unstaged");
+    fireEvent.click(screen.getByRole("button", { name: "Show tree view" }));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle tmp2/bar" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle tmp2/bar/baz" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle tmp2/bar/baz/qux" }),
+    );
+    expect(screen.getByText("deep.txt")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle open" }));
+    expect(
+      screen.queryByRole("button", { name: "Refresh git status" }),
+    ).not.toBeInTheDocument();
+    expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle open" }));
+
+    expect(await screen.findByText("Unstaged")).toBeInTheDocument();
+    expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("button", { name: "Toggle tmp2/bar/baz/qux" }),
+    ).toBeVisible();
+    expect(screen.getByText("deep.txt")).toBeInTheDocument();
   });
 
   it("does not flash loading skeletons for fast responses", async () => {
