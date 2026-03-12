@@ -31,6 +31,17 @@ fn run_git(repo_path: &Path, args: &[&str]) {
     assert!(status.success(), "git failed: {:?}", args);
 }
 
+fn run_git_status(repo_path: &Path, args: &[&str]) -> std::process::ExitStatus {
+    Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("-c")
+        .arg("commit.gpgsign=false")
+        .args(args)
+        .status()
+        .unwrap()
+}
+
 fn run_git_env(repo_path: &Path, args: &[&str], env: &[(&str, &str)]) {
     let mut cmd = Command::new("git");
     cmd.arg("-C")
@@ -554,6 +565,156 @@ async fn test_worktree_git_status_returns_comparison_error_for_bad_source_ref() 
     assert_eq!(body["comparison_available"], true);
     assert!(body["comparison_error"].is_string());
     assert_eq!(body["unstaged_files"][0]["path"], "README.md");
+}
+
+#[tokio::test]
+async fn test_worktree_git_status_reports_renamed_and_copied_files() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("rename-source.txt"), "rename me\n").unwrap();
+    std::fs::write(repo.path().join("copy-source.txt"), "copy me\n").unwrap();
+    run_git(
+        repo.path(),
+        &["add", "rename-source.txt", "copy-source.txt"],
+    );
+    run_git(repo.path(), &["commit", "-q", "-m", "add source files"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let created = create_worktree_with_payload(
+        &client,
+        &base,
+        &project_id,
+        serde_json::json!({
+            "branch": "feature-rewrites",
+            "start_point": "main",
+            "source_ref": "main"
+        }),
+    )
+    .await;
+    let worktree_path = Path::new(created["path"].as_str().unwrap());
+
+    run_git(
+        worktree_path,
+        &["mv", "rename-source.txt", "rename-target.txt"],
+    );
+    std::fs::copy(
+        worktree_path.join("copy-source.txt"),
+        worktree_path.join("copied-target.txt"),
+    )
+    .unwrap();
+    run_git(worktree_path, &["add", "copied-target.txt"]);
+
+    let res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git-status",
+            base,
+            project_id,
+            created["id"].as_str().unwrap()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+
+    let staged_files = body["staged_files"].as_array().unwrap();
+    assert!(
+        staged_files
+            .iter()
+            .any(|file| { file["path"] == "copied-target.txt" && file["change_type"] == "copied" })
+    );
+    assert!(
+        staged_files.iter().any(|file| {
+            file["path"] == "rename-target.txt" && file["change_type"] == "renamed"
+        })
+    );
+}
+
+#[tokio::test]
+async fn test_worktree_git_status_returns_500_for_missing_worktree_path() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let created = create_worktree_with_payload(
+        &client,
+        &base,
+        &project_id,
+        serde_json::json!({
+            "branch": "feature-status-missing",
+            "source_ref": "main"
+        }),
+    )
+    .await;
+
+    std::fs::remove_dir_all(created["path"].as_str().unwrap()).unwrap();
+
+    let res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git-status",
+            base,
+            project_id,
+            created["id"].as_str().unwrap()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn test_worktree_git_status_reports_conflicts() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let created = create_worktree_with_payload(
+        &client,
+        &base,
+        &project_id,
+        serde_json::json!({
+            "branch": "feature-conflict",
+            "start_point": "main",
+            "source_ref": "main"
+        }),
+    )
+    .await;
+    let worktree_path = Path::new(created["path"].as_str().unwrap());
+
+    std::fs::write(repo.path().join("README.md"), "hello\nmain change\n").unwrap();
+    run_git(repo.path(), &["add", "README.md"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "main change"]);
+
+    std::fs::write(worktree_path.join("README.md"), "hello\nfeature change\n").unwrap();
+    run_git(worktree_path, &["add", "README.md"]);
+    run_git(worktree_path, &["commit", "-q", "-m", "feature change"]);
+
+    let status = run_git_status(worktree_path, &["merge", "main"]);
+    assert!(!status.success());
+
+    let res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git-status",
+            base,
+            project_id,
+            created["id"].as_str().unwrap()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+
+    let unstaged_files = body["unstaged_files"].as_array().unwrap();
+    assert!(
+        unstaged_files
+            .iter()
+            .any(|file| { file["path"] == "README.md" && file["change_type"] == "conflict" })
+    );
 }
 
 #[tokio::test]

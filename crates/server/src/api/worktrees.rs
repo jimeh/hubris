@@ -98,6 +98,9 @@ struct ManagedWorktree {
 #[serde(rename_all = "snake_case")]
 pub enum GitFileChangeType {
     Added,
+    Copied,
+    Renamed,
+    Conflict,
     Modified,
     Deleted,
     Typechange,
@@ -532,11 +535,33 @@ pub async fn get_project_worktree_git_status(
         .find(|wt| wt.id == worktree_id)
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let status = git::read_worktree_status(
-        PathBuf::from(&worktree.path).as_path(),
-        worktree.source_ref.as_deref(),
-    )
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let worktree_path = PathBuf::from(&worktree.path);
+    let worktree_path_for_log = worktree.path.clone();
+    let source_ref = worktree.source_ref.clone();
+    let status = tokio::task::spawn_blocking(move || {
+        git::read_worktree_status(&worktree_path, source_ref.as_deref())
+    })
+    .await
+    .map_err(|err| {
+        tracing::warn!(
+            %project_id,
+            %worktree_id,
+            worktree_path = %worktree_path_for_log,
+            error = %err,
+            "git status task failed",
+        );
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .map_err(|err| {
+        tracing::warn!(
+            %project_id,
+            %worktree_id,
+            worktree_path = %worktree_path_for_log,
+            error = %err,
+            "git status failed",
+        );
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     Ok(Json(WorktreeGitStatusResponse {
         source_ref: worktree.source_ref,

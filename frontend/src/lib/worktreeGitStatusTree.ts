@@ -32,18 +32,38 @@ function createDirectoryNode(name: string, path: string): MutableDirectoryNode {
   };
 }
 
-function finalizeDirectory(
+function finalizeDirectoryNode(
   node: MutableDirectoryNode,
-): WorktreeGitStatusTreeNode[] {
+): Extract<WorktreeGitStatusTreeNode, { kind: "directory" }> {
   const directories = [...node.directories.values()]
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((child) => ({
-      kind: "directory" as const,
-      name: child.name,
-      path: child.path,
-      children: finalizeDirectory(child),
-    }));
+    .map((child) => finalizeDirectoryNode(child));
   const files = [...node.files].sort((a, b) => a.path.localeCompare(b.path));
+
+  if (files.length === 0 && directories.length === 1) {
+    const [onlyChild] = directories;
+    return {
+      kind: "directory",
+      name: `${node.name}/${onlyChild.name}`,
+      path: onlyChild.path,
+      children: onlyChild.children,
+    };
+  }
+
+  return {
+    kind: "directory",
+    name: node.name,
+    path: node.path,
+    children: [...directories, ...files],
+  };
+}
+
+function finalizeRoot(node: MutableDirectoryNode): WorktreeGitStatusTreeNode[] {
+  const directories = [...node.directories.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((child) => finalizeDirectoryNode(child));
+  const files = [...node.files].sort((a, b) => a.path.localeCompare(b.path));
+
   return [...directories, ...files];
 }
 
@@ -79,5 +99,5 @@ export function buildWorktreeGitStatusTree(
     });
   }
 
-  return finalizeDirectory(root);
+  return finalizeRoot(root);
 }

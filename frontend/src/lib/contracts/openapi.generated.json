@@ -910,7 +910,16 @@
       },
       "GitFileChangeType": {
         "type": "string",
-        "enum": ["added", "modified", "deleted", "typechange", "untracked"]
+        "enum": [
+          "added",
+          "copied",
+          "renamed",
+          "conflict",
+          "modified",
+          "deleted",
+          "typechange",
+          "untracked"
+        ]
       },
       "ListFilesResponse": {
         "type": "object",

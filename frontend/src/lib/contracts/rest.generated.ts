@@ -308,6 +308,9 @@ export interface components {
     /** @enum {string} */
     GitFileChangeType:
       | "added"
+      | "copied"
+      | "renamed"
+      | "conflict"
       | "modified"
       | "deleted"
       | "typechange"

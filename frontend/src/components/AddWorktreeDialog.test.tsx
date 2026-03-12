@@ -78,7 +78,7 @@ describe("AddWorktreeDialog", () => {
       expect(onAdd).toHaveBeenCalledWith(
         expect.any(String),
         "refs/heads/main",
-        "main",
+        "origin/main",
       );
     });
   });

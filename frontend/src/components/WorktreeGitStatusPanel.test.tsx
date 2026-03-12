@@ -153,6 +153,30 @@ describe("WorktreeGitStatusPanel", () => {
     expect(screen.getByText("Ahead commit")).toBeInTheDocument();
   });
 
+  it("renders copied, renamed, and conflict badges", async () => {
+    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+      source_ref: "main",
+      unstaged_files: [
+        { path: "copied.txt", change_type: "copied" },
+        { path: "conflicted.txt", change_type: "conflict" },
+      ],
+      staged_files: [{ path: "renamed.txt", change_type: "renamed" }],
+      ahead_count: 0,
+      ahead_commits: [],
+      comparison_available: true,
+      comparison_error: null,
+    });
+
+    renderPanel();
+
+    expect(await screen.findByText("copied.txt")).toBeInTheDocument();
+    expect(screen.getByText("renamed.txt")).toBeInTheDocument();
+    expect(screen.getByText("conflicted.txt")).toBeInTheDocument();
+    expect(screen.getByText("C")).toBeInTheDocument();
+    expect(screen.getByText("R")).toBeInTheDocument();
+    expect(screen.getByText("!")).toBeInTheDocument();
+  });
+
   it("uses sticky section headers inside the panel scroll area", async () => {
     renderPanel();
 

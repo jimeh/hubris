@@ -57,6 +57,12 @@ function changeTypeLabel(
   switch (changeType) {
     case "added":
       return "A";
+    case "copied":
+      return "C";
+    case "renamed":
+      return "R";
+    case "conflict":
+      return "!";
     case "modified":
       return "M";
     case "deleted":

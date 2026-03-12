@@ -23,4 +23,45 @@ describe("buildWorktreeGitStatusTree", () => {
       ],
     });
   });
+
+  it("collapses single-child directory chains into one display node", () => {
+    const tree = buildWorktreeGitStatusTree([
+      { path: "src/nested/deeper/deep.ts", change_type: "modified" },
+      { path: "src/peer.ts", change_type: "added" },
+    ]);
+
+    expect(tree).toMatchObject([
+      {
+        kind: "directory",
+        path: "src",
+        children: [
+          {
+            kind: "directory",
+            name: "nested/deeper",
+            path: "src/nested/deeper",
+          },
+          { kind: "file", path: "src/peer.ts" },
+        ],
+      },
+    ]);
+  });
+
+  it("does not collapse directories with mixed files and subdirectories", () => {
+    const tree = buildWorktreeGitStatusTree([
+      { path: "src/nested/deeper/deep.ts", change_type: "modified" },
+      { path: "src/nested/local.ts", change_type: "deleted" },
+    ]);
+
+    expect(tree).toMatchObject([
+      {
+        kind: "directory",
+        name: "src/nested",
+        path: "src/nested",
+        children: [
+          { kind: "directory", name: "deeper", path: "src/nested/deeper" },
+          { kind: "file", path: "src/nested/local.ts" },
+        ],
+      },
+    ]);
+  });
 });

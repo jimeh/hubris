@@ -150,8 +150,8 @@ export default function AddWorktreeDialog({
     }
 
     return (
-      selectedStartPoint?.local_ref ??
       selectedStartPoint?.remote_refs[0] ??
+      selectedStartPoint?.local_ref ??
       undefined
     );
   }, [selectedStartPoint, useCustomStartPoint]);

@@ -64,15 +64,27 @@ fn bytes_to_string(value: &[u8]) -> String {
     String::from_utf8_lossy(value).into_owned()
 }
 
+fn rewrite_tracking() -> gix::diff::Rewrites {
+    gix::diff::Rewrites {
+        copies: Some(gix::diff::rewrites::Copies {
+            source: gix::diff::rewrites::CopySource::FromSetOfModifiedFilesAndAllSources,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 fn map_index_worktree_change(item: &gix::status::index_worktree::Item) -> Option<GitFileChange> {
     use gix::status::index_worktree::{Item, iter::Summary};
 
     let change_type = match item.summary()? {
         Summary::Added | Summary::IntentToAdd => GitFileChangeType::Untracked,
+        Summary::Copied => GitFileChangeType::Copied,
+        Summary::Renamed => GitFileChangeType::Renamed,
+        Summary::Conflict => GitFileChangeType::Conflict,
         Summary::Modified => GitFileChangeType::Modified,
         Summary::Removed => GitFileChangeType::Deleted,
         Summary::TypeChange => GitFileChangeType::Typechange,
-        Summary::Copied | Summary::Renamed | Summary::Conflict => return None,
     };
 
     let path = match item {
@@ -108,7 +120,14 @@ fn map_tree_index_change(change: gix::diff::index::Change) -> Option<GitFileChan
             };
             (bytes_to_string(location.as_ref()), change_type)
         }
-        Change::Rewrite { .. } => return None,
+        Change::Rewrite { location, copy, .. } => (
+            bytes_to_string(location.as_ref()),
+            if copy {
+                GitFileChangeType::Copied
+            } else {
+                GitFileChangeType::Renamed
+            },
+        ),
     };
 
     Some(GitFileChange { path, change_type })
@@ -470,8 +489,10 @@ pub fn read_worktree_status(
         .status(gix::progress::Discard)
         .map_err(to_git_error)?
         .untracked_files(gix::status::UntrackedFiles::Files)
-        .index_worktree_rewrites(None)
-        .tree_index_track_renames(gix::status::tree_index::TrackRenames::Disabled)
+        .index_worktree_rewrites(Some(rewrite_tracking()))
+        .tree_index_track_renames(gix::status::tree_index::TrackRenames::Given(
+            rewrite_tracking(),
+        ))
         .into_iter(Vec::<gix::bstr::BString>::new())
         .map_err(to_git_error)?;
 
