@@ -150,7 +150,7 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
     <div
       data-worktree-right-sidebar-wrapper
       data-state={desktopOpen ? "open" : "closed"}
-      className="relative hidden shrink-0 overflow-visible md:block"
+      className="relative hidden h-full shrink-0 overflow-visible md:block"
     >
       <div
         data-worktree-right-sidebar-gap
