@@ -587,7 +587,47 @@
         },
         "responses": {
           "200": {
-            "description": "Settings saved"
+            "description": "Settings saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["crate::api::settings"],
+        "summary": "PATCH /api/settings — merge partial update",
+        "operationId": "patch_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Settings saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid settings patch"
           },
           "500": {
             "description": "Internal server error"
@@ -816,7 +856,23 @@
           "lightTheme": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
+      },
+      "AppearanceSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "colorScheme": {
+            "type": ["string", "null"]
+          },
+          "darkTheme": {
+            "type": ["string", "null"]
+          },
+          "lightTheme": {
+            "type": ["string", "null"]
+          }
+        },
+        "additionalProperties": false
       },
       "ClientControlMessage": {
         "oneOf": [
@@ -1112,12 +1168,27 @@
         "type": "object",
         "properties": {
           "appearance": {
+            "$ref": "#/components/schemas/AppearanceSettings"
+          },
+          "terminal": {
+            "$ref": "#/components/schemas/TerminalSettings"
+          },
+          "worktree": {
+            "$ref": "#/components/schemas/WorktreeSettings"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SettingsPatch": {
+        "type": "object",
+        "properties": {
+          "appearance": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/AppearanceSettings"
+                "$ref": "#/components/schemas/AppearanceSettingsPatch"
               }
             ]
           },
@@ -1127,7 +1198,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/TerminalSettings"
+                "$ref": "#/components/schemas/TerminalSettingsPatch"
               }
             ]
           },
@@ -1137,11 +1208,12 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/WorktreeSettings"
+                "$ref": "#/components/schemas/WorktreeSettingsPatch"
               }
             ]
           }
-        }
+        },
+        "additionalProperties": false
       },
       "StartPoint": {
         "type": "object",
@@ -1220,7 +1292,28 @@
           "systemFontFamily": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
+      },
+      "TerminalSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "bundledFont": {
+            "type": ["string", "null"]
+          },
+          "fontSize": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "fontSource": {
+            "type": ["string", "null"]
+          },
+          "systemFontFamily": {
+            "type": ["string", "null"]
+          }
+        },
+        "additionalProperties": false
       },
       "UpdateProjectRequest": {
         "type": "object",
@@ -1333,7 +1426,17 @@
           "locationMode": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
+      },
+      "WorktreeSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "locationMode": {
+            "type": ["string", "null"]
+          }
+        },
+        "additionalProperties": false
       }
     }
   },

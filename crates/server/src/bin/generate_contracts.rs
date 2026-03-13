@@ -3,6 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use hubris_server::api::projects::Project;
+use hubris_server::api::settings::{
+    AppearanceSettings, Settings, TerminalSettings, WorktreeSettings,
+};
 use hubris_server::api::terminal::{ClientControlMessage, ServerControlMessage};
 use hubris_server::api::worktrees::Worktree;
 use hubris_server::events::EventKind;
@@ -53,6 +56,14 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     sse.push_str(&Project::export_to_string(&cfg)?);
     sse.push('\n');
     sse.push_str(&Worktree::export_to_string(&cfg)?);
+    sse.push('\n');
+    sse.push_str(&AppearanceSettings::export_to_string(&cfg)?);
+    sse.push('\n');
+    sse.push_str(&TerminalSettings::export_to_string(&cfg)?);
+    sse.push('\n');
+    sse.push_str(&WorktreeSettings::export_to_string(&cfg)?);
+    sse.push('\n');
+    sse.push_str(&strip_imports(&Settings::export_to_string(&cfg)?));
     sse.push('\n');
     sse.push_str(&strip_imports(&EventKind::export_to_string(&cfg)?));
     sse.push('\n');

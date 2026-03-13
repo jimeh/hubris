@@ -1,16 +1,14 @@
 import { GitFork } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { useWorktreeSettingsStore } from "@/lib/stores/worktreeSettings";
+import { useSettingsStore } from "@/lib/stores/settings";
 
 const settingsRowClass =
   "grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center sm:gap-3";
 
 export default function WorktreeSettings() {
-  const settings = useWorktreeSettingsStore((state) => state.settings);
-  const updateSettings = useWorktreeSettingsStore(
-    (state) => state.updateSettings,
-  );
+  const settings = useSettingsStore((state) => state.settings.worktree);
+  const updateSettings = useSettingsStore((state) => state.patchSettings);
 
   return (
     <section className="space-y-3">
@@ -28,7 +26,9 @@ export default function WorktreeSettings() {
               settings.locationMode === "dataDir" ? "secondary" : "ghost"
             }
             size="sm"
-            onClick={() => void updateSettings({ locationMode: "dataDir" })}
+            onClick={() =>
+              void updateSettings({ worktree: { locationMode: "dataDir" } })
+            }
           >
             Data Dir
           </Button>
@@ -40,7 +40,9 @@ export default function WorktreeSettings() {
             }
             size="sm"
             onClick={() =>
-              void updateSettings({ locationMode: "repoLocalDotHubris" })
+              void updateSettings({
+                worktree: { locationMode: "repoLocalDotHubris" },
+              })
             }
           >
             Repo .hubris

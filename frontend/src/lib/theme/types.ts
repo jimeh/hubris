@@ -101,36 +101,8 @@ export interface ThemeListEntry {
   builtin?: boolean;
 }
 
-/**
- * User's appearance preferences, persisted to the server.
- */
-export interface AppearanceSettings {
-  /** 'auto' follows OS, otherwise use a fixed theme. */
-  colorScheme: "auto" | "light" | "dark";
-  /** Theme ID for light mode (used when auto or light). */
-  lightTheme: string;
-  /** Theme ID for dark mode (used when auto or dark). */
-  darkTheme: string;
-}
-
-/**
- * Terminal display settings, persisted to the server.
- */
-export interface TerminalSettings {
-  /** Which font source to use. */
-  fontSource: "default" | "system" | "bundled";
-  /** CSS font-family string for system fonts. */
-  systemFontFamily: string;
-  /** Bundled font ID (e.g. 'jetbrainsmono-nf'). */
-  bundledFont: string;
-  /** Terminal font size in px (8–32). */
-  fontSize: number;
-}
-
-/**
- * Worktree placement settings, persisted to the server.
- */
-export interface WorktreeSettings {
-  /** Global location strategy for new worktree dirs. */
-  locationMode: "dataDir" | "repoLocalDotHubris";
-}
+export type {
+  AppearanceSettings,
+  TerminalSettings,
+  WorktreeSettings,
+} from "@/lib/settings/types";

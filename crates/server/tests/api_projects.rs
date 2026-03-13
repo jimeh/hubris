@@ -315,6 +315,7 @@ async fn test_sse_snapshot_includes_worktrees() {
 
     assert!(parsed["data"]["projects"].is_array());
     assert!(parsed["data"]["worktrees"].is_object());
+    assert!(parsed["data"]["settings"].is_object());
 }
 
 #[tokio::test]

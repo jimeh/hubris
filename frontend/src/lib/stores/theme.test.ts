@@ -25,10 +25,12 @@ function stubMatchMedia(prefersDark = false) {
   });
 }
 
-async function getStore() {
-  const mod = await import("./theme");
-  mod.resetThemeStoreForTests();
-  return mod;
+async function getStores() {
+  const settings = await import("./settings");
+  const theme = await import("./theme");
+  settings.resetSettingsStoreForTests();
+  theme.resetThemeStoreForTests();
+  return { settings, theme };
 }
 
 describe("Theme store", () => {
@@ -41,27 +43,55 @@ describe("Theme store", () => {
     stubMatchMedia(false);
     mockGetSettings.mockReset();
     mockSaveSettings.mockReset();
-    mockSaveSettings.mockResolvedValue(undefined);
+    mockSaveSettings.mockResolvedValue({
+      appearance: {
+        colorScheme: "auto",
+        lightTheme: "hubris-light",
+        darkTheme: "hubris-dark",
+      },
+      terminal: {
+        fontSource: "default",
+        systemFontFamily: "",
+        bundledFont: "jetbrainsmono-nf",
+        fontSize: 14,
+      },
+      worktree: {
+        locationMode: "dataDir",
+      },
+    });
   });
 
   it("coerces legacy theme ids to hubris defaults and persists them", async () => {
-    mockGetSettings.mockResolvedValue({
-      appearance: {
-        colorScheme: "auto",
-        lightTheme: "catppuccin-latte",
-        darkTheme: "catppuccin-mocha",
+    const { settings, theme } = await getStores();
+    settings.useSettingsStore.setState({
+      settings: {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "catppuccin-latte",
+          darkTheme: "catppuccin-mocha",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
       },
+      hasServerState: true,
     });
 
-    const store = await getStore();
-    await store.useThemeStore.getState().init();
+    await theme.useThemeStore.getState().init();
+    await Promise.resolve();
 
-    expect(store.useThemeStore.getState().settings).toEqual({
+    expect(theme.useThemeStore.getState().settings).toEqual({
       colorScheme: "auto",
       lightTheme: "hubris-light",
       darkTheme: "hubris-dark",
     });
-    expect(store.useThemeStore.getState().activeTheme?.id).toBe("hubris-light");
+    expect(theme.useThemeStore.getState().activeTheme?.id).toBe("hubris-light");
     expect(mockSaveSettings).toHaveBeenCalledWith({
       appearance: {
         colorScheme: "auto",
@@ -71,30 +101,36 @@ describe("Theme store", () => {
     });
   });
 
-  it("falls back to built-ins only and normalizes cached unknown ids", async () => {
-    mockGetSettings.mockRejectedValue(new Error("offline"));
-    localStorage.setItem(
-      "hubris-appearance",
-      JSON.stringify({
-        colorScheme: "dark",
-        lightTheme: "custom-light",
-        darkTheme: "custom-dark",
-      }),
-    );
-
-    const store = await getStore();
-    await store.useThemeStore.getState().init();
-
-    expect(store.useThemeStore.getState().settings).toEqual({
-      colorScheme: "dark",
-      lightTheme: "hubris-light",
-      darkTheme: "hubris-dark",
+  it("applies canonical dark theme settings without extra saves", async () => {
+    const { settings, theme } = await getStores();
+    settings.useSettingsStore.setState({
+      settings: {
+        appearance: {
+          colorScheme: "dark",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      hasServerState: true,
     });
-    expect(store.themeEntries().map((theme) => theme.id)).toEqual([
+
+    await theme.useThemeStore.getState().init();
+    await Promise.resolve();
+
+    expect(theme.useThemeStore.getState().activeTheme?.id).toBe("hubris-dark");
+    expect(theme.themeEntries().map((entry) => entry.id)).toEqual([
       "hubris-light",
       "hubris-dark",
     ]);
-    expect(store.useThemeStore.getState().activeTheme?.id).toBe("hubris-dark");
     expect(mockSaveSettings).not.toHaveBeenCalled();
   });
 });

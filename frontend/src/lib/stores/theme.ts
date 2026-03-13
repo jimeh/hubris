@@ -6,18 +6,12 @@ import {
   type ComputedThemeVars,
 } from "@/lib/theme/convert";
 import { builtinThemes } from "@/lib/theme/builtin";
-import { getSettings, saveSettings } from "@/lib/api";
-import type {
-  AppearanceSettings,
-  HubrisTheme,
-  ThemeListEntry,
-} from "@/lib/theme/types";
-
-const DEFAULTS: AppearanceSettings = {
-  colorScheme: "auto",
-  lightTheme: "hubris-light",
-  darkTheme: "hubris-dark",
-};
+import { useSettingsStore } from "@/lib/stores/settings";
+import {
+  DEFAULT_APPEARANCE_SETTINGS,
+  type AppearanceSettings,
+} from "@/lib/settings/types";
+import type { HubrisTheme, ThemeListEntry } from "@/lib/theme/types";
 
 const builtinsById = new Map(
   builtinThemes.map((theme) => [theme.id, theme] as const),
@@ -31,6 +25,17 @@ type ThemeState = {
   init: () => Promise<void>;
   updateSettings: (partial: Partial<AppearanceSettings>) => Promise<void>;
 };
+
+function appearanceEqual(
+  left: AppearanceSettings,
+  right: AppearanceSettings,
+): boolean {
+  return (
+    left.colorScheme === right.colorScheme &&
+    left.lightTheme === right.lightTheme &&
+    left.darkTheme === right.darkTheme
+  );
+}
 
 function readPrefersLight(): boolean {
   if (
@@ -57,19 +62,19 @@ function normalizeSettings(candidate: AppearanceSettings): {
   let changed = false;
   let colorScheme = candidate.colorScheme;
   if (!["auto", "light", "dark"].includes(colorScheme)) {
-    colorScheme = DEFAULTS.colorScheme;
+    colorScheme = DEFAULT_APPEARANCE_SETTINGS.colorScheme;
     changed = true;
   }
 
   let lightTheme = candidate.lightTheme;
   if (resolveThemeSync(lightTheme)?.type !== "light") {
-    lightTheme = DEFAULTS.lightTheme;
+    lightTheme = DEFAULT_APPEARANCE_SETTINGS.lightTheme;
     changed = true;
   }
 
   let darkTheme = candidate.darkTheme;
   if (resolveThemeSync(darkTheme)?.type !== "dark") {
-    darkTheme = DEFAULTS.darkTheme;
+    darkTheme = DEFAULT_APPEARANCE_SETTINGS.darkTheme;
     changed = true;
   }
 
@@ -93,7 +98,11 @@ function getActiveTheme(
   const id = wantLight ? settings.lightTheme : settings.darkTheme;
   return (
     resolveThemeSync(id) ??
-    resolveThemeSync(wantLight ? DEFAULTS.lightTheme : DEFAULTS.darkTheme)!
+    resolveThemeSync(
+      wantLight
+        ? DEFAULT_APPEARANCE_SETTINGS.lightTheme
+        : DEFAULT_APPEARANCE_SETTINGS.darkTheme,
+    )!
   );
 }
 
@@ -104,14 +113,18 @@ function cacheThemeVars(settings: AppearanceSettings): void {
     if (settings.colorScheme === "auto" || settings.colorScheme === "light") {
       const lightTheme =
         resolveThemeSync(settings.lightTheme) ??
-        builtinThemes.find((theme) => theme.id === DEFAULTS.lightTheme)!;
+        builtinThemes.find(
+          (theme) => theme.id === DEFAULT_APPEARANCE_SETTINGS.lightTheme,
+        )!;
       cache.light = computeThemeVars(lightTheme);
     }
 
     if (settings.colorScheme === "auto" || settings.colorScheme === "dark") {
       const darkTheme =
         resolveThemeSync(settings.darkTheme) ??
-        builtinThemes.find((theme) => theme.id === DEFAULTS.darkTheme)!;
+        builtinThemes.find(
+          (theme) => theme.id === DEFAULT_APPEARANCE_SETTINGS.darkTheme,
+        )!;
       cache.dark = computeThemeVars(darkTheme);
     }
 
@@ -132,10 +145,48 @@ function applyActiveTheme(
   return theme;
 }
 
+function syncAppearanceSettings(
+  next: AppearanceSettings,
+  allowNormalizationSave: boolean,
+): void {
+  const normalized = normalizeSettings(next);
+  const prefersLight = useThemeStore.getState().prefersLight;
+  const activeTheme = applyActiveTheme(normalized.settings, prefersLight);
+
+  useThemeStore.setState((state) => {
+    const themeChanged = state.activeTheme?.id !== activeTheme.id;
+    if (appearanceEqual(state.settings, normalized.settings) && !themeChanged) {
+      return state;
+    }
+
+    return {
+      settings: normalized.settings,
+      activeTheme,
+      version: state.version + 1,
+    };
+  });
+
+  if (
+    allowNormalizationSave &&
+    normalized.changed &&
+    !appearanceEqual(
+      useSettingsStore.getState().settings.appearance,
+      normalized.settings,
+    )
+  ) {
+    void useSettingsStore.getState().patchSettings({
+      appearance: normalized.settings,
+    });
+  }
+}
+
 let mediaListenerBound = false;
+let settingsListenerBound = false;
 
 function bindMediaListener(): void {
-  if (mediaListenerBound || typeof window === "undefined") return;
+  if (mediaListenerBound || typeof window === "undefined") {
+    return;
+  }
   mediaListenerBound = true;
 
   const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -143,6 +194,11 @@ function bindMediaListener(): void {
     useThemeStore.setState((state) => {
       const prefersLight = !event.matches;
       const activeTheme = applyActiveTheme(state.settings, prefersLight);
+      const themeChanged = state.activeTheme?.id !== activeTheme.id;
+      if (!themeChanged && state.prefersLight === prefersLight) {
+        return state;
+      }
+
       return {
         prefersLight,
         activeTheme,
@@ -158,72 +214,47 @@ function bindMediaListener(): void {
   }
 }
 
-export const useThemeStore = create<ThemeState>((set, get) => ({
-  settings: { ...DEFAULTS },
+function bindSettingsListener(): void {
+  if (settingsListenerBound) {
+    return;
+  }
+  settingsListenerBound = true;
+
+  let previous = useSettingsStore.getState().settings.appearance;
+  useSettingsStore.subscribe((state) => {
+    const next = state.settings.appearance;
+    if (appearanceEqual(previous, next)) {
+      return;
+    }
+
+    previous = next;
+    syncAppearanceSettings(next, true);
+  });
+}
+
+export const useThemeStore = create<ThemeState>(() => ({
+  settings: { ...DEFAULT_APPEARANCE_SETTINGS },
   activeTheme: null,
   version: 0,
   prefersLight: readPrefersLight(),
   async init() {
     bindMediaListener();
-    let settings = { ...DEFAULTS };
-    let shouldPersistNormalized = false;
-
-    try {
-      const current = await getSettings();
-      if (current.appearance) {
-        const normalized = normalizeSettings({
-          ...DEFAULTS,
-          ...current.appearance,
-        });
-        settings = normalized.settings;
-        shouldPersistNormalized = normalized.changed;
-      }
-    } catch {
-      try {
-        const cached = localStorage.getItem("hubris-appearance");
-        if (cached) {
-          settings = normalizeSettings({
-            ...DEFAULTS,
-            ...JSON.parse(cached),
-          }).settings;
-        }
-      } catch {
-        // Keep defaults.
-      }
-    }
-
-    const prefersLight = get().prefersLight;
-    const activeTheme = applyActiveTheme(settings, prefersLight);
-
-    set((state) => ({
-      settings,
-      activeTheme,
-      version: state.version + 1,
-    }));
-
-    if (shouldPersistNormalized) {
-      try {
-        await saveSettings({ appearance: settings });
-      } catch {
-        // Keep normalized state in memory.
-      }
-    }
+    bindSettingsListener();
+    syncAppearanceSettings(
+      useSettingsStore.getState().settings.appearance,
+      true,
+    );
   },
   async updateSettings(partial) {
-    const next = normalizeSettings({ ...get().settings, ...partial }).settings;
-    const activeTheme = applyActiveTheme(next, get().prefersLight);
-    set((state) => ({
-      settings: next,
-      activeTheme,
-      version: state.version + 1,
-    }));
-    await saveSettings({ appearance: next });
+    await useSettingsStore.getState().patchSettings({
+      appearance: partial,
+    });
   },
 }));
 
 export function resetThemeStoreForTests(): void {
   useThemeStore.setState({
-    settings: { ...DEFAULTS },
+    settings: { ...DEFAULT_APPEARANCE_SETTINGS },
     activeTheme: null,
     version: 0,
     prefersLight: readPrefersLight(),

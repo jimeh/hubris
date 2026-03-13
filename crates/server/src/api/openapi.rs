@@ -5,7 +5,10 @@ use crate::api::files::{DirEntry, ListFilesResponse};
 use crate::api::projects::{
     AddProjectRequest, Project, ReorderProjectsRequest, UpdateProjectRequest,
 };
-use crate::api::settings::{AppearanceSettings, Settings, TerminalSettings, WorktreeSettings};
+use crate::api::settings::{
+    AppearanceSettings, AppearanceSettingsPatch, Settings, SettingsPatch, TerminalSettings,
+    TerminalSettingsPatch, WorktreeSettings, WorktreeSettingsPatch,
+};
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
 use crate::api::worktrees::{
@@ -40,6 +43,7 @@ use crate::pty::live_tab::TabInfo;
         crate::api::terminal::ws_handler,
         crate::api::settings::get_settings,
         crate::api::settings::save_settings,
+        crate::api::settings::patch_settings,
     ),
     components(
         schemas(
@@ -66,9 +70,13 @@ use crate::pty::live_tab::TabInfo;
             ClientControlMessage,
             ServerControlMessage,
             AppearanceSettings,
+            AppearanceSettingsPatch,
             TerminalSettings,
+            TerminalSettingsPatch,
             WorktreeSettings,
+            WorktreeSettingsPatch,
             Settings,
+            SettingsPatch,
         )
     ),
     tags(

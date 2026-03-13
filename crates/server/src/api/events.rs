@@ -9,6 +9,7 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 use utoipa::IntoParams;
 
+use crate::api::settings::load_settings;
 use crate::api::worktrees::list_worktrees_for_project;
 use crate::events::{Event, EventKind};
 use crate::state::AppState;
@@ -87,7 +88,8 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         | EventKind::WorktreeCreated(_)
         | EventKind::WorktreeDeleted { .. }
         | EventKind::WorktreesReordered { .. }
-        | EventKind::ProjectWorktreesUpdated { .. } => true,
+        | EventKind::ProjectWorktreesUpdated { .. }
+        | EventKind::SettingsUpdated(_) => true,
     }
 }
 
@@ -113,6 +115,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
 
     let mut worktrees = HashMap::new();
     let mut project_errors = HashMap::new();
+    let settings = load_settings(state).await.unwrap_or_default();
 
     for project in &projects {
         match list_worktrees_for_project(state, project).await {
@@ -131,6 +134,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         projects,
         worktrees,
         project_errors,
+        settings,
     };
     sse::Event::default()
         .event("snapshot")

@@ -1,10 +1,6 @@
 import type { ListFilesResponse, Project, Tab, Worktree } from "./types";
 import type { components } from "@/lib/contracts/rest.generated";
-import type {
-  AppearanceSettings,
-  TerminalSettings,
-  WorktreeSettings,
-} from "./theme/types";
+import type { Settings, SettingsPatch } from "@/lib/settings/types";
 
 const BASE = "/api";
 
@@ -258,51 +254,37 @@ export function terminalWsUrl(tabId: string): string {
 
 // --- Settings ---
 
-export async function getSettings(): Promise<{
-  appearance?: AppearanceSettings;
-  terminal?: TerminalSettings;
-  worktree?: WorktreeSettings;
-}> {
+export async function getSettings(): Promise<Settings> {
   const res = await fetch(`${BASE}/settings`);
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
 
-let settingsSaveQueue = Promise.resolve();
+let settingsSaveQueue: Promise<unknown> = Promise.resolve();
 
 export function resetApiStateForTests(): void {
   settingsSaveQueue = Promise.resolve();
 }
 
-export async function saveSettings(partial: {
-  appearance?: AppearanceSettings;
-  terminal?: TerminalSettings;
-  worktree?: WorktreeSettings;
-}): Promise<void> {
-  const runSave = async (): Promise<void> => {
-    // Read-modify-write to avoid clobbering sibling sections.
-    // Serialize calls so concurrent saves do not race and overwrite each other.
-    const current = await getSettings();
-    const merged = { ...current, ...partial };
+export async function replaceSettings(settings: Settings): Promise<Settings> {
+  const res = await fetch(`${BASE}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
 
+export async function saveSettings(partial: SettingsPatch): Promise<Settings> {
+  const runSave = async (): Promise<Settings> => {
     const res = await fetch(`${BASE}/settings`, {
-      method: "PUT",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(merged),
+      body: JSON.stringify(partial),
     });
     if (!res.ok) throw new Error(`${res.status}`);
-
-    // Cache in localStorage only after server confirms —
-    // avoids desync if the save fails.
-    if (partial.appearance) {
-      localStorage.setItem(
-        "hubris-appearance",
-        JSON.stringify(partial.appearance),
-      );
-    }
-    if (partial.terminal) {
-      localStorage.setItem("hubris-terminal", JSON.stringify(partial.terminal));
-    }
+    return res.json();
   };
 
   const queuedSave = settingsSaveQueue.then(runSave, runSave);

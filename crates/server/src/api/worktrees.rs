@@ -10,7 +10,7 @@ use ts_rs::TS;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::projects::Project;
-use crate::api::settings::Settings;
+use crate::api::settings::{Settings, load_settings};
 use crate::events::EventKind;
 use crate::git;
 use crate::state::AppState;
@@ -165,13 +165,6 @@ async fn save_meta(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-async fn load_settings(state: &AppState) -> Settings {
-    match tokio::fs::read_to_string(state.settings_file()).await {
-        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-        Err(_) => Settings::default(),
-    }
-}
-
 fn sanitize_segment(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for ch in value.chars() {
@@ -212,11 +205,7 @@ fn resolve_target_path(
         branch_path = branch_path.join(seg);
     }
 
-    let mode = settings
-        .worktree
-        .as_ref()
-        .map(|w| w.location_mode.as_str())
-        .unwrap_or("dataDir");
+    let mode = settings.worktree.location_mode.as_str();
 
     if mode == "repoLocalDotHubris" {
         PathBuf::from(&project.path)
@@ -446,7 +435,7 @@ pub async fn create_project_worktree(
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let settings = load_settings(&state).await;
+    let settings = load_settings(&state).await.unwrap_or_default();
     let target = resolve_target_path(&state, project, branch, &settings);
 
     git::create_worktree(&local_root, branch, &target, start_point)

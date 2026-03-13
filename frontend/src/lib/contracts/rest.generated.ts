@@ -196,7 +196,8 @@ export interface paths {
     delete?: never;
     options?: never;
     head?: never;
-    patch?: never;
+    /** PATCH /api/settings — merge partial update */
+    patch: operations["patch_settings"];
     trace?: never;
   };
   "/api/tabs": {
@@ -274,6 +275,11 @@ export interface components {
       colorScheme?: string;
       darkTheme?: string;
       lightTheme?: string;
+    };
+    AppearanceSettingsPatch: {
+      colorScheme?: string | null;
+      darkTheme?: string | null;
+      lightTheme?: string | null;
     };
     ClientControlMessage: {
       /** Format: int32 */
@@ -376,9 +382,14 @@ export interface components {
           type: "tab_closed";
         };
     Settings: {
-      appearance?: null | components["schemas"]["AppearanceSettings"];
-      terminal?: null | components["schemas"]["TerminalSettings"];
-      worktree?: null | components["schemas"]["WorktreeSettings"];
+      appearance?: components["schemas"]["AppearanceSettings"];
+      terminal?: components["schemas"]["TerminalSettings"];
+      worktree?: components["schemas"]["WorktreeSettings"];
+    };
+    SettingsPatch: {
+      appearance?: null | components["schemas"]["AppearanceSettingsPatch"];
+      terminal?: null | components["schemas"]["TerminalSettingsPatch"];
+      worktree?: null | components["schemas"]["WorktreeSettingsPatch"];
     };
     StartPoint: {
       local_ref?: string | null;
@@ -407,6 +418,13 @@ export interface components {
       fontSize?: number;
       fontSource?: string;
       systemFontFamily?: string;
+    };
+    TerminalSettingsPatch: {
+      bundledFont?: string | null;
+      /** Format: int32 */
+      fontSize?: number | null;
+      fontSource?: string | null;
+      systemFontFamily?: string | null;
     };
     UpdateProjectRequest: {
       name?: string | null;
@@ -439,6 +457,9 @@ export interface components {
     };
     WorktreeSettings: {
       locationMode?: string;
+    };
+    WorktreeSettingsPatch: {
+      locationMode?: string | null;
     };
   };
   responses: never;
@@ -1049,6 +1070,46 @@ export interface operations {
     responses: {
       /** @description Settings saved */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Settings"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  patch_settings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SettingsPatch"];
+      };
+    };
+    responses: {
+      /** @description Settings saved */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Settings"];
+        };
+      };
+      /** @description Invalid settings patch */
+      400: {
         headers: {
           [name: string]: unknown;
         };

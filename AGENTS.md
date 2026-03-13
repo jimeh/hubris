@@ -145,13 +145,21 @@ No periodic reconciliation — drift corrects on reconnect.
   other browser).
 - **deleteProject tolerates 404**: Project may already be gone (other
   browser removed it).
-- **Settings sync**: No SSE event for settings changes yet. Multiple
-  open browsers will not see each other's settings changes until
-  reload.
-- **Settings save is serialized read-modify-write**: `saveSettings` in
-  `api.ts` GETs current settings before PUTting merged data, and React
-  queues concurrent saves client-side. This prevents appearance,
-  terminal, and worktree settings writes from clobbering each other.
+- **Settings live sync uses canonical server state**: SSE snapshots now
+  include `settings`, and successful `PUT`/`PATCH /api/settings` writes
+  emit `settings_updated`. Frontend persistence flows through the
+  canonical settings store in `frontend/src/lib/stores/settings.ts`;
+  theme and terminal stores are derived behavior layers on top.
+- **Settings PATCH must stay raw JSON merge patch on the backend**:
+  `PATCH /api/settings` uses JSON Merge Patch semantics, including
+  `null` deleting individual keys so reads fall back to defaults.
+  Deserialize the patch body as raw `serde_json::Value`; typed
+  `Option<Option<T>>` patch structs lose explicit `null` vs missing-key
+  distinction under Serde.
+- **Settings persistence writes sparse JSON**: `settings.json` omits
+  keys that match defaults. Deleting a setting means removing it from
+  persisted JSON, not storing `null`; `GET /api/settings` and SSE
+  snapshots always materialize the full defaulted settings document.
 - **Appearance settings still store per-mode theme IDs**:
   `lightTheme`/`darkTheme` remain in settings even though only built-in
   Hubris themes are selectable right now.

@@ -11,6 +11,13 @@ fn sse_event_uses_type_and_data_envelope() {
 
     assert_eq!(json["type"], "tab_closed");
     assert_eq!(json["data"]["tab_id"], "tab-1");
+
+    let json = serde_json::to_value(EventKind::SettingsUpdated(
+        hubris_server::api::settings::Settings::default(),
+    ))
+    .unwrap();
+    assert_eq!(json["type"], "settings_updated");
+    assert_eq!(json["data"]["appearance"]["colorScheme"], "auto");
 }
 
 #[test]
@@ -51,6 +58,7 @@ fn openapi_contains_core_paths_and_schemas() {
 
     assert!(spec["paths"]["/api/projects"].is_object());
     assert!(spec["paths"]["/api/tabs"].is_object());
+    assert!(spec["paths"]["/api/settings"]["patch"].is_object());
     assert!(spec["paths"]["/api/openapi.json"].is_object());
     assert!(spec["paths"]["/api/themes"].is_null());
     assert!(spec["paths"]["/api/themes/{id}"].is_null());

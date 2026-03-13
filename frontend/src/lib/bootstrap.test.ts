@@ -16,6 +16,9 @@ const mockResetWorktreeStore = vi.fn(() => {
 const mockResetTabStore = vi.fn(() => {
   calls.push("reset-tabs");
 });
+const mockResetSettingsStore = vi.fn(() => {
+  calls.push("reset-settings");
+});
 
 vi.mock("@/lib/stores/projects", () => ({
   initializeProjectStore: () => calls.push("projects"),
@@ -32,6 +35,16 @@ vi.mock("@/lib/stores/tabs", () => ({
   resetTabStoreForTests: mockResetTabStore,
 }));
 
+vi.mock("@/lib/stores/settings", () => ({
+  initializeSettingsStore: () => calls.push("settings-store"),
+  resetSettingsStoreForTests: mockResetSettingsStore,
+  useSettingsStore: {
+    getState: () => ({
+      init: () => calls.push("settings"),
+    }),
+  },
+}));
+
 vi.mock("@/lib/stores/theme", () => ({
   useThemeStore: {
     getState: () => ({
@@ -44,14 +57,6 @@ vi.mock("@/lib/stores/terminal", () => ({
   useTerminalStore: {
     getState: () => ({
       init: () => calls.push("terminal"),
-    }),
-  },
-}));
-
-vi.mock("@/lib/stores/worktreeSettings", () => ({
-  useWorktreeSettingsStore: {
-    getState: () => ({
-      init: () => calls.push("worktree-settings"),
     }),
   },
 }));
@@ -71,6 +76,7 @@ describe("bootstrapApp", () => {
     mockResetProjectStore.mockClear();
     mockResetWorktreeStore.mockClear();
     mockResetTabStore.mockClear();
+    mockResetSettingsStore.mockClear();
   });
 
   it("initializes stores before connecting the event stream", async () => {
@@ -84,9 +90,10 @@ describe("bootstrapApp", () => {
       "projects",
       "worktrees",
       "tabs",
+      "settings-store",
+      "settings",
       "theme",
       "terminal",
-      "worktree-settings",
       "connect",
     ]);
   });
@@ -100,6 +107,7 @@ describe("bootstrapApp", () => {
       "reset-projects",
       "reset-worktrees",
       "reset-tabs",
+      "reset-settings",
       "disconnect",
     ]);
   });

@@ -1,14 +1,12 @@
 import { create } from "zustand";
-import { getSettings, saveSettings } from "@/lib/api";
+import { useSettingsStore } from "@/lib/stores/settings";
 import { DEFAULT_FONT_FAMILY, resolveFont } from "@/lib/terminal/fonts";
-import type { TerminalSettings } from "@/lib/theme/types";
+import {
+  DEFAULT_TERMINAL_SETTINGS,
+  type TerminalSettings,
+} from "@/lib/settings/types";
 
-const DEFAULTS: TerminalSettings = {
-  fontSource: "default",
-  systemFontFamily: "",
-  bundledFont: "jetbrainsmono-nf",
-  fontSize: 14,
-};
+const DEFAULTS: TerminalSettings = { ...DEFAULT_TERMINAL_SETTINGS };
 
 type TerminalState = {
   settings: TerminalSettings;
@@ -18,8 +16,28 @@ type TerminalState = {
   updateSettings: (partial: Partial<TerminalSettings>) => Promise<void>;
 };
 
+function terminalEqual(
+  left: TerminalSettings,
+  right: TerminalSettings,
+): boolean {
+  return (
+    left.fontSource === right.fontSource &&
+    left.systemFontFamily === right.systemFontFamily &&
+    left.bundledFont === right.bundledFont &&
+    left.fontSize === right.fontSize
+  );
+}
+
 function clampFontSize(size: number): number {
   return Math.max(8, Math.min(32, size));
+}
+
+function normalizeSettings(candidate: TerminalSettings): TerminalSettings {
+  return {
+    ...DEFAULTS,
+    ...candidate,
+    fontSize: clampFontSize(candidate.fontSize),
+  };
 }
 
 async function resolveSettingsFont(
@@ -28,72 +46,81 @@ async function resolveSettingsFont(
   return resolveFont(settings);
 }
 
-export const useTerminalStore = create<TerminalState>((set, get) => ({
+let settingsListenerBound = false;
+let fontResolutionToken = 0;
+
+function syncTerminalSettings(next: TerminalSettings): void {
+  const normalized = normalizeSettings(next);
+
+  useTerminalStore.setState((state) => {
+    if (terminalEqual(state.settings, normalized)) {
+      return state;
+    }
+
+    return {
+      settings: normalized,
+      version: state.version + 1,
+    };
+  });
+
+  const token = ++fontResolutionToken;
+  void resolveSettingsFont(normalized).then((fontFamily) => {
+    if (token !== fontResolutionToken) {
+      return;
+    }
+
+    useTerminalStore.setState((state) => {
+      if (
+        state.fontFamily === fontFamily &&
+        terminalEqual(state.settings, normalized)
+      ) {
+        return state;
+      }
+
+      return {
+        settings: normalized,
+        fontFamily,
+        version: state.version + 1,
+      };
+    });
+  });
+}
+
+function bindSettingsListener(): void {
+  if (settingsListenerBound) {
+    return;
+  }
+  settingsListenerBound = true;
+
+  let previous = useSettingsStore.getState().settings.terminal;
+  useSettingsStore.subscribe((state) => {
+    const next = state.settings.terminal;
+    if (terminalEqual(previous, next)) {
+      return;
+    }
+
+    previous = next;
+    syncTerminalSettings(next);
+  });
+}
+
+export const useTerminalStore = create<TerminalState>(() => ({
   settings: { ...DEFAULTS },
   fontFamily: DEFAULT_FONT_FAMILY,
   version: 0,
   async init() {
-    let settings = { ...DEFAULTS };
-
-    try {
-      const current = await getSettings();
-      if (current.terminal) {
-        settings = {
-          ...DEFAULTS,
-          ...current.terminal,
-        };
-      }
-    } catch {
-      try {
-        const cached = localStorage.getItem("hubris-terminal");
-        if (cached) {
-          settings = {
-            ...DEFAULTS,
-            ...JSON.parse(cached),
-          };
-        }
-      } catch {
-        // Keep defaults.
-      }
-    }
-
-    settings.fontSize = clampFontSize(settings.fontSize);
-    const fontFamily = await resolveSettingsFont(settings);
-    set((state) => ({
-      settings,
-      fontFamily,
-      version: state.version + 1,
-    }));
+    bindSettingsListener();
+    syncTerminalSettings(useSettingsStore.getState().settings.terminal);
   },
   async updateSettings(partial) {
-    const previous = get();
-    const next: TerminalSettings = {
-      ...previous.settings,
-      ...partial,
-    };
-    next.fontSize = clampFontSize(next.fontSize);
-
-    const fontFamily = await resolveSettingsFont(next);
-    set((state) => ({
-      settings: next,
-      fontFamily,
-      version: state.version + 1,
-    }));
-
-    try {
-      await saveSettings({ terminal: next });
-    } catch (error) {
-      set((state) => ({
-        settings: previous.settings,
-        fontFamily: previous.fontFamily,
-        version: state.version + 1,
-      }));
-      throw error;
-    }
+    await useSettingsStore.getState().patchSettings({
+      terminal: partial,
+    });
   },
 }));
 
 export function resetTerminalStoreForTests(): void {
+  fontResolutionToken = 0;
   useTerminalStore.setState({
     settings: { ...DEFAULTS },
     fontFamily: DEFAULT_FONT_FAMILY,
