@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 import { useSidebar } from "@/components/ui/sidebar";
+import { useResizeQueue } from "@/hooks/use-resize-queue";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
 
 const KEYBOARD_RESIZE_STEP = 16;
@@ -21,8 +22,6 @@ export default function SidebarResizeHandle() {
   );
 
   const resizeStateRef = useRef<ResizeState | null>(null);
-  const pendingClientXRef = useRef<number | null>(null);
-  const resizeRafIdRef = useRef<number | null>(null);
 
   const applyResize = useCallback(
     (clientX: number): void => {
@@ -35,37 +34,18 @@ export default function SidebarResizeHandle() {
     [setWidth],
   );
 
-  const flushQueuedResize = useCallback((): void => {
-    resizeRafIdRef.current = null;
-    if (pendingClientXRef.current === null) {
-      return;
-    }
-    applyResize(pendingClientXRef.current);
-    pendingClientXRef.current = null;
-  }, [applyResize]);
-
-  const clearQueuedResize = useCallback((): void => {
-    if (resizeRafIdRef.current !== null) {
-      cancelAnimationFrame(resizeRafIdRef.current);
-    }
-    flushQueuedResize();
-  }, [flushQueuedResize]);
-
-  function queueResize(clientX: number): void {
-    pendingClientXRef.current = clientX;
-    if (resizeRafIdRef.current !== null) {
-      return;
-    }
-    resizeRafIdRef.current = requestAnimationFrame(flushQueuedResize);
-  }
-
-  useEffect(() => {
-    return () => {
-      clearQueuedResize();
+  const handleCleanup = useCallback((): void => {
+    if (resizeStateRef.current) {
+      resizeStateRef.current = null;
       setResizing(false);
       flushPendingPersist();
-    };
-  }, [clearQueuedResize, flushPendingPersist, setResizing]);
+    }
+  }, [flushPendingPersist, setResizing]);
+
+  const { queueResize, clearQueuedResize } = useResizeQueue({
+    applyResize,
+    onCleanup: handleCleanup,
+  });
 
   return (
     <button
