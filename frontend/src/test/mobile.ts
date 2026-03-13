@@ -3,7 +3,7 @@ import { vi } from "vitest";
 type LegacyMediaQueryListener = (
   this: MediaQueryList,
   ev: MediaQueryListEvent,
-) => any;
+) => void;
 type MediaQueryListener =
   | EventListenerOrEventListenerObject
   | LegacyMediaQueryListener;
@@ -86,16 +86,12 @@ function installMatchMediaMock(): void {
           state.listeners.delete(listener);
         }
       },
-      addListener: (
-        listener: LegacyMediaQueryListener | null,
-      ) => {
+      addListener: (listener: LegacyMediaQueryListener | null) => {
         if (listener) {
           state.listeners.add(listener);
         }
       },
-      removeListener: (
-        listener: LegacyMediaQueryListener | null,
-      ) => {
+      removeListener: (listener: LegacyMediaQueryListener | null) => {
         if (listener) {
           state.listeners.delete(listener);
         }

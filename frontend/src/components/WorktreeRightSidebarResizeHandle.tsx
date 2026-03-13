@@ -23,30 +23,32 @@ export default function WorktreeRightSidebarResizeHandle() {
   const pendingClientXRef = useRef<number | null>(null);
   const resizeRafIdRef = useRef<number | null>(null);
 
-  const clearQueuedResize = useCallback((): void => {
-    if (resizeRafIdRef.current !== null) {
-      cancelAnimationFrame(resizeRafIdRef.current);
-      resizeRafIdRef.current = null;
-    }
-    pendingClientXRef.current = null;
-  }, []);
+  const applyResize = useCallback(
+    (clientX: number): void => {
+      const resizeState = resizeStateRef.current;
+      if (!resizeState) {
+        return;
+      }
+      setWidth(resizeState.startWidth + resizeState.startX - clientX);
+    },
+    [setWidth],
+  );
 
-  function applyResize(clientX: number): void {
-    const resizeState = resizeStateRef.current;
-    if (!resizeState) {
-      return;
-    }
-    setWidth(resizeState.startWidth + resizeState.startX - clientX);
-  }
-
-  function flushQueuedResize(): void {
+  const flushQueuedResize = useCallback((): void => {
     resizeRafIdRef.current = null;
     if (pendingClientXRef.current === null) {
       return;
     }
     applyResize(pendingClientXRef.current);
     pendingClientXRef.current = null;
-  }
+  }, [applyResize]);
+
+  const clearQueuedResize = useCallback((): void => {
+    if (resizeRafIdRef.current !== null) {
+      cancelAnimationFrame(resizeRafIdRef.current);
+    }
+    flushQueuedResize();
+  }, [flushQueuedResize]);
 
   function queueResize(clientX: number): void {
     pendingClientXRef.current = clientX;
