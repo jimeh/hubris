@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setMobile } from "@/test/mobile";
 import type { Tab, Worktree } from "@/lib/types";
 
 const terminalRenderSpy = vi.fn<(tabId: string) => void>();
 
 vi.mock("@/components/TabBar", () => ({
   default: () => null,
+}));
+
+vi.mock("@/components/WorktreeGitStatusPanel", () => ({
+  default: () => <div>Git panel</div>,
 }));
 
 vi.mock("@/components/TerminalTab", async () => {
@@ -42,6 +47,7 @@ function makeWorktree(): Worktree {
     name: "local",
     path: "/tmp/devbox",
     branch: "main",
+    source_ref: null,
     is_local: true,
     missing_on_disk: false,
     position: 1,
@@ -67,11 +73,20 @@ function makeTab(
 describe("WorktreeView", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
+    vi.resetModules();
     terminalRenderSpy.mockClear();
+    localStorage.clear();
+    setMobile(false);
 
     const { resetTabStoreForTests, useTabStore } =
       await import("@/lib/stores/tabs");
+    const { resetWorktreeRightSidebarStoreForTests } =
+      await import("@/lib/stores/worktreeRightSidebar");
+    const { resetWorktreeRightSidebarWidthStoreForTests } =
+      await import("@/lib/stores/worktreeRightSidebarWidth");
     resetTabStoreForTests();
+    resetWorktreeRightSidebarStoreForTests();
+    resetWorktreeRightSidebarWidthStoreForTests();
     useTabStore.setState({
       tabs: [],
       activeTabId: null,
@@ -132,6 +147,151 @@ describe("WorktreeView", () => {
       }));
     });
 
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+  });
+
+  it("updates right sidebar width without rerendering terminal tabs", async () => {
+    const { default: WorktreeView } = await import("./WorktreeView");
+    const worktree = makeWorktree();
+    const { useTabStore } = await import("@/lib/stores/tabs");
+    const { useWorktreeRightSidebarStore } =
+      await import("@/lib/stores/worktreeRightSidebar");
+    const { useWorktreeRightSidebarWidthStore } =
+      await import("@/lib/stores/worktreeRightSidebarWidth");
+
+    useTabStore.setState({
+      tabs: [makeTab("a", worktree.id, { position: 1 })],
+      activeTabId: "a",
+      activeTabByWorktree: { [worktree.id]: "a" },
+    });
+
+    render(<WorktreeView worktree={worktree} />);
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(screen.getByText("Git panel")).toBeInTheDocument();
+
+    const viewRoot = document.querySelector<HTMLElement>(
+      "[data-worktree-view]",
+    );
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("320px");
+
+    const host = document.querySelector<HTMLElement>(
+      "[data-worktree-right-sidebar-wrapper]",
+    );
+    expect(host).not.toBeNull();
+    expect(host?.style.getPropertyValue("--worktree-right-sidebar-width")).toBe(
+      "",
+    );
+
+    act(() => {
+      useWorktreeRightSidebarWidthStore.getState().setWidth(412);
+    });
+
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("412px");
+    expect(host?.style.getPropertyValue("--worktree-right-sidebar-width")).toBe(
+      "",
+    );
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    const resizeHandle = await screen.findByRole("button", {
+      name: "Resize right sidebar",
+    });
+
+    fireEvent.keyDown(resizeHandle, { key: "ArrowLeft" });
+
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("428px");
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    Object.defineProperty(resizeHandle, "setPointerCapture", {
+      value: vi.fn(),
+      configurable: true,
+    });
+    Object.defineProperty(resizeHandle, "releasePointerCapture", {
+      value: vi.fn(),
+      configurable: true,
+    });
+    Object.defineProperty(resizeHandle, "hasPointerCapture", {
+      value: vi.fn(() => true),
+      configurable: true,
+    });
+
+    fireEvent.pointerDown(resizeHandle, {
+      button: 0,
+      pointerId: 1,
+      clientX: 900,
+    });
+    fireEvent.pointerMove(resizeHandle, {
+      pointerId: 1,
+      clientX: 860,
+    });
+    await act(async () => {
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => resolve(null)),
+      );
+    });
+    fireEvent.pointerUp(resizeHandle, {
+      pointerId: 1,
+      clientX: 860,
+    });
+
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("468px");
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    act(() => {
+      setMobile(true);
+    });
+    expect(
+      screen.queryByRole("button", { name: "Resize right sidebar" }),
+    ).not.toBeInTheDocument();
+
+    act(() => {
+      setMobile(false);
+    });
+
+    const resizeHandleAfterViewportReset = await screen.findByRole("button", {
+      name: "Resize right sidebar",
+    });
+
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("468px");
+
+    fireEvent.keyDown(resizeHandleAfterViewportReset, { key: "ArrowLeft" });
+
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("484px");
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    act(() => {
+      useWorktreeRightSidebarStore.getState().toggleDesktop();
+    });
+    const sidebarWrapper = document.querySelector<HTMLElement>(
+      "[data-worktree-right-sidebar-wrapper]",
+    );
+    const sidebarPanel = document.querySelector<HTMLElement>(
+      "[data-worktree-right-sidebar-panel]",
+    );
+    expect(sidebarWrapper?.dataset.state).toBe("closed");
+    expect(sidebarPanel).toHaveAttribute("aria-hidden", "true");
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    act(() => {
+      useWorktreeRightSidebarStore.getState().toggleDesktop();
+    });
+
+    expect(sidebarWrapper?.dataset.state).toBe("open");
+    expect(sidebarPanel).toHaveAttribute("aria-hidden", "false");
+    expect(
+      viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
+    ).toBe("484px");
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
   });
 });

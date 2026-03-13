@@ -17,6 +17,7 @@ type SidebarDialogsProps = {
     projectId: string,
     branch: string,
     startPoint?: string,
+    sourceRef?: string,
   ) => Promise<unknown>;
   onRenameProject: (projectId: string, name: string) => Promise<unknown>;
   onRemoveProject: (
@@ -58,11 +59,12 @@ export default function SidebarDialogs({
         <AddWorktreeDialog
           projectId={dialogState.addWorktree.projectId}
           projectName={dialogState.addWorktree.projectName}
-          onAdd={async (branch, startPoint) => {
+          onAdd={async (branch, startPoint, sourceRef) => {
             await onAddWorktree(
               dialogState.addWorktree!.projectId,
               branch,
               startPoint,
+              sourceRef,
             );
             setDialogState((state) => ({ ...state, addWorktree: null }));
           }}

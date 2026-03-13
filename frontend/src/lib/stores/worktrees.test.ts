@@ -58,6 +58,7 @@ function makeWorktree(
     name: overrides.name ?? "worktree",
     path: overrides.path ?? "/tmp/worktree",
     branch: overrides.branch ?? "main",
+    source_ref: overrides.source_ref ?? null,
     is_local: overrides.is_local ?? false,
     missing_on_disk: overrides.missing_on_disk ?? false,
     position: overrides.position ?? 1,

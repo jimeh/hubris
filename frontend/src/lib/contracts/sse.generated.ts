@@ -34,6 +34,7 @@ export type Worktree = {
   name: string;
   path: string;
   branch: string;
+  source_ref: string | null;
   is_local: boolean;
   missing_on_disk: boolean;
   position: number;

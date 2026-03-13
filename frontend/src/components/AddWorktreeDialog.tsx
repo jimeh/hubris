@@ -40,7 +40,11 @@ import { Popover as PopoverPrimitive } from "radix-ui";
 type Props = {
   projectId: string;
   projectName: string;
-  onAdd: (branch: string, startPoint?: string) => Promise<void>;
+  onAdd: (
+    branch: string,
+    startPoint?: string,
+    sourceRef?: string,
+  ) => Promise<void>;
   onClose: () => void;
 };
 
@@ -221,7 +225,21 @@ export default function AddWorktreeDialog({
     setSubmitting(true);
     setError("");
     try {
-      await onAdd(effectiveBranch, effectiveStartPoint);
+      const matchedStartPoint =
+        useCustomStartPoint || !effectiveStartPoint
+          ? undefined
+          : startPoints.find(
+              (startPoint) =>
+                startPoint.value === effectiveStartPoint ||
+                startPoint.local_ref === effectiveStartPoint ||
+                startPoint.remote_refs.includes(effectiveStartPoint),
+            );
+      const sourceRef =
+        matchedStartPoint?.remote_refs[0] ??
+        matchedStartPoint?.local_ref ??
+        undefined;
+
+      await onAdd(effectiveBranch, effectiveStartPoint, sourceRef);
     } catch (submitError) {
       setError((submitError as Error).message);
       setSubmitting(false);

@@ -165,6 +165,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{id}/worktrees/{worktree_id}/git-status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_project_worktree_git_status"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/settings": {
     parameters: {
       query?: never;
@@ -273,12 +289,32 @@ export interface components {
     };
     CreateWorktreeRequest: {
       branch: string;
+      source_ref?: string | null;
       start_point?: string | null;
     };
     DirEntry: {
       is_git_repo: boolean;
       name: string;
     };
+    GitCommitSummary: {
+      id: string;
+      short_id: string;
+      summary: string;
+    };
+    GitFileChange: {
+      change_type: components["schemas"]["GitFileChangeType"];
+      path: string;
+    };
+    /** @enum {string} */
+    GitFileChangeType:
+      | "added"
+      | "copied"
+      | "renamed"
+      | "conflict"
+      | "modified"
+      | "deleted"
+      | "typechange"
+      | "untracked";
     ListFilesResponse: {
       /** @description Subdirectories within `path`. */
       entries: components["schemas"]["DirEntry"][];
@@ -390,6 +426,16 @@ export interface components {
       /** Format: double */
       position: number;
       project_id: string;
+      source_ref?: string | null;
+    };
+    WorktreeGitStatusResponse: {
+      ahead_commits: components["schemas"]["GitCommitSummary"][];
+      ahead_count: number;
+      comparison_available: boolean;
+      comparison_error?: string | null;
+      source_ref?: string | null;
+      staged_files: components["schemas"]["GitFileChange"][];
+      unstaged_files: components["schemas"]["GitFileChange"][];
     };
     WorktreeSettings: {
       locationMode?: string;
@@ -908,6 +954,45 @@ export interface operations {
       };
       /** @description Worktree has uncommitted changes */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  get_project_worktree_git_status: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Git status for a worktree */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorktreeGitStatusResponse"];
+        };
+      };
+      /** @description Project or worktree not found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

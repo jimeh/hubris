@@ -9,8 +9,9 @@ use crate::api::settings::{AppearanceSettings, Settings, TerminalSettings, Workt
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
 use crate::api::worktrees::{
-    CreateWorktreeRequest, ListWorktreeStartPointsResponse, ListWorktreesResponse,
-    ReorderWorktreesRequest, StartPoint, Worktree,
+    CreateWorktreeRequest, GitCommitSummary, GitFileChange, GitFileChangeType,
+    ListWorktreeStartPointsResponse, ListWorktreesResponse, ReorderWorktreesRequest, StartPoint,
+    Worktree, WorktreeGitStatusResponse,
 };
 use crate::pty::live_tab::TabInfo;
 
@@ -29,6 +30,7 @@ use crate::pty::live_tab::TabInfo;
         crate::api::worktrees::list_project_worktree_start_points,
         crate::api::worktrees::reorder_project_worktrees,
         crate::api::worktrees::delete_project_worktree,
+        crate::api::worktrees::get_project_worktree_git_status,
         crate::api::tabs::list_tabs,
         crate::api::tabs::create_tab,
         crate::api::tabs::update_tab,
@@ -53,6 +55,10 @@ use crate::pty::live_tab::TabInfo;
             ReorderWorktreesRequest,
             StartPoint,
             ListWorktreeStartPointsResponse,
+            GitFileChangeType,
+            GitFileChange,
+            GitCommitSummary,
+            WorktreeGitStatusResponse,
             TabInfo,
             CreateTabRequest,
             UpdateTabRequest,

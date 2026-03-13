@@ -123,6 +123,16 @@
   transition: none !important;
 }
 
+.worktree-right-sidebar-resizing [data-worktree-right-sidebar-gap],
+.worktree-right-sidebar-resizing [data-worktree-right-sidebar-panel],
+.worktree-right-sidebar-resizing [data-worktree-right-sidebar-resize-handle] {
+  transition: none !important;
+}
+
+[data-worktree-right-sidebar-panel] [data-slot="scroll-area-scrollbar"] {
+  z-index: 20;
+}
+
 [data-slot="sidebar-inset"] {
   width: auto;
   min-width: 0;

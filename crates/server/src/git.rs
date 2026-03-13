@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::api::worktrees::{GitCommitSummary, GitFileChange, GitFileChangeType};
 use tokio::process::Command;
 use uuid::Uuid;
 
@@ -27,6 +28,16 @@ pub struct GitStartPoint {
 }
 
 #[derive(Debug, Clone)]
+pub struct WorktreeGitStatus {
+    pub unstaged_files: Vec<GitFileChange>,
+    pub staged_files: Vec<GitFileChange>,
+    pub ahead_count: usize,
+    pub ahead_commits: Vec<GitCommitSummary>,
+    pub comparison_available: bool,
+    pub comparison_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct GitError {
     pub message: String,
 }
@@ -41,6 +52,145 @@ impl std::error::Error for GitError {}
 
 fn trim_output(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).trim().to_string()
+}
+
+fn to_git_error(error: impl std::fmt::Display) -> GitError {
+    GitError {
+        message: error.to_string(),
+    }
+}
+
+fn bytes_to_string(value: &[u8]) -> String {
+    String::from_utf8_lossy(value).into_owned()
+}
+
+fn rewrite_tracking() -> gix::diff::Rewrites {
+    gix::diff::Rewrites {
+        copies: Some(gix::diff::rewrites::Copies {
+            source: gix::diff::rewrites::CopySource::FromSetOfModifiedFilesAndAllSources,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+fn map_index_worktree_change(item: &gix::status::index_worktree::Item) -> Option<GitFileChange> {
+    use gix::status::index_worktree::{Item, iter::Summary};
+
+    let change_type = match item.summary()? {
+        Summary::Added | Summary::IntentToAdd => GitFileChangeType::Untracked,
+        Summary::Copied => GitFileChangeType::Copied,
+        Summary::Renamed => GitFileChangeType::Renamed,
+        Summary::Conflict => GitFileChangeType::Conflict,
+        Summary::Modified => GitFileChangeType::Modified,
+        Summary::Removed => GitFileChangeType::Deleted,
+        Summary::TypeChange => GitFileChangeType::Typechange,
+    };
+
+    let path = match item {
+        Item::Modification { rela_path, .. } => bytes_to_string(rela_path),
+        Item::DirectoryContents { entry, .. } => bytes_to_string(&entry.rela_path),
+        Item::Rewrite { dirwalk_entry, .. } => bytes_to_string(&dirwalk_entry.rela_path),
+    };
+
+    Some(GitFileChange { path, change_type })
+}
+
+fn map_tree_index_change(change: gix::diff::index::Change) -> Option<GitFileChange> {
+    use gix::diff::index::Change;
+
+    let (path, change_type) = match change {
+        Change::Addition { location, .. } => {
+            (bytes_to_string(location.as_ref()), GitFileChangeType::Added)
+        }
+        Change::Deletion { location, .. } => (
+            bytes_to_string(location.as_ref()),
+            GitFileChangeType::Deleted,
+        ),
+        Change::Modification {
+            location,
+            previous_entry_mode,
+            entry_mode,
+            ..
+        } => {
+            let change_type = if previous_entry_mode != entry_mode {
+                GitFileChangeType::Typechange
+            } else {
+                GitFileChangeType::Modified
+            };
+            (bytes_to_string(location.as_ref()), change_type)
+        }
+        Change::Rewrite { location, copy, .. } => (
+            bytes_to_string(location.as_ref()),
+            if copy {
+                GitFileChangeType::Copied
+            } else {
+                GitFileChangeType::Renamed
+            },
+        ),
+    };
+
+    Some(GitFileChange { path, change_type })
+}
+
+fn commit_summary(commit: &gix::Commit<'_>) -> Result<GitCommitSummary, GitError> {
+    let id = commit.id.to_string();
+    let short_id = commit.short_id().map_err(to_git_error)?.to_string();
+    let summary = String::from_utf8_lossy(commit.message_raw_sloppy().as_ref())
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .unwrap_or("(no commit message)")
+        .to_string();
+
+    Ok(GitCommitSummary {
+        id,
+        short_id,
+        summary,
+    })
+}
+
+fn read_ahead_commits(
+    repo: &gix::Repository,
+    source_ref: Option<&str>,
+) -> Result<(usize, Vec<GitCommitSummary>, bool, Option<String>), GitError> {
+    let Some(source_ref) = source_ref else {
+        return Ok((0, Vec::new(), false, None));
+    };
+
+    let head_id = repo.head_id().map_err(to_git_error)?;
+    let source_id = match repo.rev_parse_single(source_ref) {
+        Ok(spec) => spec.detach(),
+        Err(err) => {
+            return Ok((0, Vec::new(), true, Some(err.to_string())));
+        }
+    };
+
+    let mut walk = repo
+        .rev_walk([head_id.detach()])
+        .with_hidden([source_id])
+        .sorting(gix::revision::walk::Sorting::ByCommitTime(
+            gix::traverse::commit::simple::CommitTimeOrder::NewestFirst,
+        ))
+        .all()
+        .map_err(to_git_error)?;
+
+    let mut ahead_count = 0;
+    let mut ahead_commits = Vec::new();
+
+    for info in &mut walk {
+        let info = info.map_err(to_git_error)?;
+        ahead_count += 1;
+        if ahead_commits.len() >= 100 {
+            continue;
+        }
+
+        let commit = repo.find_commit(info.id).map_err(to_git_error)?;
+        ahead_commits.push(commit_summary(&commit)?);
+    }
+
+    Ok((ahead_count, ahead_commits, true, None))
 }
 
 async fn run_git(args: &[&str]) -> Result<String, GitError> {
@@ -328,6 +478,56 @@ pub async fn remove_worktree(
     }
     args.push(&target);
     run_git(&args).await.map(|_| ())
+}
+
+pub fn read_worktree_status(
+    worktree_path: &Path,
+    source_ref: Option<&str>,
+) -> Result<WorktreeGitStatus, GitError> {
+    let repo = gix::open(worktree_path).map_err(to_git_error)?;
+    let mut status = repo
+        .status(gix::progress::Discard)
+        .map_err(to_git_error)?
+        .untracked_files(gix::status::UntrackedFiles::Files)
+        .index_worktree_rewrites(Some(rewrite_tracking()))
+        .tree_index_track_renames(gix::status::tree_index::TrackRenames::Given(
+            rewrite_tracking(),
+        ))
+        .into_iter(Vec::<gix::bstr::BString>::new())
+        .map_err(to_git_error)?;
+
+    let mut unstaged_files = Vec::new();
+    let mut staged_files = Vec::new();
+
+    for item in &mut status {
+        match item.map_err(to_git_error)? {
+            gix::status::Item::IndexWorktree(change) => {
+                if let Some(change) = map_index_worktree_change(&change) {
+                    unstaged_files.push(change);
+                }
+            }
+            gix::status::Item::TreeIndex(change) => {
+                if let Some(change) = map_tree_index_change(change) {
+                    staged_files.push(change);
+                }
+            }
+        }
+    }
+
+    unstaged_files.sort_by(|a, b| a.path.cmp(&b.path));
+    staged_files.sort_by(|a, b| a.path.cmp(&b.path));
+
+    let (ahead_count, ahead_commits, comparison_available, comparison_error) =
+        read_ahead_commits(&repo, source_ref)?;
+
+    Ok(WorktreeGitStatus {
+        unstaged_files,
+        staged_files,
+        ahead_count,
+        ahead_commits,
+        comparison_available,
+        comparison_error,
+    })
 }
 
 #[cfg(test)]

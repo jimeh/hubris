@@ -16,6 +16,7 @@ const {
   deleteProject,
   listProjectWorktreeStartPoints,
   createProjectWorktree,
+  getProjectWorktreeGitStatus,
   terminalWsUrl,
   listFiles,
   listTabs,
@@ -245,13 +246,14 @@ describe("API client", () => {
   });
 
   describe("createProjectWorktree", () => {
-    it("sends POST with branch and optional start point", async () => {
+    it("sends POST with branch, start point, and source ref", async () => {
       const mockWorktree = {
         id: "w1",
         project_id: "p1",
         name: "feature-test",
         path: "/tmp/w1",
         branch: "feature-test",
+        source_ref: "origin/main",
         is_local: false,
         missing_on_disk: false,
         position: 2,
@@ -268,6 +270,7 @@ describe("API client", () => {
         "p1",
         "feature-test",
         "origin/main",
+        "origin/main",
       );
       expect(fetch).toHaveBeenCalledWith("/api/projects/p1/worktrees", {
         method: "POST",
@@ -275,6 +278,7 @@ describe("API client", () => {
         body: JSON.stringify({
           branch: "feature-test",
           start_point: "origin/main",
+          source_ref: "origin/main",
         }),
       });
       expect(result).toEqual(mockWorktree);
@@ -295,6 +299,34 @@ describe("API client", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ branch: "feature-test" }),
       });
+    });
+  });
+
+  describe("getProjectWorktreeGitStatus", () => {
+    it("fetches git status for a worktree", async () => {
+      const mockStatus = {
+        source_ref: "origin/main",
+        unstaged_files: [],
+        staged_files: [],
+        ahead_count: 0,
+        ahead_commits: [],
+        comparison_available: true,
+        comparison_error: null,
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockStatus),
+        }),
+      );
+
+      const result = await getProjectWorktreeGitStatus("p1", "w1");
+
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/p1/worktrees/w1/git-status",
+      );
+      expect(result).toEqual(mockStatus);
     });
   });
 

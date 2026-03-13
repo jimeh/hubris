@@ -16,6 +16,10 @@ type StartPoint = components["schemas"]["StartPoint"];
 type ListWorktreeStartPointsResponse =
   components["schemas"]["ListWorktreeStartPointsResponse"];
 type CreateWorktreeRequest = components["schemas"]["CreateWorktreeRequest"];
+type WorktreeGitStatusResponse =
+  components["schemas"]["WorktreeGitStatusResponse"];
+type GitFileChange = components["schemas"]["GitFileChange"];
+type GitCommitSummary = components["schemas"]["GitCommitSummary"];
 type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
@@ -98,6 +102,9 @@ export async function listProjectWorktrees(
 }
 
 export type WorktreeStartPoint = StartPoint;
+export type WorktreeGitStatus = WorktreeGitStatusResponse;
+export type WorktreeGitFileChange = GitFileChange;
+export type WorktreeGitCommitSummary = GitCommitSummary;
 
 export async function listProjectWorktreeStartPoints(
   projectId: string,
@@ -113,16 +120,31 @@ export async function createProjectWorktree(
   projectId: string,
   branch: string,
   startPoint?: string,
+  sourceRef?: string,
 ): Promise<Worktree> {
   const body: CreateWorktreeRequest = { branch };
   if (startPoint) {
     body.start_point = startPoint;
+  }
+  if (sourceRef) {
+    body.source_ref = sourceRef;
   }
   const res = await fetch(`${BASE}/projects/${projectId}/worktrees`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function getProjectWorktreeGitStatus(
+  projectId: string,
+  worktreeId: string,
+): Promise<WorktreeGitStatusResponse> {
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git-status`,
+  );
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }

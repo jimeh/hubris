@@ -48,4 +48,10 @@ export default tseslint.config(
       "react-refresh/only-export-components": "off",
     },
   },
+  {
+    files: ["src/components/ui/sidebar.tsx"],
+    rules: {
+      "react-hooks/purity": "off",
+    },
+  },
 );

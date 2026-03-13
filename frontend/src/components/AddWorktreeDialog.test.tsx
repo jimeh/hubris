@@ -54,4 +54,56 @@ describe("AddWorktreeDialog", () => {
     expect(portalContainer).not.toBeNull();
     expect(portalContainer).toContainElement(popoverContent);
   });
+
+  it("submits source_ref for selected branch start points", async () => {
+    const onAdd = vi.fn(async () => {});
+    render(
+      <AddWorktreeDialog
+        projectId="project-1"
+        projectName="Devbox"
+        onAdd={onAdd}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByText("origin/main");
+
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(onAdd).toHaveBeenCalledWith(
+        expect.any(String),
+        "refs/heads/main",
+        "origin/main",
+      );
+    });
+  });
+
+  it("omits source_ref for custom start points", async () => {
+    const onAdd = vi.fn(async () => {});
+    render(
+      <AddWorktreeDialog
+        projectId="project-1"
+        projectName="Devbox"
+        onAdd={onAdd}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByText("origin/main");
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Start from" }));
+    await userEvent.click(screen.getByText("Custom ref…"));
+    const textboxes = screen.getAllByRole("textbox");
+    await userEvent.type(textboxes[textboxes.length - 1], "origin/release");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(onAdd).toHaveBeenCalledWith(
+        expect.any(String),
+        "origin/release",
+        undefined,
+      );
+    });
+  });
 });

@@ -1,7 +1,6 @@
 import { useCallback, useRef } from "react";
-import { useSidebar } from "@/components/ui/sidebar";
 import { useResizeQueue } from "@/hooks/use-resize-queue";
-import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
+import { useWorktreeRightSidebarWidthStore } from "@/lib/stores/worktreeRightSidebarWidth";
 
 const KEYBOARD_RESIZE_STEP = 16;
 
@@ -11,13 +10,13 @@ type ResizeState = {
   startWidth: number;
 };
 
-export default function SidebarResizeHandle() {
-  const sidebar = useSidebar();
-  const width = useSidebarWidthStore((state) => state.width);
-  const isResizing = useSidebarWidthStore((state) => state.isResizing);
-  const setWidth = useSidebarWidthStore((state) => state.setWidth);
-  const setResizing = useSidebarWidthStore((state) => state.setResizing);
-  const flushPendingPersist = useSidebarWidthStore(
+export default function WorktreeRightSidebarResizeHandle() {
+  const width = useWorktreeRightSidebarWidthStore((state) => state.width);
+  const setWidth = useWorktreeRightSidebarWidthStore((state) => state.setWidth);
+  const setResizing = useWorktreeRightSidebarWidthStore(
+    (state) => state.setResizing,
+  );
+  const flushPendingPersist = useWorktreeRightSidebarWidthStore(
     (state) => state.flushPendingPersist,
   );
 
@@ -29,7 +28,7 @@ export default function SidebarResizeHandle() {
       if (!resizeState) {
         return;
       }
-      setWidth(resizeState.startWidth + clientX - resizeState.startX);
+      setWidth(resizeState.startWidth + resizeState.startX - clientX);
     },
     [setWidth],
   );
@@ -50,21 +49,18 @@ export default function SidebarResizeHandle() {
   return (
     <button
       type="button"
-      aria-label="Resize sidebar"
+      aria-label="Resize right sidebar"
+      data-worktree-right-sidebar-resize-handle
       className={[
-        "fixed inset-y-0 left-[calc(var(--sidebar-width)-4px)] z-30 hidden",
-        "w-2 cursor-e-resize touch-none bg-transparent p-0",
-        "transition-[left,opacity] duration-200 ease-linear md:block",
-        "peer-data-[state=collapsed]:-left-10",
-        "peer-data-[state=collapsed]:pointer-events-none",
-        "peer-data-[state=collapsed]:opacity-0",
+        "absolute inset-y-0 right-[calc(var(--worktree-right-sidebar-width)-4px)]",
+        "z-30 hidden w-2 cursor-w-resize touch-none bg-transparent p-0 md:block",
+        "transition-[right,opacity] duration-200 ease-linear",
         "after:absolute after:inset-y-0 after:left-1/2 after:w-[2px]",
-        "after:-translate-x-1/2 hover:after:bg-sidebar-border",
-        "focus-visible:after:bg-sidebar-border",
-        isResizing ? "!transition-none" : "",
+        "after:-translate-x-1/2 hover:after:bg-border",
+        "focus-visible:after:bg-border",
       ].join(" ")}
       onPointerDown={(event) => {
-        if (event.button !== 0 || sidebar.isMobile) {
+        if (event.button !== 0) {
           return;
         }
 
@@ -113,10 +109,6 @@ export default function SidebarResizeHandle() {
         flushPendingPersist();
       }}
       onKeyDown={(event) => {
-        if (sidebar.isMobile) {
-          return;
-        }
-
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
           return;
         }
@@ -124,7 +116,7 @@ export default function SidebarResizeHandle() {
         event.preventDefault();
         setWidth(
           width +
-            (event.key === "ArrowRight"
+            (event.key === "ArrowLeft"
               ? KEYBOARD_RESIZE_STEP
               : -KEYBOARD_RESIZE_STEP),
         );
