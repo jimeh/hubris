@@ -273,13 +273,22 @@ describe("WorktreeView", () => {
     act(() => {
       useWorktreeRightSidebarStore.getState().toggleDesktop();
     });
-    expect(screen.getByText("Git panel")).toBeInTheDocument();
+    const sidebarWrapper = document.querySelector<HTMLElement>(
+      "[data-worktree-right-sidebar-wrapper]",
+    );
+    const sidebarPanel = document.querySelector<HTMLElement>(
+      "[data-worktree-right-sidebar-panel]",
+    );
+    expect(sidebarWrapper?.dataset.state).toBe("closed");
+    expect(sidebarPanel).toHaveAttribute("aria-hidden", "true");
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
 
     act(() => {
       useWorktreeRightSidebarStore.getState().toggleDesktop();
     });
 
+    expect(sidebarWrapper?.dataset.state).toBe("open");
+    expect(sidebarPanel).toHaveAttribute("aria-hidden", "false");
     expect(
       viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
     ).toBe("484px");
