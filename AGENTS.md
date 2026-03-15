@@ -69,7 +69,7 @@ No periodic reconciliation — drift corrects on reconnect.
 - SSE events: snapshot, tab_created, tab_closed, tab_updated,
   project_added, project_removed, project_updated, projects_reordered,
   worktree_created, worktree_deleted, worktrees_reordered,
-  project_worktrees_updated
+  project_worktrees_updated, settings_updated
 - Git status: `GET /api/projects/{id}/worktrees/{wt_id}/git-status`
   uses `gix` (not CLI) to read staged/unstaged/ahead-of-source info.
   `source_ref` on worktrees tracks the branch it was created from.
@@ -78,8 +78,8 @@ No periodic reconciliation — drift corrects on reconnect.
 
 - App location: `frontend/`
 - State: Zustand singletons — grep `useProjectStore`,
-  `useWorktreeStore`, `useTabStore`, `useThemeStore`,
-  `useTerminalStore`, `useWorktreeSettingsStore`,
+  `useWorktreeStore`, `useTabStore`, `useSettingsStore`,
+  `useThemeStore`, `useTerminalStore`,
   `useWorktreeRightSidebarStore`,
   `useWorktreeRightSidebarWidthStore`
 - SSE bootstrap: `src/lib/bootstrap.ts`
@@ -150,16 +150,22 @@ No periodic reconciliation — drift corrects on reconnect.
   emit `settings_updated`. Frontend persistence flows through the
   canonical settings store in `frontend/src/lib/stores/settings.ts`;
   theme and terminal stores are derived behavior layers on top.
-- **Settings PATCH must stay raw JSON merge patch on the backend**:
-  `PATCH /api/settings` uses JSON Merge Patch semantics, including
-  `null` deleting individual keys so reads fall back to defaults.
-  Deserialize the patch body as raw `serde_json::Value`; typed
-  `Option<Option<T>>` patch structs lose explicit `null` vs missing-key
-  distinction under Serde.
+- **Settings writes are serialized on the server**:
+  `AppState` carries a shared settings mutex and all settings reads and
+  writes go through it. Keep the full read/merge/write cycle under that
+  lock or cross-browser saves can still lose updates.
+- **Settings PATCH keeps merge-patch semantics over sparse storage**:
+  `PATCH /api/settings` applies JSON Merge Patch to the sparse on-disk
+  document, not the materialized defaults document. `null` deletes
+  keys/sections from storage and reads fall back to defaults.
 - **Settings persistence writes sparse JSON**: `settings.json` omits
   keys that match defaults. Deleting a setting means removing it from
   persisted JSON, not storing `null`; `GET /api/settings` and SSE
   snapshots always materialize the full defaulted settings document.
+- **Legacy `null` settings are tolerated on disk**: older settings
+  files may contain `null` sections/keys from the previous optional
+  schema. The backend strips those `null`s while loading, but wrong
+  types still make `GET /api/settings` fail with `500`.
 - **Appearance settings still store per-mode theme IDs**:
   `lightTheme`/`darkTheme` remain in settings even though only built-in
   Hubris themes are selectable right now.

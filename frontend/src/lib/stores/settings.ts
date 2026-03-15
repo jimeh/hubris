@@ -15,6 +15,7 @@ import {
 type SettingsState = {
   settings: Settings;
   hasServerState: boolean;
+  mutationGeneration: number;
   init: () => Promise<void>;
   patchSettings: (patch: SettingsPatch) => Promise<Settings>;
 };
@@ -111,70 +112,90 @@ function loadFallbackSettings(): Settings {
 
 function applyPatch(current: Settings, patch: SettingsPatch): Settings {
   return {
-    appearance: {
-      ...current.appearance,
-      ...(patch.appearance?.colorScheme === null
-        ? { colorScheme: DEFAULT_APPEARANCE_SETTINGS.colorScheme }
-        : {}),
-      ...(patch.appearance?.lightTheme === null
-        ? { lightTheme: DEFAULT_APPEARANCE_SETTINGS.lightTheme }
-        : {}),
-      ...(patch.appearance?.darkTheme === null
-        ? { darkTheme: DEFAULT_APPEARANCE_SETTINGS.darkTheme }
-        : {}),
-      ...(patch.appearance
-        ? Object.fromEntries(
-            Object.entries(patch.appearance).filter(
-              ([, value]) => value !== null && value !== undefined,
-            ),
-          )
-        : {}),
-    },
-    terminal: {
-      ...current.terminal,
-      ...(patch.terminal?.fontSource === null
-        ? { fontSource: DEFAULT_TERMINAL_SETTINGS.fontSource }
-        : {}),
-      ...(patch.terminal?.systemFontFamily === null
-        ? { systemFontFamily: DEFAULT_TERMINAL_SETTINGS.systemFontFamily }
-        : {}),
-      ...(patch.terminal?.bundledFont === null
-        ? { bundledFont: DEFAULT_TERMINAL_SETTINGS.bundledFont }
-        : {}),
-      ...(patch.terminal?.fontSize === null
-        ? { fontSize: DEFAULT_TERMINAL_SETTINGS.fontSize }
-        : {}),
-      ...(patch.terminal
-        ? Object.fromEntries(
-            Object.entries(patch.terminal).filter(
-              ([, value]) => value !== null && value !== undefined,
-            ),
-          )
-        : {}),
-    },
-    worktree: {
-      ...current.worktree,
-      ...(patch.worktree?.locationMode === null
-        ? { locationMode: DEFAULT_WORKTREE_SETTINGS.locationMode }
-        : {}),
-      ...(patch.worktree
-        ? Object.fromEntries(
-            Object.entries(patch.worktree).filter(
-              ([, value]) => value !== null && value !== undefined,
-            ),
-          )
-        : {}),
-    },
+    appearance:
+      patch.appearance === null
+        ? { ...DEFAULT_APPEARANCE_SETTINGS }
+        : {
+            ...current.appearance,
+            ...(patch.appearance?.colorScheme === null
+              ? { colorScheme: DEFAULT_APPEARANCE_SETTINGS.colorScheme }
+              : {}),
+            ...(patch.appearance?.lightTheme === null
+              ? { lightTheme: DEFAULT_APPEARANCE_SETTINGS.lightTheme }
+              : {}),
+            ...(patch.appearance?.darkTheme === null
+              ? { darkTheme: DEFAULT_APPEARANCE_SETTINGS.darkTheme }
+              : {}),
+            ...(patch.appearance
+              ? Object.fromEntries(
+                  Object.entries(patch.appearance).filter(
+                    ([, value]) => value !== null && value !== undefined,
+                  ),
+                )
+              : {}),
+          },
+    terminal:
+      patch.terminal === null
+        ? { ...DEFAULT_TERMINAL_SETTINGS }
+        : {
+            ...current.terminal,
+            ...(patch.terminal?.fontSource === null
+              ? { fontSource: DEFAULT_TERMINAL_SETTINGS.fontSource }
+              : {}),
+            ...(patch.terminal?.systemFontFamily === null
+              ? {
+                  systemFontFamily: DEFAULT_TERMINAL_SETTINGS.systemFontFamily,
+                }
+              : {}),
+            ...(patch.terminal?.bundledFont === null
+              ? { bundledFont: DEFAULT_TERMINAL_SETTINGS.bundledFont }
+              : {}),
+            ...(patch.terminal?.fontSize === null
+              ? { fontSize: DEFAULT_TERMINAL_SETTINGS.fontSize }
+              : {}),
+            ...(patch.terminal
+              ? Object.fromEntries(
+                  Object.entries(patch.terminal).filter(
+                    ([, value]) => value !== null && value !== undefined,
+                  ),
+                )
+              : {}),
+          },
+    worktree:
+      patch.worktree === null
+        ? { ...DEFAULT_WORKTREE_SETTINGS }
+        : {
+            ...current.worktree,
+            ...(patch.worktree?.locationMode === null
+              ? { locationMode: DEFAULT_WORKTREE_SETTINGS.locationMode }
+              : {}),
+            ...(patch.worktree
+              ? Object.fromEntries(
+                  Object.entries(patch.worktree).filter(
+                    ([, value]) => value !== null && value !== undefined,
+                  ),
+                )
+              : {}),
+          },
   };
 }
 
-function commitSettings(next: Settings, hasServerState: boolean): void {
+function commitSettings(
+  next: Settings,
+  hasServerState: boolean,
+  expectedGeneration?: number,
+): void {
   const materialized = materializeSettings(next);
-  if (hasServerState) {
-    cacheSettings(materialized);
-  }
+  let shouldCache = false;
 
   useSettingsStore.setState((state) => {
+    if (
+      expectedGeneration !== undefined &&
+      state.mutationGeneration !== expectedGeneration
+    ) {
+      return state;
+    }
+
     const nextHasServerState = state.hasServerState || hasServerState;
     if (
       settingsEqual(state.settings, materialized) &&
@@ -183,16 +204,23 @@ function commitSettings(next: Settings, hasServerState: boolean): void {
       return state;
     }
 
+    shouldCache = hasServerState;
     return {
       settings: materialized,
       hasServerState: nextHasServerState,
+      mutationGeneration: state.mutationGeneration,
     };
   });
+
+  if (hasServerState && shouldCache) {
+    cacheSettings(materialized);
+  }
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: defaultSettings(),
   hasServerState: false,
+  mutationGeneration: 0,
   async init() {
     try {
       const settings = materializeSettings(await getSettings());
@@ -212,16 +240,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       return previous;
     }
 
-    set({ settings: optimistic });
+    const mutationGeneration = get().mutationGeneration + 1;
+    set({ settings: optimistic, mutationGeneration });
 
     try {
       const saved = materializeSettings(await saveSettings(patch));
-      commitSettings(saved, true);
+      commitSettings(saved, true, mutationGeneration);
       return saved;
     } catch (error) {
       set((state) =>
+        state.mutationGeneration === mutationGeneration &&
         settingsEqual(state.settings, optimistic)
-          ? { settings: previous }
+          ? { ...state, settings: previous }
           : state,
       );
       throw error;
@@ -261,5 +291,6 @@ export function resetSettingsStoreForTests(): void {
   useSettingsStore.setState({
     settings: defaultSettings(),
     hasServerState: false,
+    mutationGeneration: 0,
   });
 }

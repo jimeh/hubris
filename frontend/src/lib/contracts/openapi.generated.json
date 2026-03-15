@@ -1166,6 +1166,7 @@
       },
       "Settings": {
         "type": "object",
+        "required": ["appearance", "terminal", "worktree"],
         "properties": {
           "appearance": {
             "$ref": "#/components/schemas/AppearanceSettings"

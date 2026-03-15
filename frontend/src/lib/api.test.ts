@@ -608,6 +608,45 @@ describe("API client", () => {
       expect(result).toEqual(response);
     });
 
+    it("allows section-level null PATCH payloads", async () => {
+      const response = {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      };
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(response),
+        }),
+      );
+
+      await saveSettings({
+        appearance: null,
+      });
+
+      expect(fetch).toHaveBeenCalledWith("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appearance: null,
+        }),
+      });
+    });
+
     it("serializes concurrent PATCH saves in call order", async () => {
       const appearance = {
         colorScheme: "dark" as const,

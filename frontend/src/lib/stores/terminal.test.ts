@@ -41,6 +41,56 @@ describe("Terminal store", () => {
     mockGetSettings.mockReset();
     mockSaveSettings.mockReset();
     mockResolveFont.mockReset();
+    mockResolveFont.mockResolvedValue("monospace");
+  });
+
+  it("normalizes invalid terminal settings back to the canonical store", async () => {
+    const { settings, terminal } = await getStores();
+    settings.useSettingsStore.setState({
+      settings: {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "bundled",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 99,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      hasServerState: true,
+    });
+    mockSaveSettings.mockResolvedValue({
+      appearance: {
+        colorScheme: "auto",
+        lightTheme: "hubris-light",
+        darkTheme: "hubris-dark",
+      },
+      terminal: {
+        fontSource: "bundled",
+        systemFontFamily: "",
+        bundledFont: "jetbrainsmono-nf",
+        fontSize: 32,
+      },
+      worktree: {
+        locationMode: "dataDir",
+      },
+    });
+
+    await terminal.useTerminalStore.getState().init();
+    await flushMicrotasks();
+
+    expect(terminal.useTerminalStore.getState().settings.fontSize).toBe(32);
+    expect(mockSaveSettings).toHaveBeenCalledWith({
+      terminal: {
+        fontSize: 32,
+      },
+    });
   });
 
   it("discards stale async font resolutions", async () => {

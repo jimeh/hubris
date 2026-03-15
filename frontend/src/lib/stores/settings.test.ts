@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
+import type { Settings } from "@/lib/settings/types";
 
 const mockGetSettings = vi.fn();
 const mockSaveSettings = vi.fn();
@@ -217,6 +218,105 @@ describe("Settings store", () => {
     unsubscribe();
 
     expect(changes).toEqual(["dark"]);
+  });
+
+  it("ignores stale PATCH acknowledgements from older optimistic writes", async () => {
+    let firstResolve: ((value: Settings) => void) | null = null;
+    let secondResolve: ((value: Settings) => void) | null = null;
+
+    mockSaveSettings
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve: (value: Settings) => void) => {
+            firstResolve = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve: (value: Settings) => void) => {
+            secondResolve = resolve;
+          }),
+      );
+
+    const store = await getStore();
+
+    const firstPatch = store.useSettingsStore.getState().patchSettings({
+      appearance: {
+        colorScheme: "dark",
+      },
+    });
+    const secondPatch = store.useSettingsStore.getState().patchSettings({
+      terminal: {
+        fontSize: 18,
+      },
+    });
+
+    await Promise.resolve();
+
+    if (!firstResolve || !secondResolve) {
+      throw new Error("expected both PATCH requests to be pending");
+    }
+
+    const resolveFirst = firstResolve as (value: Settings) => void;
+    const resolveSecond = secondResolve as (value: Settings) => void;
+
+    resolveFirst({
+      appearance: {
+        colorScheme: "dark",
+        lightTheme: "hubris-light",
+        darkTheme: "hubris-dark",
+      },
+      terminal: {
+        fontSource: "default",
+        systemFontFamily: "",
+        bundledFont: "jetbrainsmono-nf",
+        fontSize: 14,
+      },
+      worktree: {
+        locationMode: "dataDir",
+      },
+    });
+    await Promise.resolve();
+
+    expect(store.useSettingsStore.getState().settings).toEqual({
+      appearance: {
+        colorScheme: "dark",
+        lightTheme: "hubris-light",
+        darkTheme: "hubris-dark",
+      },
+      terminal: {
+        fontSource: "default",
+        systemFontFamily: "",
+        bundledFont: "jetbrainsmono-nf",
+        fontSize: 18,
+      },
+      worktree: {
+        locationMode: "dataDir",
+      },
+    });
+
+    resolveSecond({
+      appearance: {
+        colorScheme: "dark",
+        lightTheme: "hubris-light",
+        darkTheme: "hubris-dark",
+      },
+      terminal: {
+        fontSource: "default",
+        systemFontFamily: "",
+        bundledFont: "jetbrainsmono-nf",
+        fontSize: 18,
+      },
+      worktree: {
+        locationMode: "dataDir",
+      },
+    });
+
+    await Promise.all([firstPatch, secondPatch]);
+
+    expect(store.useSettingsStore.getState().settings.terminal.fontSize).toBe(
+      18,
+    );
   });
 
   it("resetSettingsStoreForTests unsubscribes SSE handlers", async () => {

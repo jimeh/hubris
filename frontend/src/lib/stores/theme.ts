@@ -10,6 +10,7 @@ import { useSettingsStore } from "@/lib/stores/settings";
 import {
   DEFAULT_APPEARANCE_SETTINGS,
   type AppearanceSettings,
+  type AppearanceSettingsPatch,
 } from "@/lib/settings/types";
 import type { HubrisTheme, ThemeListEntry } from "@/lib/theme/types";
 
@@ -145,6 +146,25 @@ function applyActiveTheme(
   return theme;
 }
 
+function diffAppearanceSettings(
+  current: AppearanceSettings,
+  next: AppearanceSettings,
+): AppearanceSettingsPatch | null {
+  const patch: AppearanceSettingsPatch = {};
+
+  if (current.colorScheme !== next.colorScheme) {
+    patch.colorScheme = next.colorScheme;
+  }
+  if (current.lightTheme !== next.lightTheme) {
+    patch.lightTheme = next.lightTheme;
+  }
+  if (current.darkTheme !== next.darkTheme) {
+    patch.darkTheme = next.darkTheme;
+  }
+
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
 function syncAppearanceSettings(
   next: AppearanceSettings,
   allowNormalizationSave: boolean,
@@ -174,9 +194,15 @@ function syncAppearanceSettings(
       normalized.settings,
     )
   ) {
-    void useSettingsStore.getState().patchSettings({
-      appearance: normalized.settings,
-    });
+    const appearance = diffAppearanceSettings(
+      useSettingsStore.getState().settings.appearance,
+      normalized.settings,
+    );
+    if (appearance) {
+      void useSettingsStore.getState().patchSettings({
+        appearance,
+      });
+    }
   }
 }
 

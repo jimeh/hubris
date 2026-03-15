@@ -4,6 +4,7 @@ import { DEFAULT_FONT_FAMILY, resolveFont } from "@/lib/terminal/fonts";
 import {
   DEFAULT_TERMINAL_SETTINGS,
   type TerminalSettings,
+  type TerminalSettingsPatch,
 } from "@/lib/settings/types";
 
 const DEFAULTS: TerminalSettings = { ...DEFAULT_TERMINAL_SETTINGS };
@@ -46,10 +47,35 @@ async function resolveSettingsFont(
   return resolveFont(settings);
 }
 
+function diffTerminalSettings(
+  current: TerminalSettings,
+  next: TerminalSettings,
+): TerminalSettingsPatch | null {
+  const patch: TerminalSettingsPatch = {};
+
+  if (current.fontSource !== next.fontSource) {
+    patch.fontSource = next.fontSource;
+  }
+  if (current.systemFontFamily !== next.systemFontFamily) {
+    patch.systemFontFamily = next.systemFontFamily;
+  }
+  if (current.bundledFont !== next.bundledFont) {
+    patch.bundledFont = next.bundledFont;
+  }
+  if (current.fontSize !== next.fontSize) {
+    patch.fontSize = next.fontSize;
+  }
+
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
 let settingsListenerBound = false;
 let fontResolutionToken = 0;
 
-function syncTerminalSettings(next: TerminalSettings): void {
+function syncTerminalSettings(
+  next: TerminalSettings,
+  allowNormalizationSave: boolean,
+): void {
   const normalized = normalizeSettings(next);
 
   useTerminalStore.setState((state) => {
@@ -84,6 +110,22 @@ function syncTerminalSettings(next: TerminalSettings): void {
       };
     });
   });
+
+  if (
+    allowNormalizationSave &&
+    !terminalEqual(next, normalized) &&
+    !terminalEqual(useSettingsStore.getState().settings.terminal, normalized)
+  ) {
+    const terminal = diffTerminalSettings(
+      useSettingsStore.getState().settings.terminal,
+      normalized,
+    );
+    if (terminal) {
+      void useSettingsStore.getState().patchSettings({
+        terminal,
+      });
+    }
+  }
 }
 
 function bindSettingsListener(): void {
@@ -100,7 +142,7 @@ function bindSettingsListener(): void {
     }
 
     previous = next;
-    syncTerminalSettings(next);
+    syncTerminalSettings(next, true);
   });
 }
 
@@ -110,7 +152,7 @@ export const useTerminalStore = create<TerminalState>(() => ({
   version: 0,
   async init() {
     bindSettingsListener();
-    syncTerminalSettings(useSettingsStore.getState().settings.terminal);
+    syncTerminalSettings(useSettingsStore.getState().settings.terminal, true);
   },
   async updateSettings(partial) {
     await useSettingsStore.getState().patchSettings({

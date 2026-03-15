@@ -382,9 +382,9 @@ export interface components {
           type: "tab_closed";
         };
     Settings: {
-      appearance?: components["schemas"]["AppearanceSettings"];
-      terminal?: components["schemas"]["TerminalSettings"];
-      worktree?: components["schemas"]["WorktreeSettings"];
+      appearance: components["schemas"]["AppearanceSettings"];
+      terminal: components["schemas"]["TerminalSettings"];
+      worktree: components["schemas"]["WorktreeSettings"];
     };
     SettingsPatch: {
       appearance?: null | components["schemas"]["AppearanceSettingsPatch"];

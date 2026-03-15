@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 
 use dashmap::DashMap;
+use tokio::sync::Mutex;
 
 use crate::api::projects::Project;
 use crate::events::EventBus;
@@ -15,6 +16,7 @@ pub struct AppState {
     pub tabs: Arc<DashMap<TabId, Arc<LiveTab>>>,
     pub events: Arc<EventBus>,
     pub next_tab_num: Arc<AtomicU32>,
+    pub settings_lock: Arc<Mutex<()>>,
     pub data_dir: PathBuf,
 }
 
@@ -24,6 +26,7 @@ impl AppState {
             tabs: Arc::new(DashMap::new()),
             events: Arc::new(EventBus::new()),
             next_tab_num: Arc::new(AtomicU32::new(1)),
+            settings_lock: Arc::new(Mutex::new(())),
             data_dir,
         }
     }

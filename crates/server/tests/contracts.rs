@@ -78,6 +78,17 @@ fn openapi_contains_core_paths_and_schemas() {
     assert!(spec["components"]["schemas"]["Project"].is_object());
     assert!(spec["components"]["schemas"]["Worktree"].is_object());
     assert!(spec["components"]["schemas"]["TabInfo"].is_object());
+    assert_eq!(
+        spec["components"]["schemas"]["Settings"]["required"],
+        serde_json::json!(["appearance", "terminal", "worktree"])
+    );
+    assert_eq!(
+        spec["components"]["schemas"]["SettingsPatch"]["properties"]["appearance"]["oneOf"],
+        serde_json::json!([
+            { "type": "null" },
+            { "$ref": "#/components/schemas/AppearanceSettingsPatch" }
+        ])
+    );
     assert!(spec["components"]["schemas"]["ThemeMeta"].is_null());
     assert!(spec["components"]["schemas"]["ThemeFile"].is_null());
 }

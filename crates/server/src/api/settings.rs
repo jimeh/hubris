@@ -100,11 +100,8 @@ impl Default for WorktreeSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS, PartialEq, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
-    #[serde(default)]
     pub appearance: AppearanceSettings,
-    #[serde(default)]
     pub terminal: TerminalSettings,
-    #[serde(default)]
     pub worktree: WorktreeSettings,
 }
 
@@ -143,11 +140,11 @@ pub struct WorktreeSettingsPatch {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub appearance: Option<AppearanceSettingsPatch>,
+    pub appearance: Option<Option<AppearanceSettingsPatch>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terminal: Option<TerminalSettingsPatch>,
+    pub terminal: Option<Option<TerminalSettingsPatch>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub worktree: Option<WorktreeSettingsPatch>,
+    pub worktree: Option<Option<WorktreeSettingsPatch>>,
 }
 
 fn strip_defaults(current: Value, defaults: &Value) -> Option<Value> {
@@ -195,55 +192,106 @@ fn merge_patch(target: &mut Value, patch: Value) {
     }
 }
 
+fn sanitize_storage_value(value: Value) -> Option<Value> {
+    match value {
+        Value::Null => None,
+        Value::Object(entries) => {
+            let cleaned = entries
+                .into_iter()
+                .filter_map(|(key, value)| sanitize_storage_value(value).map(|value| (key, value)))
+                .collect();
+            Some(Value::Object(cleaned))
+        }
+        other => Some(other),
+    }
+}
+
+fn sanitize_storage_object(value: Value) -> Result<Value, StatusCode> {
+    match value {
+        Value::Object(entries) => Ok(Value::Object(
+            entries
+                .into_iter()
+                .filter_map(|(key, value)| sanitize_storage_value(value).map(|value| (key, value)))
+                .collect(),
+        )),
+        _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+fn settings_defaults_value() -> Result<Value, StatusCode> {
+    serde_json::to_value(Settings::default()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 fn settings_to_storage_value(settings: &Settings) -> Result<Value, StatusCode> {
     let current = serde_json::to_value(settings).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let defaults =
-        serde_json::to_value(Settings::default()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let defaults = settings_defaults_value()?;
     Ok(strip_defaults(current, &defaults).unwrap_or_else(|| Value::Object(Map::new())))
 }
 
-fn parse_settings(value: Value) -> Result<Settings, StatusCode> {
-    serde_json::from_value(value).map_err(|_| StatusCode::BAD_REQUEST)
+fn parse_settings_from_storage(value: Value) -> Result<Settings, StatusCode> {
+    let mut defaults = settings_defaults_value()?;
+    merge_patch(&mut defaults, sanitize_storage_object(value)?);
+    serde_json::from_value(defaults).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-async fn read_settings_file(state: &AppState) -> Result<Value, StatusCode> {
+fn validate_settings_patch(value: &Value) -> Result<(), StatusCode> {
+    if !value.is_object() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    serde_json::from_value::<SettingsPatch>(value.clone())
+        .map(|_| ())
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
+async fn read_settings_file_unlocked(state: &AppState) -> Result<Value, StatusCode> {
     let path = state.settings_file();
     match tokio::fs::read_to_string(&path).await {
         Ok(contents) => {
             let raw = serde_json::from_str::<Value>(&contents)
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            Ok(match raw {
-                Value::Object(_) => raw,
-                _ => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-            })
+            sanitize_storage_object(raw)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Value::Object(Map::new())),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
 
-pub async fn load_settings(state: &AppState) -> Result<Settings, StatusCode> {
-    parse_settings(read_settings_file(state).await?)
+async fn load_settings_unlocked(state: &AppState) -> Result<Settings, StatusCode> {
+    parse_settings_from_storage(read_settings_file_unlocked(state).await?)
 }
 
-async fn write_settings_file(
-    state: &AppState,
-    settings: &Settings,
-) -> Result<Settings, StatusCode> {
+async fn write_settings_file_unlocked(state: &AppState, value: &Value) -> Result<(), StatusCode> {
     let path = state.settings_file();
-    let contents = serde_json::to_string_pretty(&settings_to_storage_value(settings)?)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let contents =
+        serde_json::to_string_pretty(value).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     tokio::fs::write(&path, contents)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+pub async fn load_settings(state: &AppState) -> Result<Settings, StatusCode> {
+    let _guard = state.settings_lock.lock().await;
+    load_settings_unlocked(state).await
+}
+
+async fn replace_settings(state: &AppState, settings: &Settings) -> Result<Settings, StatusCode> {
+    let _guard = state.settings_lock.lock().await;
+    let storage = settings_to_storage_value(settings)?;
+    write_settings_file_unlocked(state, &storage).await?;
     Ok(settings.clone())
 }
 
-fn apply_settings_patch(current: &Settings, patch: Value) -> Result<Settings, StatusCode> {
-    let mut merged =
-        serde_json::to_value(current).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    merge_patch(&mut merged, patch);
-    parse_settings(merged)
+async fn apply_settings_patch(state: &AppState, patch: Value) -> Result<Settings, StatusCode> {
+    validate_settings_patch(&patch)?;
+
+    let _guard = state.settings_lock.lock().await;
+    let mut storage = read_settings_file_unlocked(state).await?;
+    merge_patch(&mut storage, patch);
+    let settings = parse_settings_from_storage(storage)?;
+    let storage = settings_to_storage_value(&settings)?;
+    write_settings_file_unlocked(state, &storage).await?;
+    Ok(settings)
 }
 
 /// GET /api/settings
@@ -273,7 +321,7 @@ pub async fn save_settings(
     State(state): State<AppState>,
     Json(value): Json<Settings>,
 ) -> Result<Json<Settings>, StatusCode> {
-    let settings = write_settings_file(&state, &value).await?;
+    let settings = replace_settings(&state, &value).await?;
     state
         .events
         .emit(EventKind::SettingsUpdated(settings.clone()));
@@ -295,9 +343,7 @@ pub async fn patch_settings(
     State(state): State<AppState>,
     Json(patch): Json<Value>,
 ) -> Result<Json<Settings>, StatusCode> {
-    let current = load_settings(&state).await?;
-    let merged = apply_settings_patch(&current, patch)?;
-    let settings = write_settings_file(&state, &merged).await?;
+    let settings = apply_settings_patch(&state, patch).await?;
     state
         .events
         .emit(EventKind::SettingsUpdated(settings.clone()));
@@ -311,24 +357,26 @@ mod tests {
     #[test]
     fn merge_patch_deletes_nested_keys() {
         let current = Settings::default();
-        let merged = apply_settings_patch(
-            &Settings {
-                appearance: AppearanceSettings {
-                    color_scheme: "dark".into(),
-                    ..current.appearance.clone()
-                },
-                ..current
+        let mut merged = serde_json::to_value(Settings {
+            appearance: AppearanceSettings {
+                color_scheme: "dark".into(),
+                ..current.appearance.clone()
             },
+            ..current
+        })
+        .unwrap();
+        merge_patch(
+            &mut merged,
             serde_json::to_value(SettingsPatch {
-                appearance: Some(AppearanceSettingsPatch {
+                appearance: Some(Some(AppearanceSettingsPatch {
                     color_scheme: Some(None),
                     ..Default::default()
-                }),
+                })),
                 ..Default::default()
             })
             .unwrap(),
-        )
-        .unwrap();
+        );
+        let merged = parse_settings_from_storage(merged).unwrap();
 
         assert_eq!(merged.appearance.color_scheme, "auto");
     }
@@ -337,5 +385,37 @@ mod tests {
     fn storage_value_omits_default_fields() {
         let value = settings_to_storage_value(&Settings::default()).unwrap();
         assert_eq!(value, Value::Object(Map::new()));
+    }
+
+    #[test]
+    fn parse_settings_from_storage_tolerates_legacy_null_sections() {
+        let settings = parse_settings_from_storage(serde_json::json!({
+            "appearance": null,
+            "terminal": {
+                "fontSize": 18
+            },
+            "worktree": null
+        }))
+        .unwrap();
+
+        assert_eq!(settings.appearance, AppearanceSettings::default());
+        assert_eq!(settings.terminal.font_size, 18);
+        assert_eq!(settings.worktree, WorktreeSettings::default());
+    }
+
+    #[test]
+    fn parse_settings_from_body_requires_full_document() {
+        assert_eq!(
+            serde_json::from_value::<Settings>(serde_json::json!({
+                "appearance": {
+                    "colorScheme": "dark",
+                    "lightTheme": "hubris-light",
+                    "darkTheme": "hubris-dark"
+                }
+            }))
+            .map(|_| ())
+            .map_err(|_| StatusCode::BAD_REQUEST),
+            Err(StatusCode::BAD_REQUEST)
+        );
     }
 }

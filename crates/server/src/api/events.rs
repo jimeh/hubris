@@ -115,7 +115,13 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
 
     let mut worktrees = HashMap::new();
     let mut project_errors = HashMap::new();
-    let settings = load_settings(state).await.unwrap_or_default();
+    let settings = match load_settings(state).await {
+        Ok(settings) => settings,
+        Err(error) => {
+            tracing::warn!("failed to load settings for SSE snapshot: {error}");
+            Default::default()
+        }
+    };
 
     for project in &projects {
         match list_worktrees_for_project(state, project).await {

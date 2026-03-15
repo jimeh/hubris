@@ -39,9 +39,9 @@ export interface WorktreeSettingsPatch {
 }
 
 export interface SettingsPatch {
-  appearance?: AppearanceSettingsPatch;
-  terminal?: TerminalSettingsPatch;
-  worktree?: WorktreeSettingsPatch;
+  appearance?: AppearanceSettingsPatch | null;
+  terminal?: TerminalSettingsPatch | null;
+  worktree?: WorktreeSettingsPatch | null;
 }
 
 export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {

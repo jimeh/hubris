@@ -94,7 +94,6 @@ describe("Theme store", () => {
     expect(theme.useThemeStore.getState().activeTheme?.id).toBe("hubris-light");
     expect(mockSaveSettings).toHaveBeenCalledWith({
       appearance: {
-        colorScheme: "auto",
         lightTheme: "hubris-light",
         darkTheme: "hubris-dark",
       },

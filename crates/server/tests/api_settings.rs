@@ -2,10 +2,10 @@ use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
 
-async fn start_test_server() -> (String, tempfile::TempDir) {
+async fn start_test_server() -> (String, tempfile::TempDir, AppState) {
     let tmp = tempfile::TempDir::new().unwrap();
     let state = AppState::new(tmp.path().to_path_buf());
-    let app = build_router(state);
+    let app = build_router(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -13,7 +13,7 @@ async fn start_test_server() -> (String, tempfile::TempDir) {
         axum::serve(listener, app).await.unwrap();
     });
 
-    (format!("http://{}", addr), tmp)
+    (format!("http://{}", addr), tmp, state)
 }
 
 fn find_sse_separator(buffer: &[u8]) -> Option<usize> {
@@ -63,7 +63,7 @@ async fn next_sse_event(res: &mut reqwest::Response, buffer: &mut Vec<u8>) -> (S
 
 #[tokio::test]
 async fn patch_updates_nested_keys_without_dropping_siblings() {
-    let (base, _tmp) = start_test_server().await;
+    let (base, _tmp, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
     let res = client
@@ -109,7 +109,7 @@ async fn patch_updates_nested_keys_without_dropping_siblings() {
 
 #[tokio::test]
 async fn patch_null_reverts_to_default_and_removes_persisted_key() {
-    let (base, tmp) = start_test_server().await;
+    let (base, tmp, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
     let res = client
@@ -143,12 +143,17 @@ async fn patch_null_reverts_to_default_and_removes_persisted_key() {
         .await
         .unwrap();
     let persisted: Value = serde_json::from_str(&raw).unwrap();
-    assert!(persisted["appearance"]["colorScheme"].is_null());
+    let appearance = persisted.get("appearance").and_then(Value::as_object);
+    assert!(
+        appearance
+            .map(|appearance| !appearance.contains_key("colorScheme"))
+            .unwrap_or(true)
+    );
 }
 
 #[tokio::test]
 async fn sequential_patches_merge_across_sections() {
-    let (base, _tmp) = start_test_server().await;
+    let (base, _tmp, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
     let res = client
@@ -188,7 +193,7 @@ async fn sequential_patches_merge_across_sections() {
 
 #[tokio::test]
 async fn sse_snapshot_includes_settings_and_writes_emit_settings_updated() {
-    let (base, _tmp) = start_test_server().await;
+    let (base, _tmp, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
     let mut stream = client
@@ -251,4 +256,168 @@ async fn sse_snapshot_includes_settings_and_writes_emit_settings_updated() {
     assert_eq!(event_name, "settings_updated");
     assert_eq!(updated["type"], "settings_updated");
     assert_eq!(updated["data"]["terminal"]["fontSize"], 20);
+}
+
+#[tokio::test]
+async fn legacy_null_sections_load_and_can_be_repaired() {
+    let (base, tmp, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    tokio::fs::write(
+        tmp.path().join("settings.json"),
+        serde_json::json!({
+            "appearance": null,
+            "terminal": {
+                "fontSize": 16
+            },
+            "worktree": null
+        })
+        .to_string(),
+    )
+    .await
+    .unwrap();
+
+    let res = client
+        .get(format!("{}/api/settings", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let settings: Value = res.json().await.unwrap();
+    assert_eq!(settings["appearance"]["colorScheme"], "auto");
+    assert_eq!(settings["terminal"]["fontSize"], 16);
+    assert_eq!(settings["worktree"]["locationMode"], "dataDir");
+
+    let res = client
+        .patch(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "appearance": {
+                "colorScheme": "dark"
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let settings: Value = res.json().await.unwrap();
+    assert_eq!(settings["appearance"]["colorScheme"], "dark");
+}
+
+#[tokio::test]
+async fn corrupt_persisted_settings_return_internal_server_error() {
+    let (base, tmp, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    tokio::fs::write(
+        tmp.path().join("settings.json"),
+        serde_json::json!({
+            "terminal": {
+                "fontSize": "huge"
+            }
+        })
+        .to_string(),
+    )
+    .await
+    .unwrap();
+
+    let res = client
+        .get(format!("{}/api/settings", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn concurrent_patches_merge_under_lock() {
+    let (base, _tmp, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let _guard = state.settings_lock.lock().await;
+
+    let first = client
+        .patch(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "appearance": {
+                "colorScheme": "dark"
+            }
+        }))
+        .send();
+    let second = client
+        .patch(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "terminal": {
+                "fontSize": 18
+            }
+        }))
+        .send();
+
+    tokio::task::yield_now().await;
+    drop(_guard);
+
+    let (first, second) = tokio::join!(first, second);
+    assert_eq!(first.unwrap().status(), StatusCode::OK);
+    assert_eq!(second.unwrap().status(), StatusCode::OK);
+
+    let res = client
+        .get(format!("{}/api/settings", base))
+        .send()
+        .await
+        .unwrap();
+    let settings: Value = res.json().await.unwrap();
+    assert_eq!(settings["appearance"]["colorScheme"], "dark");
+    assert_eq!(settings["terminal"]["fontSize"], 18);
+}
+
+#[tokio::test]
+async fn put_then_patch_preserves_put_state_under_contention() {
+    let (base, _tmp, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let guard = state.settings_lock.lock().await;
+
+    let put = client
+        .put(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "appearance": {
+                "colorScheme": "dark",
+                "lightTheme": "hubris-light",
+                "darkTheme": "hubris-dark"
+            },
+            "terminal": {
+                "fontSource": "default",
+                "systemFontFamily": "",
+                "bundledFont": "jetbrainsmono-nf",
+                "fontSize": 14
+            },
+            "worktree": {
+                "locationMode": "dataDir"
+            }
+        }))
+        .send();
+
+    tokio::task::yield_now().await;
+
+    let patch = client
+        .patch(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "terminal": {
+                "fontSize": 20
+            }
+        }))
+        .send();
+
+    tokio::task::yield_now().await;
+    drop(guard);
+
+    let (put, patch) = tokio::join!(put, patch);
+    assert_eq!(put.unwrap().status(), StatusCode::OK);
+    assert_eq!(patch.unwrap().status(), StatusCode::OK);
+
+    let res = client
+        .get(format!("{}/api/settings", base))
+        .send()
+        .await
+        .unwrap();
+    let settings: Value = res.json().await.unwrap();
+    assert_eq!(settings["appearance"]["colorScheme"], "dark");
+    assert_eq!(settings["terminal"]["fontSize"], 20);
 }
