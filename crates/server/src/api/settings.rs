@@ -12,11 +12,8 @@ use crate::state::AppState;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppearanceSettings {
-    #[serde(default = "default_color_scheme")]
     pub color_scheme: String,
-    #[serde(default = "default_light_theme")]
     pub light_theme: String,
-    #[serde(default = "default_dark_theme")]
     pub dark_theme: String,
 }
 
@@ -45,13 +42,9 @@ impl Default for AppearanceSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TerminalSettings {
-    #[serde(default = "default_font_source")]
     pub font_source: String,
-    #[serde(default)]
     pub system_font_family: String,
-    #[serde(default = "default_bundled_font")]
     pub bundled_font: String,
-    #[serde(default = "default_font_size")]
     pub font_size: u32,
 }
 
@@ -81,7 +74,6 @@ impl Default for TerminalSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorktreeSettings {
-    #[serde(default = "default_worktree_location_mode")]
     pub location_mode: String,
 }
 

@@ -272,9 +272,9 @@ export interface components {
       path: string;
     };
     AppearanceSettings: {
-      colorScheme?: string;
-      darkTheme?: string;
-      lightTheme?: string;
+      colorScheme: string;
+      darkTheme: string;
+      lightTheme: string;
     };
     AppearanceSettingsPatch: {
       colorScheme?: string | null;
@@ -413,11 +413,11 @@ export interface components {
       worktree_id: string;
     };
     TerminalSettings: {
-      bundledFont?: string;
+      bundledFont: string;
       /** Format: int32 */
-      fontSize?: number;
-      fontSource?: string;
-      systemFontFamily?: string;
+      fontSize: number;
+      fontSource: string;
+      systemFontFamily: string;
     };
     TerminalSettingsPatch: {
       bundledFont?: string | null;
@@ -456,7 +456,7 @@ export interface components {
       unstaged_files: components["schemas"]["GitFileChange"][];
     };
     WorktreeSettings: {
-      locationMode?: string;
+      locationMode: string;
     };
     WorktreeSettingsPatch: {
       locationMode?: string | null;

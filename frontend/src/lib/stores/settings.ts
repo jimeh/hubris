@@ -110,6 +110,42 @@ function loadFallbackSettings(): Settings {
   return fallback;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isAppearanceSettings(value: unknown): value is AppearanceSettings {
+  return (
+    isRecord(value) &&
+    typeof value.colorScheme === "string" &&
+    typeof value.lightTheme === "string" &&
+    typeof value.darkTheme === "string"
+  );
+}
+
+function isTerminalSettings(value: unknown): value is TerminalSettings {
+  return (
+    isRecord(value) &&
+    typeof value.fontSource === "string" &&
+    typeof value.systemFontFamily === "string" &&
+    typeof value.bundledFont === "string" &&
+    typeof value.fontSize === "number"
+  );
+}
+
+function isWorktreeSettings(value: unknown): value is Settings["worktree"] {
+  return isRecord(value) && typeof value.locationMode === "string";
+}
+
+function isSettingsPayload(value: unknown): value is Settings {
+  return (
+    isRecord(value) &&
+    isAppearanceSettings(value.appearance) &&
+    isTerminalSettings(value.terminal) &&
+    isWorktreeSettings(value.worktree)
+  );
+}
+
 function applyPatch(current: Settings, patch: SettingsPatch): Settings {
   return {
     appearance:
@@ -271,13 +307,20 @@ export function initializeSettingsStore(): void {
   const events = getEventClient();
   eventUnsubscribers = [
     events.on("snapshot", (data) => {
-      commitSettings(
-        materializeSettings(data.settings as Partial<Settings>),
-        true,
-      );
+      if (!isRecord(data) || !isSettingsPayload(data.settings)) {
+        console.warn("SSE snapshot missing valid settings payload", data);
+        return;
+      }
+
+      commitSettings(materializeSettings(data.settings), true);
     }),
     events.on("settings_updated", (settings) => {
-      commitSettings(materializeSettings(settings as Partial<Settings>), true);
+      if (!isSettingsPayload(settings)) {
+        console.warn("SSE settings_updated payload was malformed", settings);
+        return;
+      }
+
+      commitSettings(materializeSettings(settings), true);
     }),
   ];
 }

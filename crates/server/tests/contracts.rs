@@ -83,6 +83,18 @@ fn openapi_contains_core_paths_and_schemas() {
         serde_json::json!(["appearance", "terminal", "worktree"])
     );
     assert_eq!(
+        spec["components"]["schemas"]["AppearanceSettings"]["required"],
+        serde_json::json!(["colorScheme", "lightTheme", "darkTheme"])
+    );
+    assert_eq!(
+        spec["components"]["schemas"]["TerminalSettings"]["required"],
+        serde_json::json!(["fontSource", "systemFontFamily", "bundledFont", "fontSize"])
+    );
+    assert_eq!(
+        spec["components"]["schemas"]["WorktreeSettings"]["required"],
+        serde_json::json!(["locationMode"])
+    );
+    assert_eq!(
         spec["components"]["schemas"]["SettingsPatch"]["properties"]["appearance"]["oneOf"],
         serde_json::json!([
             { "type": "null" },

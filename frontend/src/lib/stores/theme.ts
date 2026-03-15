@@ -279,6 +279,8 @@ export const useThemeStore = create<ThemeState>(() => ({
 }));
 
 export function resetThemeStoreForTests(): void {
+  mediaListenerBound = false;
+  settingsListenerBound = false;
   useThemeStore.setState({
     settings: { ...DEFAULT_APPEARANCE_SETTINGS },
     activeTheme: null,

@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
+use tokio::sync::{Barrier, oneshot};
 
 async fn start_test_server() -> (String, tempfile::TempDir, AppState) {
     let tmp = tempfile::TempDir::new().unwrap();
@@ -332,27 +335,45 @@ async fn corrupt_persisted_settings_return_internal_server_error() {
 async fn concurrent_patches_merge_under_lock() {
     let (base, _tmp, state) = start_test_server().await;
     let client = reqwest::Client::new();
-    let _guard = state.settings_lock.lock().await;
+    let guard = state.settings_lock.lock().await;
+    let barrier = Arc::new(Barrier::new(3));
 
-    let first = client
-        .patch(format!("{}/api/settings", base))
-        .json(&serde_json::json!({
-            "appearance": {
-                "colorScheme": "dark"
-            }
-        }))
-        .send();
-    let second = client
-        .patch(format!("{}/api/settings", base))
-        .json(&serde_json::json!({
-            "terminal": {
-                "fontSize": 18
-            }
-        }))
-        .send();
+    let first_url = format!("{}/api/settings", base);
+    let first_client = client.clone();
+    let first_barrier = barrier.clone();
+    let first = tokio::spawn(async move {
+        first_barrier.wait().await;
+        first_client
+            .patch(first_url)
+            .json(&serde_json::json!({
+                "appearance": {
+                    "colorScheme": "dark"
+                }
+            }))
+            .send()
+            .await
+            .unwrap()
+    });
 
-    tokio::task::yield_now().await;
-    drop(_guard);
+    let second_url = format!("{}/api/settings", base);
+    let second_client = client.clone();
+    let second_barrier = barrier.clone();
+    let second = tokio::spawn(async move {
+        second_barrier.wait().await;
+        second_client
+            .patch(second_url)
+            .json(&serde_json::json!({
+                "terminal": {
+                    "fontSize": 18
+                }
+            }))
+            .send()
+            .await
+            .unwrap()
+    });
+
+    barrier.wait().await;
+    drop(guard);
 
     let (first, second) = tokio::join!(first, second);
     assert_eq!(first.unwrap().status(), StatusCode::OK);
@@ -373,40 +394,58 @@ async fn put_then_patch_preserves_put_state_under_contention() {
     let (base, _tmp, state) = start_test_server().await;
     let client = reqwest::Client::new();
     let guard = state.settings_lock.lock().await;
+    let (put_start_tx, put_start_rx) = oneshot::channel();
+    let (put_ready_tx, put_ready_rx) = oneshot::channel();
+    let (patch_start_tx, patch_start_rx) = oneshot::channel();
 
-    let put = client
-        .put(format!("{}/api/settings", base))
-        .json(&serde_json::json!({
-            "appearance": {
-                "colorScheme": "dark",
-                "lightTheme": "hubris-light",
-                "darkTheme": "hubris-dark"
-            },
-            "terminal": {
-                "fontSource": "default",
-                "systemFontFamily": "",
-                "bundledFont": "jetbrainsmono-nf",
-                "fontSize": 14
-            },
-            "worktree": {
-                "locationMode": "dataDir"
-            }
-        }))
-        .send();
+    let put_url = format!("{}/api/settings", base);
+    let put_client = client.clone();
+    let put = tokio::spawn(async move {
+        put_start_rx.await.unwrap();
+        put_ready_tx.send(()).unwrap();
+        put_client
+            .put(put_url)
+            .json(&serde_json::json!({
+                "appearance": {
+                    "colorScheme": "dark",
+                    "lightTheme": "hubris-light",
+                    "darkTheme": "hubris-dark"
+                },
+                "terminal": {
+                    "fontSource": "default",
+                    "systemFontFamily": "",
+                    "bundledFont": "jetbrainsmono-nf",
+                    "fontSize": 14
+                },
+                "worktree": {
+                    "locationMode": "dataDir"
+                }
+            }))
+            .send()
+            .await
+            .unwrap()
+    });
 
-    tokio::task::yield_now().await;
+    let patch_url = format!("{}/api/settings", base);
+    let patch_client = client.clone();
+    let patch = tokio::spawn(async move {
+        patch_start_rx.await.unwrap();
+        patch_client
+            .patch(patch_url)
+            .json(&serde_json::json!({
+                "terminal": {
+                    "fontSize": 20
+                }
+            }))
+            .send()
+            .await
+            .unwrap()
+    });
 
-    let patch = client
-        .patch(format!("{}/api/settings", base))
-        .json(&serde_json::json!({
-            "terminal": {
-                "fontSize": 20
-            }
-        }))
-        .send();
-
-    tokio::task::yield_now().await;
     drop(guard);
+    put_start_tx.send(()).unwrap();
+    put_ready_rx.await.unwrap();
+    patch_start_tx.send(()).unwrap();
 
     let (put, patch) = tokio::join!(put, patch);
     assert_eq!(put.unwrap().status(), StatusCode::OK);

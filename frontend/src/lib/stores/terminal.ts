@@ -162,6 +162,7 @@ export const useTerminalStore = create<TerminalState>(() => ({
 }));
 
 export function resetTerminalStoreForTests(): void {
+  settingsListenerBound = false;
   fontResolutionToken = 0;
   useTerminalStore.setState({
     settings: { ...DEFAULTS },

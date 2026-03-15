@@ -3,6 +3,7 @@ use std::convert::Infallible;
 use std::time::Duration;
 
 use axum::extract::{Query, State};
+use axum::http::StatusCode;
 use axum::response::sse::{self, Sse};
 use futures_util::Stream;
 use serde::Deserialize;
@@ -36,14 +37,13 @@ fn default_session_id() -> String {
 pub async fn event_stream(
     State(state): State<AppState>,
     Query(params): Query<EventStreamParams>,
-) -> Sse<impl Stream<Item = Result<sse::Event, Infallible>>> {
+) -> Result<Sse<impl Stream<Item = Result<sse::Event, Infallible>>>, StatusCode> {
     let session_id = params.session_id;
     let mut rx = state.events.subscribe();
+    let snapshot = build_snapshot_event(&state, &session_id).await?;
 
     let stream = async_stream::stream! {
-        yield Ok(build_snapshot_event(
-            &state, &session_id,
-        ).await);
+        yield Ok(snapshot);
 
         loop {
             match rx.recv().await {
@@ -60,9 +60,17 @@ pub async fn event_stream(
                          missed {} events",
                         n
                     );
-                    yield Ok(build_snapshot_event(
-                        &state, &session_id,
-                    ).await);
+                    match build_snapshot_event(&state, &session_id).await {
+                        Ok(snapshot) => {
+                            yield Ok(snapshot);
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                "failed to rebuild SSE snapshot after lag: {error}"
+                            );
+                            break;
+                        }
+                    }
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     break;
@@ -71,7 +79,7 @@ pub async fn event_stream(
         }
     };
 
-    Sse::new(stream).keep_alive(sse::KeepAlive::new().interval(Duration::from_secs(30)))
+    Ok(Sse::new(stream).keep_alive(sse::KeepAlive::new().interval(Duration::from_secs(30))))
 }
 
 fn event_matches_session(event: &Event, session_id: &str) -> bool {
@@ -93,7 +101,10 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
     }
 }
 
-async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event {
+async fn build_snapshot_event(
+    state: &AppState,
+    session_id: &str,
+) -> Result<sse::Event, StatusCode> {
     let mut tabs: Vec<_> = state
         .tabs
         .iter()
@@ -115,13 +126,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
 
     let mut worktrees = HashMap::new();
     let mut project_errors = HashMap::new();
-    let settings = match load_settings(state).await {
-        Ok(settings) => settings,
-        Err(error) => {
-            tracing::warn!("failed to load settings for SSE snapshot: {error}");
-            Default::default()
-        }
-    };
+    let settings = load_settings(state).await?;
 
     for project in &projects {
         match list_worktrees_for_project(state, project).await {
@@ -142,9 +147,9 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         project_errors,
         settings,
     };
-    sse::Event::default()
+    Ok(sse::Event::default()
         .event("snapshot")
-        .data(serde_json::to_string(&snapshot).unwrap())
+        .data(serde_json::to_string(&snapshot).unwrap()))
 }
 
 fn to_sse_event(event: &Event) -> sse::Event {

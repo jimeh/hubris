@@ -139,6 +139,48 @@ describe("Settings store", () => {
     ).toBe("light");
   });
 
+  it("ignores malformed SSE settings payloads", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = await getStore();
+
+    mockEvents.emit("snapshot", {
+      tabs: [],
+      projects: [],
+      worktrees: {},
+      project_errors: {},
+      settings: {
+        appearance: {
+          colorScheme: "dark",
+        },
+      },
+    });
+    mockEvents.emit("settings_updated", {
+      appearance: {
+        colorScheme: "light",
+        lightTheme: "hubris-light",
+        darkTheme: "hubris-dark",
+      },
+    });
+
+    expect(store.useSettingsStore.getState().settings).toEqual({
+      appearance: {
+        colorScheme: "auto",
+        lightTheme: "hubris-light",
+        darkTheme: "hubris-dark",
+      },
+      terminal: {
+        fontSource: "default",
+        systemFontFamily: "",
+        bundledFont: "jetbrainsmono-nf",
+        fontSize: 14,
+      },
+      worktree: {
+        locationMode: "dataDir",
+      },
+    });
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
   it("reverts deleted keys to defaults", async () => {
     mockSaveSettings.mockResolvedValue({
       appearance: {

@@ -846,6 +846,7 @@
       },
       "AppearanceSettings": {
         "type": "object",
+        "required": ["colorScheme", "lightTheme", "darkTheme"],
         "properties": {
           "colorScheme": {
             "type": "string"
@@ -1278,6 +1279,12 @@
       },
       "TerminalSettings": {
         "type": "object",
+        "required": [
+          "fontSource",
+          "systemFontFamily",
+          "bundledFont",
+          "fontSize"
+        ],
         "properties": {
           "bundledFont": {
             "type": "string"
@@ -1423,6 +1430,7 @@
       },
       "WorktreeSettings": {
         "type": "object",
+        "required": ["locationMode"],
         "properties": {
           "locationMode": {
             "type": "string"
