@@ -93,6 +93,35 @@ describe("Terminal store", () => {
     });
   });
 
+  it("normalizes fallback terminal settings locally without patching", async () => {
+    const { settings, terminal } = await getStores();
+    settings.useSettingsStore.setState({
+      settings: {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "bundled",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 99,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      hasServerState: false,
+    });
+
+    await terminal.useTerminalStore.getState().init();
+    await flushMicrotasks();
+
+    expect(terminal.useTerminalStore.getState().settings.fontSize).toBe(32);
+    expect(mockSaveSettings).not.toHaveBeenCalled();
+  });
+
   it("discards stale async font resolutions", async () => {
     let firstResolve: ((value: string) => void) | null = null;
     let secondResolve: ((value: string) => void) | null = null;
@@ -165,5 +194,36 @@ describe("Terminal store", () => {
     await flushMicrotasks();
 
     expect(terminal.useTerminalStore.getState().fontFamily).toBe("Fira Code");
+  });
+
+  it("rebinds terminal settings listeners cleanly across reset and init", async () => {
+    const { settings, terminal } = await getStores();
+
+    await terminal.useTerminalStore.getState().init();
+    terminal.resetTerminalStoreForTests();
+    await terminal.useTerminalStore.getState().init();
+
+    settings.useSettingsStore.setState({
+      settings: {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "bundled",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 99,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      hasServerState: true,
+    });
+    await flushMicrotasks();
+
+    expect(mockSaveSettings).toHaveBeenCalledTimes(1);
   });
 });

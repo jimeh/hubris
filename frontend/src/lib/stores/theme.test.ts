@@ -10,19 +10,23 @@ vi.mock("@/lib/api", () => ({
 }));
 
 function stubMatchMedia(prefersDark = false) {
+  const mediaQueryList = {
+    matches: prefersDark,
+    media: "(prefers-color-scheme: dark)",
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  };
+
   Object.defineProperty(window, "matchMedia", {
     writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: prefersDark,
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
+    value: vi.fn().mockReturnValue(mediaQueryList),
   });
+
+  return mediaQueryList;
 }
 
 async function getStores() {
@@ -34,13 +38,15 @@ async function getStores() {
 }
 
 describe("Theme store", () => {
+  let mediaQueryList: ReturnType<typeof stubMatchMedia>;
+
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
     localStorage.clear();
     document.documentElement.className = "";
     document.documentElement.removeAttribute("style");
-    stubMatchMedia(false);
+    mediaQueryList = stubMatchMedia(false);
     mockGetSettings.mockReset();
     mockSaveSettings.mockReset();
     mockSaveSettings.mockResolvedValue({
@@ -100,6 +106,39 @@ describe("Theme store", () => {
     });
   });
 
+  it("normalizes fallback appearance settings locally without patching", async () => {
+    const { settings, theme } = await getStores();
+    settings.useSettingsStore.setState({
+      settings: {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "catppuccin-latte",
+          darkTheme: "catppuccin-mocha",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      hasServerState: false,
+    });
+
+    await theme.useThemeStore.getState().init();
+    await Promise.resolve();
+
+    expect(theme.useThemeStore.getState().settings).toEqual({
+      colorScheme: "auto",
+      lightTheme: "hubris-light",
+      darkTheme: "hubris-dark",
+    });
+    expect(mockSaveSettings).not.toHaveBeenCalled();
+  });
+
   it("applies canonical dark theme settings without extra saves", async () => {
     const { settings, theme } = await getStores();
     settings.useSettingsStore.setState({
@@ -131,5 +170,37 @@ describe("Theme store", () => {
       "hubris-dark",
     ]);
     expect(mockSaveSettings).not.toHaveBeenCalled();
+  });
+
+  it("rebinds theme listeners cleanly across reset and init", async () => {
+    const { settings, theme } = await getStores();
+
+    await theme.useThemeStore.getState().init();
+    theme.resetThemeStoreForTests();
+    await theme.useThemeStore.getState().init();
+
+    settings.useSettingsStore.setState({
+      settings: {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "catppuccin-latte",
+          darkTheme: "catppuccin-mocha",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      hasServerState: true,
+    });
+    await Promise.resolve();
+
+    expect(mockSaveSettings).toHaveBeenCalledTimes(1);
+    expect(mediaQueryList.removeEventListener).toHaveBeenCalledTimes(1);
   });
 });

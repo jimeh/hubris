@@ -19,6 +19,12 @@ describe("EventClient typing", () => {
       expectTypeOf(payload.appearance.colorScheme).toEqualTypeOf<string>();
       expectTypeOf(payload.terminal.fontSize).toEqualTypeOf<number>();
     });
+
+    client.on("snapshot", (payload) => {
+      expectTypeOf(
+        payload.settings.worktree.locationMode,
+      ).toEqualTypeOf<string>();
+    });
   });
 
   it("rejects invalid event and payload usage", () => {
@@ -30,12 +36,6 @@ describe("EventClient typing", () => {
     client.on("tab_closed", (payload) => {
       // @ts-expect-error tab_closed payload does not include id
       expectTypeOf(payload.id).toEqualTypeOf<string>();
-    });
-
-    client.on("snapshot", (payload) => {
-      expectTypeOf(
-        payload.settings.worktree.locationMode,
-      ).toEqualTypeOf<string>();
     });
   });
 });

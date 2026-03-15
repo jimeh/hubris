@@ -188,6 +188,7 @@ function syncAppearanceSettings(
 
   if (
     allowNormalizationSave &&
+    useSettingsStore.getState().hasServerState &&
     normalized.changed &&
     !appearanceEqual(
       useSettingsStore.getState().settings.appearance,
@@ -208,6 +209,8 @@ function syncAppearanceSettings(
 
 let mediaListenerBound = false;
 let settingsListenerBound = false;
+let mediaListenerCleanup: (() => void) | null = null;
+let settingsUnsubscribe: (() => void) | null = null;
 
 function bindMediaListener(): void {
   if (mediaListenerBound || typeof window === "undefined") {
@@ -235,8 +238,14 @@ function bindMediaListener(): void {
 
   if (typeof media.addEventListener === "function") {
     media.addEventListener("change", onChange);
+    mediaListenerCleanup = () => {
+      media.removeEventListener("change", onChange);
+    };
   } else {
     media.addListener(onChange);
+    mediaListenerCleanup = () => {
+      media.removeListener(onChange);
+    };
   }
 }
 
@@ -247,7 +256,7 @@ function bindSettingsListener(): void {
   settingsListenerBound = true;
 
   let previous = useSettingsStore.getState().settings.appearance;
-  useSettingsStore.subscribe((state) => {
+  settingsUnsubscribe = useSettingsStore.subscribe((state) => {
     const next = state.settings.appearance;
     if (appearanceEqual(previous, next)) {
       return;
@@ -279,6 +288,10 @@ export const useThemeStore = create<ThemeState>(() => ({
 }));
 
 export function resetThemeStoreForTests(): void {
+  settingsUnsubscribe?.();
+  settingsUnsubscribe = null;
+  mediaListenerCleanup?.();
+  mediaListenerCleanup = null;
   mediaListenerBound = false;
   settingsListenerBound = false;
   useThemeStore.setState({

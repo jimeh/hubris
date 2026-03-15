@@ -71,6 +71,7 @@ function diffTerminalSettings(
 
 let settingsListenerBound = false;
 let fontResolutionToken = 0;
+let settingsUnsubscribe: (() => void) | null = null;
 
 function syncTerminalSettings(
   next: TerminalSettings,
@@ -113,6 +114,7 @@ function syncTerminalSettings(
 
   if (
     allowNormalizationSave &&
+    useSettingsStore.getState().hasServerState &&
     !terminalEqual(next, normalized) &&
     !terminalEqual(useSettingsStore.getState().settings.terminal, normalized)
   ) {
@@ -135,7 +137,7 @@ function bindSettingsListener(): void {
   settingsListenerBound = true;
 
   let previous = useSettingsStore.getState().settings.terminal;
-  useSettingsStore.subscribe((state) => {
+  settingsUnsubscribe = useSettingsStore.subscribe((state) => {
     const next = state.settings.terminal;
     if (terminalEqual(previous, next)) {
       return;
@@ -162,6 +164,8 @@ export const useTerminalStore = create<TerminalState>(() => ({
 }));
 
 export function resetTerminalStoreForTests(): void {
+  settingsUnsubscribe?.();
+  settingsUnsubscribe = null;
   settingsListenerBound = false;
   fontResolutionToken = 0;
   useTerminalStore.setState({
