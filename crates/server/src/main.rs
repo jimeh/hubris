@@ -34,7 +34,7 @@ async fn main() {
         .await
         .expect("failed to create data dir");
 
-    let state = AppState::new(data_dir);
+    let state = AppState::new(data_dir).await;
     let app = build_router(state);
 
     let host = std::env::var("HUBRIS_HOST").unwrap_or_else(|_| {

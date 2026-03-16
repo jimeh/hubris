@@ -24,7 +24,8 @@ const {
   deleteTab,
   updateTab,
   getSettings,
-  saveSettings,
+  patchSettings,
+  replaceSettings,
   resetApiStateForTests,
 } = await import("./api");
 
@@ -531,11 +532,23 @@ describe("API client", () => {
   describe("getSettings", () => {
     it("fetches from /api/settings and returns JSON", async () => {
       const mockSettings = {
-        appearance: {
-          colorScheme: "dark",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
+        settings: {
+          appearance: {
+            colorScheme: "dark",
+            lightTheme: "hubris-light",
+            darkTheme: "hubris-dark",
+          },
+          terminal: {
+            fontSource: "default",
+            systemFontFamily: "",
+            bundledFont: "jetbrainsmono-nf",
+            fontSize: 14,
+          },
+          worktree: {
+            locationMode: "dataDir",
+          },
         },
+        generation: "123",
       };
       vi.stubGlobal(
         "fetch",
@@ -563,241 +576,128 @@ describe("API client", () => {
     });
   });
 
-  describe("saveSettings", () => {
-    it("caches appearance in localStorage", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({}),
-        }),
-      );
-
-      const appearance = {
-        colorScheme: "dark" as const,
-        lightTheme: "hubris-light",
-        darkTheme: "hubris-dark",
-      };
-      await saveSettings({ appearance });
-
-      expect(localStorage.getItem("hubris-appearance")).toBe(
-        JSON.stringify(appearance),
-      );
-    });
-
-    it("caches terminal settings in localStorage", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({}),
-        }),
-      );
-
-      const terminal = {
-        fontSource: "bundled" as const,
-        systemFontFamily: "",
-        bundledFont: "hack-nf",
-        fontSize: 16,
-      };
-      await saveSettings({ terminal });
-
-      expect(localStorage.getItem("hubris-terminal")).toBe(
-        JSON.stringify(terminal),
-      );
-    });
-
-    it("does read-modify-write to preserve sibling sections", async () => {
-      const existingSettings = {
-        appearance: {
-          colorScheme: "dark",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
+  describe("patchSettings", () => {
+    it("sends PATCH with only modified fields", async () => {
+      const response = {
+        settings: {
+          appearance: {
+            colorScheme: "dark",
+            lightTheme: "hubris-light",
+            darkTheme: "hubris-dark",
+          },
+          terminal: {
+            fontSource: "default",
+            systemFontFamily: "",
+            bundledFont: "jetbrainsmono-nf",
+            fontSize: 14,
+          },
+          worktree: {
+            locationMode: "dataDir",
+          },
         },
+        generation: "124",
       };
-
-      let callCount = 0;
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-          callCount++;
-          if (init?.method === "PUT") {
-            return Promise.resolve({ ok: true });
-          }
-          // GET (or any non-PUT)
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve(existingSettings),
-          });
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(response),
         }),
       );
 
-      const terminal = {
-        fontSource: "default" as const,
-        systemFontFamily: "",
-        bundledFont: "jetbrainsmono-nf",
-        fontSize: 14,
-      };
-      await saveSettings({ terminal });
+      const result = await patchSettings({
+        appearance: { colorScheme: "dark" },
+      });
 
-      // Should have made 2 fetch calls: GET then PUT
-      expect(callCount).toBe(2);
-
-      // The PUT body should contain BOTH appearance
-      // (from GET) and terminal (from caller)
-      const putCall = vi.mocked(fetch).mock.calls[1];
-      const putBody = JSON.parse(putCall[1]!.body as string);
-      expect(putBody.appearance).toEqual(existingSettings.appearance);
-      expect(putBody.terminal).toEqual(terminal);
+      expect(fetch).toHaveBeenCalledWith("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appearance: { colorScheme: "dark" },
+        }),
+      });
+      expect(result).toEqual(response);
     });
 
-    it("serializes concurrent saves so later calls see earlier writes", async () => {
-      const appearance = {
-        colorScheme: "dark" as const,
-        lightTheme: "hubris-light",
-        darkTheme: "hubris-dark",
-      };
-      const terminal = {
-        fontSource: "bundled" as const,
-        systemFontFamily: "",
-        bundledFont: "hack-nf",
-        fontSize: 16,
-      };
-      const methods: string[] = [];
-      let putCount = 0;
-      let firstPutResolve: ((value: { ok: true }) => void) | null = null;
-      let serverSettings: Record<string, unknown> = {
+    it("throws on non-OK PATCH response", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+        }),
+      );
+
+      await expect(
+        patchSettings({ terminal: { fontSize: 16 } }),
+      ).rejects.toThrow("500");
+    });
+  });
+
+  describe("replaceSettings", () => {
+    it("sends PUT with a full settings document", async () => {
+      const payload = {
         appearance: {
-          colorScheme: "auto",
+          colorScheme: "auto" as const,
           lightTheme: "hubris-light",
           darkTheme: "hubris-dark",
         },
         terminal: {
-          fontSource: "default",
+          fontSource: "bundled" as const,
           systemFontFamily: "",
-          bundledFont: "",
-          fontSize: 14,
+          bundledFont: "hack-nf",
+          fontSize: 16,
+        },
+        worktree: {
+          locationMode: "repoLocalDotHubris" as const,
         },
       };
-
+      const response = { settings: payload, generation: "200" };
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-          const method = init?.method ?? "GET";
-          methods.push(method);
-
-          if (method === "PUT") {
-            putCount += 1;
-            serverSettings = JSON.parse(init!.body as string);
-
-            if (putCount === 1) {
-              return new Promise((resolve) => {
-                firstPutResolve = resolve;
-              });
-            }
-
-            return Promise.resolve({ ok: true });
-          }
-
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve(serverSettings),
-          });
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(response),
         }),
       );
 
-      const firstSave = saveSettings({ appearance });
-      const secondSave = saveSettings({ terminal });
+      const result = await replaceSettings(payload);
 
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(methods).toEqual(["GET", "PUT"]);
-
-      if (firstPutResolve) {
-        (firstPutResolve as unknown as (value: { ok: true }) => void)({
-          ok: true,
-        });
-      }
-      await Promise.all([firstSave, secondSave]);
-
-      expect(methods).toEqual(["GET", "PUT", "GET", "PUT"]);
-      expect(serverSettings).toEqual({
-        appearance,
-        terminal,
+      expect(fetch).toHaveBeenCalledWith("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
+      expect(result).toEqual(response);
     });
 
     it("throws on non-OK PUT response", async () => {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-          if (init?.method === "PUT") {
-            return Promise.resolve({ ok: false, status: 500 });
-          }
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({}),
-          });
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
         }),
       );
 
       await expect(
-        saveSettings({
+        replaceSettings({
+          appearance: {
+            colorScheme: "auto",
+            lightTheme: "hubris-light",
+            darkTheme: "hubris-dark",
+          },
           terminal: {
             fontSource: "default",
             systemFontFamily: "",
-            bundledFont: "",
+            bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
+          },
+          worktree: {
+            locationMode: "dataDir",
           },
         }),
       ).rejects.toThrow("500");
-    });
-
-    it("does not cache in localStorage when GET fails", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockRejectedValue(new Error("network error")),
-      );
-
-      const terminal = {
-        fontSource: "default" as const,
-        systemFontFamily: "",
-        bundledFont: "jetbrainsmono-nf",
-        fontSize: 14,
-      };
-
-      await expect(saveSettings({ terminal })).rejects.toThrow("network error");
-
-      // localStorage should NOT be written on failure
-      expect(localStorage.getItem("hubris-terminal")).toBeNull();
-    });
-
-    it("does not cache in localStorage when PUT fails", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
-          if (init?.method === "PUT") {
-            return Promise.resolve({
-              ok: false,
-              status: 500,
-            });
-          }
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({}),
-          });
-        }),
-      );
-
-      const terminal = {
-        fontSource: "default" as const,
-        systemFontFamily: "",
-        bundledFont: "jetbrainsmono-nf",
-        fontSize: 14,
-      };
-
-      await expect(saveSettings({ terminal })).rejects.toThrow("500");
-
-      expect(localStorage.getItem("hubris-terminal")).toBeNull();
     });
   });
 });

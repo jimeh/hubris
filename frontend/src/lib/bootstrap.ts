@@ -8,9 +8,10 @@ import {
   resetWorktreeStoreForTests,
 } from "@/lib/stores/worktrees";
 import { initializeTabStore, resetTabStoreForTests } from "@/lib/stores/tabs";
-import { useThemeStore } from "@/lib/stores/theme";
-import { useTerminalStore } from "@/lib/stores/terminal";
-import { useWorktreeSettingsStore } from "@/lib/stores/worktreeSettings";
+import {
+  initializeSettingsStore,
+  resetSettingsStoreForTests,
+} from "@/lib/stores/settings";
 
 let bootstrapped = false;
 
@@ -21,10 +22,7 @@ export function bootstrapApp(): void {
   initializeProjectStore();
   initializeWorktreeStore();
   initializeTabStore();
-
-  void useThemeStore.getState().init();
-  void useTerminalStore.getState().init();
-  void useWorktreeSettingsStore.getState().init();
+  initializeSettingsStore();
 
   getEventClient().connect();
 }
@@ -34,5 +32,6 @@ export function resetBootstrapForTests(): void {
   resetProjectStoreForTests();
   resetWorktreeStoreForTests();
   resetTabStoreForTests();
+  resetSettingsStoreForTests();
   getEventClient().disconnect();
 }

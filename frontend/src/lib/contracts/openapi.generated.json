@@ -561,7 +561,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Settings"
+                  "$ref": "#/components/schemas/SettingsState"
                 }
               }
             }
@@ -574,7 +574,7 @@
       "put": {
         "tags": ["crate::api::settings"],
         "summary": "PUT /api/settings — full replace",
-        "operationId": "save_settings",
+        "operationId": "put_settings",
         "requestBody": {
           "content": {
             "application/json": {
@@ -587,7 +587,44 @@
         },
         "responses": {
           "200": {
-            "description": "Settings saved"
+            "description": "Settings saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsState"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["crate::api::settings"],
+        "summary": "PATCH /api/settings — partial update",
+        "operationId": "patch_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Settings patched",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsState"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal server error"
@@ -804,11 +841,30 @@
           }
         }
       },
+      "ColorScheme": {
+        "type": "string",
+        "enum": ["auto", "light", "dark"]
+      },
       "AppearanceSettings": {
+        "type": "object",
+        "required": ["colorScheme", "lightTheme", "darkTheme"],
+        "properties": {
+          "colorScheme": {
+            "$ref": "#/components/schemas/ColorScheme"
+          },
+          "darkTheme": {
+            "type": "string"
+          },
+          "lightTheme": {
+            "type": "string"
+          }
+        }
+      },
+      "AppearanceSettingsPatch": {
         "type": "object",
         "properties": {
           "colorScheme": {
-            "type": "string"
+            "$ref": "#/components/schemas/ColorScheme"
           },
           "darkTheme": {
             "type": "string"
@@ -1110,36 +1166,42 @@
       },
       "Settings": {
         "type": "object",
+        "required": ["appearance", "terminal", "worktree"],
         "properties": {
           "appearance": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AppearanceSettings"
-              }
-            ]
+            "$ref": "#/components/schemas/AppearanceSettings"
           },
           "terminal": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/TerminalSettings"
-              }
-            ]
+            "$ref": "#/components/schemas/TerminalSettings"
           },
           "worktree": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/WorktreeSettings"
-              }
-            ]
+            "$ref": "#/components/schemas/WorktreeSettings"
+          }
+        }
+      },
+      "SettingsPatch": {
+        "type": "object",
+        "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/AppearanceSettingsPatch"
+          },
+          "terminal": {
+            "$ref": "#/components/schemas/TerminalSettingsPatch"
+          },
+          "worktree": {
+            "$ref": "#/components/schemas/WorktreeSettingsPatch"
+          }
+        }
+      },
+      "SettingsState": {
+        "type": "object",
+        "required": ["settings", "generation"],
+        "properties": {
+          "generation": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/Settings"
           }
         }
       },
@@ -1203,7 +1265,36 @@
           }
         }
       },
+      "TerminalFontSource": {
+        "type": "string",
+        "enum": ["default", "system", "bundled"]
+      },
       "TerminalSettings": {
+        "type": "object",
+        "required": [
+          "fontSource",
+          "systemFontFamily",
+          "bundledFont",
+          "fontSize"
+        ],
+        "properties": {
+          "bundledFont": {
+            "type": "string"
+          },
+          "fontSize": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "fontSource": {
+            "$ref": "#/components/schemas/TerminalFontSource"
+          },
+          "systemFontFamily": {
+            "type": "string"
+          }
+        }
+      },
+      "TerminalSettingsPatch": {
         "type": "object",
         "properties": {
           "bundledFont": {
@@ -1215,7 +1306,7 @@
             "minimum": 0
           },
           "fontSource": {
-            "type": "string"
+            "$ref": "#/components/schemas/TerminalFontSource"
           },
           "systemFontFamily": {
             "type": "string"
@@ -1327,11 +1418,24 @@
           }
         }
       },
+      "WorktreeLocationMode": {
+        "type": "string",
+        "enum": ["dataDir", "repoLocalDotHubris"]
+      },
       "WorktreeSettings": {
+        "type": "object",
+        "required": ["locationMode"],
+        "properties": {
+          "locationMode": {
+            "$ref": "#/components/schemas/WorktreeLocationMode"
+          }
+        }
+      },
+      "WorktreeSettingsPatch": {
         "type": "object",
         "properties": {
           "locationMode": {
-            "type": "string"
+            "$ref": "#/components/schemas/WorktreeLocationMode"
           }
         }
       }

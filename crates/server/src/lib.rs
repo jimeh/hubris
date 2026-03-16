@@ -3,6 +3,7 @@ mod embedded;
 pub mod events;
 pub mod git;
 pub mod pty;
+mod settings_manager;
 pub mod state;
 
 use axum::Router;
@@ -16,7 +17,7 @@ use api::events::event_stream;
 use api::files::list_files;
 use api::openapi::{openapi_json, spec as openapi_spec_impl};
 use api::projects::{add_project, delete_project, list_projects, reorder_projects, update_project};
-use api::settings::{get_settings, save_settings};
+use api::settings::{get_settings, patch_settings, put_settings};
 use api::tabs::{create_tab, delete_tab, list_tabs, reorder_tabs, update_tab};
 use api::terminal::ws_handler;
 use api::worktrees::{
@@ -150,7 +151,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/tabs/{id}", delete(delete_tab).patch(update_tab))
         .route("/events", get(event_stream))
         .route("/terminal/ws", get(ws_handler))
-        .route("/settings", get(get_settings).put(save_settings));
+        .route(
+            "/settings",
+            get(get_settings).put(put_settings).patch(patch_settings),
+        );
 
     let cors = if cfg!(debug_assertions) {
         CorsLayer::new()

@@ -32,28 +32,9 @@ vi.mock("@/lib/stores/tabs", () => ({
   resetTabStoreForTests: mockResetTabStore,
 }));
 
-vi.mock("@/lib/stores/theme", () => ({
-  useThemeStore: {
-    getState: () => ({
-      init: () => calls.push("theme"),
-    }),
-  },
-}));
-
-vi.mock("@/lib/stores/terminal", () => ({
-  useTerminalStore: {
-    getState: () => ({
-      init: () => calls.push("terminal"),
-    }),
-  },
-}));
-
-vi.mock("@/lib/stores/worktreeSettings", () => ({
-  useWorktreeSettingsStore: {
-    getState: () => ({
-      init: () => calls.push("worktree-settings"),
-    }),
-  },
+vi.mock("@/lib/stores/settings", () => ({
+  initializeSettingsStore: () => calls.push("settings"),
+  resetSettingsStoreForTests: () => calls.push("reset-settings"),
 }));
 
 vi.mock("@/lib/events", () => ({
@@ -84,9 +65,7 @@ describe("bootstrapApp", () => {
       "projects",
       "worktrees",
       "tabs",
-      "theme",
-      "terminal",
-      "worktree-settings",
+      "settings",
       "connect",
     ]);
   });
@@ -100,6 +79,7 @@ describe("bootstrapApp", () => {
       "reset-projects",
       "reset-worktrees",
       "reset-tabs",
+      "reset-settings",
       "disconnect",
     ]);
   });

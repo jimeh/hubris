@@ -145,13 +145,22 @@ No periodic reconciliation — drift corrects on reconnect.
   other browser).
 - **deleteProject tolerates 404**: Project may already be gone (other
   browser removed it).
-- **Settings sync**: No SSE event for settings changes yet. Multiple
-  open browsers will not see each other's settings changes until
-  reload.
-- **Settings save is serialized read-modify-write**: `saveSettings` in
-  `api.ts` GETs current settings before PUTting merged data, and React
-  queues concurrent saves client-side. This prevents appearance,
-  terminal, and worktree settings writes from clobbering each other.
+- **Settings live in `settings.toml` now**: server settings persistence
+  is TOML, not JSON. The backend keeps an in-memory snapshot plus a
+  parsed `toml_edit` document so user comments and unknown keys survive
+  PATCH/PUT writes.
+- **Settings writes are in-place, not temp-file renames**: the server
+  truncates and rewrites `settings.toml` directly so editors with the
+  file open do not lose track of it.
+- **Settings sync uses SSE generations**: snapshot events now include
+  `settings` + `settings_generation`, and incremental
+  `settings_updated` events carry a string generation ID (Unix epoch
+  nanoseconds). The frontend ignores older generations.
+- **Settings store adapters must use stable Zustand snapshots**:
+  compatibility hooks like `useThemeStore` cannot build fresh wrapper
+  objects inside the selector passed to `useSettingsStore`. Select a
+  shallow slice first, then run any caller selector against that slice,
+  or React will hit `getSnapshot` and maximum update depth errors.
 - **Appearance settings still store per-mode theme IDs**:
   `lightTheme`/`darkTheme` remain in settings even though only built-in
   Hubris themes are selectable right now.
