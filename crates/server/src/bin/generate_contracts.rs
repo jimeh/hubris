@@ -39,6 +39,12 @@ fn strip_imports(ts: &str) -> String {
     out
 }
 
+fn push_ts_export<T: TS + 'static>(out: &mut String, cfg: &Config) -> Result<(), Box<dyn Error>> {
+    out.push_str(&strip_imports(&T::export_to_string(cfg)?));
+    out.push('\n');
+    Ok(())
+}
+
 fn write_openapi(dir: &Path) -> Result<(), Box<dyn Error>> {
     let spec = openapi_spec();
     let body = serde_json::to_string_pretty(&spec)?;
@@ -52,37 +58,23 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     let cfg = Config::from_env();
 
     let mut sse = String::from("// Generated file. Do not edit.\n\n");
-    sse.push_str(&TabInfo::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&Project::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&Worktree::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&ColorScheme::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&TerminalFontSource::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&WorktreeLocationMode::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&AppearanceSettings::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&TerminalSettings::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&WorktreeSettings::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&Settings::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&SettingsState::export_to_string(&cfg)?);
-    sse.push('\n');
-    sse.push_str(&strip_imports(&EventKind::export_to_string(&cfg)?));
-    sse.push('\n');
+    push_ts_export::<TabInfo>(&mut sse, &cfg)?;
+    push_ts_export::<Project>(&mut sse, &cfg)?;
+    push_ts_export::<Worktree>(&mut sse, &cfg)?;
+    push_ts_export::<ColorScheme>(&mut sse, &cfg)?;
+    push_ts_export::<TerminalFontSource>(&mut sse, &cfg)?;
+    push_ts_export::<WorktreeLocationMode>(&mut sse, &cfg)?;
+    push_ts_export::<AppearanceSettings>(&mut sse, &cfg)?;
+    push_ts_export::<TerminalSettings>(&mut sse, &cfg)?;
+    push_ts_export::<WorktreeSettings>(&mut sse, &cfg)?;
+    push_ts_export::<Settings>(&mut sse, &cfg)?;
+    push_ts_export::<SettingsState>(&mut sse, &cfg)?;
+    push_ts_export::<EventKind>(&mut sse, &cfg)?;
     fs::write(&sse_path, sse)?;
 
     let mut ws = String::from("// Generated file. Do not edit.\n\n");
-    ws.push_str(&ClientControlMessage::export_to_string(&cfg)?);
-    ws.push('\n');
-    ws.push_str(&ServerControlMessage::export_to_string(&cfg)?);
-    ws.push('\n');
+    push_ts_export::<ClientControlMessage>(&mut ws, &cfg)?;
+    push_ts_export::<ServerControlMessage>(&mut ws, &cfg)?;
     fs::write(&ws_path, ws)?;
     Ok(())
 }

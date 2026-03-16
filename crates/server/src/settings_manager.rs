@@ -21,6 +21,7 @@ pub enum SettingsManagerError {
     Io(std::io::Error),
     TomlDecode(toml::de::Error),
     TomlParse(toml_edit::TomlError),
+    WritesBlocked,
 }
 
 impl fmt::Display for SettingsManagerError {
@@ -29,6 +30,7 @@ impl fmt::Display for SettingsManagerError {
             Self::Io(error) => write!(f, "{error}"),
             Self::TomlDecode(error) => write!(f, "{error}"),
             Self::TomlParse(error) => write!(f, "{error}"),
+            Self::WritesBlocked => write!(f, "settings writes are blocked"),
         }
     }
 }
@@ -58,6 +60,7 @@ struct StoredSettings {
     settings: Settings,
     document: DocumentMut,
     generation: String,
+    writes_blocked: bool,
 }
 
 pub struct SettingsManager {
@@ -68,14 +71,31 @@ pub struct SettingsManager {
 
 impl SettingsManager {
     pub async fn new(path: PathBuf) -> Result<Self, SettingsManagerError> {
-        let (document, settings) = load_settings_document(&path).await?;
-        Ok(Self {
-            path,
-            state: RwLock::new(StoredSettings {
+        let state = match load_settings_document(&path).await {
+            Ok((document, settings)) => StoredSettings {
                 settings,
                 document,
                 generation: next_generation(None)?,
-            }),
+                writes_blocked: false,
+            },
+            Err(error @ SettingsManagerError::TomlDecode(_))
+            | Err(error @ SettingsManagerError::TomlParse(_)) => {
+                tracing::warn!(
+                    "failed to load settings from {} at startup: {error}",
+                    path.display()
+                );
+                StoredSettings {
+                    settings: Settings::default(),
+                    document: DocumentMut::new(),
+                    generation: next_generation(None)?,
+                    writes_blocked: true,
+                }
+            }
+            Err(error) => return Err(error),
+        };
+        Ok(Self {
+            path,
+            state: RwLock::new(state),
             watcher: Mutex::new(None),
         })
     }
@@ -94,6 +114,9 @@ impl SettingsManager {
 
     pub async fn patch(&self, patch: SettingsPatch) -> Result<SettingsState, SettingsManagerError> {
         let mut state = self.state.write().await;
+        if state.writes_blocked {
+            return Err(SettingsManagerError::WritesBlocked);
+        }
         let mut next = state.settings.clone();
         apply_patch_to_settings(&mut next, &patch);
         apply_patch_to_document(&mut state.document, &patch);
@@ -109,6 +132,9 @@ impl SettingsManager {
 
     pub async fn replace(&self, settings: Settings) -> Result<SettingsState, SettingsManagerError> {
         let mut state = self.state.write().await;
+        if state.writes_blocked {
+            return Err(SettingsManagerError::WritesBlocked);
+        }
         apply_settings_to_document(&mut state.document, &settings);
         let generation =
             persist_document(&self.path, &state.document, Some(&state.generation)).await?;
@@ -124,8 +150,10 @@ impl SettingsManager {
         let (document, settings) = load_settings_document(&self.path).await?;
         let mut state = self.state.write().await;
         let changed = state.settings != settings;
+        let recovered = state.writes_blocked;
         state.document = document;
-        if !changed {
+        state.writes_blocked = false;
+        if !changed && !recovered {
             return Ok(None);
         }
 
@@ -150,6 +178,9 @@ impl SettingsManager {
             let _ = tx.send(result);
         })?;
         watcher.watch(&watched_parent, RecursiveMode::NonRecursive)?;
+        if watched_path.exists() {
+            watcher.watch(&watched_path, RecursiveMode::NonRecursive)?;
+        }
 
         {
             let mut slot = self.watcher.lock().unwrap();
@@ -157,10 +188,13 @@ impl SettingsManager {
         }
 
         let manager = Arc::clone(self);
+        let watcher_events = Arc::clone(&events);
         tokio::spawn(async move {
             while let Some(result) = rx.recv().await {
                 let should_reload = match result {
-                    Ok(event) => event.paths.iter().any(|path| path == &watched_path),
+                    Ok(event) => event.paths.iter().any(|path| {
+                        path_matches_settings_file(path, &watched_path, &watched_parent)
+                    }),
                     Err(error) => {
                         tracing::warn!(
                             "settings watcher error for {}: {error}",
@@ -176,7 +210,9 @@ impl SettingsManager {
                 tokio::time::sleep(Duration::from_millis(75)).await;
                 while let Ok(next) = rx.try_recv() {
                     let should_skip = match next {
-                        Ok(event) => !event.paths.iter().any(|path| path == &watched_path),
+                        Ok(event) => !event.paths.iter().any(|path| {
+                            path_matches_settings_file(path, &watched_path, &watched_parent)
+                        }),
                         Err(_) => false,
                     };
                     if should_skip {
@@ -187,7 +223,36 @@ impl SettingsManager {
 
                 match manager.reload_from_disk().await {
                     Ok(Some(settings)) => {
-                        events.emit(EventKind::SettingsUpdated(settings));
+                        watcher_events.emit(EventKind::SettingsUpdated(settings));
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::warn!(
+                            "failed to reload settings from {}: {error}",
+                            watched_path.display()
+                        );
+                    }
+                }
+            }
+        });
+
+        let manager = Arc::clone(self);
+        let watched_path = self.path.clone();
+        let poll_events = Arc::clone(&events);
+        tokio::spawn(async move {
+            let mut last_modified = read_last_modified(&watched_path).await;
+            let mut interval = tokio::time::interval(Duration::from_millis(250));
+            loop {
+                interval.tick().await;
+                let current_modified = read_last_modified(&watched_path).await;
+                if current_modified == last_modified {
+                    continue;
+                }
+                last_modified = current_modified;
+
+                match manager.reload_from_disk().await {
+                    Ok(Some(settings)) => {
+                        poll_events.emit(EventKind::SettingsUpdated(settings));
                     }
                     Ok(None) => {}
                     Err(error) => {
@@ -226,6 +291,17 @@ fn parse_settings_document(
     let document = DocumentMut::from_str(contents)?;
     let settings = toml::from_str(contents)?;
     Ok((document, settings))
+}
+
+fn path_matches_settings_file(path: &Path, watched_path: &Path, watched_parent: &Path) -> bool {
+    path == watched_path || path == watched_parent || path.parent() == Some(watched_parent)
+}
+
+async fn read_last_modified(path: &Path) -> Option<SystemTime> {
+    tokio::fs::metadata(path)
+        .await
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
 }
 
 fn apply_patch_to_settings(settings: &mut Settings, patch: &SettingsPatch) {

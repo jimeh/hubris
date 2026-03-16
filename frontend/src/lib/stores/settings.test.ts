@@ -48,6 +48,21 @@ function stubMatchMedia(prefersDark = false) {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushAsyncWork(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 async function getStore() {
   const mod = await import("./settings");
   mod.resetSettingsStoreForTests();
@@ -198,8 +213,151 @@ describe("settings store", () => {
     expect(store.useSettingsStore.getState().generation).toBe("10");
   });
 
-  it("refetches canonical settings after PATCH failure", async () => {
-    mockPatchSettings.mockRejectedValueOnce(new Error("500"));
+  it("keeps queued edits applied locally after PATCH failure", async () => {
+    const firstPatch = deferred<{
+      settings: {
+        appearance: {
+          colorScheme: string;
+          lightTheme: string;
+          darkTheme: string;
+        };
+        terminal: {
+          fontSource: string;
+          systemFontFamily: string;
+          bundledFont: string;
+          fontSize: number;
+        };
+        worktree: {
+          locationMode: string;
+        };
+      };
+      generation: string;
+    }>();
+    mockPatchSettings.mockReturnValueOnce(firstPatch.promise);
+    mockGetSettings.mockResolvedValue({
+      settings: {
+        appearance: {
+          colorScheme: "light",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      generation: "3",
+    });
+
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    store.useSettingsStore.getState().updateAppearance({
+      colorScheme: "dark",
+    });
+    await vi.advanceTimersByTimeAsync(250);
+
+    store.useSettingsStore.getState().updateTerminal({
+      fontSize: 16,
+    });
+
+    firstPatch.reject(new Error("500"));
+    await flushAsyncWork();
+
+    expect(mockGetSettings).toHaveBeenCalledTimes(1);
+    expect(
+      store.useSettingsStore.getState().settings.appearance.colorScheme,
+    ).toBe("dark");
+    expect(store.useSettingsStore.getState().settings.terminal.fontSize).toBe(
+      16,
+    );
+    expect(store.useSettingsStore.getState().generation).toBe("3");
+    expect(store.useSettingsStore.getState().fontFamily).toBe(
+      DEFAULT_FONT_FAMILY,
+    );
+  });
+
+  it("retries queued edits after retryable PATCH failures", async () => {
+    mockPatchSettings
+      .mockRejectedValueOnce(new Error("500"))
+      .mockResolvedValueOnce({
+        settings: {
+          appearance: {
+            colorScheme: "dark",
+            lightTheme: "hubris-light",
+            darkTheme: "hubris-dark",
+          },
+          terminal: {
+            fontSource: "default",
+            systemFontFamily: "",
+            bundledFont: "jetbrainsmono-nf",
+            fontSize: 16,
+          },
+          worktree: {
+            locationMode: "dataDir",
+          },
+        },
+        generation: "4",
+      });
+    mockGetSettings.mockResolvedValue({
+      settings: {
+        appearance: {
+          colorScheme: "light",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      generation: "3",
+    });
+
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    store.useSettingsStore.getState().updateTerminal({
+      fontSize: 16,
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await flushAsyncWork();
+
+    expect(mockPatchSettings).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(499);
+    expect(mockPatchSettings).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await flushAsyncWork();
+
+    expect(mockPatchSettings).toHaveBeenCalledTimes(2);
+    expect(mockPatchSettings).toHaveBeenNthCalledWith(2, {
+      terminal: { fontSize: 16 },
+    });
+    expect(store.useSettingsStore.getState().generation).toBe("4");
+    expect(store.useSettingsStore.getState().settings.terminal.fontSize).toBe(
+      16,
+    );
+  });
+
+  it("does not auto-retry 409 conflicts but keeps edits queued", async () => {
+    mockPatchSettings.mockRejectedValueOnce({
+      name: "ApiStatusError",
+      status: 409,
+      message: "409",
+    });
     mockGetSettings.mockResolvedValue({
       settings: {
         appearance: {
@@ -227,16 +385,105 @@ describe("settings store", () => {
       colorScheme: "dark",
     });
 
-    await vi.runAllTimersAsync();
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(250);
+    await flushAsyncWork();
+    await vi.advanceTimersByTimeAsync(5000);
 
-    expect(mockGetSettings).toHaveBeenCalledTimes(1);
+    expect(mockPatchSettings).toHaveBeenCalledTimes(1);
     expect(
       store.useSettingsStore.getState().settings.appearance.colorScheme,
-    ).toBe("light");
-    expect(store.useSettingsStore.getState().generation).toBe("3");
-    expect(store.useSettingsStore.getState().fontFamily).toBe(
-      DEFAULT_FONT_FAMILY,
-    );
+    ).toBe("dark");
+  });
+
+  it("resumes queued flushes after a newer settings generation arrives", async () => {
+    mockPatchSettings.mockRejectedValueOnce({
+      name: "ApiStatusError",
+      status: 409,
+      message: "409",
+    });
+    mockGetSettings.mockResolvedValue({
+      settings: {
+        appearance: {
+          colorScheme: "light",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      generation: "3",
+    });
+
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    store.useSettingsStore.getState().updateAppearance({
+      colorScheme: "dark",
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await flushAsyncWork();
+
+    mockPatchSettings.mockResolvedValueOnce({
+      settings: {
+        appearance: {
+          colorScheme: "dark",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "repoLocalDotHubris",
+        },
+      },
+      generation: "5",
+    });
+
+    emit("settings_updated", {
+      settings: {
+        appearance: {
+          colorScheme: "light",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "repoLocalDotHubris",
+        },
+      },
+      generation: "4",
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await flushAsyncWork();
+
+    expect(mockPatchSettings).toHaveBeenCalledTimes(2);
+    expect(mockPatchSettings).toHaveBeenNthCalledWith(2, {
+      appearance: { colorScheme: "dark" },
+    });
+    expect(store.useSettingsStore.getState().generation).toBe("5");
+    expect(
+      store.useSettingsStore.getState().settings.appearance.colorScheme,
+    ).toBe("dark");
+    expect(
+      store.useSettingsStore.getState().settings.worktree.locationMode,
+    ).toBe("repoLocalDotHubris");
   });
 });

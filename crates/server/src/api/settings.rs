@@ -6,6 +6,7 @@ use ts_rs::TS;
 use utoipa::ToSchema;
 
 use crate::events::EventKind;
+use crate::settings_manager::SettingsManagerError;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
@@ -64,7 +65,7 @@ impl WorktreeLocationMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AppearanceSettings {
     #[serde(default)]
@@ -73,6 +74,16 @@ pub struct AppearanceSettings {
     pub light_theme: String,
     #[serde(default = "default_dark_theme")]
     pub dark_theme: String,
+}
+
+impl Default for AppearanceSettings {
+    fn default() -> Self {
+        Self {
+            color_scheme: ColorScheme::Auto,
+            light_theme: default_light_theme(),
+            dark_theme: default_dark_theme(),
+        }
+    }
 }
 
 fn default_light_theme() -> String {
@@ -179,6 +190,16 @@ pub struct SettingsState {
     pub generation: String,
 }
 
+fn map_settings_write_error(error: SettingsManagerError) -> StatusCode {
+    match error {
+        SettingsManagerError::WritesBlocked => StatusCode::CONFLICT,
+        other => {
+            tracing::error!("failed to save settings: {other}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
 /// GET /api/settings
 #[utoipa::path(
     get,
@@ -201,6 +222,7 @@ pub async fn get_settings(
     request_body = Settings,
     responses(
         (status = 200, description = "Settings saved", body = SettingsState),
+        (status = 409, description = "Settings file is invalid on disk"),
         (status = 500, description = "Internal server error"),
     ),
 )]
@@ -208,10 +230,11 @@ pub async fn put_settings(
     State(state): State<AppState>,
     Json(value): Json<Settings>,
 ) -> Result<Json<SettingsState>, StatusCode> {
-    let settings = state.settings.replace(value).await.map_err(|error| {
-        tracing::error!("failed to save settings: {error}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let settings = state
+        .settings
+        .replace(value)
+        .await
+        .map_err(map_settings_write_error)?;
     state
         .events
         .emit(EventKind::SettingsUpdated(settings.clone()));
@@ -225,6 +248,7 @@ pub async fn put_settings(
     request_body = SettingsPatch,
     responses(
         (status = 200, description = "Settings patched", body = SettingsState),
+        (status = 409, description = "Settings file is invalid on disk"),
         (status = 500, description = "Internal server error"),
     ),
 )]
@@ -232,10 +256,11 @@ pub async fn patch_settings(
     State(state): State<AppState>,
     Json(value): Json<SettingsPatch>,
 ) -> Result<Json<SettingsState>, StatusCode> {
-    let settings = state.settings.patch(value).await.map_err(|error| {
-        tracing::error!("failed to patch settings: {error}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let settings = state
+        .settings
+        .patch(value)
+        .await
+        .map_err(map_settings_write_error)?;
     state
         .events
         .emit(EventKind::SettingsUpdated(settings.clone()));

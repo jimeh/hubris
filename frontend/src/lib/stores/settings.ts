@@ -26,6 +26,8 @@ import type {
 const LS_SETTINGS = "hubris-settings";
 const LS_APPEARANCE_LEGACY = "hubris-appearance";
 const LS_TERMINAL_LEGACY = "hubris-terminal";
+const INITIAL_RETRY_DELAY_MS = 500;
+const MAX_RETRY_DELAY_MS = 5000;
 
 const DEFAULT_SETTINGS: Settings = {
   appearance: {
@@ -68,6 +70,8 @@ let flushTimer: number | null = null;
 let pendingPatch: SettingsPatch = {};
 let inFlightPatch: SettingsPatch | null = null;
 let fontLoadGeneration = 0;
+let retryDelayMs = INITIAL_RETRY_DELAY_MS;
+let writesBlockedByConflict = false;
 
 function allThemeEntries(): ThemeListEntry[] {
   return [...builtinThemes];
@@ -358,6 +362,18 @@ function hasPatch(patch: SettingsPatch | null | undefined): boolean {
   );
 }
 
+function getErrorStatus(error: unknown): number | null {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof error.status === "number"
+  ) {
+    return error.status;
+  }
+  return null;
+}
+
 function applyPatchToSettings(
   settings: Settings,
   patch: SettingsPatch,
@@ -507,6 +523,8 @@ function applyCanonicalState(
   allowOlder = false,
 ): void {
   const current = useSettingsStore.getState();
+  const generationAdvanced =
+    compareGeneration(serverState.generation, current.generation) > 0;
   if (
     !allowOlder &&
     compareGeneration(serverState.generation, current.generation) < 0
@@ -520,6 +538,16 @@ function applyCanonicalState(
     ? applyPatchToSettings(serverState.settings, unsynced)
     : serverState.settings;
   commitSettings(settings, serverState.generation);
+
+  if (generationAdvanced && !allowOlder) {
+    retryDelayMs = INITIAL_RETRY_DELAY_MS;
+    if (writesBlockedByConflict) {
+      writesBlockedByConflict = false;
+      if (hasPatch(pendingPatch) && !inFlightPatch) {
+        scheduleFlush(0);
+      }
+    }
+  }
 }
 
 async function flushPendingPatch(): Promise<void> {
@@ -530,14 +558,18 @@ async function flushPendingPatch(): Promise<void> {
   const patch = pendingPatch;
   pendingPatch = {};
   inFlightPatch = patch;
+  let nextFlushDelay: number | null = null;
 
   try {
     const nextState = await patchSettings(patch);
     inFlightPatch = null;
+    retryDelayMs = INITIAL_RETRY_DELAY_MS;
+    writesBlockedByConflict = false;
     applyCanonicalState(nextState);
-  } catch {
+  } catch (error) {
     inFlightPatch = null;
-    pendingPatch = {};
+    pendingPatch = mergeSettingsPatch(patch, pendingPatch);
+    writesBlockedByConflict = getErrorStatus(error) === 409;
 
     try {
       const current = await getSettings();
@@ -545,9 +577,14 @@ async function flushPendingPatch(): Promise<void> {
     } catch {
       // Keep optimistic state if refetch also fails.
     }
+
+    if (!writesBlockedByConflict) {
+      nextFlushDelay = retryDelayMs;
+      retryDelayMs = Math.min(retryDelayMs * 2, MAX_RETRY_DELAY_MS);
+    }
   } finally {
-    if (hasPatch(pendingPatch)) {
-      scheduleFlush(0);
+    if (hasPatch(pendingPatch) && !writesBlockedByConflict) {
+      scheduleFlush(nextFlushDelay ?? 0);
     }
   }
 }
@@ -646,6 +683,8 @@ export function resetSettingsStoreForTests(): void {
   pendingPatch = {};
   inFlightPatch = null;
   fontLoadGeneration = 0;
+  retryDelayMs = INITIAL_RETRY_DELAY_MS;
+  writesBlockedByConflict = false;
   resetApiStateForTests();
 
   for (const unsubscribe of eventUnsubscribers) {

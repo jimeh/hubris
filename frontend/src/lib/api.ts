@@ -4,6 +4,16 @@ import type { Settings, SettingsPatch, SettingsState } from "./theme/types";
 
 const BASE = "/api";
 
+export class ApiStatusError extends Error {
+  status: number;
+
+  constructor(status: number) {
+    super(`${status}`);
+    this.name = "ApiStatusError";
+    this.status = status;
+  }
+}
+
 type AddProjectRequest = components["schemas"]["AddProjectRequest"];
 type UpdateProjectRequest = components["schemas"]["UpdateProjectRequest"];
 type ReorderProjectsRequest = components["schemas"]["ReorderProjectsRequest"];
@@ -20,6 +30,10 @@ type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
+
+function throwStatusError(status: number): never {
+  throw new ApiStatusError(status);
+}
 
 export async function listProjects(): Promise<Project[]> {
   const res = await fetch(`${BASE}/projects`);
@@ -256,7 +270,9 @@ export function terminalWsUrl(tabId: string): string {
 
 export async function getSettings(): Promise<SettingsState> {
   const res = await fetch(`${BASE}/settings`);
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
   return res.json();
 }
 
@@ -272,7 +288,9 @@ export async function patchSettings(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(partial),
   });
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
   return res.json();
 }
 
@@ -284,6 +302,8 @@ export async function replaceSettings(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
   });
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
   return res.json();
 }

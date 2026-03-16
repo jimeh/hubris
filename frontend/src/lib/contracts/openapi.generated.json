@@ -596,6 +596,9 @@
               }
             }
           },
+          "409": {
+            "description": "Settings file is invalid on disk"
+          },
           "500": {
             "description": "Internal server error"
           }
@@ -625,6 +628,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Settings file is invalid on disk"
           },
           "500": {
             "description": "Internal server error"
@@ -841,13 +847,8 @@
           }
         }
       },
-      "ColorScheme": {
-        "type": "string",
-        "enum": ["auto", "light", "dark"]
-      },
       "AppearanceSettings": {
         "type": "object",
-        "required": ["colorScheme", "lightTheme", "darkTheme"],
         "properties": {
           "colorScheme": {
             "$ref": "#/components/schemas/ColorScheme"
@@ -864,13 +865,20 @@
         "type": "object",
         "properties": {
           "colorScheme": {
-            "$ref": "#/components/schemas/ColorScheme"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ColorScheme"
+              }
+            ]
           },
           "darkTheme": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "lightTheme": {
-            "type": "string"
+            "type": ["string", "null"]
           }
         }
       },
@@ -900,6 +908,10 @@
             }
           }
         ]
+      },
+      "ColorScheme": {
+        "type": "string",
+        "enum": ["auto", "light", "dark"]
       },
       "CreateTabRequest": {
         "type": "object",
@@ -1166,7 +1178,6 @@
       },
       "Settings": {
         "type": "object",
-        "required": ["appearance", "terminal", "worktree"],
         "properties": {
           "appearance": {
             "$ref": "#/components/schemas/AppearanceSettings"
@@ -1183,13 +1194,34 @@
         "type": "object",
         "properties": {
           "appearance": {
-            "$ref": "#/components/schemas/AppearanceSettingsPatch"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AppearanceSettingsPatch"
+              }
+            ]
           },
           "terminal": {
-            "$ref": "#/components/schemas/TerminalSettingsPatch"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TerminalSettingsPatch"
+              }
+            ]
           },
           "worktree": {
-            "$ref": "#/components/schemas/WorktreeSettingsPatch"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorktreeSettingsPatch"
+              }
+            ]
           }
         }
       },
@@ -1271,12 +1303,6 @@
       },
       "TerminalSettings": {
         "type": "object",
-        "required": [
-          "fontSource",
-          "systemFontFamily",
-          "bundledFont",
-          "fontSize"
-        ],
         "properties": {
           "bundledFont": {
             "type": "string"
@@ -1298,18 +1324,25 @@
         "type": "object",
         "properties": {
           "bundledFont": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "fontSize": {
-            "type": "integer",
+            "type": ["integer", "null"],
             "format": "int32",
             "minimum": 0
           },
           "fontSource": {
-            "$ref": "#/components/schemas/TerminalFontSource"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TerminalFontSource"
+              }
+            ]
           },
           "systemFontFamily": {
-            "type": "string"
+            "type": ["string", "null"]
           }
         }
       },
@@ -1424,7 +1457,6 @@
       },
       "WorktreeSettings": {
         "type": "object",
-        "required": ["locationMode"],
         "properties": {
           "locationMode": {
             "$ref": "#/components/schemas/WorktreeLocationMode"
@@ -1435,7 +1467,14 @@
         "type": "object",
         "properties": {
           "locationMode": {
-            "$ref": "#/components/schemas/WorktreeLocationMode"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorktreeLocationMode"
+              }
+            ]
           }
         }
       }

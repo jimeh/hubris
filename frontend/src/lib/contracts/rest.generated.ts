@@ -271,17 +271,15 @@ export interface components {
     AddProjectRequest: {
       path: string;
     };
-    /** @enum {string} */
-    ColorScheme: "auto" | "light" | "dark";
     AppearanceSettings: {
-      colorScheme: components["schemas"]["ColorScheme"];
-      darkTheme: string;
-      lightTheme: string;
-    };
-    AppearanceSettingsPatch: {
       colorScheme?: components["schemas"]["ColorScheme"];
       darkTheme?: string;
       lightTheme?: string;
+    };
+    AppearanceSettingsPatch: {
+      colorScheme?: null | components["schemas"]["ColorScheme"];
+      darkTheme?: string | null;
+      lightTheme?: string | null;
     };
     ClientControlMessage: {
       /** Format: int32 */
@@ -292,6 +290,8 @@ export interface components {
       type: "resize";
       visible: boolean;
     };
+    /** @enum {string} */
+    ColorScheme: "auto" | "light" | "dark";
     CreateTabRequest: {
       worktree_id: string;
     };
@@ -384,14 +384,14 @@ export interface components {
           type: "tab_closed";
         };
     Settings: {
-      appearance: components["schemas"]["AppearanceSettings"];
-      terminal: components["schemas"]["TerminalSettings"];
-      worktree: components["schemas"]["WorktreeSettings"];
+      appearance?: components["schemas"]["AppearanceSettings"];
+      terminal?: components["schemas"]["TerminalSettings"];
+      worktree?: components["schemas"]["WorktreeSettings"];
     };
     SettingsPatch: {
-      appearance?: components["schemas"]["AppearanceSettingsPatch"];
-      terminal?: components["schemas"]["TerminalSettingsPatch"];
-      worktree?: components["schemas"]["WorktreeSettingsPatch"];
+      appearance?: null | components["schemas"]["AppearanceSettingsPatch"];
+      terminal?: null | components["schemas"]["TerminalSettingsPatch"];
+      worktree?: null | components["schemas"]["WorktreeSettingsPatch"];
     };
     SettingsState: {
       generation: string;
@@ -421,18 +421,18 @@ export interface components {
     /** @enum {string} */
     TerminalFontSource: "default" | "system" | "bundled";
     TerminalSettings: {
-      bundledFont: string;
-      /** Format: int32 */
-      fontSize: number;
-      fontSource: components["schemas"]["TerminalFontSource"];
-      systemFontFamily: string;
-    };
-    TerminalSettingsPatch: {
       bundledFont?: string;
       /** Format: int32 */
       fontSize?: number;
       fontSource?: components["schemas"]["TerminalFontSource"];
       systemFontFamily?: string;
+    };
+    TerminalSettingsPatch: {
+      bundledFont?: string | null;
+      /** Format: int32 */
+      fontSize?: number | null;
+      fontSource?: null | components["schemas"]["TerminalFontSource"];
+      systemFontFamily?: string | null;
     };
     UpdateProjectRequest: {
       name?: string | null;
@@ -466,10 +466,10 @@ export interface components {
     /** @enum {string} */
     WorktreeLocationMode: "dataDir" | "repoLocalDotHubris";
     WorktreeSettings: {
-      locationMode: components["schemas"]["WorktreeLocationMode"];
+      locationMode?: components["schemas"]["WorktreeLocationMode"];
     };
     WorktreeSettingsPatch: {
-      locationMode?: components["schemas"]["WorktreeLocationMode"];
+      locationMode?: null | components["schemas"]["WorktreeLocationMode"];
     };
   };
   responses: never;
@@ -1087,6 +1087,13 @@ export interface operations {
           "application/json": components["schemas"]["SettingsState"];
         };
       };
+      /** @description Settings file is invalid on disk */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
       /** @description Internal server error */
       500: {
         headers: {
@@ -1117,6 +1124,13 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["SettingsState"];
         };
+      };
+      /** @description Settings file is invalid on disk */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
       /** @description Internal server error */
       500: {

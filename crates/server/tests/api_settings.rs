@@ -89,6 +89,19 @@ async fn wait_for_settings_generation(
     panic!("settings generation never reached {expected_generation}");
 }
 
+fn assert_default_settings(body: &Value) {
+    assert_eq!(body["settings"]["appearance"]["colorScheme"], "auto");
+    assert_eq!(body["settings"]["appearance"]["lightTheme"], "hubris-light");
+    assert_eq!(body["settings"]["appearance"]["darkTheme"], "hubris-dark");
+    assert_eq!(body["settings"]["terminal"]["fontSource"], "default");
+    assert_eq!(
+        body["settings"]["terminal"]["bundledFont"],
+        "jetbrainsmono-nf"
+    );
+    assert_eq!(body["settings"]["terminal"]["fontSize"], 14);
+    assert_eq!(body["settings"]["worktree"]["locationMode"], "dataDir");
+}
+
 #[tokio::test]
 async fn patch_preserves_comments_and_unknown_keys() {
     let (base, tmp) = start_test_server(Some(
@@ -293,4 +306,111 @@ darkTheme = "hubris-dark"
         .unwrap();
 
     assert_eq!(current, initial);
+}
+
+#[tokio::test]
+async fn startup_invalid_toml_uses_defaults_and_blocks_writes() {
+    let (base, _tmp) = start_test_server(Some("[appearance\ncolorScheme = \"dark\"\n")).await;
+    let client = reqwest::Client::new();
+
+    let current = client
+        .get(format!("{}/api/settings", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(current.status(), StatusCode::OK);
+    let current: Value = current.json().await.unwrap();
+    assert_default_settings(&current);
+
+    let patch = client
+        .patch(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "appearance": {
+                "colorScheme": "dark"
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(patch.status(), StatusCode::CONFLICT);
+
+    let put = client
+        .put(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "appearance": {
+                "colorScheme": "dark",
+                "lightTheme": "hubris-light",
+                "darkTheme": "hubris-dark"
+            },
+            "terminal": {
+                "fontSource": "default",
+                "systemFontFamily": "",
+                "bundledFont": "jetbrainsmono-nf",
+                "fontSize": 14
+            },
+            "worktree": {
+                "locationMode": "dataDir"
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(put.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn startup_invalid_toml_recovers_after_valid_file_is_written() {
+    let (base, tmp) = start_test_server(Some("[appearance\ncolorScheme = \"dark\"\n")).await;
+    let client = reqwest::Client::new();
+
+    let mut res = client
+        .get(format!("{}/api/events", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let mut buffer = Vec::new();
+    let (event_name, snapshot) = next_sse_event(&mut res, &mut buffer).await;
+    assert_eq!(event_name, "snapshot");
+    let initial_generation = snapshot["data"]["settings_generation"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_default_settings(&snapshot["data"]);
+
+    std::fs::write(
+        tmp.path().join("settings.toml"),
+        r#"[appearance]
+colorScheme = "dark"
+lightTheme = "hubris-light"
+darkTheme = "hubris-dark"
+"#,
+    )
+    .unwrap();
+
+    let (event_name, update) = next_sse_event(&mut res, &mut buffer).await;
+    assert_eq!(event_name, "settings_updated");
+    assert_eq!(
+        update["data"]["settings"]["appearance"]["colorScheme"],
+        "dark"
+    );
+    let recovered_generation = update["data"]["generation"].as_str().unwrap();
+    assert!(
+        recovered_generation.parse::<u128>().unwrap() > initial_generation.parse::<u128>().unwrap()
+    );
+
+    let patched = client
+        .patch(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "terminal": {
+                "fontSize": 16
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(patched.status(), StatusCode::OK);
+    let patched: Value = patched.json().await.unwrap();
+    assert_eq!(patched["settings"]["terminal"]["fontSize"], 16);
 }

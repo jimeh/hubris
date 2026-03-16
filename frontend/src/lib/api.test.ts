@@ -632,6 +632,23 @@ describe("API client", () => {
         patchSettings({ terminal: { fontSize: 16 } }),
       ).rejects.toThrow("500");
     });
+
+    it("throws a status-carrying error for non-OK PATCH responses", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 409,
+        }),
+      );
+
+      await expect(
+        patchSettings({ terminal: { fontSize: 16 } }),
+      ).rejects.toMatchObject({
+        name: "ApiStatusError",
+        status: 409,
+      });
+    });
   });
 
   describe("replaceSettings", () => {
@@ -698,6 +715,38 @@ describe("API client", () => {
           },
         }),
       ).rejects.toThrow("500");
+    });
+
+    it("throws a status-carrying error for non-OK PUT responses", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 409,
+        }),
+      );
+
+      await expect(
+        replaceSettings({
+          appearance: {
+            colorScheme: "auto",
+            lightTheme: "hubris-light",
+            darkTheme: "hubris-dark",
+          },
+          terminal: {
+            fontSource: "default",
+            systemFontFamily: "",
+            bundledFont: "jetbrainsmono-nf",
+            fontSize: 14,
+          },
+          worktree: {
+            locationMode: "dataDir",
+          },
+        }),
+      ).rejects.toMatchObject({
+        name: "ApiStatusError",
+        status: 409,
+      });
     });
   });
 });

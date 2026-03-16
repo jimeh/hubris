@@ -156,6 +156,11 @@ No periodic reconciliation — drift corrects on reconnect.
   `settings` + `settings_generation`, and incremental
   `settings_updated` events carry a string generation ID (Unix epoch
   nanoseconds). The frontend ignores older generations.
+- **Startup-invalid settings files block writes until fixed**:
+  malformed `settings.toml` at boot no longer crashes Hubris; the
+  backend serves default in-memory settings, returns `409` from
+  settings `PUT`/`PATCH`, and unblocks once the watcher sees a valid
+  file on disk.
 - **Settings store adapters must use stable Zustand snapshots**:
   compatibility hooks like `useThemeStore` cannot build fresh wrapper
   objects inside the selector passed to `useSettingsStore`. Select a

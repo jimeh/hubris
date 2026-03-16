@@ -103,15 +103,47 @@ export interface ThemeListEntry {
   builtin?: boolean;
 }
 
-export type AppearanceSettings = components["schemas"]["AppearanceSettings"];
-export type TerminalSettings = components["schemas"]["TerminalSettings"];
-export type WorktreeSettings = components["schemas"]["WorktreeSettings"];
-export type Settings = components["schemas"]["Settings"];
-export type AppearanceSettingsPatch =
-  components["schemas"]["AppearanceSettingsPatch"];
-export type TerminalSettingsPatch =
-  components["schemas"]["TerminalSettingsPatch"];
-export type WorktreeSettingsPatch =
-  components["schemas"]["WorktreeSettingsPatch"];
-export type SettingsPatch = components["schemas"]["SettingsPatch"];
-export type SettingsState = components["schemas"]["SettingsState"];
+type Schemas = components["schemas"];
+type RestSettings = NonNullable<Schemas["Settings"]>;
+type RestSettingsPatch = NonNullable<Schemas["SettingsPatch"]>;
+
+type NullableToOptional<T> = {
+  [K in keyof T]?: Exclude<T[K], null | undefined>;
+};
+
+type RequiredFields<T> = {
+  [K in keyof T]-?: Exclude<T[K], null | undefined>;
+};
+
+export type AppearanceSettings = RequiredFields<
+  NonNullable<RestSettings["appearance"]>
+>;
+export type TerminalSettings = RequiredFields<
+  NonNullable<RestSettings["terminal"]>
+>;
+export type WorktreeSettings = RequiredFields<
+  NonNullable<RestSettings["worktree"]>
+>;
+export type Settings = {
+  appearance: AppearanceSettings;
+  terminal: TerminalSettings;
+  worktree: WorktreeSettings;
+};
+export type AppearanceSettingsPatch = NullableToOptional<
+  NonNullable<RestSettingsPatch["appearance"]>
+>;
+export type TerminalSettingsPatch = NullableToOptional<
+  NonNullable<RestSettingsPatch["terminal"]>
+>;
+export type WorktreeSettingsPatch = NullableToOptional<
+  NonNullable<RestSettingsPatch["worktree"]>
+>;
+export type SettingsPatch = {
+  appearance?: AppearanceSettingsPatch;
+  terminal?: TerminalSettingsPatch;
+  worktree?: WorktreeSettingsPatch;
+};
+export type SettingsState = {
+  settings: Settings;
+  generation: NonNullable<Schemas["SettingsState"]>["generation"];
+};
