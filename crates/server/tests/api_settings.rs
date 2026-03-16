@@ -206,6 +206,42 @@ fontSize = 14
 }
 
 #[tokio::test]
+async fn patch_preserves_inline_tables_and_unknown_keys() {
+    let (base, tmp) = start_test_server(Some(
+        r#"appearance = { colorScheme = "auto", lightTheme = "hubris-light", darkTheme = "hubris-dark", customKey = "keep-me" }
+terminal = { fontSource = "default", fontSize = 14 }
+"#,
+    ))
+    .await;
+    let client = reqwest::Client::new();
+
+    let res = client
+        .patch(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "appearance": {
+                "colorScheme": "dark"
+            },
+            "terminal": {
+                "fontSize": 16
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let contents = std::fs::read_to_string(tmp.path().join("settings.toml")).unwrap();
+    assert!(contents.contains("appearance = {"));
+    assert!(contents.contains("terminal = {"));
+    assert!(!contents.contains("[appearance]"));
+    assert!(!contents.contains("[terminal]"));
+    assert!(contents.contains("customKey = \"keep-me\""));
+    assert!(contents.contains("colorScheme = \"dark\""));
+    assert!(contents.contains("fontSize = 16"));
+    assert_no_temp_files(tmp.path());
+}
+
+#[tokio::test]
 async fn put_preserves_unknown_keys() {
     let (base, tmp) = start_test_server(Some(
         r#"[appearance]
@@ -250,6 +286,55 @@ extraMode = "keep"
     assert!(contents.contains("extraMode = \"keep\""));
     assert!(contents.contains("locationMode = \"repoLocalDotHubris\""));
     assert!(contents.contains("bundledFont = \"hack-nf\""));
+    assert_no_temp_files(tmp.path());
+}
+
+#[tokio::test]
+async fn put_preserves_inline_tables_and_unknown_keys() {
+    let (base, tmp) = start_test_server(Some(
+        r#"appearance = { colorScheme = "auto", lightTheme = "hubris-light", darkTheme = "hubris-dark", customKey = "still-here" }
+terminal = { fontSource = "default", systemFontFamily = "", bundledFont = "jetbrainsmono-nf", fontSize = 14, extraFont = "keep" }
+worktree = { locationMode = "dataDir", extraMode = "keep" }
+"#,
+    ))
+    .await;
+    let client = reqwest::Client::new();
+
+    let res = client
+        .put(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "appearance": {
+                "colorScheme": "light",
+                "lightTheme": "hubris-light",
+                "darkTheme": "hubris-dark"
+            },
+            "terminal": {
+                "fontSource": "bundled",
+                "systemFontFamily": "",
+                "bundledFont": "hack-nf",
+                "fontSize": 15
+            },
+            "worktree": {
+                "locationMode": "repoLocalDotHubris"
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let contents = std::fs::read_to_string(tmp.path().join("settings.toml")).unwrap();
+    assert!(contents.contains("appearance = {"));
+    assert!(contents.contains("terminal = {"));
+    assert!(contents.contains("worktree = {"));
+    assert!(!contents.contains("[appearance]"));
+    assert!(!contents.contains("[terminal]"));
+    assert!(!contents.contains("[worktree]"));
+    assert!(contents.contains("customKey = \"still-here\""));
+    assert!(contents.contains("extraFont = \"keep\""));
+    assert!(contents.contains("extraMode = \"keep\""));
+    assert!(contents.contains("bundledFont = \"hack-nf\""));
+    assert!(contents.contains("locationMode = \"repoLocalDotHubris\""));
     assert_no_temp_files(tmp.path());
 }
 

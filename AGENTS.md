@@ -150,6 +150,10 @@ No periodic reconciliation — drift corrects on reconnect.
   is TOML, not JSON. The backend keeps an in-memory snapshot plus a
   parsed `toml_edit` document so user comments and unknown keys survive
   PATCH/PUT writes.
+- **Settings TOML merges preserve inline tables too**: top-level
+  sections like `appearance = { ... }` should stay inline when PATCH or
+  PUT updates them. Use `toml_edit` table-like APIs rather than forcing
+  them into bracket tables, or inline-table keys/comments will be lost.
 - **Settings writes are atomic temp-file renames again**: the server
   writes `settings.toml` to a sibling temp file, syncs it, renames it
   into place, and syncs the parent directory to reduce crash-window

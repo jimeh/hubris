@@ -10,7 +10,7 @@ use tokio::fs;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
-use toml_edit::{DocumentMut, Item, Table, value};
+use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 use crate::api::settings::{
     AppearanceSettingsPatch, Settings, SettingsPatch, SettingsState, SettingsStatus,
@@ -390,69 +390,85 @@ fn apply_worktree_patch(
     }
 }
 
-fn ensure_table<'a>(document: &'a mut DocumentMut, key: &str) -> &'a mut Table {
+fn ensure_table<'a>(document: &'a mut DocumentMut, key: &str) -> &'a mut dyn TableLike {
     let item = document
         .as_table_mut()
         .entry(key)
         .or_insert(Item::Table(Table::new()));
-    if !item.is_table() {
+    if !item.is_table_like() {
         *item = Item::Table(Table::new());
     }
-    item.as_table_mut().expect("settings table should exist")
+    item.as_table_like_mut()
+        .expect("settings table-like item should exist")
 }
 
 fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
     if let Some(appearance) = &patch.appearance {
         let table = ensure_table(document, "appearance");
         if let Some(color_scheme) = appearance.color_scheme {
-            table["colorScheme"] = value(color_scheme.as_str());
+            table.insert("colorScheme", value(color_scheme.as_str()));
         }
         if let Some(light_theme) = &appearance.light_theme {
-            table["lightTheme"] = value(light_theme.as_str());
+            table.insert("lightTheme", value(light_theme.as_str()));
         }
         if let Some(dark_theme) = &appearance.dark_theme {
-            table["darkTheme"] = value(dark_theme.as_str());
+            table.insert("darkTheme", value(dark_theme.as_str()));
         }
     }
 
     if let Some(terminal) = &patch.terminal {
         let table = ensure_table(document, "terminal");
         if let Some(font_source) = terminal.font_source {
-            table["fontSource"] = value(font_source.as_str());
+            table.insert("fontSource", value(font_source.as_str()));
         }
         if let Some(system_font_family) = &terminal.system_font_family {
-            table["systemFontFamily"] = value(system_font_family.as_str());
+            table.insert("systemFontFamily", value(system_font_family.as_str()));
         }
         if let Some(bundled_font) = &terminal.bundled_font {
-            table["bundledFont"] = value(bundled_font.as_str());
+            table.insert("bundledFont", value(bundled_font.as_str()));
         }
         if let Some(font_size) = terminal.font_size {
-            table["fontSize"] = value(i64::from(font_size));
+            table.insert("fontSize", value(i64::from(font_size)));
         }
     }
 
     if let Some(worktree) = &patch.worktree {
         let table = ensure_table(document, "worktree");
         if let Some(location_mode) = worktree.location_mode {
-            table["locationMode"] = value(location_mode.as_str());
+            table.insert("locationMode", value(location_mode.as_str()));
         }
     }
 }
 
 fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
     let appearance = ensure_table(document, "appearance");
-    appearance["colorScheme"] = value(settings.appearance.color_scheme.as_str());
-    appearance["lightTheme"] = value(settings.appearance.light_theme.as_str());
-    appearance["darkTheme"] = value(settings.appearance.dark_theme.as_str());
+    appearance.insert(
+        "colorScheme",
+        value(settings.appearance.color_scheme.as_str()),
+    );
+    appearance.insert(
+        "lightTheme",
+        value(settings.appearance.light_theme.as_str()),
+    );
+    appearance.insert("darkTheme", value(settings.appearance.dark_theme.as_str()));
 
     let terminal = ensure_table(document, "terminal");
-    terminal["fontSource"] = value(settings.terminal.font_source.as_str());
-    terminal["systemFontFamily"] = value(settings.terminal.system_font_family.as_str());
-    terminal["bundledFont"] = value(settings.terminal.bundled_font.as_str());
-    terminal["fontSize"] = value(i64::from(settings.terminal.font_size));
+    terminal.insert("fontSource", value(settings.terminal.font_source.as_str()));
+    terminal.insert(
+        "systemFontFamily",
+        value(settings.terminal.system_font_family.as_str()),
+    );
+    terminal.insert(
+        "bundledFont",
+        value(settings.terminal.bundled_font.as_str()),
+    );
+    terminal.insert("fontSize", value(i64::from(settings.terminal.font_size)));
 
     let worktree = ensure_table(document, "worktree");
-    worktree["locationMode"] = value(settings.worktree.location_mode.as_str());
+    worktree.insert(
+        "locationMode",
+        value(settings.worktree.location_mode.as_str()),
+    );
 }
 
 async fn persist_document(
