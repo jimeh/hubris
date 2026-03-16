@@ -156,9 +156,9 @@ impl SettingsManager {
     }
 
     pub async fn reload_from_disk(&self) -> Result<Option<SettingsState>, SettingsManagerError> {
+        let mut state = self.state.write().await;
         match load_settings_document(&self.path).await {
             Ok((document, settings)) => {
-                let mut state = self.state.write().await;
                 let changed = state.settings != settings;
                 let status_changed = state.status != SettingsStatus::ok();
                 state.document = document;
@@ -180,7 +180,6 @@ impl SettingsManager {
             }
             Err(error @ SettingsManagerError::TomlDecode(_))
             | Err(error @ SettingsManagerError::TomlParse(_)) => {
-                let mut state = self.state.write().await;
                 let next_status = SettingsStatus::invalid_file(error.to_string());
                 if state.status == next_status {
                     return Ok(None);
@@ -625,5 +624,86 @@ mod tests {
         assert_eq!(current.settings, initial.settings);
         assert!(!tmp.path().join("missing").exists());
         assert_no_temp_files(tmp.path());
+    }
+
+    #[tokio::test]
+    async fn reload_reads_settings_after_acquiring_write_lock() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.toml");
+        std::fs::write(
+            &path,
+            r#"[appearance]
+colorScheme = "auto"
+lightTheme = "hubris-light"
+darkTheme = "hubris-dark"
+"#,
+        )
+        .unwrap();
+        let manager = Arc::new(SettingsManager::new(path.clone()).await.unwrap());
+
+        let state_guard = manager.state.write().await;
+        let reload_manager = Arc::clone(&manager);
+        let reload = tokio::spawn(async move { reload_manager.reload_from_disk().await });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        std::fs::write(
+            &path,
+            r#"[appearance]
+colorScheme = "dark"
+lightTheme = "hubris-light"
+darkTheme = "hubris-dark"
+"#,
+        )
+        .unwrap();
+        drop(state_guard);
+
+        let reloaded = reload.await.unwrap().unwrap().unwrap();
+        assert_eq!(reloaded.settings.appearance.color_scheme.as_str(), "dark");
+        assert_eq!(reloaded.status, SettingsStatus::ok());
+
+        let current = manager.get().await;
+        assert_eq!(current.settings.appearance.color_scheme.as_str(), "dark");
+        assert_eq!(current.status, SettingsStatus::ok());
+    }
+
+    #[tokio::test]
+    async fn reload_does_not_apply_stale_invalid_status_after_file_is_fixed() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.toml");
+        std::fs::write(
+            &path,
+            r#"[appearance]
+colorScheme = "auto"
+lightTheme = "hubris-light"
+darkTheme = "hubris-dark"
+"#,
+        )
+        .unwrap();
+        let manager = Arc::new(SettingsManager::new(path.clone()).await.unwrap());
+
+        let state_guard = manager.state.write().await;
+        std::fs::write(&path, "[appearance\ncolorScheme = \"dark\"\n").unwrap();
+        let reload_manager = Arc::clone(&manager);
+        let reload = tokio::spawn(async move { reload_manager.reload_from_disk().await });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        std::fs::write(
+            &path,
+            r#"[appearance]
+colorScheme = "dark"
+lightTheme = "hubris-light"
+darkTheme = "hubris-dark"
+"#,
+        )
+        .unwrap();
+        drop(state_guard);
+
+        let reloaded = reload.await.unwrap().unwrap().unwrap();
+        assert_eq!(reloaded.settings.appearance.color_scheme.as_str(), "dark");
+        assert_eq!(reloaded.status, SettingsStatus::ok());
+
+        let current = manager.get().await;
+        assert_eq!(current.settings.appearance.color_scheme.as_str(), "dark");
+        assert_eq!(current.status, SettingsStatus::ok());
     }
 }
