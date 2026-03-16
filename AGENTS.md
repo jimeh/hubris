@@ -78,8 +78,8 @@ No periodic reconciliation — drift corrects on reconnect.
 
 - App location: `frontend/`
 - State: Zustand singletons — grep `useProjectStore`,
-  `useWorktreeStore`, `useTabStore`, `useThemeStore`,
-  `useTerminalStore`, `useWorktreeSettingsStore`,
+  `useWorktreeStore`, `useTabStore`, `useSettingsStore`,
+  `useThemeSettings`, `useTerminalSettings`, `useWorktreeSettings`,
   `useWorktreeRightSidebarStore`,
   `useWorktreeRightSidebarWidthStore`
 - SSE bootstrap: `src/lib/bootstrap.ts`
@@ -171,10 +171,13 @@ No periodic reconciliation — drift corrects on reconnect.
   returns `409` from settings `PUT`/`PATCH`, emits invalid-file status
   over SSE, and unblocks once the file becomes valid again.
 - **Settings store adapters must use stable Zustand snapshots**:
-  compatibility hooks like `useThemeStore` cannot build fresh wrapper
-  objects inside the selector passed to `useSettingsStore`. Select a
-  shallow slice first, then run any caller selector against that slice,
-  or React will hit `getSnapshot` and maximum update depth errors.
+  adapter hooks like `useThemeSettings`, `useTerminalSettings`, and
+  `useWorktreeSettings` are selector hooks over the real
+  `useSettingsStore`, not standalone Zustand stores. They cannot build
+  fresh wrapper objects inside the selector passed to `useSettingsStore`.
+  Select a shallow slice first, then run any caller selector against
+  that slice, or React will hit `getSnapshot` and maximum update depth
+  errors.
 - **Appearance settings still store per-mode theme IDs**:
   `lightTheme`/`darkTheme` remain in settings even though only built-in
   Hubris themes are selectable right now.

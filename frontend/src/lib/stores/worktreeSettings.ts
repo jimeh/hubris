@@ -25,7 +25,7 @@ function selectWorktreeSlice(
   } satisfies WorktreeStoreSlice;
 }
 
-export function useWorktreeSettingsStore<T>(
+export function useWorktreeSettings<T>(
   selector: (state: WorktreeStoreSlice) => T,
 ): T {
   const slice = useSettingsStore(useShallow(selectWorktreeSlice));

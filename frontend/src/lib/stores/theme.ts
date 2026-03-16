@@ -31,7 +31,9 @@ function selectThemeSlice(state: ReturnType<typeof useSettingsStore.getState>) {
   } satisfies ThemeStoreSlice;
 }
 
-export function useThemeStore<T>(selector: (state: ThemeStoreSlice) => T): T {
+export function useThemeSettings<T>(
+  selector: (state: ThemeStoreSlice) => T,
+): T {
   const slice = useSettingsStore(useShallow(selectThemeSlice));
   return selector(slice);
 }

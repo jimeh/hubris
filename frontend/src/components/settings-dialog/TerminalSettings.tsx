@@ -10,16 +10,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSettingsStore } from "@/lib/stores/settings";
-import { useTerminalStore } from "@/lib/stores/terminal";
+import { useTerminalSettings } from "@/lib/stores/terminal";
 import { BUNDLED_FONTS } from "@/lib/terminal/fonts";
 
 const settingsRowClass =
   "grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center sm:gap-3";
 
 export default function TerminalSettings() {
-  const settings = useTerminalStore((state) => state.settings);
-  const fontFamily = useTerminalStore((state) => state.fontFamily);
-  const updateSettings = useTerminalStore((state) => state.updateSettings);
+  const settings = useTerminalSettings((state) => state.settings);
+  const fontFamily = useTerminalSettings((state) => state.fontFamily);
+  const updateSettings = useTerminalSettings((state) => state.updateSettings);
   const writesBlocked = useSettingsStore((state) => state.status.writesBlocked);
 
   const fontPreviewLines = [

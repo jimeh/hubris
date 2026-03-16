@@ -3,15 +3,15 @@ import { Monitor, Moon, Paintbrush, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useSettingsStore } from "@/lib/stores/settings";
-import { themeEntries, useThemeStore } from "@/lib/stores/theme";
+import { themeEntries, useThemeSettings } from "@/lib/stores/theme";
 import ThemeSelect from "./ThemeSelect";
 
 const settingsRowClass =
   "grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center sm:gap-3";
 
 export default function AppearanceSettings() {
-  const settings = useThemeStore((state) => state.settings);
-  const updateSettings = useThemeStore((state) => state.updateSettings);
+  const settings = useThemeSettings((state) => state.settings);
+  const updateSettings = useThemeSettings((state) => state.updateSettings);
   const writesBlocked = useSettingsStore((state) => state.status.writesBlocked);
   const allThemes = useMemo(() => themeEntries(), []);
 

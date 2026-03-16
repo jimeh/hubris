@@ -2,16 +2,14 @@ import { GitFork } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useSettingsStore } from "@/lib/stores/settings";
-import { useWorktreeSettingsStore } from "@/lib/stores/worktreeSettings";
+import { useWorktreeSettings } from "@/lib/stores/worktreeSettings";
 
 const settingsRowClass =
   "grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center sm:gap-3";
 
 export default function WorktreeSettings() {
-  const settings = useWorktreeSettingsStore((state) => state.settings);
-  const updateSettings = useWorktreeSettingsStore(
-    (state) => state.updateSettings,
-  );
+  const settings = useWorktreeSettings((state) => state.settings);
+  const updateSettings = useWorktreeSettings((state) => state.updateSettings);
   const writesBlocked = useSettingsStore((state) => state.status.writesBlocked);
 
   return (

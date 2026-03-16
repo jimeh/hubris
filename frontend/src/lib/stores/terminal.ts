@@ -29,7 +29,7 @@ function selectTerminalSlice(
   } satisfies TerminalStoreSlice;
 }
 
-export function useTerminalStore<T>(
+export function useTerminalSettings<T>(
   selector: (state: TerminalStoreSlice) => T,
 ): T {
   const slice = useSettingsStore(useShallow(selectTerminalSlice));

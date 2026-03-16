@@ -19,7 +19,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/lib/stores/theme", () => ({
-  useThemeStore: <T,>(selector: (state: { version: number }) => T) =>
+  useThemeSettings: <T,>(selector: (state: { version: number }) => T) =>
     selector({ version: 0 }),
 }));
 
