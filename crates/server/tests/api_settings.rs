@@ -102,6 +102,20 @@ fn assert_default_settings(body: &Value) {
     assert_eq!(body["settings"]["worktree"]["locationMode"], "dataDir");
 }
 
+fn assert_no_temp_files(dir: &std::path::Path) {
+    let entries = std::fs::read_dir(dir).unwrap();
+    let temp_files = entries
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("settings.toml.tmp.")
+        })
+        .count();
+    assert_eq!(temp_files, 0);
+}
+
 #[tokio::test]
 async fn patch_preserves_comments_and_unknown_keys() {
     let (base, tmp) = start_test_server(Some(
@@ -163,6 +177,7 @@ fontSize = 14
     assert!(contents.contains("customKey = \"keep-me\""));
     assert!(contents.contains("colorScheme = \"dark\""));
     assert!(contents.contains("fontSize = 16"));
+    assert_no_temp_files(tmp.path());
 }
 
 #[tokio::test]
@@ -210,6 +225,7 @@ extraMode = "keep"
     assert!(contents.contains("extraMode = \"keep\""));
     assert!(contents.contains("locationMode = \"repoLocalDotHubris\""));
     assert!(contents.contains("bundledFont = \"hack-nf\""));
+    assert_no_temp_files(tmp.path());
 }
 
 #[tokio::test]

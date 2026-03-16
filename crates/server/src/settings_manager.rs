@@ -1,10 +1,12 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use tokio::fs;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
@@ -15,6 +17,8 @@ use crate::api::settings::{
     WorktreeSettingsPatch,
 };
 use crate::events::{EventBus, EventKind};
+
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
 pub enum SettingsManagerError {
@@ -118,10 +122,11 @@ impl SettingsManager {
             return Err(SettingsManagerError::WritesBlocked);
         }
         let mut next = state.settings.clone();
+        let mut document = state.document.clone();
         apply_patch_to_settings(&mut next, &patch);
-        apply_patch_to_document(&mut state.document, &patch);
-        let generation =
-            persist_document(&self.path, &state.document, Some(&state.generation)).await?;
+        apply_patch_to_document(&mut document, &patch);
+        let generation = persist_document(&self.path, &document, Some(&state.generation)).await?;
+        state.document = document;
         state.settings = next.clone();
         state.generation = generation.clone();
         Ok(SettingsState {
@@ -135,9 +140,10 @@ impl SettingsManager {
         if state.writes_blocked {
             return Err(SettingsManagerError::WritesBlocked);
         }
-        apply_settings_to_document(&mut state.document, &settings);
-        let generation =
-            persist_document(&self.path, &state.document, Some(&state.generation)).await?;
+        let mut document = state.document.clone();
+        apply_settings_to_document(&mut document, &settings);
+        let generation = persist_document(&self.path, &document, Some(&state.generation)).await?;
+        state.document = document;
         state.settings = settings.clone();
         state.generation = generation.clone();
         Ok(SettingsState {
@@ -428,16 +434,72 @@ async fn persist_document(
     document: &DocumentMut,
     previous_generation: Option<&str>,
 ) -> Result<String, SettingsManagerError> {
+    let temp_path = temp_settings_path(path);
+    let contents = document.to_string();
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(path)
-        .await?;
-    file.write_all(document.to_string().as_bytes()).await?;
-    file.flush().await?;
-    file.sync_all().await?;
+        .open(&temp_path)
+        .await
+        .map_err(|error| cleanup_temp_file_on_error(&temp_path, error))?;
+
+    if let Ok(metadata) = fs::metadata(path).await
+        && let Err(error) = fs::set_permissions(&temp_path, metadata.permissions()).await
+    {
+        return Err(cleanup_temp_file_on_error(&temp_path, error));
+    }
+
+    if let Err(error) = file.write_all(contents.as_bytes()).await {
+        return Err(cleanup_temp_file_on_error(&temp_path, error));
+    }
+    if let Err(error) = file.flush().await {
+        return Err(cleanup_temp_file_on_error(&temp_path, error));
+    }
+    if let Err(error) = file.sync_all().await {
+        return Err(cleanup_temp_file_on_error(&temp_path, error));
+    }
+    drop(file);
+
+    if let Err(error) = fs::rename(&temp_path, path).await {
+        return Err(cleanup_temp_file_on_error(&temp_path, error));
+    }
+    if let Err(error) = sync_parent_directory(path).await {
+        return Err(SettingsManagerError::Io(error));
+    }
     next_generation(previous_generation)
+}
+
+fn temp_settings_path(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("settings.toml");
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    parent.join(format!(
+        "{file_name}.tmp.{}.{}",
+        std::process::id(),
+        counter
+    ))
+}
+
+fn cleanup_temp_file_on_error(path: &Path, error: std::io::Error) -> SettingsManagerError {
+    let _ = std::fs::remove_file(path);
+    SettingsManagerError::Io(error)
+}
+
+async fn sync_parent_directory(path: &Path) -> Result<(), std::io::Error> {
+    let parent = path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let dir = std::fs::File::open(parent)?;
+        dir.sync_all()
+    })
+    .await
+    .map_err(|join_error| std::io::Error::other(join_error.to_string()))?
 }
 
 fn next_generation(previous_generation: Option<&str>) -> Result<String, SettingsManagerError> {
@@ -449,4 +511,77 @@ fn next_generation(previous_generation: Option<&str>) -> Result<String, Settings
         .and_then(|value| value.parse::<u128>().ok())
         .unwrap_or(0);
     Ok(std::cmp::max(now, previous.saturating_add(1)).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn assert_no_temp_files(dir: &Path) {
+        let entries = std::fs::read_dir(dir).unwrap();
+        let temp_files = entries
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("settings.toml.tmp.")
+            })
+            .count();
+        assert_eq!(temp_files, 0);
+    }
+
+    async fn new_manager(tmp: &TempDir) -> SettingsManager {
+        SettingsManager::new(tmp.path().join("settings.toml"))
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn persist_document_cleans_up_temp_files_after_success() {
+        let tmp = TempDir::new().unwrap();
+        let manager = new_manager(&tmp).await;
+
+        let updated = manager
+            .patch(SettingsPatch {
+                appearance: Some(AppearanceSettingsPatch {
+                    color_scheme: Some(crate::api::settings::ColorScheme::Dark),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(updated.settings.appearance.color_scheme.as_str(), "dark");
+        assert_no_temp_files(tmp.path());
+    }
+
+    #[tokio::test]
+    async fn failed_persist_does_not_advance_generation_or_leave_temp_files() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("missing").join("settings.toml");
+        let manager = SettingsManager::new(path).await.unwrap();
+        let initial = manager.get().await;
+
+        let result = manager
+            .patch(SettingsPatch {
+                terminal: Some(TerminalSettingsPatch {
+                    font_size: Some(16),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .await;
+
+        assert!(matches!(result, Err(SettingsManagerError::Io(_))));
+
+        let current = manager.get().await;
+        assert_eq!(current.generation, initial.generation);
+        assert_eq!(current.settings, initial.settings);
+        assert!(!tmp.path().join("missing").exists());
+        assert_no_temp_files(tmp.path());
+    }
 }

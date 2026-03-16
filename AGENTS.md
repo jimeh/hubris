@@ -149,9 +149,11 @@ No periodic reconciliation — drift corrects on reconnect.
   is TOML, not JSON. The backend keeps an in-memory snapshot plus a
   parsed `toml_edit` document so user comments and unknown keys survive
   PATCH/PUT writes.
-- **Settings writes are in-place, not temp-file renames**: the server
-  truncates and rewrites `settings.toml` directly so editors with the
-  file open do not lose track of it.
+- **Settings writes are atomic temp-file renames again**: the server
+  writes `settings.toml` to a sibling temp file, syncs it, renames it
+  into place, and syncs the parent directory to reduce crash-window
+  corruption risk. Editors that keep hard file handles may treat the
+  file as replaced rather than modified in place.
 - **Settings sync uses SSE generations**: snapshot events now include
   `settings` + `settings_generation`, and incremental
   `settings_updated` events carry a string generation ID (Unix epoch
