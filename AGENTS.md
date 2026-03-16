@@ -210,6 +210,12 @@ No periodic reconciliation — drift corrects on reconnect.
   `scrollIntoView()`. In Vitest/jsdom, stub `hasPointerCapture`,
   `setPointerCapture`, `releasePointerCapture`, and `scrollIntoView` in
   `src/test/setup.ts`.
+- **Settings store tests must clean up `matchMedia` listeners**:
+  `frontend/src/lib/stores/settings.ts` binds a singleton
+  `prefers-color-scheme` listener on initialize. Tests that reset and
+  reinitialize the store need `resetSettingsStoreForTests()` to remove
+  that listener and clear its bound flag or later cases will reuse a
+  stale callback.
 - **Popover lists inside React dialogs may need a dialog-local
   portal**: `frontend/src/components/AddWorktreeDialog.tsx` mounts the
   start-point `Popover` into a container inside the dialog instead of

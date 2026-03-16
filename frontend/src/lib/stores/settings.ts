@@ -27,6 +27,7 @@ import type {
 const LS_SETTINGS = "hubris-settings";
 const INITIAL_RETRY_DELAY_MS = 500;
 const MAX_RETRY_DELAY_MS = 5000;
+const COLOR_SCHEME_MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
 const DEFAULT_SETTINGS: Settings = {
   appearance: {
@@ -96,7 +97,7 @@ function readPrefersLight(): boolean {
   ) {
     return true;
   }
-  return !window.matchMedia("(prefers-color-scheme: dark)").matches;
+  return !window.matchMedia(COLOR_SCHEME_MEDIA_QUERY).matches;
 }
 
 function normalizeAppearanceSettings(candidate: unknown): {
@@ -614,32 +615,33 @@ function applyLocalPatch(patch: SettingsPatch): void {
   scheduleFlush();
 }
 
+function handleSystemColorSchemeChange(event: MediaQueryListEvent): void {
+  useSettingsStore.setState((state) => {
+    const prefersLight = !event.matches;
+    const activeTheme = applyActiveTheme(
+      state.settings.appearance,
+      prefersLight,
+    );
+    return {
+      prefersLight,
+      activeTheme,
+      themeVersion: state.themeVersion + 1,
+    };
+  });
+}
+
 function bindMediaListener(): void {
   if (mediaListenerBound || typeof window === "undefined") {
     return;
   }
   mediaListenerBound = true;
 
-  const media = window.matchMedia("(prefers-color-scheme: dark)");
-  const onChange = (event: MediaQueryListEvent) => {
-    useSettingsStore.setState((state) => {
-      const prefersLight = !event.matches;
-      const activeTheme = applyActiveTheme(
-        state.settings.appearance,
-        prefersLight,
-      );
-      return {
-        prefersLight,
-        activeTheme,
-        themeVersion: state.themeVersion + 1,
-      };
-    });
-  };
+  const media = window.matchMedia(COLOR_SCHEME_MEDIA_QUERY);
 
   if (typeof media.addEventListener === "function") {
-    media.addEventListener("change", onChange);
+    media.addEventListener("change", handleSystemColorSchemeChange);
   } else {
-    media.addListener(onChange);
+    media.addListener(handleSystemColorSchemeChange);
   }
 }
 
@@ -709,6 +711,20 @@ export function resetSettingsStoreForTests(): void {
   }
   eventUnsubscribers = [];
   initialized = false;
+
+  if (
+    mediaListenerBound &&
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function"
+  ) {
+    const media = window.matchMedia(COLOR_SCHEME_MEDIA_QUERY);
+    if (typeof media.removeEventListener === "function") {
+      media.removeEventListener("change", handleSystemColorSchemeChange);
+    } else {
+      media.removeListener(handleSystemColorSchemeChange);
+    }
+  }
+  mediaListenerBound = false;
 
   useSettingsStore.setState({
     settings: DEFAULT_SETTINGS,

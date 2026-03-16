@@ -42,20 +42,31 @@ function emit(name: string, payload: unknown): void {
   }
 }
 
-function stubMatchMedia(prefersDark = false) {
+type MatchMediaStub = {
+  media: MediaQueryList;
+  matchMedia: ReturnType<typeof vi.fn>;
+};
+
+function stubMatchMedia(
+  prefersDark = false,
+  options: { legacyOnly?: boolean } = {},
+): MatchMediaStub {
+  const media = {
+    matches: prefersDark,
+    media: "(prefers-color-scheme: dark)",
+    onchange: null,
+    addEventListener: options.legacyOnly ? undefined : vi.fn(),
+    removeEventListener: options.legacyOnly ? undefined : vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  } as unknown as MediaQueryList;
+  const matchMedia = vi.fn().mockImplementation(() => media);
   Object.defineProperty(window, "matchMedia", {
     writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: prefersDark,
-      media: query,
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
+    value: matchMedia,
   });
+  return { media, matchMedia };
 }
 
 function deferred<T>() {
@@ -111,6 +122,38 @@ describe("settings store", () => {
       generation: "2",
       status: okStatus,
     });
+  });
+
+  it("removes the media listener and rebinds on reset", async () => {
+    const { media } = stubMatchMedia(false);
+    const store = await getStore();
+    vi.mocked(media.addEventListener!).mockClear();
+    vi.mocked(media.removeEventListener!).mockClear();
+
+    store.initializeSettingsStore();
+    expect(media.addEventListener).toHaveBeenCalledTimes(1);
+
+    store.resetSettingsStoreForTests();
+    expect(media.removeEventListener).toHaveBeenCalledTimes(1);
+
+    store.initializeSettingsStore();
+    expect(media.addEventListener).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes legacy media listeners during reset", async () => {
+    const { media } = stubMatchMedia(false, { legacyOnly: true });
+    const store = await getStore();
+    vi.mocked(media.addListener).mockClear();
+    vi.mocked(media.removeListener).mockClear();
+
+    store.initializeSettingsStore();
+    expect(media.addListener).toHaveBeenCalledTimes(1);
+
+    store.resetSettingsStoreForTests();
+    expect(media.removeListener).toHaveBeenCalledTimes(1);
+
+    store.initializeSettingsStore();
+    expect(media.addListener).toHaveBeenCalledTimes(2);
   });
 
   it("hydrates from cached settings before SSE connects", async () => {
