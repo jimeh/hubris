@@ -94,8 +94,9 @@ No periodic reconciliation — drift corrects on reconnect.
   `components/terminal/useTerminalConnection.ts`
 - Theme engine: native Hubris theme definitions in
   `src/lib/theme/builtin.ts`, converted by `src/lib/theme/convert.ts`
-- FOUC prevention: inline script in `index.html` reads localStorage
-  (`hubris-theme-cache`) and applies CSS vars before first paint
+- FOUC prevention: inline script in `index.html` reads
+  `hubris-settings` to choose light/dark mode and
+  `hubris-theme-cache` to apply cached CSS vars before first paint
 - API contracts: Rust `generate_contracts` writes directly to
   `frontend/src/lib/contracts/{openapi,sse,ws}.generated.*`; then
   `bun run generate:contracts:rest` produces `rest.generated.ts`

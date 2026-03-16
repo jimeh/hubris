@@ -24,8 +24,6 @@ import type {
 } from "@/lib/theme/types";
 
 const LS_SETTINGS = "hubris-settings";
-const LS_APPEARANCE_LEGACY = "hubris-appearance";
-const LS_TERMINAL_LEGACY = "hubris-terminal";
 const INITIAL_RETRY_DELAY_MS = 500;
 const MAX_RETRY_DELAY_MS = 5000;
 
@@ -403,31 +401,11 @@ function cacheCanonicalSettings(state: SettingsState): void {
   }
 }
 
-function readLegacyCache(): SettingsState | null {
-  try {
-    const appearance = localStorage.getItem(LS_APPEARANCE_LEGACY);
-    const terminal = localStorage.getItem(LS_TERMINAL_LEGACY);
-    if (!appearance && !terminal) {
-      return null;
-    }
-
-    return {
-      settings: normalizeSettings({
-        appearance: appearance ? JSON.parse(appearance) : undefined,
-        terminal: terminal ? JSON.parse(terminal) : undefined,
-      }).settings,
-      generation: "0",
-    };
-  } catch {
-    return null;
-  }
-}
-
 function readCachedSettingsState(): SettingsState | null {
   try {
     const raw = localStorage.getItem(LS_SETTINGS);
     if (!raw) {
-      return readLegacyCache();
+      return null;
     }
 
     const parsed = JSON.parse(raw) as Partial<SettingsState>;
@@ -437,7 +415,7 @@ function readCachedSettingsState(): SettingsState | null {
         typeof parsed.generation === "string" ? parsed.generation : "0",
     };
   } catch {
-    return readLegacyCache();
+    return null;
   }
 }
 
