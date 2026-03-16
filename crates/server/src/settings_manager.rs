@@ -13,8 +13,8 @@ use tokio::sync::RwLock;
 use toml_edit::{DocumentMut, Item, Table, value};
 
 use crate::api::settings::{
-    AppearanceSettingsPatch, Settings, SettingsPatch, SettingsState, TerminalSettingsPatch,
-    WorktreeSettingsPatch,
+    AppearanceSettingsPatch, Settings, SettingsPatch, SettingsState, SettingsStatus,
+    TerminalSettingsPatch, WorktreeSettingsPatch,
 };
 use crate::events::{EventBus, EventKind};
 
@@ -64,7 +64,7 @@ struct StoredSettings {
     settings: Settings,
     document: DocumentMut,
     generation: String,
-    writes_blocked: bool,
+    status: SettingsStatus,
 }
 
 pub struct SettingsManager {
@@ -80,7 +80,7 @@ impl SettingsManager {
                 settings,
                 document,
                 generation: next_generation(None)?,
-                writes_blocked: false,
+                status: SettingsStatus::ok(),
             },
             Err(error @ SettingsManagerError::TomlDecode(_))
             | Err(error @ SettingsManagerError::TomlParse(_)) => {
@@ -92,7 +92,7 @@ impl SettingsManager {
                     settings: Settings::default(),
                     document: DocumentMut::new(),
                     generation: next_generation(None)?,
-                    writes_blocked: true,
+                    status: SettingsStatus::invalid_file(error.to_string()),
                 }
             }
             Err(error) => return Err(error),
@@ -113,12 +113,13 @@ impl SettingsManager {
         SettingsState {
             settings: state.settings.clone(),
             generation: state.generation.clone(),
+            status: state.status.clone(),
         }
     }
 
     pub async fn patch(&self, patch: SettingsPatch) -> Result<SettingsState, SettingsManagerError> {
         let mut state = self.state.write().await;
-        if state.writes_blocked {
+        if state.status.writes_blocked {
             return Err(SettingsManagerError::WritesBlocked);
         }
         let mut next = state.settings.clone();
@@ -132,12 +133,13 @@ impl SettingsManager {
         Ok(SettingsState {
             settings: next,
             generation,
+            status: state.status.clone(),
         })
     }
 
     pub async fn replace(&self, settings: Settings) -> Result<SettingsState, SettingsManagerError> {
         let mut state = self.state.write().await;
-        if state.writes_blocked {
+        if state.status.writes_blocked {
             return Err(SettingsManagerError::WritesBlocked);
         }
         let mut document = state.document.clone();
@@ -149,30 +151,63 @@ impl SettingsManager {
         Ok(SettingsState {
             settings,
             generation,
+            status: state.status.clone(),
         })
     }
 
     pub async fn reload_from_disk(&self) -> Result<Option<SettingsState>, SettingsManagerError> {
-        let (document, settings) = load_settings_document(&self.path).await?;
-        let mut state = self.state.write().await;
-        let changed = state.settings != settings;
-        let recovered = state.writes_blocked;
-        state.document = document;
-        state.writes_blocked = false;
-        if !changed && !recovered {
-            return Ok(None);
-        }
+        match load_settings_document(&self.path).await {
+            Ok((document, settings)) => {
+                let mut state = self.state.write().await;
+                let changed = state.settings != settings;
+                let status_changed = state.status != SettingsStatus::ok();
+                state.document = document;
+                state.status = SettingsStatus::ok();
+                if !changed && !status_changed {
+                    return Ok(None);
+                }
 
-        let generation = next_generation(Some(&state.generation))?;
-        state.settings = settings.clone();
-        state.generation = generation.clone();
-        Ok(Some(SettingsState {
-            settings,
-            generation,
-        }))
+                if changed {
+                    state.generation = next_generation(Some(&state.generation))?;
+                }
+                state.settings = settings.clone();
+
+                Ok(Some(SettingsState {
+                    settings,
+                    generation: state.generation.clone(),
+                    status: state.status.clone(),
+                }))
+            }
+            Err(error @ SettingsManagerError::TomlDecode(_))
+            | Err(error @ SettingsManagerError::TomlParse(_)) => {
+                let mut state = self.state.write().await;
+                let next_status = SettingsStatus::invalid_file(error.to_string());
+                if state.status == next_status {
+                    return Ok(None);
+                }
+                state.status = next_status;
+
+                Ok(Some(SettingsState {
+                    settings: state.settings.clone(),
+                    generation: state.generation.clone(),
+                    status: state.status.clone(),
+                }))
+            }
+            Err(error) => Err(error),
+        }
     }
 
-    pub fn start_watcher(self: &Arc<Self>, events: Arc<EventBus>) -> Result<(), notify::Error> {
+    pub fn start_sync(self: &Arc<Self>, events: Arc<EventBus>) {
+        self.start_poller(Arc::clone(&events));
+        if let Err(error) = self.start_watcher(events) {
+            tracing::warn!(
+                "failed to watch settings file {}: {error}",
+                self.path.display()
+            );
+        }
+    }
+
+    fn start_watcher(self: &Arc<Self>, events: Arc<EventBus>) -> Result<(), notify::Error> {
         let watched_path = self.path.clone();
         let watched_parent = watched_path
             .parent()
@@ -227,24 +262,16 @@ impl SettingsManager {
                     tokio::time::sleep(Duration::from_millis(75)).await;
                 }
 
-                match manager.reload_from_disk().await {
-                    Ok(Some(settings)) => {
-                        watcher_events.emit(EventKind::SettingsUpdated(settings));
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        tracing::warn!(
-                            "failed to reload settings from {}: {error}",
-                            watched_path.display()
-                        );
-                    }
-                }
+                reload_and_emit(&manager, &watcher_events, &watched_path).await;
             }
         });
 
+        Ok(())
+    }
+
+    fn start_poller(self: &Arc<Self>, events: Arc<EventBus>) {
         let manager = Arc::clone(self);
         let watched_path = self.path.clone();
-        let poll_events = Arc::clone(&events);
         tokio::spawn(async move {
             let mut last_modified = read_last_modified(&watched_path).await;
             let mut interval = tokio::time::interval(Duration::from_millis(250));
@@ -256,22 +283,21 @@ impl SettingsManager {
                 }
                 last_modified = current_modified;
 
-                match manager.reload_from_disk().await {
-                    Ok(Some(settings)) => {
-                        poll_events.emit(EventKind::SettingsUpdated(settings));
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        tracing::warn!(
-                            "failed to reload settings from {}: {error}",
-                            watched_path.display()
-                        );
-                    }
-                }
+                reload_and_emit(&manager, &events, &watched_path).await;
             }
         });
+    }
+}
 
-        Ok(())
+async fn reload_and_emit(manager: &Arc<SettingsManager>, events: &Arc<EventBus>, path: &Path) {
+    match manager.reload_from_disk().await {
+        Ok(Some(settings)) => {
+            events.emit(EventKind::SettingsUpdated(settings));
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!("failed to reload settings from {}: {error}", path.display());
+        }
     }
 }
 

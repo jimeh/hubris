@@ -396,7 +396,15 @@ export interface components {
     SettingsState: {
       generation: string;
       settings: components["schemas"]["Settings"];
+      status: components["schemas"]["SettingsStatus"];
     };
+    SettingsStatus: {
+      kind: components["schemas"]["SettingsStatusKind"];
+      message?: string | null;
+      writesBlocked: boolean;
+    };
+    /** @enum {string} */
+    SettingsStatusKind: "ok" | "invalidFile";
     StartPoint: {
       local_ref?: string | null;
       remote_refs: string[];

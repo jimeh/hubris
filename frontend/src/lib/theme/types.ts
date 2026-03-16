@@ -106,6 +106,7 @@ export interface ThemeListEntry {
 type Schemas = components["schemas"];
 type RestSettings = NonNullable<Schemas["Settings"]>;
 type RestSettingsPatch = NonNullable<Schemas["SettingsPatch"]>;
+type RestSettingsStatus = NonNullable<Schemas["SettingsStatus"]>;
 
 type NullableToOptional<T> = {
   [K in keyof T]?: Exclude<T[K], null | undefined>;
@@ -129,6 +130,15 @@ export type Settings = {
   terminal: TerminalSettings;
   worktree: WorktreeSettings;
 };
+export type SettingsStatusKind = Exclude<
+  RestSettingsStatus["kind"],
+  null | undefined
+>;
+export type SettingsStatus = {
+  kind: SettingsStatusKind;
+  writesBlocked: Exclude<RestSettingsStatus["writesBlocked"], null | undefined>;
+  message: Exclude<RestSettingsStatus["message"], undefined>;
+};
 export type AppearanceSettingsPatch = NullableToOptional<
   NonNullable<RestSettingsPatch["appearance"]>
 >;
@@ -146,4 +156,5 @@ export type SettingsPatch = {
 export type SettingsState = {
   settings: Settings;
   generation: NonNullable<Schemas["SettingsState"]>["generation"];
+  status: SettingsStatus;
 };

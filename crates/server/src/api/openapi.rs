@@ -7,8 +7,8 @@ use crate::api::projects::{
 };
 use crate::api::settings::{
     AppearanceSettings, AppearanceSettingsPatch, ColorScheme, Settings, SettingsPatch,
-    SettingsState, TerminalFontSource, TerminalSettings, TerminalSettingsPatch,
-    WorktreeLocationMode, WorktreeSettings, WorktreeSettingsPatch,
+    SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings,
+    TerminalSettingsPatch, WorktreeLocationMode, WorktreeSettings, WorktreeSettingsPatch,
 };
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
@@ -81,6 +81,8 @@ use crate::pty::live_tab::TabInfo;
             WorktreeSettingsPatch,
             Settings,
             SettingsPatch,
+            SettingsStatusKind,
+            SettingsStatus,
             SettingsState,
         )
     ),

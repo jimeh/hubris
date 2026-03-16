@@ -6,7 +6,7 @@ use tokio::sync::broadcast;
 use ts_rs::TS;
 
 use crate::api::projects::Project;
-use crate::api::settings::{Settings, SettingsState};
+use crate::api::settings::{Settings, SettingsState, SettingsStatus};
 use crate::api::worktrees::Worktree;
 use crate::pty::live_tab::TabInfo;
 
@@ -27,6 +27,7 @@ pub enum EventKind {
         project_errors: HashMap<String, String>,
         settings: Settings,
         settings_generation: String,
+        settings_status: SettingsStatus,
     },
     #[serde(rename = "tab_created")]
     TabCreated(TabInfo),
@@ -165,6 +166,7 @@ mod tests {
                 project_errors: HashMap::new(),
                 settings: Settings::default(),
                 settings_generation: "0".to_string(),
+                settings_status: SettingsStatus::ok(),
             }
             .event_name(),
             "snapshot"

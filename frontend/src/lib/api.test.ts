@@ -29,6 +29,12 @@ const {
   resetApiStateForTests,
 } = await import("./api");
 
+const okStatus = {
+  kind: "ok" as const,
+  writesBlocked: false,
+  message: null,
+};
+
 describe("API client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -549,6 +555,7 @@ describe("API client", () => {
           },
         },
         generation: "123",
+        status: okStatus,
       };
       vi.stubGlobal(
         "fetch",
@@ -596,6 +603,7 @@ describe("API client", () => {
           },
         },
         generation: "124",
+        status: okStatus,
       };
       vi.stubGlobal(
         "fetch",
@@ -669,7 +677,11 @@ describe("API client", () => {
           locationMode: "repoLocalDotHubris" as const,
         },
       };
-      const response = { settings: payload, generation: "200" };
+      const response = {
+        settings: payload,
+        generation: "200",
+        status: okStatus,
+      };
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({

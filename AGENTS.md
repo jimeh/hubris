@@ -155,15 +155,17 @@ No periodic reconciliation — drift corrects on reconnect.
   into place, and syncs the parent directory to reduce crash-window
   corruption risk. Editors that keep hard file handles may treat the
   file as replaced rather than modified in place.
-- **Settings sync uses SSE generations**: snapshot events now include
-  `settings` + `settings_generation`, and incremental
-  `settings_updated` events carry a string generation ID (Unix epoch
-  nanoseconds). The frontend ignores older generations.
-- **Startup-invalid settings files block writes until fixed**:
-  malformed `settings.toml` at boot no longer crashes Hubris; the
-  backend serves default in-memory settings, returns `409` from
-  settings `PUT`/`PATCH`, and unblocks once the watcher sees a valid
-  file on disk.
+- **Settings sync uses SSE generations plus server status**: snapshot
+  events now include `settings`, `settings_generation`, and
+  `settings_status`; incremental `settings_updated` events carry the
+  same `SettingsState` payload. The frontend ignores older generations
+  but still applies equal-generation status changes so invalid-file
+  recovery can unblock queued writes.
+- **Invalid settings files block writes until fixed**: malformed
+  `settings.toml` at startup or during runtime no longer crashes
+  Hubris; the backend keeps the last known/default in-memory settings,
+  returns `409` from settings `PUT`/`PATCH`, emits invalid-file status
+  over SSE, and unblocks once the file becomes valid again.
 - **Settings store adapters must use stable Zustand snapshots**:
   compatibility hooks like `useThemeStore` cannot build fresh wrapper
   objects inside the selector passed to `useSettingsStore`. Select a

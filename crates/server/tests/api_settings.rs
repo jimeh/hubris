@@ -22,6 +22,19 @@ async fn start_test_server(initial_settings: Option<&str>) -> (String, tempfile:
     (format!("http://{}", addr), tmp)
 }
 
+async fn start_test_server_in_data_dir(data_dir: &std::path::Path) -> String {
+    let state = AppState::new(data_dir.to_path_buf()).await;
+    let app = build_router(state);
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    format!("http://{}", addr)
+}
+
 fn find_sse_separator(buffer: &[u8]) -> Option<usize> {
     buffer
         .windows(2)
@@ -100,6 +113,18 @@ fn assert_default_settings(body: &Value) {
     );
     assert_eq!(body["settings"]["terminal"]["fontSize"], 14);
     assert_eq!(body["settings"]["worktree"]["locationMode"], "dataDir");
+}
+
+fn assert_ok_status(body: &Value) {
+    assert_eq!(body["status"]["kind"], "ok");
+    assert_eq!(body["status"]["writesBlocked"], false);
+    assert!(body["status"]["message"].is_null());
+}
+
+fn assert_invalid_status(body: &Value) {
+    assert_eq!(body["status"]["kind"], "invalidFile");
+    assert_eq!(body["status"]["writesBlocked"], true);
+    assert!(body["status"]["message"].is_string());
 }
 
 fn assert_no_temp_files(dir: &std::path::Path) {
@@ -255,6 +280,7 @@ darkTheme = "hubris-dark"
         snapshot["data"]["settings"]["appearance"]["colorScheme"],
         "auto"
     );
+    assert_eq!(snapshot["data"]["settings_status"]["kind"], "ok");
     let initial_generation = snapshot["data"]["settings_generation"]
         .as_str()
         .unwrap()
@@ -277,6 +303,7 @@ darkTheme = "hubris-dark"
         update["data"]["settings"]["appearance"]["colorScheme"],
         "dark"
     );
+    assert_eq!(update["data"]["status"]["kind"], "ok");
     let next_generation = update["data"]["generation"].as_str().unwrap();
     assert!(next_generation.parse::<u128>().unwrap() > initial_generation.parse::<u128>().unwrap());
 
@@ -285,7 +312,7 @@ darkTheme = "hubris-dark"
 }
 
 #[tokio::test]
-async fn invalid_external_toml_keeps_last_good_settings() {
+async fn invalid_external_toml_blocks_writes_and_keeps_last_good_settings() {
     let (base, tmp) = start_test_server(Some(
         r#"[appearance]
 colorScheme = "auto"
@@ -304,24 +331,45 @@ darkTheme = "hubris-dark"
         .json::<Value>()
         .await
         .unwrap();
+    assert_ok_status(&initial);
+    let initial_generation = initial["generation"].as_str().unwrap().to_string();
 
     std::fs::write(
         tmp.path().join("settings.toml"),
         "[appearance\ncolorScheme = \"dark\"\n",
     )
     .unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let current = client
-        .get(format!("{}/api/settings", base))
+    let current = loop {
+        let current = client
+            .get(format!("{}/api/settings", base))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        if current["status"]["kind"] == "invalidFile" {
+            break current;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+
+    assert_eq!(current["settings"], initial["settings"]);
+    assert_eq!(current["generation"], initial_generation);
+    assert_invalid_status(&current);
+
+    let patch = client
+        .patch(format!("{}/api/settings", base))
+        .json(&serde_json::json!({
+            "appearance": {
+                "colorScheme": "dark"
+            }
+        }))
         .send()
         .await
-        .unwrap()
-        .json::<Value>()
-        .await
         .unwrap();
-
-    assert_eq!(current, initial);
+    assert_eq!(patch.status(), StatusCode::CONFLICT);
 }
 
 #[tokio::test]
@@ -337,6 +385,7 @@ async fn startup_invalid_toml_uses_defaults_and_blocks_writes() {
     assert_eq!(current.status(), StatusCode::OK);
     let current: Value = current.json().await.unwrap();
     assert_default_settings(&current);
+    assert_invalid_status(&current);
 
     let patch = client
         .patch(format!("{}/api/settings", base))
@@ -394,6 +443,7 @@ async fn startup_invalid_toml_recovers_after_valid_file_is_written() {
         .unwrap()
         .to_string();
     assert_default_settings(&snapshot["data"]);
+    assert_eq!(snapshot["data"]["settings_status"]["kind"], "invalidFile");
 
     std::fs::write(
         tmp.path().join("settings.toml"),
@@ -411,6 +461,7 @@ darkTheme = "hubris-dark"
         update["data"]["settings"]["appearance"]["colorScheme"],
         "dark"
     );
+    assert_eq!(update["data"]["status"]["kind"], "ok");
     let recovered_generation = update["data"]["generation"].as_str().unwrap();
     assert!(
         recovered_generation.parse::<u128>().unwrap() > initial_generation.parse::<u128>().unwrap()
@@ -429,4 +480,127 @@ darkTheme = "hubris-dark"
     assert_eq!(patched.status(), StatusCode::OK);
     let patched: Value = patched.json().await.unwrap();
     assert_eq!(patched["settings"]["terminal"]["fontSize"], 16);
+    assert_ok_status(&patched);
+}
+
+#[tokio::test]
+async fn runtime_invalid_toml_recovers_after_file_is_fixed() {
+    let (base, tmp) = start_test_server(Some(
+        r#"[appearance]
+colorScheme = "dark"
+lightTheme = "hubris-light"
+darkTheme = "hubris-dark"
+"#,
+    ))
+    .await;
+    let client = reqwest::Client::new();
+
+    let initial = client
+        .get(format!("{}/api/settings", base))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_ok_status(&initial);
+    let initial_generation = initial["generation"].as_str().unwrap().to_string();
+
+    std::fs::write(
+        tmp.path().join("settings.toml"),
+        "[appearance\ncolorScheme = \"dark\"\n",
+    )
+    .unwrap();
+
+    for _ in 0..20 {
+        let current = client
+            .get(format!("{}/api/settings", base))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        if current["status"]["kind"] == "invalidFile" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    std::fs::write(
+        tmp.path().join("settings.toml"),
+        r#"[appearance]
+colorScheme = "dark"
+lightTheme = "hubris-light"
+darkTheme = "hubris-dark"
+"#,
+    )
+    .unwrap();
+
+    for _ in 0..20 {
+        let current = client
+            .get(format!("{}/api/settings", base))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        if current["status"]["kind"] == "ok" {
+            assert_eq!(current["generation"], initial_generation);
+            assert_eq!(current["settings"]["appearance"]["colorScheme"], "dark");
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    panic!("settings status never recovered");
+}
+
+#[tokio::test]
+async fn polling_recovers_settings_when_notify_watch_setup_fails() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let data_dir = tmp.path().join("missing-data-dir");
+    let base = start_test_server_in_data_dir(&data_dir).await;
+    let client = reqwest::Client::new();
+
+    let initial = client
+        .get(format!("{}/api/settings", base))
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_default_settings(&initial);
+    assert_ok_status(&initial);
+
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::write(
+        data_dir.join("settings.toml"),
+        r#"[appearance]
+colorScheme = "dark"
+lightTheme = "hubris-light"
+darkTheme = "hubris-dark"
+"#,
+    )
+    .unwrap();
+
+    for _ in 0..20 {
+        let current = client
+            .get(format!("{}/api/settings", base))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap();
+        if current["settings"]["appearance"]["colorScheme"] == "dark" {
+            assert_ok_status(&current);
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    panic!("settings poller never reloaded the new file");
 }

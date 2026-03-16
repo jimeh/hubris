@@ -135,6 +135,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         project_errors,
         settings: settings.settings,
         settings_generation: settings.generation,
+        settings_status: settings.status,
     };
     sse::Event::default()
         .event("snapshot")

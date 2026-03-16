@@ -1,6 +1,7 @@
 import { GitFork } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { useSettingsStore } from "@/lib/stores/settings";
 import { useWorktreeSettingsStore } from "@/lib/stores/worktreeSettings";
 
 const settingsRowClass =
@@ -11,6 +12,7 @@ export default function WorktreeSettings() {
   const updateSettings = useWorktreeSettingsStore(
     (state) => state.updateSettings,
   );
+  const writesBlocked = useSettingsStore((state) => state.status.writesBlocked);
 
   return (
     <section className="space-y-3">
@@ -28,6 +30,7 @@ export default function WorktreeSettings() {
               settings.locationMode === "dataDir" ? "secondary" : "ghost"
             }
             size="sm"
+            disabled={writesBlocked}
             onClick={() => void updateSettings({ locationMode: "dataDir" })}
           >
             Data Dir
@@ -39,6 +42,7 @@ export default function WorktreeSettings() {
                 : "ghost"
             }
             size="sm"
+            disabled={writesBlocked}
             onClick={() =>
               void updateSettings({ locationMode: "repoLocalDotHubris" })
             }

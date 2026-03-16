@@ -20,6 +20,11 @@ test.beforeEach(async ({ page }) => {
         },
       },
       generation: "1",
+      status: {
+        kind: "ok",
+        writesBlocked: false,
+        message: null,
+      },
     });
 
     if (route.request().method() === "GET") {
@@ -91,6 +96,11 @@ test.beforeEach(async ({ page }) => {
               },
             },
             settings_generation: "1",
+            settings_status: {
+              kind: "ok",
+              writesBlocked: false,
+              message: null,
+            },
           },
         })}`,
         "",

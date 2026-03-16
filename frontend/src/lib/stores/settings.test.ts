@@ -5,6 +5,16 @@ import { DEFAULT_FONT_FAMILY } from "@/lib/terminal/fonts";
 const mockGetSettings = vi.fn();
 const mockPatchSettings = vi.fn();
 const mockResetApiStateForTests = vi.fn();
+const okStatus = {
+  kind: "ok" as const,
+  writesBlocked: false,
+  message: null,
+};
+const invalidStatus = {
+  kind: "invalidFile" as const,
+  writesBlocked: true,
+  message: "settings.toml is invalid",
+};
 
 type HandlerMap = Map<string, Set<(payload: unknown) => void>>;
 const handlers: HandlerMap = new Map();
@@ -99,6 +109,7 @@ describe("settings store", () => {
         },
       },
       generation: "2",
+      status: okStatus,
     });
   });
 
@@ -182,6 +193,7 @@ describe("settings store", () => {
         },
       },
       settings_generation: "10",
+      settings_status: okStatus,
     });
 
     emit("settings_updated", {
@@ -202,6 +214,7 @@ describe("settings store", () => {
         },
       },
       generation: "9",
+      status: okStatus,
     });
 
     expect(
@@ -232,6 +245,7 @@ describe("settings store", () => {
         };
       };
       generation: string;
+      status: typeof okStatus;
     }>();
     mockPatchSettings.mockReturnValueOnce(firstPatch.promise);
     mockGetSettings.mockResolvedValue({
@@ -252,6 +266,7 @@ describe("settings store", () => {
         },
       },
       generation: "3",
+      status: okStatus,
     });
 
     const store = await getStore();
@@ -303,6 +318,7 @@ describe("settings store", () => {
           },
         },
         generation: "4",
+        status: okStatus,
       });
     mockGetSettings.mockResolvedValue({
       settings: {
@@ -322,6 +338,7 @@ describe("settings store", () => {
         },
       },
       generation: "3",
+      status: okStatus,
     });
 
     const store = await getStore();
@@ -376,6 +393,7 @@ describe("settings store", () => {
         },
       },
       generation: "3",
+      status: invalidStatus,
     });
 
     const store = await getStore();
@@ -395,7 +413,7 @@ describe("settings store", () => {
     ).toBe("dark");
   });
 
-  it("resumes queued flushes after a newer settings generation arrives", async () => {
+  it("resumes queued flushes after settings recover on the same generation", async () => {
     mockPatchSettings.mockRejectedValueOnce({
       name: "ApiStatusError",
       status: 409,
@@ -419,6 +437,7 @@ describe("settings store", () => {
         },
       },
       generation: "3",
+      status: invalidStatus,
     });
 
     const store = await getStore();
@@ -449,6 +468,7 @@ describe("settings store", () => {
         },
       },
       generation: "5",
+      status: okStatus,
     });
 
     emit("settings_updated", {
@@ -468,7 +488,8 @@ describe("settings store", () => {
           locationMode: "repoLocalDotHubris",
         },
       },
-      generation: "4",
+      generation: "3",
+      status: okStatus,
     });
 
     await vi.advanceTimersByTimeAsync(0);
@@ -485,5 +506,55 @@ describe("settings store", () => {
     expect(
       store.useSettingsStore.getState().settings.worktree.locationMode,
     ).toBe("repoLocalDotHubris");
+  });
+
+  it("updates invalid-file status from equal-generation server events", async () => {
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    emit("snapshot", {
+      settings: {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      settings_generation: "10",
+      settings_status: okStatus,
+    });
+
+    emit("settings_updated", {
+      settings: {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      generation: "10",
+      status: invalidStatus,
+    });
+
+    expect(store.useSettingsStore.getState().generation).toBe("10");
+    expect(store.useSettingsStore.getState().status).toEqual(invalidStatus);
   });
 });

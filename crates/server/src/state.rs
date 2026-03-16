@@ -28,12 +28,7 @@ impl AppState {
                 .await
                 .unwrap_or_else(|error| panic!("failed to initialize settings manager: {error}")),
         );
-        if let Err(error) = settings.start_watcher(events.clone()) {
-            tracing::warn!(
-                "failed to watch settings file {}: {error}",
-                settings.path().display()
-            );
-        }
+        settings.start_sync(events.clone());
 
         Self {
             tabs: Arc::new(DashMap::new()),

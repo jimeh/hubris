@@ -188,6 +188,48 @@ pub struct SettingsPatch {
 pub struct SettingsState {
     pub settings: Settings,
     pub generation: String,
+    pub status: SettingsStatus,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SettingsStatusKind {
+    #[default]
+    Ok,
+    InvalidFile,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsStatus {
+    pub kind: SettingsStatusKind,
+    pub writes_blocked: bool,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+impl Default for SettingsStatus {
+    fn default() -> Self {
+        Self::ok()
+    }
+}
+
+impl SettingsStatus {
+    pub fn ok() -> Self {
+        Self {
+            kind: SettingsStatusKind::Ok,
+            writes_blocked: false,
+            message: None,
+        }
+    }
+
+    pub fn invalid_file(message: impl Into<String>) -> Self {
+        Self {
+            kind: SettingsStatusKind::InvalidFile,
+            writes_blocked: true,
+            message: Some(message.into()),
+        }
+    }
 }
 
 fn map_settings_write_error(error: SettingsManagerError) -> StatusCode {

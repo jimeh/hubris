@@ -1227,15 +1227,37 @@
       },
       "SettingsState": {
         "type": "object",
-        "required": ["settings", "generation"],
+        "required": ["settings", "generation", "status"],
         "properties": {
           "generation": {
             "type": "string"
           },
           "settings": {
             "$ref": "#/components/schemas/Settings"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SettingsStatus"
           }
         }
+      },
+      "SettingsStatus": {
+        "type": "object",
+        "required": ["kind", "writesBlocked"],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/SettingsStatusKind"
+          },
+          "message": {
+            "type": ["string", "null"]
+          },
+          "writesBlocked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SettingsStatusKind": {
+        "type": "string",
+        "enum": ["ok", "invalidFile"]
       },
       "StartPoint": {
         "type": "object",

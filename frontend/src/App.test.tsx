@@ -60,9 +60,12 @@ describe("App", () => {
       await import("@/lib/stores/sidebarWidth");
     const { resetWorktreeRightSidebarStoreForTests } =
       await import("@/lib/stores/worktreeRightSidebar");
+    const { resetSettingsStoreForTests } =
+      await import("@/lib/stores/settings");
 
     resetSidebarWidthStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
+    resetSettingsStoreForTests();
 
     useProjectStore.setState({
       projects: [
@@ -191,5 +194,27 @@ describe("App", () => {
 
     expect(useWorktreeRightSidebarStore.getState().desktopOpen).toBe(true);
     expect(useWorktreeRightSidebarStore.getState().mobileOpen).toBe(false);
+  });
+
+  it("shows a global warning when the settings file is invalid", async () => {
+    const { useSettingsStore } = await import("@/lib/stores/settings");
+    useSettingsStore.setState({
+      status: {
+        kind: "invalidFile",
+        writesBlocked: true,
+        message: "expected a ] while parsing settings.toml",
+      },
+    });
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    expect(screen.getByText("Settings file is invalid")).toBeInTheDocument();
+    expect(
+      screen.getByText(/saves are blocked until the file becomes valid again/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/expected a \] while parsing settings\.toml/i),
+    ).toBeInTheDocument();
   });
 });

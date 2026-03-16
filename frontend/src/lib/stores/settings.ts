@@ -16,6 +16,7 @@ import type {
   Settings,
   SettingsPatch,
   SettingsState,
+  SettingsStatus,
   TerminalSettings,
   TerminalSettingsPatch,
   ThemeListEntry,
@@ -44,6 +45,12 @@ const DEFAULT_SETTINGS: Settings = {
   },
 };
 
+const DEFAULT_SETTINGS_STATUS: SettingsStatus = {
+  kind: "ok",
+  writesBlocked: false,
+  message: null,
+};
+
 const builtinsById = new Map(
   builtinThemes.map((theme) => [theme.id, theme] as const),
 );
@@ -51,6 +58,7 @@ const builtinsById = new Map(
 type SettingsStoreState = {
   settings: Settings;
   generation: string;
+  status: SettingsStatus;
   activeTheme: HubrisTheme | null;
   themeVersion: number;
   terminalVersion: number;
@@ -70,6 +78,8 @@ let inFlightPatch: SettingsPatch | null = null;
 let fontLoadGeneration = 0;
 let retryDelayMs = INITIAL_RETRY_DELAY_MS;
 let writesBlockedByConflict = false;
+
+type CachedSettingsState = Pick<SettingsState, "settings" | "generation">;
 
 function allThemeEntries(): ThemeListEntry[] {
   return [...builtinThemes];
@@ -221,6 +231,20 @@ function normalizeSettings(candidate: unknown): {
       worktree: worktree.settings,
     },
     changed: appearance.changed || terminal.changed || worktree.changed,
+  };
+}
+
+function normalizeSettingsStatus(candidate: unknown): SettingsStatus {
+  const source = (candidate ?? {}) as Partial<SettingsStatus>;
+  const kind = source.kind === "invalidFile" ? "invalidFile" : "ok";
+
+  return {
+    kind,
+    writesBlocked:
+      typeof source.writesBlocked === "boolean"
+        ? source.writesBlocked
+        : kind === "invalidFile",
+    message: typeof source.message === "string" ? source.message : null,
   };
 }
 
@@ -395,20 +419,24 @@ function applyPatchToSettings(
 
 function cacheCanonicalSettings(state: SettingsState): void {
   try {
-    localStorage.setItem(LS_SETTINGS, JSON.stringify(state));
+    const cached: CachedSettingsState = {
+      settings: state.settings,
+      generation: state.generation,
+    };
+    localStorage.setItem(LS_SETTINGS, JSON.stringify(cached));
   } catch {
     // localStorage unavailable.
   }
 }
 
-function readCachedSettingsState(): SettingsState | null {
+function readCachedSettingsState(): CachedSettingsState | null {
   try {
     const raw = localStorage.getItem(LS_SETTINGS);
     if (!raw) {
       return null;
     }
 
-    const parsed = JSON.parse(raw) as Partial<SettingsState>;
+    const parsed = JSON.parse(raw) as Partial<CachedSettingsState>;
     return {
       settings: normalizeSettings(parsed.settings).settings,
       generation:
@@ -464,7 +492,11 @@ function updateResolvedFont(settings: TerminalSettings): void {
   });
 }
 
-function commitSettings(settings: Settings, generation: string): void {
+function commitSettings(
+  settings: Settings,
+  generation: string,
+  status: SettingsStatus,
+): void {
   const normalized = normalizeSettings(settings).settings;
   const prefersLight = useSettingsStore.getState().prefersLight;
   const nextTheme = applyActiveTheme(normalized.appearance, prefersLight);
@@ -472,6 +504,7 @@ function commitSettings(settings: Settings, generation: string): void {
   useSettingsStore.setState((state) => ({
     settings: normalized,
     generation,
+    status,
     activeTheme: nextTheme,
     themeVersion:
       state.themeVersion +
@@ -501,6 +534,7 @@ function applyCanonicalState(
   allowOlder = false,
 ): void {
   const current = useSettingsStore.getState();
+  const nextStatus = normalizeSettingsStatus(serverState.status);
   const generationAdvanced =
     compareGeneration(serverState.generation, current.generation) > 0;
   if (
@@ -515,11 +549,13 @@ function applyCanonicalState(
   const settings = hasPatch(unsynced)
     ? applyPatchToSettings(serverState.settings, unsynced)
     : serverState.settings;
-  commitSettings(settings, serverState.generation);
+  commitSettings(settings, serverState.generation, nextStatus);
 
-  if (generationAdvanced && !allowOlder) {
+  const writesRecovered =
+    current.status.writesBlocked && !nextStatus.writesBlocked;
+  if ((generationAdvanced || writesRecovered) && !allowOlder) {
     retryDelayMs = INITIAL_RETRY_DELAY_MS;
-    if (writesBlockedByConflict) {
+    if (writesBlockedByConflict && !nextStatus.writesBlocked) {
       writesBlockedByConflict = false;
       if (hasPatch(pendingPatch) && !inFlightPatch) {
         scheduleFlush(0);
@@ -573,6 +609,7 @@ function applyLocalPatch(patch: SettingsPatch): void {
   commitSettings(
     applyPatchToSettings(current.settings, patch),
     current.generation,
+    current.status,
   );
   scheduleFlush();
 }
@@ -609,6 +646,7 @@ function bindMediaListener(): void {
 export const useSettingsStore = create<SettingsStoreState>(() => ({
   settings: DEFAULT_SETTINGS,
   generation: "0",
+  status: DEFAULT_SETTINGS_STATUS,
   activeTheme: null,
   themeVersion: 0,
   terminalVersion: 0,
@@ -634,9 +672,9 @@ export function initializeSettingsStore(): void {
   bindMediaListener();
   const cached = readCachedSettingsState();
   if (cached) {
-    applyCanonicalState(cached, true);
+    commitSettings(cached.settings, cached.generation, DEFAULT_SETTINGS_STATUS);
   } else {
-    commitSettings(DEFAULT_SETTINGS, "0");
+    commitSettings(DEFAULT_SETTINGS, "0", DEFAULT_SETTINGS_STATUS);
   }
 
   const events = getEventClient();
@@ -646,6 +684,7 @@ export function initializeSettingsStore(): void {
         {
           settings: data.settings,
           generation: data.settings_generation,
+          status: data.settings_status,
         },
         false,
       );
@@ -674,6 +713,7 @@ export function resetSettingsStoreForTests(): void {
   useSettingsStore.setState({
     settings: DEFAULT_SETTINGS,
     generation: "0",
+    status: DEFAULT_SETTINGS_STATUS,
     activeTheme: null,
     themeVersion: 0,
     terminalVersion: 0,

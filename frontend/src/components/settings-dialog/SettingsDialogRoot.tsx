@@ -38,12 +38,15 @@ import {
   type SectionName,
   type SettingsDialogProps,
 } from "./sections";
+import SettingsStatusNotice from "@/components/SettingsStatusNotice";
+import { useSettingsStore } from "@/lib/stores/settings";
 
 export default function SettingsDialogRoot({
   open,
   onOpenChange,
 }: SettingsDialogProps) {
   const [activeSection, setActiveSection] = useState<SectionName>("Appearance");
+  const settingsStatus = useSettingsStore((state) => state.status);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -123,6 +126,7 @@ export default function SettingsDialogRoot({
               </div>
             </div>
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4">
+              <SettingsStatusNotice status={settingsStatus} variant="dialog" />
               {activeSection === "Appearance" ? <AppearanceSettings /> : null}
               {activeSection === "Terminal" ? <TerminalSettings /> : null}
               {activeSection === "Worktrees" ? <WorktreeSettings /> : null}
