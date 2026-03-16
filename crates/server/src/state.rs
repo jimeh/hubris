@@ -51,10 +51,6 @@ impl AppState {
         self.project_meta_dir().join(format!("{project_id}.json"))
     }
 
-    pub fn settings_file(&self) -> PathBuf {
-        self.data_dir.join("settings.toml")
-    }
-
     /// Load projects from disk. Single source of truth
     /// (eliminates the duplicated load_projects in
     /// terminal.rs and projects.rs).
