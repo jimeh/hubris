@@ -325,7 +325,15 @@ fn parse_settings_document(
 }
 
 fn path_matches_settings_file(path: &Path, watched_path: &Path, watched_parent: &Path) -> bool {
-    path == watched_path || path == watched_parent || path.parent() == Some(watched_parent)
+    path == watched_path
+        || path == watched_parent
+        || path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|name| {
+                path.parent() == Some(watched_parent)
+                    && name.starts_with(&settings_temp_file_prefix(watched_path))
+            })
 }
 
 async fn read_last_modified(path: &Path) -> Option<SystemTime> {
@@ -513,16 +521,17 @@ async fn persist_document(
 
 fn temp_settings_path(path: &Path) -> PathBuf {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let prefix = settings_temp_file_prefix(path);
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    parent.join(format!("{prefix}{}.{}", std::process::id(), counter))
+}
+
+fn settings_temp_file_prefix(path: &Path) -> String {
     let file_name = path
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("settings.toml");
-    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    parent.join(format!(
-        "{file_name}.tmp.{}.{}",
-        std::process::id(),
-        counter
-    ))
+    format!("{file_name}.tmp.")
 }
 
 fn cleanup_temp_file_on_error(path: &Path, error: std::io::Error) -> SettingsManagerError {
@@ -624,6 +633,44 @@ mod tests {
         assert_eq!(current.settings, initial.settings);
         assert!(!tmp.path().join("missing").exists());
         assert_no_temp_files(tmp.path());
+    }
+
+    #[test]
+    fn path_matcher_only_tracks_settings_targets() {
+        let watched_parent = Path::new("/tmp/hubris");
+        let watched_path = watched_parent.join("settings.toml");
+
+        assert!(path_matches_settings_file(
+            &watched_path,
+            &watched_path,
+            watched_parent
+        ));
+        assert!(path_matches_settings_file(
+            watched_parent,
+            &watched_path,
+            watched_parent
+        ));
+        assert!(path_matches_settings_file(
+            &watched_parent.join("settings.toml.tmp.123.4"),
+            &watched_path,
+            watched_parent
+        ));
+
+        assert!(!path_matches_settings_file(
+            &watched_parent.join("projects.json"),
+            &watched_path,
+            watched_parent
+        ));
+        assert!(!path_matches_settings_file(
+            &watched_parent.join("project-meta").join("foo.json"),
+            &watched_path,
+            watched_parent
+        ));
+        assert!(!path_matches_settings_file(
+            &watched_parent.join("settings.toml.bak"),
+            &watched_path,
+            watched_parent
+        ));
     }
 
     #[tokio::test]
