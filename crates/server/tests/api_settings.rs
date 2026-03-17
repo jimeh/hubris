@@ -600,6 +600,7 @@ darkTheme = "hubris-dark"
     )
     .unwrap();
 
+    let mut last_current = None;
     for _ in 0..20 {
         let current = client
             .get(format!("{}/api/settings", base))
@@ -610,10 +611,14 @@ darkTheme = "hubris-dark"
             .await
             .unwrap();
         if current["status"]["kind"] == "invalidFile" {
+            last_current = Some(current);
             break;
         }
+        last_current = Some(current);
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+    let current = last_current.expect("settings status was never fetched");
+    assert_eq!(current["status"]["kind"], "invalidFile");
 
     std::fs::write(
         tmp.path().join("settings.toml"),
