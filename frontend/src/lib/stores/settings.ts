@@ -566,7 +566,7 @@ function applyCanonicalState(
 }
 
 async function flushPendingPatch(): Promise<void> {
-  if (inFlightPatch || !hasPatch(pendingPatch)) {
+  if (writesBlockedByConflict || inFlightPatch || !hasPatch(pendingPatch)) {
     return;
   }
 
@@ -612,7 +612,9 @@ function applyLocalPatch(patch: SettingsPatch): void {
     current.generation,
     current.status,
   );
-  scheduleFlush();
+  if (!writesBlockedByConflict) {
+    scheduleFlush();
+  }
 }
 
 function handleSystemColorSchemeChange(event: MediaQueryListEvent): void {

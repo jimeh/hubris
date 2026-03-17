@@ -454,6 +454,17 @@ describe("settings store", () => {
     expect(
       store.useSettingsStore.getState().settings.appearance.colorScheme,
     ).toBe("dark");
+
+    store.useSettingsStore.getState().updateTerminal({
+      fontSize: 16,
+    });
+    await vi.advanceTimersByTimeAsync(5000);
+    await flushAsyncWork();
+
+    expect(mockPatchSettings).toHaveBeenCalledTimes(1);
+    expect(store.useSettingsStore.getState().settings.terminal.fontSize).toBe(
+      16,
+    );
   });
 
   it("resumes queued flushes after settings recover on the same generation", async () => {

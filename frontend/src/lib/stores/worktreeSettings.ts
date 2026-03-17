@@ -7,12 +7,10 @@ import type {
 
 type WorktreeStoreSlice = {
   settings: WorktreeSettings;
-  updateSettings: (partial: WorktreeSettingsPatch) => Promise<void>;
+  updateSettings: (partial: WorktreeSettingsPatch) => void;
 };
 
-async function updateWorktreeSettings(
-  partial: WorktreeSettingsPatch,
-): Promise<void> {
+function updateWorktreeSettings(partial: WorktreeSettingsPatch): void {
   useSettingsStore.getState().updateWorktree(partial);
 }
 
@@ -31,5 +29,3 @@ export function useWorktreeSettings<T>(
   const slice = useSettingsStore(useShallow(selectWorktreeSlice));
   return selector(slice);
 }
-
-export function resetWorktreeSettingsStoreForTests(): void {}

@@ -62,7 +62,8 @@ No periodic reconciliation — drift corrects on reconnect.
 ### Backend (Rust / Axum)
 
 - State: grep for `AppState` — DashMap for tabs, EventBus for SSE
-- Persistence: JSON file. Dev: `~/.hubris-dev/`, prod: `~/.hubris/`
+- Persistence: JSON project data + TOML settings. Dev: `~/.hubris-dev/`,
+  prod: `~/.hubris/`
 - PTY: portable-pty, shell from `$SHELL` or `/bin/sh`
 - WS protocol: binary (PTY output), JSON control (`type: "resize"`,
   `type: "attached"` with `byte_offset`/`data_lost`)

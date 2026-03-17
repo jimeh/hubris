@@ -425,8 +425,9 @@ darkTheme = "hubris-dark"
     )
     .unwrap();
 
-    let current = loop {
-        let current = client
+    let mut current = None;
+    for _ in 0..40 {
+        let value = client
             .get(format!("{}/api/settings", base))
             .send()
             .await
@@ -434,11 +435,13 @@ darkTheme = "hubris-dark"
             .json::<Value>()
             .await
             .unwrap();
-        if current["status"]["kind"] == "invalidFile" {
-            break current;
+        if value["status"]["kind"] == "invalidFile" {
+            current = Some(value);
+            break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
-    };
+    }
+    let current = current.expect("settings status never became invalidFile");
 
     assert_eq!(current["settings"], initial["settings"]);
     assert_eq!(current["generation"], initial_generation);

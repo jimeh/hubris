@@ -9,12 +9,10 @@ type TerminalStoreSlice = {
   settings: TerminalSettings;
   fontFamily: string;
   version: number;
-  updateSettings: (partial: TerminalSettingsPatch) => Promise<void>;
+  updateSettings: (partial: TerminalSettingsPatch) => void;
 };
 
-async function updateTerminalSettings(
-  partial: TerminalSettingsPatch,
-): Promise<void> {
+function updateTerminalSettings(partial: TerminalSettingsPatch): void {
   useSettingsStore.getState().updateTerminal(partial);
 }
 
@@ -35,5 +33,3 @@ export function useTerminalSettings<T>(
   const slice = useSettingsStore(useShallow(selectTerminalSlice));
   return selector(slice);
 }
-
-export function resetTerminalStoreForTests(): void {}

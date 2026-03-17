@@ -12,12 +12,10 @@ type ThemeStoreSlice = {
   activeTheme: HubrisTheme | null;
   version: number;
   prefersLight: boolean;
-  updateSettings: (partial: AppearanceSettingsPatch) => Promise<void>;
+  updateSettings: (partial: AppearanceSettingsPatch) => void;
 };
 
-async function updateThemeSettings(
-  partial: AppearanceSettingsPatch,
-): Promise<void> {
+function updateThemeSettings(partial: AppearanceSettingsPatch): void {
   useSettingsStore.getState().updateAppearance(partial);
 }
 
@@ -37,8 +35,6 @@ export function useThemeSettings<T>(
   const slice = useSettingsStore(useShallow(selectThemeSlice));
   return selector(slice);
 }
-
-export function resetThemeStoreForTests(): void {}
 
 export { themeEntries };
 export type { ThemeListEntry };
