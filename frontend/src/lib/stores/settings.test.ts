@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
+import { act, render, screen } from "@testing-library/react";
+import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_FONT_FAMILY } from "@/lib/terminal/fonts";
+import { useTerminalSettings } from "@/lib/stores/terminal";
 
 const mockGetSettings = vi.fn();
 const mockPatchSettings = vi.fn();
@@ -212,6 +215,78 @@ describe("settings store", () => {
       appearance: { colorScheme: "dark" },
       terminal: { fontSize: 15 },
     });
+  });
+
+  it("preserves unrelated section references for single-section updates", async () => {
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    const initialSettings = store.useSettingsStore.getState().settings;
+
+    act(() => {
+      store.useSettingsStore.getState().updateAppearance({
+        colorScheme: "dark",
+      });
+    });
+
+    const afterAppearance = store.useSettingsStore.getState().settings;
+    expect(afterAppearance.appearance).not.toBe(initialSettings.appearance);
+    expect(afterAppearance.terminal).toBe(initialSettings.terminal);
+    expect(afterAppearance.worktree).toBe(initialSettings.worktree);
+
+    act(() => {
+      store.useSettingsStore.getState().updateTerminal({
+        fontSize: 16,
+      });
+    });
+
+    const afterTerminal = store.useSettingsStore.getState().settings;
+    expect(afterTerminal.appearance).toBe(afterAppearance.appearance);
+    expect(afterTerminal.terminal).not.toBe(afterAppearance.terminal);
+    expect(afterTerminal.worktree).toBe(afterAppearance.worktree);
+
+    act(() => {
+      store.useSettingsStore.getState().updateWorktree({
+        locationMode: "repoLocalDotHubris",
+      });
+    });
+
+    const afterWorktree = store.useSettingsStore.getState().settings;
+    expect(afterWorktree.appearance).toBe(afterTerminal.appearance);
+    expect(afterWorktree.terminal).toBe(afterTerminal.terminal);
+    expect(afterWorktree.worktree).not.toBe(afterTerminal.worktree);
+  });
+
+  it("does not rerender terminal settings consumers on appearance-only updates", async () => {
+    const renderSpy = vi.fn();
+
+    function TerminalConsumer() {
+      const settings = useTerminalSettings((state) => state.settings);
+      renderSpy(settings.fontSize);
+      return createElement("div", null, settings.fontSize);
+    }
+
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    render(createElement(TerminalConsumer));
+    expect(screen.getByText("14")).toBeInTheDocument();
+    expect(renderSpy).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      store.useSettingsStore.getState().updateAppearance({
+        colorScheme: "dark",
+      });
+    });
+    expect(renderSpy).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      store.useSettingsStore.getState().updateTerminal({
+        fontSize: 16,
+      });
+    });
+    expect(renderSpy).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("16")).toBeInTheDocument();
   });
 
   it("ignores older settings_updated events", async () => {

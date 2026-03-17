@@ -299,15 +299,13 @@ function cacheThemeVars(settings: AppearanceSettings): void {
   }
 }
 
-function applyActiveTheme(
+function syncActiveTheme(
+  theme: HubrisTheme,
   settings: AppearanceSettings,
-  prefersLight: boolean,
-): HubrisTheme {
+): void {
   clearTheme();
-  const theme = getActiveTheme(settings, prefersLight);
   applyComputedVars(computeThemeVars(theme));
   cacheThemeVars(settings);
-  return theme;
 }
 
 function compareGeneration(left: string, right: string): number {
@@ -378,10 +376,11 @@ function stripEmptyPatch(patch: SettingsPatch): SettingsPatch {
 
 function hasPatch(patch: SettingsPatch | null | undefined): boolean {
   if (!patch) return false;
+  const stripped = stripEmptyPatch(patch);
   return (
-    stripEmptyPatch(patch).appearance !== undefined ||
-    stripEmptyPatch(patch).terminal !== undefined ||
-    stripEmptyPatch(patch).worktree !== undefined
+    stripped.appearance !== undefined ||
+    stripped.terminal !== undefined ||
+    stripped.worktree !== undefined
   );
 }
 
@@ -493,41 +492,112 @@ function updateResolvedFont(settings: TerminalSettings): void {
   });
 }
 
+function equalAppearanceSettings(
+  left: AppearanceSettings,
+  right: AppearanceSettings,
+): boolean {
+  return (
+    left.colorScheme === right.colorScheme &&
+    left.lightTheme === right.lightTheme &&
+    left.darkTheme === right.darkTheme
+  );
+}
+
+function equalTerminalSettings(
+  left: TerminalSettings,
+  right: TerminalSettings,
+): boolean {
+  return (
+    left.fontSource === right.fontSource &&
+    left.systemFontFamily === right.systemFontFamily &&
+    left.bundledFont === right.bundledFont &&
+    left.fontSize === right.fontSize
+  );
+}
+
+function equalWorktreeSettings(
+  left: WorktreeSettings,
+  right: WorktreeSettings,
+): boolean {
+  return left.locationMode === right.locationMode;
+}
+
+function stabilizeSettingsSections(
+  current: Settings,
+  next: Settings,
+): Settings {
+  const appearance = equalAppearanceSettings(
+    current.appearance,
+    next.appearance,
+  )
+    ? current.appearance
+    : next.appearance;
+  const terminal = equalTerminalSettings(current.terminal, next.terminal)
+    ? current.terminal
+    : next.terminal;
+  const worktree = equalWorktreeSettings(current.worktree, next.worktree)
+    ? current.worktree
+    : next.worktree;
+
+  if (
+    appearance === current.appearance &&
+    terminal === current.terminal &&
+    worktree === current.worktree
+  ) {
+    return current;
+  }
+
+  return {
+    appearance,
+    terminal,
+    worktree,
+  };
+}
+
 function commitSettings(
   settings: Settings,
   generation: string,
   status: SettingsStatus,
 ): void {
   const normalized = normalizeSettings(settings).settings;
-  const prefersLight = useSettingsStore.getState().prefersLight;
-  const nextTheme = applyActiveTheme(normalized.appearance, prefersLight);
+  let nextSettings = normalized;
+  let nextTheme: HubrisTheme | null = null;
+  let prefersLight = true;
+  let shouldSyncTheme = false;
+  let shouldResolveFont = false;
 
   useSettingsStore.setState((state) => ({
-    settings: normalized,
+    settings: (() => {
+      nextSettings = stabilizeSettingsSections(state.settings, normalized);
+      return nextSettings;
+    })(),
     generation,
     status,
-    activeTheme: nextTheme,
+    activeTheme: (() => {
+      prefersLight = state.prefersLight;
+      shouldSyncTheme =
+        state.activeTheme === null ||
+        nextSettings.appearance !== state.settings.appearance;
+      nextTheme = shouldSyncTheme
+        ? getActiveTheme(nextSettings.appearance, prefersLight)
+        : state.activeTheme;
+      shouldResolveFont = nextSettings.terminal !== state.settings.terminal;
+      return nextTheme;
+    })(),
     themeVersion:
       state.themeVersion +
-      (state.settings.appearance.colorScheme !==
-        normalized.appearance.colorScheme ||
-      state.settings.appearance.lightTheme !==
-        normalized.appearance.lightTheme ||
-      state.settings.appearance.darkTheme !== normalized.appearance.darkTheme
-        ? 1
-        : 0),
+      (nextSettings.appearance !== state.settings.appearance ? 1 : 0),
     terminalVersion:
       state.terminalVersion +
-      (state.settings.terminal.fontSource !== normalized.terminal.fontSource ||
-      state.settings.terminal.systemFontFamily !==
-        normalized.terminal.systemFontFamily ||
-      state.settings.terminal.bundledFont !== normalized.terminal.bundledFont ||
-      state.settings.terminal.fontSize !== normalized.terminal.fontSize
-        ? 1
-        : 0),
+      (nextSettings.terminal !== state.settings.terminal ? 1 : 0),
   }));
 
-  updateResolvedFont(normalized.terminal);
+  if (shouldSyncTheme && nextTheme) {
+    syncActiveTheme(nextTheme, nextSettings.appearance);
+  }
+  if (shouldResolveFont) {
+    updateResolvedFont(nextSettings.terminal);
+  }
 }
 
 function applyCanonicalState(
@@ -618,18 +688,21 @@ function applyLocalPatch(patch: SettingsPatch): void {
 }
 
 function handleSystemColorSchemeChange(event: MediaQueryListEvent): void {
+  let appearance: AppearanceSettings | null = null;
+  let activeTheme: HubrisTheme | null = null;
   useSettingsStore.setState((state) => {
     const prefersLight = !event.matches;
-    const activeTheme = applyActiveTheme(
-      state.settings.appearance,
-      prefersLight,
-    );
+    appearance = state.settings.appearance;
+    activeTheme = getActiveTheme(state.settings.appearance, prefersLight);
     return {
       prefersLight,
       activeTheme,
       themeVersion: state.themeVersion + 1,
     };
   });
+  if (appearance && activeTheme) {
+    syncActiveTheme(activeTheme, appearance);
+  }
 }
 
 function bindMediaListener(): void {

@@ -71,6 +71,7 @@ pub struct SettingsManager {
     path: PathBuf,
     state: RwLock<StoredSettings>,
     watcher: Mutex<Option<RecommendedWatcher>>,
+    last_processed_modified: Mutex<Option<Option<SystemTime>>>,
 }
 
 impl SettingsManager {
@@ -101,6 +102,7 @@ impl SettingsManager {
             path,
             state: RwLock::new(state),
             watcher: Mutex::new(None),
+            last_processed_modified: Mutex::new(None),
         })
     }
 
@@ -261,7 +263,7 @@ impl SettingsManager {
                     tokio::time::sleep(Duration::from_millis(75)).await;
                 }
 
-                reload_and_emit(&manager, &watcher_events, &watched_path).await;
+                reload_and_emit_if_needed(&manager, &watcher_events, &watched_path).await;
             }
         });
 
@@ -282,13 +284,22 @@ impl SettingsManager {
                 }
                 last_modified = current_modified;
 
-                reload_and_emit(&manager, &events, &watched_path).await;
+                reload_and_emit_if_needed(&manager, &events, &watched_path).await;
             }
         });
     }
 }
 
-async fn reload_and_emit(manager: &Arc<SettingsManager>, events: &Arc<EventBus>, path: &Path) {
+async fn reload_and_emit_if_needed(
+    manager: &Arc<SettingsManager>,
+    events: &Arc<EventBus>,
+    path: &Path,
+) {
+    let modified = read_last_modified(path).await;
+    if !mark_reload_needed(&manager.last_processed_modified, modified) {
+        return;
+    }
+
     match manager.reload_from_disk().await {
         Ok(Some(settings)) => {
             events.emit(EventKind::SettingsUpdated(settings));
@@ -298,6 +309,18 @@ async fn reload_and_emit(manager: &Arc<SettingsManager>, events: &Arc<EventBus>,
             tracing::warn!("failed to reload settings from {}: {error}", path.display());
         }
     }
+}
+
+fn mark_reload_needed(
+    last_processed_modified: &Mutex<Option<Option<SystemTime>>>,
+    modified: Option<SystemTime>,
+) -> bool {
+    let mut last_processed = last_processed_modified.lock().unwrap();
+    if *last_processed == Some(modified) {
+        return false;
+    }
+    *last_processed = Some(modified);
+    true
 }
 
 async fn load_settings_document(
@@ -671,6 +694,21 @@ mod tests {
             &watched_path,
             watched_parent
         ));
+    }
+
+    #[test]
+    fn reload_gate_dedupes_processed_mtimes() {
+        let last_processed_modified = Mutex::new(None);
+        let first = Some(UNIX_EPOCH + Duration::from_secs(1));
+        let second = Some(UNIX_EPOCH + Duration::from_secs(2));
+
+        assert!(mark_reload_needed(&last_processed_modified, first));
+        assert!(!mark_reload_needed(&last_processed_modified, first));
+        assert!(mark_reload_needed(&last_processed_modified, second));
+        assert!(!mark_reload_needed(&last_processed_modified, second));
+        assert!(mark_reload_needed(&last_processed_modified, None));
+        assert!(!mark_reload_needed(&last_processed_modified, None));
+        assert!(mark_reload_needed(&last_processed_modified, first));
     }
 
     #[tokio::test]
