@@ -85,7 +85,29 @@ async fn wait_for_settings_generation(
     base: &str,
     expected_generation: &str,
 ) -> Value {
-    for _ in 0..20 {
+    wait_for_settings(
+        client,
+        base,
+        Duration::from_secs(1),
+        Duration::from_millis(50),
+        &format!("settings generation never reached {expected_generation}"),
+        |body| body["generation"] == expected_generation,
+    )
+    .await
+}
+
+async fn wait_for_settings(
+    client: &reqwest::Client,
+    base: &str,
+    timeout: Duration,
+    interval: Duration,
+    failure_message: &str,
+    mut predicate: impl FnMut(&Value) -> bool,
+) -> Value {
+    let attempts = (timeout.as_millis() / interval.as_millis()).max(1) as usize;
+    let mut last_body = None;
+
+    for _ in 0..attempts {
         let res = client
             .get(format!("{}/api/settings", base))
             .send()
@@ -93,13 +115,17 @@ async fn wait_for_settings_generation(
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         let body: Value = res.json().await.unwrap();
-        if body["generation"] == expected_generation {
+        if predicate(&body) {
             return body;
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        last_body = Some(body);
+        tokio::time::sleep(interval).await;
     }
 
-    panic!("settings generation never reached {expected_generation}");
+    match last_body {
+        Some(body) => panic!("{failure_message}; last response: {body}"),
+        None => panic!("{failure_message}; settings were never fetched"),
+    }
 }
 
 fn assert_default_settings(body: &Value) {
@@ -425,23 +451,15 @@ darkTheme = "hubris-dark"
     )
     .unwrap();
 
-    let mut current = None;
-    for _ in 0..40 {
-        let value = client
-            .get(format!("{}/api/settings", base))
-            .send()
-            .await
-            .unwrap()
-            .json::<Value>()
-            .await
-            .unwrap();
-        if value["status"]["kind"] == "invalidFile" {
-            current = Some(value);
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    let current = current.expect("settings status never became invalidFile");
+    let current = wait_for_settings(
+        &client,
+        &base,
+        Duration::from_secs(2),
+        Duration::from_millis(50),
+        "settings status never became invalidFile",
+        |body| body["status"]["kind"] == "invalidFile",
+    )
+    .await;
 
     assert_eq!(current["settings"], initial["settings"]);
     assert_eq!(current["generation"], initial_generation);
@@ -600,25 +618,15 @@ darkTheme = "hubris-dark"
     )
     .unwrap();
 
-    let mut last_current = None;
-    for _ in 0..20 {
-        let current = client
-            .get(format!("{}/api/settings", base))
-            .send()
-            .await
-            .unwrap()
-            .json::<Value>()
-            .await
-            .unwrap();
-        if current["status"]["kind"] == "invalidFile" {
-            last_current = Some(current);
-            break;
-        }
-        last_current = Some(current);
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    let current = last_current.expect("settings status was never fetched");
-    assert_eq!(current["status"]["kind"], "invalidFile");
+    wait_for_settings(
+        &client,
+        &base,
+        Duration::from_secs(1),
+        Duration::from_millis(50),
+        "settings status never became invalidFile",
+        |body| body["status"]["kind"] == "invalidFile",
+    )
+    .await;
 
     std::fs::write(
         tmp.path().join("settings.toml"),
@@ -630,24 +638,17 @@ darkTheme = "hubris-dark"
     )
     .unwrap();
 
-    for _ in 0..20 {
-        let current = client
-            .get(format!("{}/api/settings", base))
-            .send()
-            .await
-            .unwrap()
-            .json::<Value>()
-            .await
-            .unwrap();
-        if current["status"]["kind"] == "ok" {
-            assert_eq!(current["generation"], initial_generation);
-            assert_eq!(current["settings"]["appearance"]["colorScheme"], "dark");
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-
-    panic!("settings status never recovered");
+    let current = wait_for_settings(
+        &client,
+        &base,
+        Duration::from_secs(1),
+        Duration::from_millis(50),
+        "settings status never recovered",
+        |body| body["status"]["kind"] == "ok",
+    )
+    .await;
+    assert_eq!(current["generation"], initial_generation);
+    assert_eq!(current["settings"]["appearance"]["colorScheme"], "dark");
 }
 
 #[tokio::test]
@@ -679,21 +680,14 @@ darkTheme = "hubris-dark"
     )
     .unwrap();
 
-    for _ in 0..20 {
-        let current = client
-            .get(format!("{}/api/settings", base))
-            .send()
-            .await
-            .unwrap()
-            .json::<Value>()
-            .await
-            .unwrap();
-        if current["settings"]["appearance"]["colorScheme"] == "dark" {
-            assert_ok_status(&current);
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-
-    panic!("settings poller never reloaded the new file");
+    let current = wait_for_settings(
+        &client,
+        &base,
+        Duration::from_secs(1),
+        Duration::from_millis(50),
+        "settings poller never reloaded the new file",
+        |body| body["settings"]["appearance"]["colorScheme"] == "dark",
+    )
+    .await;
+    assert_ok_status(&current);
 }
