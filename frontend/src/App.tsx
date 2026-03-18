@@ -28,7 +28,6 @@ import { Button } from "@/components/ui/button";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
-import { WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL } from "@/lib/worktreeRightSidebar";
 import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 
@@ -48,19 +47,15 @@ function AppHeader({
     (state) => state.desktopOpen,
   );
   const mobileOpen = useWorktreeRightSidebarStore((state) => state.mobileOpen);
-  const activePanel = useWorktreeRightSidebarStore(
-    (state) => state.activePanel,
-  );
   const closeForViewport = useWorktreeRightSidebarStore(
     (state) => state.closeForViewport,
   );
-  const openPanel = useWorktreeRightSidebarStore((state) => state.openPanel);
-  const gitStatusVisible =
-    (isMobile ? mobileOpen : desktopOpen) &&
-    activePanel === WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL;
-  const gitStatusLabel = gitStatusVisible
-    ? "Hide git status"
-    : "Show git status";
+  const openTab = useWorktreeRightSidebarStore((state) => state.openTab);
+  const activeTab = useWorktreeRightSidebarStore((state) => state.activeTab);
+  const fileManagerVisible = isMobile ? mobileOpen : desktopOpen;
+  const fileManagerLabel = fileManagerVisible
+    ? "Hide file manager"
+    : "Show file manager";
 
   return (
     <header className="flex shrink-0 items-center gap-2 border-b py-2 pl-3 pr-4 md:h-12 md:py-0">
@@ -119,19 +114,19 @@ function AppHeader({
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label={gitStatusLabel}
+              aria-label={fileManagerLabel}
               onClick={() => {
-                if (gitStatusVisible) {
+                if (fileManagerVisible) {
                   closeForViewport(isMobile);
                 } else {
-                  openPanel(WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL, isMobile);
+                  openTab(activeTab, isMobile);
                 }
               }}
             >
               <PanelRight className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">{gitStatusLabel}</TooltipContent>
+          <TooltipContent side="bottom">{fileManagerLabel}</TooltipContent>
         </Tooltip>
       ) : null}
     </header>

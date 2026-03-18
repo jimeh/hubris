@@ -8,6 +8,7 @@ use crate::api::projects::Project;
 use crate::events::EventBus;
 use crate::pty::live_tab::LiveTab;
 use crate::settings_manager::SettingsManager;
+use crate::worktree_files::WorktreeFilesService;
 
 pub type TabId = String;
 
@@ -18,6 +19,7 @@ pub struct AppState {
     pub next_tab_num: Arc<AtomicU32>,
     pub data_dir: PathBuf,
     pub settings: Arc<SettingsManager>,
+    pub worktree_files: Arc<WorktreeFilesService>,
 }
 
 impl AppState {
@@ -32,10 +34,11 @@ impl AppState {
 
         Self {
             tabs: Arc::new(DashMap::new()),
-            events,
+            events: events.clone(),
             next_tab_num: Arc::new(AtomicU32::new(1)),
             data_dir,
             settings,
+            worktree_files: Arc::new(WorktreeFilesService::new(events.clone())),
         }
     }
 

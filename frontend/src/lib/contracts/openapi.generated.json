@@ -506,6 +506,128 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/{worktree_id}/files": {
+      "get": {
+        "tags": ["crate::api::files"],
+        "operationId": "list_project_worktree_files",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Relative path from the worktree root. Empty means root.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List immediate children for a worktree-relative directory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWorktreeFilesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid relative path"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Project, worktree, or directory not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/{worktree_id}/files/rename": {
+      "post": {
+        "tags": ["crate::api::files"],
+        "operationId": "rename_project_worktree_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameWorktreeFileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Rename a file or directory within the worktree",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenameWorktreeFileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid relative path or new name"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Project, worktree, or path not found"
+          },
+          "409": {
+            "description": "Target path already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/projects/{id}/worktrees/{worktree_id}/git-status": {
       "get": {
         "tags": ["crate::api::worktrees"],
@@ -1010,6 +1132,27 @@
           }
         }
       },
+      "ListWorktreeFilesResponse": {
+        "type": "object",
+        "required": ["generation", "path", "entries"],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorktreeFileEntry"
+            }
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative path from the worktree root."
+          }
+        }
+      },
       "ListWorktreeStartPointsResponse": {
         "type": "object",
         "required": ["start_points"],
@@ -1062,6 +1205,30 @@
           "position": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "RenameWorktreeFileRequest": {
+        "type": "object",
+        "required": ["path", "new_name"],
+        "properties": {
+          "new_name": {
+            "type": "string",
+            "description": "New basename for the file or directory."
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative path from the worktree root."
+          }
+        }
+      },
+      "RenameWorktreeFileResponse": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Updated relative path from the worktree root."
           }
         }
       },
@@ -1430,9 +1597,29 @@
           }
         }
       },
+      "WorktreeFileEntry": {
+        "type": "object",
+        "required": ["name", "path", "kind"],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/WorktreeFileKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "WorktreeFileKind": {
+        "type": "string",
+        "enum": ["directory", "file"]
+      },
       "WorktreeGitStatusResponse": {
         "type": "object",
         "required": [
+          "generation",
           "unstaged_files",
           "staged_files",
           "ahead_count",
@@ -1455,6 +1642,11 @@
           },
           "comparison_error": {
             "type": ["string", "null"]
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "source_ref": {
             "type": ["string", "null"]

@@ -122,6 +122,7 @@ pub struct GitCommitSummary {
 
 #[derive(Debug, Clone, Serialize, ToSchema, TS)]
 pub struct WorktreeGitStatusResponse {
+    pub generation: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_ref: Option<String>,
     pub unstaged_files: Vec<GitFileChange>,
@@ -506,52 +507,21 @@ pub async fn get_project_worktree_git_status(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
 ) -> Result<Json<WorktreeGitStatusResponse>, StatusCode> {
-    let projects = state
-        .load_projects()
+    let resolved = resolve_worktree(&state, &worktree_id)
+        .await?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if resolved.project_id != project_id {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let (generation, status) = state
+        .worktree_files
+        .read_git_status(&resolved)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let project = projects
-        .iter()
-        .find(|p| p.id == project_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let worktrees = list_worktrees_for_project(&state, project)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let worktree = worktrees
-        .into_iter()
-        .find(|wt| wt.id == worktree_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-
-    let worktree_path = PathBuf::from(&worktree.path);
-    let worktree_path_for_log = worktree.path.clone();
-    let source_ref = worktree.source_ref.clone();
-    let status = tokio::task::spawn_blocking(move || {
-        git::read_worktree_status(&worktree_path, source_ref.as_deref())
-    })
-    .await
-    .map_err(|err| {
-        tracing::warn!(
-            %project_id,
-            %worktree_id,
-            worktree_path = %worktree_path_for_log,
-            error = %err,
-            "git status task failed",
-        );
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?
-    .map_err(|err| {
-        tracing::warn!(
-            %project_id,
-            %worktree_id,
-            worktree_path = %worktree_path_for_log,
-            error = %err,
-            "git status failed",
-        );
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
 
     Ok(Json(WorktreeGitStatusResponse {
-        source_ref: worktree.source_ref,
+        generation,
+        source_ref: resolved.worktree.source_ref,
         unstaged_files: status.unstaged_files,
         staged_files: status.staged_files,
         ahead_count: status.ahead_count,

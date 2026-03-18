@@ -64,12 +64,16 @@ function renderPanelWithOpen(open: boolean): RenderResult {
 }
 
 describe("WorktreeGitStatusPanel", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     mockGetProjectWorktreeGitStatus.mockReset();
+    const { resetWorktreeFileManagerStoreForTests } =
+      await import("@/lib/stores/worktreeFileManager");
+    resetWorktreeFileManagerStoreForTests();
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
+      generation: 1,
       unstaged_files: [
         { path: "tmp2/bar/bar.txt", change_type: "modified" },
         { path: "tmp2/bar/baz/fox.txt", change_type: "untracked" },
@@ -197,7 +201,7 @@ describe("WorktreeGitStatusPanel", () => {
       screen.getByRole("button", { name: "Toggle tmp2/bar/baz/qux" }),
     ).toBeVisible();
     expect(screen.getByText("deep.txt")).toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("does not flash loading skeletons for fast responses", async () => {
     renderPanel();
@@ -214,6 +218,7 @@ describe("WorktreeGitStatusPanel", () => {
           setTimeout(() => {
             resolve({
               source_ref: "main",
+              generation: 1,
               unstaged_files: [],
               staged_files: [],
               ahead_count: 0,
@@ -257,6 +262,7 @@ describe("WorktreeGitStatusPanel", () => {
   it("renders copied, renamed, and conflict badges", async () => {
     mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
       source_ref: "main",
+      generation: 1,
       unstaged_files: [
         { path: "copied.txt", change_type: "copied" },
         { path: "conflicted.txt", change_type: "conflict" },

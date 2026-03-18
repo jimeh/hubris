@@ -1,7 +1,10 @@
 use axum::Json;
 use utoipa::OpenApi;
 
-use crate::api::files::{DirEntry, ListFilesResponse};
+use crate::api::files::{
+    DirEntry, ListFilesResponse, ListWorktreeFilesResponse, RenameWorktreeFileRequest,
+    RenameWorktreeFileResponse, WorktreeFileEntry, WorktreeFileKind,
+};
 use crate::api::projects::{
     AddProjectRequest, Project, ReorderProjectsRequest, UpdateProjectRequest,
 };
@@ -24,6 +27,8 @@ use crate::pty::live_tab::TabInfo;
     paths(
         openapi_json,
         crate::api::files::list_files,
+        crate::api::files::list_project_worktree_files,
+        crate::api::files::rename_project_worktree_file,
         crate::api::projects::list_projects,
         crate::api::projects::add_project,
         crate::api::projects::update_project,
@@ -50,6 +55,11 @@ use crate::pty::live_tab::TabInfo;
         schemas(
             DirEntry,
             ListFilesResponse,
+            WorktreeFileKind,
+            WorktreeFileEntry,
+            ListWorktreeFilesResponse,
+            RenameWorktreeFileRequest,
+            RenameWorktreeFileResponse,
             Project,
             AddProjectRequest,
             UpdateProjectRequest,

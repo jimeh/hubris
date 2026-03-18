@@ -1,8 +1,8 @@
 import {
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -15,15 +15,14 @@ import {
   RefreshCw,
 } from "lucide-react";
 import {
-  getProjectWorktreeGitStatus,
   type WorktreeGitCommitSummary,
   type WorktreeGitFileChange,
-  type WorktreeGitStatus,
 } from "@/lib/api";
 import {
   buildWorktreeGitStatusTree,
   type WorktreeGitStatusTreeNode,
 } from "@/lib/worktreeGitStatusTree";
+import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import type { Worktree } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -420,40 +419,30 @@ export default function WorktreeGitStatusPanel({
   open = true,
   onActionsChange,
 }: Props) {
-  const worktreeStatusKey = `${worktree.project_id}:${worktree.id}`;
-  const [status, setStatus] = useState<WorktreeGitStatus | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [viewMode, setViewMode] = useState<FileViewMode>("list");
   const [showLoadingSkeleton, setShowLoadingSkeleton] = useState(false);
-  const requestIdRef = useRef(0);
+  const worktreeState = useWorktreeFileManagerStore(
+    (state) => state.worktrees[worktree.id],
+  );
+  const loadGitStatus = useWorktreeFileManagerStore(
+    (state) => state.loadGitStatus,
+  );
+  const refreshVisiblePaths = useWorktreeFileManagerStore(
+    (state) => state.refreshVisiblePaths,
+  );
+  const status = worktreeState?.gitStatus ?? null;
+  const loading = worktreeState?.gitStatusStatus === "loading";
+  const error = worktreeState?.gitError
+    ? `Failed to load git status (${worktreeState.gitError})`
+    : "";
+  const pendingGeneration = worktreeState?.pendingGeneration ?? 0;
 
-  const loadStatus = useCallback(async () => {
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
-    setLoading(true);
-    setError("");
-
-    try {
-      const nextStatus = await getProjectWorktreeGitStatus(
-        worktree.project_id,
-        worktree.id,
-      );
-      if (requestIdRef.current !== requestId) {
-        return;
-      }
-      setStatus(nextStatus);
-    } catch (loadError) {
-      if (requestIdRef.current !== requestId) {
-        return;
-      }
-      setError(`Failed to load git status (${(loadError as Error).message})`);
-    } finally {
-      if (requestIdRef.current === requestId) {
-        setLoading(false);
-      }
-    }
-  }, [worktree.id, worktree.project_id]);
+  const loadStatus = useCallback(
+    async (force = false) => {
+      await loadGitStatus(worktree.project_id, worktree.id, { force });
+    },
+    [loadGitStatus, worktree.id, worktree.project_id],
+  );
 
   const headerActions = useMemo(
     () => (
@@ -462,7 +451,7 @@ export default function WorktreeGitStatusPanel({
         <Button
           variant="ghost"
           size="icon-sm"
-          onClick={() => void loadStatus()}
+          onClick={() => void loadStatus(true)}
           title="Refresh git status"
           aria-label="Refresh git status"
         >
@@ -474,25 +463,46 @@ export default function WorktreeGitStatusPanel({
   );
 
   useEffect(() => {
-    requestIdRef.current += 1;
-    setStatus(null);
-    setError("");
-    setLoading(false);
-    setShowLoadingSkeleton(false);
-  }, [worktreeStatusKey]);
+    const timer = window.setTimeout(() => {
+      setShowLoadingSkeleton(false);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [worktree.id]);
 
   useEffect(() => {
-    if (!open || status || error) {
+    if (!open || status || error || loading) {
       return;
     }
 
     void loadStatus();
-  }, [error, loadStatus, open, status]);
+  }, [error, loadStatus, loading, open, status]);
+
+  useEffect(() => {
+    if (!open || pendingGeneration === 0) {
+      return;
+    }
+
+    startTransition(() => {
+      void refreshVisiblePaths(worktree.project_id, worktree.id, {
+        force: true,
+      });
+    });
+  }, [
+    open,
+    pendingGeneration,
+    refreshVisiblePaths,
+    worktree.id,
+    worktree.project_id,
+  ]);
 
   useEffect(() => {
     if (!loading || status || error) {
-      setShowLoadingSkeleton(false);
-      return;
+      const timer = window.setTimeout(() => {
+        setShowLoadingSkeleton(false);
+      }, 0);
+
+      return () => window.clearTimeout(timer);
     }
 
     const timer = window.setTimeout(() => {

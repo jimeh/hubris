@@ -1,12 +1,13 @@
 import { useMemo, useState, type ComponentType, type ReactNode } from "react";
-import { GitBranch, PanelRightClose, type LucideIcon } from "lucide-react";
-import { useIsMobile } from "@/hooks/use-mobile";
 import {
-  DEFAULT_WORKTREE_RIGHT_SIDEBAR_PANEL,
-  type WorktreeRightSidebarPanelId,
-} from "@/lib/worktreeRightSidebar";
-import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
-import type { Worktree } from "@/lib/types";
+  Files,
+  GitBranch,
+  PanelRightClose,
+  type LucideIcon,
+} from "lucide-react";
+import WorktreeAllFilesPanel from "@/components/WorktreeAllFilesPanel";
+import WorktreeGitStatusPanel from "@/components/WorktreeGitStatusPanel";
+import WorktreeRightSidebarResizeHandle from "@/components/WorktreeRightSidebarResizeHandle";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -15,30 +16,45 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import WorktreeGitStatusPanel from "@/components/WorktreeGitStatusPanel";
-import WorktreeRightSidebarResizeHandle from "@/components/WorktreeRightSidebarResizeHandle";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB,
+  WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
+  WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
+  type WorktreeRightSidebarTabId,
+} from "@/lib/worktreeRightSidebar";
+import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
+import type { Worktree } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
-type WorktreeRightSidebarPanelProps = {
+type WorktreeRightSidebarTabProps = {
   worktree: Worktree;
   open?: boolean;
   onActionsChange?: (actions: ReactNode | null) => void;
 };
 
-type WorktreeRightSidebarPanelDefinition = {
-  id: WorktreeRightSidebarPanelId;
+type WorktreeRightSidebarTabDefinition = {
+  id: WorktreeRightSidebarTabId;
   title: string;
   description: string;
   icon: LucideIcon;
-  Content: ComponentType<WorktreeRightSidebarPanelProps>;
+  Content: ComponentType<WorktreeRightSidebarTabProps>;
 };
 
-const RIGHT_SIDEBAR_PANELS: Record<
-  WorktreeRightSidebarPanelId,
-  WorktreeRightSidebarPanelDefinition
+const RIGHT_SIDEBAR_TABS: Record<
+  WorktreeRightSidebarTabId,
+  WorktreeRightSidebarTabDefinition
 > = {
-  "git-status": {
-    id: "git-status",
-    title: "Git status",
+  [WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB]: {
+    id: WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
+    title: "All Files",
+    description: "Browse the worktree with git-aware decorations.",
+    icon: Files,
+    Content: WorktreeAllFilesPanel,
+  },
+  [WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB]: {
+    id: WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
+    title: "Changes",
     description: "Review staged, unstaged, and ahead changes.",
     icon: GitBranch,
     Content: WorktreeGitStatusPanel,
@@ -81,28 +97,62 @@ function RightSidebarHeader({
   );
 }
 
+function TabStrip({
+  activeTab,
+  onTabChange,
+}: {
+  activeTab: WorktreeRightSidebarTabId;
+  onTabChange: (tabId: WorktreeRightSidebarTabId) => void;
+}) {
+  return (
+    <div className="border-b px-3 py-2">
+      <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/70 bg-muted/35 p-1">
+        {Object.values(RIGHT_SIDEBAR_TABS).map((tab) => (
+          <Button
+            key={tab.id}
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "justify-start rounded-lg px-3",
+              activeTab === tab.id &&
+                "bg-background shadow-xs hover:bg-background",
+            )}
+            aria-pressed={activeTab === tab.id}
+            onClick={() => onTabChange(tab.id)}
+          >
+            <tab.icon className="mr-2 h-4 w-4" />
+            {tab.title}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function WorktreeRightSidebar({ worktree }: Props) {
   const isMobile = useIsMobile();
   const desktopOpen = useWorktreeRightSidebarStore(
     (state) => state.desktopOpen,
   );
   const mobileOpen = useWorktreeRightSidebarStore((state) => state.mobileOpen);
-  const activePanel = useWorktreeRightSidebarStore(
-    (state) => state.activePanel,
-  );
+  const activeTab = useWorktreeRightSidebarStore((state) => state.activeTab);
   const setMobileOpen = useWorktreeRightSidebarStore(
     (state) => state.setMobileOpen,
   );
-  const [panelActions, setPanelActions] = useState<ReactNode>(null);
-
-  const panel = useMemo(
-    () =>
-      RIGHT_SIDEBAR_PANELS[activePanel] ??
-      RIGHT_SIDEBAR_PANELS[DEFAULT_WORKTREE_RIGHT_SIDEBAR_PANEL],
-    [activePanel],
+  const setActiveTab = useWorktreeRightSidebarStore(
+    (state) => state.setActiveTab,
   );
-  const PanelContent = panel.Content;
-  const PanelIcon = panel.icon;
+  const [tabActions, setTabActions] = useState<ReactNode>(null);
+
+  const tab = useMemo(
+    () =>
+      RIGHT_SIDEBAR_TABS[activeTab] ??
+      RIGHT_SIDEBAR_TABS[DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB],
+    [activeTab],
+  );
+  const TabContent = tab.Content;
+  const TabIcon = tab.icon;
 
   if (isMobile) {
     return (
@@ -113,15 +163,15 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
           className="w-full max-w-none gap-0 p-0 sm:max-w-md"
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>{panel.title}</SheetTitle>
-            <SheetDescription>{panel.description}</SheetDescription>
+            <SheetTitle>{tab.title}</SheetTitle>
+            <SheetDescription>{tab.description}</SheetDescription>
           </SheetHeader>
           <div className="flex h-full min-h-0 flex-col overflow-hidden">
             <RightSidebarHeader
-              title={panel.title}
+              title={tab.title}
               worktreeName={worktree.name}
-              Icon={PanelIcon}
-              actions={panelActions}
+              Icon={TabIcon}
+              actions={tabActions}
               closeAction={
                 <Button
                   variant="ghost"
@@ -134,11 +184,12 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
                 </Button>
               }
             />
-            <PanelContent
-              key={`${panel.id}:${worktree.id}:mobile`}
+            <TabStrip activeTab={activeTab} onTabChange={setActiveTab} />
+            <TabContent
+              key={`${tab.id}:${worktree.id}:mobile`}
               worktree={worktree}
               open={mobileOpen}
-              onActionsChange={setPanelActions}
+              onActionsChange={setTabActions}
             />
           </div>
         </SheetContent>
@@ -180,16 +231,17 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <RightSidebarHeader
-            title={panel.title}
+            title={tab.title}
             worktreeName={worktree.name}
-            Icon={PanelIcon}
-            actions={panelActions}
+            Icon={TabIcon}
+            actions={tabActions}
           />
-          <PanelContent
-            key={`${panel.id}:${worktree.id}:desktop`}
+          <TabStrip activeTab={activeTab} onTabChange={setActiveTab} />
+          <TabContent
+            key={`${tab.id}:${worktree.id}:desktop`}
             worktree={worktree}
             open={desktopOpen}
-            onActionsChange={setPanelActions}
+            onActionsChange={setTabActions}
           />
         </div>
       </div>

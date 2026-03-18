@@ -5,3 +5,9 @@ export type Worktree = components["schemas"]["Worktree"];
 export type Tab = components["schemas"]["TabInfo"];
 export type DirEntry = components["schemas"]["DirEntry"];
 export type ListFilesResponse = components["schemas"]["ListFilesResponse"];
+export type WorktreeFileKind = components["schemas"]["WorktreeFileKind"];
+export type WorktreeFileEntry = components["schemas"]["WorktreeFileEntry"];
+export type ListWorktreeFilesResponse =
+  components["schemas"]["ListWorktreeFilesResponse"];
+export type RenameWorktreeFileResponse =
+  components["schemas"]["RenameWorktreeFileResponse"];

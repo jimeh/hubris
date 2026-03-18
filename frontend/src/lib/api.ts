@@ -1,4 +1,11 @@
-import type { ListFilesResponse, Project, Tab, Worktree } from "./types";
+import type {
+  ListFilesResponse,
+  ListWorktreeFilesResponse,
+  Project,
+  RenameWorktreeFileResponse,
+  Tab,
+  Worktree,
+} from "./types";
 import type { components } from "@/lib/contracts/rest.generated";
 import type { Settings, SettingsPatch, SettingsState } from "./theme/types";
 
@@ -24,8 +31,12 @@ type ListWorktreeStartPointsResponse =
 type CreateWorktreeRequest = components["schemas"]["CreateWorktreeRequest"];
 type WorktreeGitStatusResponse =
   components["schemas"]["WorktreeGitStatusResponse"];
+type WorktreeFileEntry = components["schemas"]["WorktreeFileEntry"];
+type WorktreeFileKind = components["schemas"]["WorktreeFileKind"];
 type GitFileChange = components["schemas"]["GitFileChange"];
 type GitCommitSummary = components["schemas"]["GitCommitSummary"];
+type RenameWorktreeFileRequest =
+  components["schemas"]["RenameWorktreeFileRequest"];
 type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
@@ -113,6 +124,8 @@ export async function listProjectWorktrees(
 
 export type WorktreeStartPoint = StartPoint;
 export type WorktreeGitStatus = WorktreeGitStatusResponse;
+export type WorktreeFile = WorktreeFileEntry;
+export type WorktreeFileType = WorktreeFileKind;
 export type WorktreeGitFileChange = GitFileChange;
 export type WorktreeGitCommitSummary = GitCommitSummary;
 
@@ -156,6 +169,57 @@ export async function getProjectWorktreeGitStatus(
     `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git-status`,
   );
   if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function listProjectWorktreeFiles(
+  projectId: string,
+  worktreeId: string,
+  path = "",
+): Promise<ListWorktreeFilesResponse> {
+  const params = new URLSearchParams();
+  if (path) {
+    params.set("path", path);
+  }
+
+  const qs = params.toString();
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/files${qs ? `?${qs}` : ""}`,
+  );
+  if (!res.ok) {
+    if (res.status === 400) throw new Error("Invalid path");
+    if (res.status === 403) throw new Error("Permission denied");
+    if (res.status === 404) throw new Error("Directory not found");
+    throw new Error(`${res.status}`);
+  }
+  return res.json();
+}
+
+export async function renameProjectWorktreeFile(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+  newName: string,
+): Promise<RenameWorktreeFileResponse> {
+  const payload: RenameWorktreeFileRequest = {
+    path,
+    new_name: newName,
+  };
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/files/rename`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) {
+    if (res.status === 400) throw new Error("Invalid name");
+    if (res.status === 403) throw new Error("Permission denied");
+    if (res.status === 404) throw new Error("Path not found");
+    if (res.status === 409) throw new Error("A file or folder already exists");
+    throw new Error(`${res.status}`);
+  }
   return res.json();
 }
 

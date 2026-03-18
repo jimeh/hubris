@@ -256,6 +256,11 @@ No periodic reconciliation — drift corrects on reconnect.
   `cargo check`/`clippy`. Generated types still build.
 - **`ts-rs` v12 changed codegen API**:
   `TS::export_to_string()` now requires a `ts_rs::Config` argument.
+- **`material-icon-theme` manifest is not a complete browser file-type resolver**:
+  `generateManifest()` follows the VS Code icon-theme manifest model, which may
+  omit some generic language extensions (for example plain `.ts`) because VS
+  Code can also use language IDs. Browser file explorers that only have paths
+  should not assume the generated manifest alone reproduces full VS Code parity.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.
