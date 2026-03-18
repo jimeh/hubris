@@ -80,12 +80,12 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/lib/stores/theme", () => ({
-  useThemeStore: <T,>(selector: (state: typeof themeState) => T) =>
+  useThemeSettings: <T,>(selector: (state: typeof themeState) => T) =>
     selector(themeState),
 }));
 
 vi.mock("@/lib/stores/terminal", () => ({
-  useTerminalStore: <T,>(selector: (state: typeof terminalState) => T) =>
+  useTerminalSettings: <T,>(selector: (state: typeof terminalState) => T) =>
     selector(terminalState),
 }));
 

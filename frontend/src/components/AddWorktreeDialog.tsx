@@ -12,7 +12,7 @@ import {
 } from "@/lib/api";
 import { deterministicTagStyle } from "@/lib/theme/deterministicTagColor";
 import { generateWorktreeBranchName } from "@/lib/worktreeName";
-import { useThemeStore } from "@/lib/stores/theme";
+import { useThemeSettings } from "@/lib/stores/theme";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -120,7 +120,7 @@ export default function AddWorktreeDialog({
   onAdd,
   onClose,
 }: Props) {
-  const themeVersion = useThemeStore((state) => state.version);
+  const themeVersion = useThemeSettings((state) => state.version);
   const [branch, setBranch] = useState("");
   const [suggestedBranch, setSuggestedBranch] = useState(
     generateWorktreeBranchName(),

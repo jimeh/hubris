@@ -1,54 +1,31 @@
-import { create } from "zustand";
-import { getSettings, saveSettings } from "@/lib/api";
-import type { WorktreeSettings } from "@/lib/theme/types";
+import { useSettingsStore } from "@/lib/stores/settings";
+import { useShallow } from "zustand/react/shallow";
+import type {
+  WorktreeSettings,
+  WorktreeSettingsPatch,
+} from "@/lib/theme/types";
 
-const DEFAULTS: WorktreeSettings = {
-  locationMode: "dataDir",
-};
-
-type WorktreeSettingsState = {
+type WorktreeStoreSlice = {
   settings: WorktreeSettings;
-  init: () => Promise<void>;
-  updateSettings: (partial: Partial<WorktreeSettings>) => Promise<void>;
+  updateSettings: (partial: WorktreeSettingsPatch) => void;
 };
 
-export const useWorktreeSettingsStore = create<WorktreeSettingsState>(
-  (set, get) => ({
-    settings: { ...DEFAULTS },
-    async init() {
-      try {
-        const current = await getSettings();
-        if (current.worktree) {
-          set({
-            settings: {
-              ...DEFAULTS,
-              ...current.worktree,
-            },
-          });
-        }
-      } catch {
-        set({ settings: { ...DEFAULTS } });
-      }
-    },
-    async updateSettings(partial) {
-      const previous = get().settings;
-      const next = {
-        ...previous,
-        ...partial,
-      };
-      set({ settings: next });
-      try {
-        await saveSettings({ worktree: next });
-      } catch (error) {
-        set({ settings: previous });
-        throw error;
-      }
-    },
-  }),
-);
+function updateWorktreeSettings(partial: WorktreeSettingsPatch): void {
+  useSettingsStore.getState().updateWorktree(partial);
+}
 
-export function resetWorktreeSettingsStoreForTests(): void {
-  useWorktreeSettingsStore.setState({
-    settings: { ...DEFAULTS },
-  });
+function selectWorktreeSlice(
+  state: ReturnType<typeof useSettingsStore.getState>,
+) {
+  return {
+    settings: state.settings.worktree,
+    updateSettings: updateWorktreeSettings,
+  } satisfies WorktreeStoreSlice;
+}
+
+export function useWorktreeSettings<T>(
+  selector: (state: WorktreeStoreSlice) => T,
+): T {
+  const slice = useSettingsStore(useShallow(selectWorktreeSlice));
+  return selector(slice);
 }

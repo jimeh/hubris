@@ -5,7 +5,11 @@ use crate::api::files::{DirEntry, ListFilesResponse};
 use crate::api::projects::{
     AddProjectRequest, Project, ReorderProjectsRequest, UpdateProjectRequest,
 };
-use crate::api::settings::{AppearanceSettings, Settings, TerminalSettings, WorktreeSettings};
+use crate::api::settings::{
+    AppearanceSettings, AppearanceSettingsPatch, ColorScheme, Settings, SettingsPatch,
+    SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings,
+    TerminalSettingsPatch, WorktreeLocationMode, WorktreeSettings, WorktreeSettingsPatch,
+};
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
 use crate::api::worktrees::{
@@ -39,7 +43,8 @@ use crate::pty::live_tab::TabInfo;
         crate::api::events::event_stream,
         crate::api::terminal::ws_handler,
         crate::api::settings::get_settings,
-        crate::api::settings::save_settings,
+        crate::api::settings::put_settings,
+        crate::api::settings::patch_settings,
     ),
     components(
         schemas(
@@ -65,10 +70,20 @@ use crate::pty::live_tab::TabInfo;
             ReorderTabsRequest,
             ClientControlMessage,
             ServerControlMessage,
+            ColorScheme,
+            TerminalFontSource,
+            WorktreeLocationMode,
             AppearanceSettings,
+            AppearanceSettingsPatch,
             TerminalSettings,
+            TerminalSettingsPatch,
             WorktreeSettings,
+            WorktreeSettingsPatch,
             Settings,
+            SettingsPatch,
+            SettingsStatusKind,
+            SettingsStatus,
+            SettingsState,
         )
     ),
     tags(

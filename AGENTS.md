@@ -62,7 +62,8 @@ No periodic reconciliation — drift corrects on reconnect.
 ### Backend (Rust / Axum)
 
 - State: grep for `AppState` — DashMap for tabs, EventBus for SSE
-- Persistence: JSON file. Dev: `~/.hubris-dev/`, prod: `~/.hubris/`
+- Persistence: JSON project data + TOML settings. Dev: `~/.hubris-dev/`,
+  prod: `~/.hubris/`
 - PTY: portable-pty, shell from `$SHELL` or `/bin/sh`
 - WS protocol: binary (PTY output), JSON control (`type: "resize"`,
   `type: "attached"` with `byte_offset`/`data_lost`)
@@ -78,8 +79,8 @@ No periodic reconciliation — drift corrects on reconnect.
 
 - App location: `frontend/`
 - State: Zustand singletons — grep `useProjectStore`,
-  `useWorktreeStore`, `useTabStore`, `useThemeStore`,
-  `useTerminalStore`, `useWorktreeSettingsStore`,
+  `useWorktreeStore`, `useTabStore`, `useSettingsStore`,
+  `useThemeSettings`, `useTerminalSettings`, `useWorktreeSettings`,
   `useWorktreeRightSidebarStore`,
   `useWorktreeRightSidebarWidthStore`
 - SSE bootstrap: `src/lib/bootstrap.ts`
@@ -94,8 +95,9 @@ No periodic reconciliation — drift corrects on reconnect.
   `components/terminal/useTerminalConnection.ts`
 - Theme engine: native Hubris theme definitions in
   `src/lib/theme/builtin.ts`, converted by `src/lib/theme/convert.ts`
-- FOUC prevention: inline script in `index.html` reads localStorage
-  (`hubris-theme-cache`) and applies CSS vars before first paint
+- FOUC prevention: inline script in `index.html` reads
+  `hubris-settings` to choose light/dark mode and
+  `hubris-theme-cache` to apply cached CSS vars before first paint
 - API contracts: Rust `generate_contracts` writes directly to
   `frontend/src/lib/contracts/{openapi,sse,ws}.generated.*`; then
   `bun run generate:contracts:rest` produces `rest.generated.ts`
@@ -145,13 +147,46 @@ No periodic reconciliation — drift corrects on reconnect.
   other browser).
 - **deleteProject tolerates 404**: Project may already be gone (other
   browser removed it).
-- **Settings sync**: No SSE event for settings changes yet. Multiple
-  open browsers will not see each other's settings changes until
-  reload.
-- **Settings save is serialized read-modify-write**: `saveSettings` in
-  `api.ts` GETs current settings before PUTting merged data, and React
-  queues concurrent saves client-side. This prevents appearance,
-  terminal, and worktree settings writes from clobbering each other.
+- **Settings live in `settings.toml` now**: server settings persistence
+  is TOML, not JSON. The backend keeps an in-memory snapshot plus a
+  parsed `toml_edit` document so user comments and unknown keys survive
+  PATCH/PUT writes.
+- **Settings TOML merges preserve inline tables too**: top-level
+  sections like `appearance = { ... }` should stay inline when PATCH or
+  PUT updates them. Use `toml_edit` table-like APIs rather than forcing
+  them into bracket tables, or inline-table keys/comments will be lost.
+- **Settings writes are atomic temp-file renames again**: the server
+  writes `settings.toml` to a sibling temp file, syncs it, renames it
+  into place, and syncs the parent directory to reduce crash-window
+  corruption risk. Editors that keep hard file handles may treat the
+  file as replaced rather than modified in place.
+- **Settings sync uses SSE generations plus server status**: snapshot
+  events now include `settings`, `settings_generation`, and
+  `settings_status`; incremental `settings_updated` events carry the
+  same `SettingsState` payload. The frontend ignores older generations
+  but still applies equal-generation status changes so invalid-file
+  recovery can unblock queued writes.
+- **Frontend settings saves are optimistic but backend-authoritative**:
+  the browser applies local changes immediately, sends discrete
+  `PATCH /api/settings` writes right away, and debounces typed terminal
+  inputs (`systemFontFamily`, typed `fontSize`). Server responses and
+  SSE are canonical: the store accepts newer generations, still applies
+  equal-generation status changes, and on latest-request failures shows
+  a toast then refetches `/api/settings` instead of retrying or
+  rebasing unsaved local diffs.
+- **Invalid settings files block writes until fixed**: malformed
+  `settings.toml` at startup or during runtime no longer crashes
+  Hubris; the backend keeps the last known/default in-memory settings,
+  returns `409` from settings `PUT`/`PATCH`, emits invalid-file status
+  over SSE, and unblocks once the file becomes valid again.
+- **Settings store adapters must use stable Zustand snapshots**:
+  adapter hooks like `useThemeSettings`, `useTerminalSettings`, and
+  `useWorktreeSettings` are selector hooks over the real
+  `useSettingsStore`, not standalone Zustand stores. They cannot build
+  fresh wrapper objects inside the selector passed to `useSettingsStore`.
+  Select a shallow slice first, then run any caller selector against
+  that slice, or React will hit `getSnapshot` and maximum update depth
+  errors.
 - **Appearance settings still store per-mode theme IDs**:
   `lightTheme`/`darkTheme` remain in settings even though only built-in
   Hubris themes are selectable right now.
@@ -191,6 +226,12 @@ No periodic reconciliation — drift corrects on reconnect.
   `scrollIntoView()`. In Vitest/jsdom, stub `hasPointerCapture`,
   `setPointerCapture`, `releasePointerCapture`, and `scrollIntoView` in
   `src/test/setup.ts`.
+- **Settings store tests must clean up `matchMedia` listeners**:
+  `frontend/src/lib/stores/settings.ts` binds a singleton
+  `prefers-color-scheme` listener on initialize. Tests that reset and
+  reinitialize the store need `resetSettingsStoreForTests()` to remove
+  that listener and clear its bound flag or later cases will reuse a
+  stale callback.
 - **Popover lists inside React dialogs may need a dialog-local
   portal**: `frontend/src/components/AddWorktreeDialog.tsx` mounts the
   start-point `Popover` into a container inside the dialog instead of

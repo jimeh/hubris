@@ -7,7 +7,7 @@ use serde_json::Value;
 
 async fn start_test_server() -> (String, tempfile::TempDir) {
     let tmp = tempfile::TempDir::new().unwrap();
-    let state = AppState::new(tmp.path().to_path_buf());
+    let state = AppState::new(tmp.path().to_path_buf()).await;
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

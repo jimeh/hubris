@@ -1,3 +1,5 @@
+import type { components } from "@/lib/contracts/rest.generated";
+
 export const UI_THEME_TOKENS = [
   "background",
   "foreground",
@@ -101,36 +103,58 @@ export interface ThemeListEntry {
   builtin?: boolean;
 }
 
-/**
- * User's appearance preferences, persisted to the server.
- */
-export interface AppearanceSettings {
-  /** 'auto' follows OS, otherwise use a fixed theme. */
-  colorScheme: "auto" | "light" | "dark";
-  /** Theme ID for light mode (used when auto or light). */
-  lightTheme: string;
-  /** Theme ID for dark mode (used when auto or dark). */
-  darkTheme: string;
-}
+type Schemas = components["schemas"];
+type RestSettings = NonNullable<Schemas["Settings"]>;
+type RestSettingsPatch = NonNullable<Schemas["SettingsPatch"]>;
+type RestSettingsStatus = NonNullable<Schemas["SettingsStatus"]>;
 
-/**
- * Terminal display settings, persisted to the server.
- */
-export interface TerminalSettings {
-  /** Which font source to use. */
-  fontSource: "default" | "system" | "bundled";
-  /** CSS font-family string for system fonts. */
-  systemFontFamily: string;
-  /** Bundled font ID (e.g. 'jetbrainsmono-nf'). */
-  bundledFont: string;
-  /** Terminal font size in px (8–32). */
-  fontSize: number;
-}
+type NullableToOptional<T> = {
+  [K in keyof T]?: Exclude<T[K], null | undefined>;
+};
 
-/**
- * Worktree placement settings, persisted to the server.
- */
-export interface WorktreeSettings {
-  /** Global location strategy for new worktree dirs. */
-  locationMode: "dataDir" | "repoLocalDotHubris";
-}
+type RequiredFields<T> = {
+  [K in keyof T]-?: Exclude<T[K], null | undefined>;
+};
+
+export type AppearanceSettings = RequiredFields<
+  NonNullable<RestSettings["appearance"]>
+>;
+export type TerminalSettings = RequiredFields<
+  NonNullable<RestSettings["terminal"]>
+>;
+export type WorktreeSettings = RequiredFields<
+  NonNullable<RestSettings["worktree"]>
+>;
+export type Settings = {
+  appearance: AppearanceSettings;
+  terminal: TerminalSettings;
+  worktree: WorktreeSettings;
+};
+export type SettingsStatusKind = Exclude<
+  RestSettingsStatus["kind"],
+  null | undefined
+>;
+export type SettingsStatus = {
+  kind: SettingsStatusKind;
+  writesBlocked: Exclude<RestSettingsStatus["writesBlocked"], null | undefined>;
+  message: Exclude<RestSettingsStatus["message"], undefined>;
+};
+export type AppearanceSettingsPatch = NullableToOptional<
+  NonNullable<RestSettingsPatch["appearance"]>
+>;
+export type TerminalSettingsPatch = NullableToOptional<
+  NonNullable<RestSettingsPatch["terminal"]>
+>;
+export type WorktreeSettingsPatch = NullableToOptional<
+  NonNullable<RestSettingsPatch["worktree"]>
+>;
+export type SettingsPatch = {
+  appearance?: AppearanceSettingsPatch;
+  terminal?: TerminalSettingsPatch;
+  worktree?: WorktreeSettingsPatch;
+};
+export type SettingsState = {
+  settings: Settings;
+  generation: NonNullable<Schemas["SettingsState"]>["generation"];
+  status: SettingsStatus;
+};

@@ -2,11 +2,36 @@ import { test, expect } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/settings", async (route) => {
+    const body = JSON.stringify({
+      settings: {
+        appearance: {
+          colorScheme: "auto",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      generation: "1",
+      status: {
+        kind: "ok",
+        writesBlocked: false,
+        message: null,
+      },
+    });
+
     if (route.request().method() === "GET") {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({}),
+        body,
       });
       return;
     }
@@ -14,7 +39,7 @@ test.beforeEach(async ({ page }) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: "{}",
+      body,
     });
   });
 
@@ -54,6 +79,28 @@ test.beforeEach(async ({ page }) => {
             },
             tabs: [],
             project_errors: {},
+            settings: {
+              appearance: {
+                colorScheme: "auto",
+                lightTheme: "hubris-light",
+                darkTheme: "hubris-dark",
+              },
+              terminal: {
+                fontSource: "default",
+                systemFontFamily: "",
+                bundledFont: "jetbrainsmono-nf",
+                fontSize: 14,
+              },
+              worktree: {
+                locationMode: "dataDir",
+              },
+            },
+            settings_generation: "1",
+            settings_status: {
+              kind: "ok",
+              writesBlocked: false,
+              message: null,
+            },
           },
         })}`,
         "",

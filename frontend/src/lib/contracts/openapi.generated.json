@@ -561,7 +561,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Settings"
+                  "$ref": "#/components/schemas/SettingsState"
                 }
               }
             }
@@ -574,7 +574,7 @@
       "put": {
         "tags": ["crate::api::settings"],
         "summary": "PUT /api/settings — full replace",
-        "operationId": "save_settings",
+        "operationId": "put_settings",
         "requestBody": {
           "content": {
             "application/json": {
@@ -587,7 +587,50 @@
         },
         "responses": {
           "200": {
-            "description": "Settings saved"
+            "description": "Settings saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsState"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Settings file is invalid on disk"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["crate::api::settings"],
+        "summary": "PATCH /api/settings — partial update",
+        "operationId": "patch_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Settings patched",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsState"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Settings file is invalid on disk"
           },
           "500": {
             "description": "Internal server error"
@@ -808,13 +851,34 @@
         "type": "object",
         "properties": {
           "colorScheme": {
-            "type": "string"
+            "$ref": "#/components/schemas/ColorScheme"
           },
           "darkTheme": {
             "type": "string"
           },
           "lightTheme": {
             "type": "string"
+          }
+        }
+      },
+      "AppearanceSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "colorScheme": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ColorScheme"
+              }
+            ]
+          },
+          "darkTheme": {
+            "type": ["string", "null"]
+          },
+          "lightTheme": {
+            "type": ["string", "null"]
           }
         }
       },
@@ -844,6 +908,10 @@
             }
           }
         ]
+      },
+      "ColorScheme": {
+        "type": "string",
+        "enum": ["auto", "light", "dark"]
       },
       "CreateTabRequest": {
         "type": "object",
@@ -1112,12 +1180,26 @@
         "type": "object",
         "properties": {
           "appearance": {
+            "$ref": "#/components/schemas/AppearanceSettings"
+          },
+          "terminal": {
+            "$ref": "#/components/schemas/TerminalSettings"
+          },
+          "worktree": {
+            "$ref": "#/components/schemas/WorktreeSettings"
+          }
+        }
+      },
+      "SettingsPatch": {
+        "type": "object",
+        "properties": {
+          "appearance": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/AppearanceSettings"
+                "$ref": "#/components/schemas/AppearanceSettingsPatch"
               }
             ]
           },
@@ -1127,7 +1209,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/TerminalSettings"
+                "$ref": "#/components/schemas/TerminalSettingsPatch"
               }
             ]
           },
@@ -1137,11 +1219,45 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/WorktreeSettings"
+                "$ref": "#/components/schemas/WorktreeSettingsPatch"
               }
             ]
           }
         }
+      },
+      "SettingsState": {
+        "type": "object",
+        "required": ["settings", "generation", "status"],
+        "properties": {
+          "generation": {
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/Settings"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SettingsStatus"
+          }
+        }
+      },
+      "SettingsStatus": {
+        "type": "object",
+        "required": ["kind", "writesBlocked"],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/SettingsStatusKind"
+          },
+          "message": {
+            "type": ["string", "null"]
+          },
+          "writesBlocked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SettingsStatusKind": {
+        "type": "string",
+        "enum": ["ok", "invalidFile"]
       },
       "StartPoint": {
         "type": "object",
@@ -1203,6 +1319,10 @@
           }
         }
       },
+      "TerminalFontSource": {
+        "type": "string",
+        "enum": ["default", "system", "bundled"]
+      },
       "TerminalSettings": {
         "type": "object",
         "properties": {
@@ -1215,10 +1335,36 @@
             "minimum": 0
           },
           "fontSource": {
-            "type": "string"
+            "$ref": "#/components/schemas/TerminalFontSource"
           },
           "systemFontFamily": {
             "type": "string"
+          }
+        }
+      },
+      "TerminalSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "bundledFont": {
+            "type": ["string", "null"]
+          },
+          "fontSize": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "fontSource": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TerminalFontSource"
+              }
+            ]
+          },
+          "systemFontFamily": {
+            "type": ["string", "null"]
           }
         }
       },
@@ -1327,11 +1473,30 @@
           }
         }
       },
+      "WorktreeLocationMode": {
+        "type": "string",
+        "enum": ["dataDir", "repoLocalDotHubris"]
+      },
       "WorktreeSettings": {
         "type": "object",
         "properties": {
           "locationMode": {
-            "type": "string"
+            "$ref": "#/components/schemas/WorktreeLocationMode"
+          }
+        }
+      },
+      "WorktreeSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "locationMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorktreeLocationMode"
+              }
+            ]
           }
         }
       }

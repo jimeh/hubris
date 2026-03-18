@@ -191,12 +191,13 @@ export interface paths {
     /** GET /api/settings */
     get: operations["get_settings"];
     /** PUT /api/settings — full replace */
-    put: operations["save_settings"];
+    put: operations["put_settings"];
     post?: never;
     delete?: never;
     options?: never;
     head?: never;
-    patch?: never;
+    /** PATCH /api/settings — partial update */
+    patch: operations["patch_settings"];
     trace?: never;
   };
   "/api/tabs": {
@@ -271,9 +272,14 @@ export interface components {
       path: string;
     };
     AppearanceSettings: {
-      colorScheme?: string;
+      colorScheme?: components["schemas"]["ColorScheme"];
       darkTheme?: string;
       lightTheme?: string;
+    };
+    AppearanceSettingsPatch: {
+      colorScheme?: null | components["schemas"]["ColorScheme"];
+      darkTheme?: string | null;
+      lightTheme?: string | null;
     };
     ClientControlMessage: {
       /** Format: int32 */
@@ -284,6 +290,8 @@ export interface components {
       type: "resize";
       visible: boolean;
     };
+    /** @enum {string} */
+    ColorScheme: "auto" | "light" | "dark";
     CreateTabRequest: {
       worktree_id: string;
     };
@@ -376,10 +384,27 @@ export interface components {
           type: "tab_closed";
         };
     Settings: {
-      appearance?: null | components["schemas"]["AppearanceSettings"];
-      terminal?: null | components["schemas"]["TerminalSettings"];
-      worktree?: null | components["schemas"]["WorktreeSettings"];
+      appearance?: components["schemas"]["AppearanceSettings"];
+      terminal?: components["schemas"]["TerminalSettings"];
+      worktree?: components["schemas"]["WorktreeSettings"];
     };
+    SettingsPatch: {
+      appearance?: null | components["schemas"]["AppearanceSettingsPatch"];
+      terminal?: null | components["schemas"]["TerminalSettingsPatch"];
+      worktree?: null | components["schemas"]["WorktreeSettingsPatch"];
+    };
+    SettingsState: {
+      generation: string;
+      settings: components["schemas"]["Settings"];
+      status: components["schemas"]["SettingsStatus"];
+    };
+    SettingsStatus: {
+      kind: components["schemas"]["SettingsStatusKind"];
+      message?: string | null;
+      writesBlocked: boolean;
+    };
+    /** @enum {string} */
+    SettingsStatusKind: "ok" | "invalidFile";
     StartPoint: {
       local_ref?: string | null;
       remote_refs: string[];
@@ -401,12 +426,21 @@ export interface components {
       type: string;
       worktree_id: string;
     };
+    /** @enum {string} */
+    TerminalFontSource: "default" | "system" | "bundled";
     TerminalSettings: {
       bundledFont?: string;
       /** Format: int32 */
       fontSize?: number;
-      fontSource?: string;
+      fontSource?: components["schemas"]["TerminalFontSource"];
       systemFontFamily?: string;
+    };
+    TerminalSettingsPatch: {
+      bundledFont?: string | null;
+      /** Format: int32 */
+      fontSize?: number | null;
+      fontSource?: null | components["schemas"]["TerminalFontSource"];
+      systemFontFamily?: string | null;
     };
     UpdateProjectRequest: {
       name?: string | null;
@@ -437,8 +471,13 @@ export interface components {
       staged_files: components["schemas"]["GitFileChange"][];
       unstaged_files: components["schemas"]["GitFileChange"][];
     };
+    /** @enum {string} */
+    WorktreeLocationMode: "dataDir" | "repoLocalDotHubris";
     WorktreeSettings: {
-      locationMode?: string;
+      locationMode?: components["schemas"]["WorktreeLocationMode"];
+    };
+    WorktreeSettingsPatch: {
+      locationMode?: null | components["schemas"]["WorktreeLocationMode"];
     };
   };
   responses: never;
@@ -1022,7 +1061,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["Settings"];
+          "application/json": components["schemas"]["SettingsState"];
         };
       };
       /** @description Internal server error */
@@ -1034,7 +1073,7 @@ export interface operations {
       };
     };
   };
-  save_settings: {
+  put_settings: {
     parameters: {
       query?: never;
       header?: never;
@@ -1049,6 +1088,53 @@ export interface operations {
     responses: {
       /** @description Settings saved */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SettingsState"];
+        };
+      };
+      /** @description Settings file is invalid on disk */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  patch_settings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SettingsPatch"];
+      };
+    };
+    responses: {
+      /** @description Settings patched */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SettingsState"];
+        };
+      };
+      /** @description Settings file is invalid on disk */
+      409: {
         headers: {
           [name: string]: unknown;
         };

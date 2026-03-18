@@ -7,6 +7,7 @@ use dashmap::DashMap;
 use crate::api::projects::Project;
 use crate::events::EventBus;
 use crate::pty::live_tab::LiveTab;
+use crate::settings_manager::SettingsManager;
 
 pub type TabId = String;
 
@@ -16,15 +17,25 @@ pub struct AppState {
     pub events: Arc<EventBus>,
     pub next_tab_num: Arc<AtomicU32>,
     pub data_dir: PathBuf,
+    pub settings: Arc<SettingsManager>,
 }
 
 impl AppState {
-    pub fn new(data_dir: PathBuf) -> Self {
+    pub async fn new(data_dir: PathBuf) -> Self {
+        let events = Arc::new(EventBus::new());
+        let settings = Arc::new(
+            SettingsManager::new(data_dir.join("settings.toml"))
+                .await
+                .unwrap_or_else(|error| panic!("failed to initialize settings manager: {error}")),
+        );
+        settings.start_sync(events.clone());
+
         Self {
             tabs: Arc::new(DashMap::new()),
-            events: Arc::new(EventBus::new()),
+            events,
             next_tab_num: Arc::new(AtomicU32::new(1)),
             data_dir,
+            settings,
         }
     }
 
@@ -38,10 +49,6 @@ impl AppState {
 
     pub fn project_meta_file(&self, project_id: &str) -> PathBuf {
         self.project_meta_dir().join(format!("{project_id}.json"))
-    }
-
-    pub fn settings_file(&self) -> PathBuf {
-        self.data_dir.join("settings.json")
     }
 
     /// Load projects from disk. Single source of truth

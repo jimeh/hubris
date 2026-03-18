@@ -6,6 +6,7 @@ use tokio::sync::broadcast;
 use ts_rs::TS;
 
 use crate::api::projects::Project;
+use crate::api::settings::{Settings, SettingsState, SettingsStatus};
 use crate::api::worktrees::Worktree;
 use crate::pty::live_tab::TabInfo;
 
@@ -24,6 +25,9 @@ pub enum EventKind {
         projects: Vec<Project>,
         worktrees: HashMap<String, Vec<Worktree>>,
         project_errors: HashMap<String, String>,
+        settings: Settings,
+        settings_generation: String,
+        settings_status: SettingsStatus,
     },
     #[serde(rename = "tab_created")]
     TabCreated(TabInfo),
@@ -62,6 +66,8 @@ pub enum EventKind {
         worktrees: Vec<Worktree>,
         git_error: Option<String>,
     },
+    #[serde(rename = "settings_updated")]
+    SettingsUpdated(SettingsState),
 }
 
 impl EventKind {
@@ -80,6 +86,7 @@ impl EventKind {
             EventKind::WorktreeDeleted { .. } => "worktree_deleted",
             EventKind::WorktreesReordered { .. } => "worktrees_reordered",
             EventKind::ProjectWorktreesUpdated { .. } => "project_worktrees_updated",
+            EventKind::SettingsUpdated(_) => "settings_updated",
         }
     }
 }
@@ -157,6 +164,9 @@ mod tests {
                 projects: vec![],
                 worktrees: HashMap::new(),
                 project_errors: HashMap::new(),
+                settings: Settings::default(),
+                settings_generation: "0".to_string(),
+                settings_status: SettingsStatus::ok(),
             }
             .event_name(),
             "snapshot"

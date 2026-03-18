@@ -20,10 +20,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import AppSidebar from "@/components/AppSidebar";
+import SettingsStatusNotice from "@/components/SettingsStatusNotice";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
+import ToastViewport from "@/components/ToastViewport";
 import WorktreeView from "@/components/WorktreeView";
 import { Button } from "@/components/ui/button";
 import { useProjectStore } from "@/lib/stores/projects";
+import { useSettingsStore } from "@/lib/stores/settings";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
 import { WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL } from "@/lib/worktreeRightSidebar";
 import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
@@ -143,6 +146,7 @@ export default function App() {
   const worktreesByProject = useWorktreeStore(
     (state) => state.worktreesByProject,
   );
+  const settingsStatus = useSettingsStore((state) => state.status);
   const isResizing = useSidebarWidthStore((state) => state.isResizing);
   const appRootRef = useRef<HTMLDivElement | null>(null);
   const initialSidebarWidthRef = useRef(useSidebarWidthStore.getState().width);
@@ -207,6 +211,7 @@ export default function App() {
             selectedProject={selectedProject}
             selectedWorktree={selectedWorktree}
           />
+          <SettingsStatusNotice status={settingsStatus} />
           <div className="flex flex-1 flex-col overflow-hidden">
             {selectedWorktree ? (
               <WorktreeView worktree={selectedWorktree} />
@@ -216,6 +221,7 @@ export default function App() {
               </div>
             )}
           </div>
+          <ToastViewport />
         </SidebarInset>
       </SidebarProvider>
     </div>

@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetSettingsStoreForTests } from "@/lib/stores/settings";
 import SettingsDialogRoot from "./SettingsDialogRoot";
 
 vi.mock("./AppearanceSettings", () => ({
@@ -16,6 +17,10 @@ vi.mock("./WorktreeSettings", () => ({
 }));
 
 describe("SettingsDialogRoot", () => {
+  beforeEach(() => {
+    resetSettingsStoreForTests();
+  });
+
   it("uses sidebar menu buttons for desktop section switching", async () => {
     const user = userEvent.setup();
 

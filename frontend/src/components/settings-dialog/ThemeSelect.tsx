@@ -16,11 +16,13 @@ export default function ThemeSelect({
   themes,
   value,
   onChange,
+  disabled = false,
 }: {
   label: string;
   themes: ReturnType<typeof themeEntries>;
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   const selectedName =
     themes.find((theme) => theme.id === value)?.name ?? "Select…";
@@ -30,8 +32,8 @@ export default function ThemeSelect({
       <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
         {label}
       </Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="w-full">
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
+        <SelectTrigger className="w-full" disabled={disabled}>
           <SelectValue placeholder={selectedName} />
         </SelectTrigger>
         <SelectContent>

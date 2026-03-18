@@ -1,12 +1,18 @@
 import type { ListFilesResponse, Project, Tab, Worktree } from "./types";
 import type { components } from "@/lib/contracts/rest.generated";
-import type {
-  AppearanceSettings,
-  TerminalSettings,
-  WorktreeSettings,
-} from "./theme/types";
+import type { Settings, SettingsPatch, SettingsState } from "./theme/types";
 
 const BASE = "/api";
+
+export class ApiStatusError extends Error {
+  status: number;
+
+  constructor(status: number) {
+    super(`${status}`);
+    this.name = "ApiStatusError";
+    this.status = status;
+  }
+}
 
 type AddProjectRequest = components["schemas"]["AddProjectRequest"];
 type UpdateProjectRequest = components["schemas"]["UpdateProjectRequest"];
@@ -24,6 +30,10 @@ type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
+
+function throwStatusError(status: number): never {
+  throw new ApiStatusError(status);
+}
 
 export async function listProjects(): Promise<Project[]> {
   const res = await fetch(`${BASE}/projects`);
@@ -258,54 +268,42 @@ export function terminalWsUrl(tabId: string): string {
 
 // --- Settings ---
 
-export async function getSettings(): Promise<{
-  appearance?: AppearanceSettings;
-  terminal?: TerminalSettings;
-  worktree?: WorktreeSettings;
-}> {
+export async function getSettings(): Promise<SettingsState> {
   const res = await fetch(`${BASE}/settings`);
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
   return res.json();
 }
 
-let settingsSaveQueue = Promise.resolve();
-
 export function resetApiStateForTests(): void {
-  settingsSaveQueue = Promise.resolve();
+  // No shared API state to reset right now.
 }
 
-export async function saveSettings(partial: {
-  appearance?: AppearanceSettings;
-  terminal?: TerminalSettings;
-  worktree?: WorktreeSettings;
-}): Promise<void> {
-  const runSave = async (): Promise<void> => {
-    // Read-modify-write to avoid clobbering sibling sections.
-    // Serialize calls so concurrent saves do not race and overwrite each other.
-    const current = await getSettings();
-    const merged = { ...current, ...partial };
+export async function patchSettings(
+  partial: SettingsPatch,
+): Promise<SettingsState> {
+  const res = await fetch(`${BASE}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(partial),
+  });
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+  return res.json();
+}
 
-    const res = await fetch(`${BASE}/settings`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(merged),
-    });
-    if (!res.ok) throw new Error(`${res.status}`);
-
-    // Cache in localStorage only after server confirms —
-    // avoids desync if the save fails.
-    if (partial.appearance) {
-      localStorage.setItem(
-        "hubris-appearance",
-        JSON.stringify(partial.appearance),
-      );
-    }
-    if (partial.terminal) {
-      localStorage.setItem("hubris-terminal", JSON.stringify(partial.terminal));
-    }
-  };
-
-  const queuedSave = settingsSaveQueue.then(runSave, runSave);
-  settingsSaveQueue = queuedSave.catch(() => {});
-  return queuedSave;
+export async function replaceSettings(
+  settings: Settings,
+): Promise<SettingsState> {
+  const res = await fetch(`${BASE}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+  return res.json();
 }

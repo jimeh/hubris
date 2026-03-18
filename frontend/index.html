@@ -7,11 +7,15 @@
     <title>hubris</title>
     <script>
       // Apply cached theme before first paint to prevent FOUC.
-      // Must match logic in theme store.
+      // Keep in sync with src/lib/theme/prepaint.ts.
       (function () {
         try {
-          var s = JSON.parse(localStorage.getItem("hubris-appearance") || "{}");
-          var scheme = s.colorScheme || "auto";
+          var settingsState = JSON.parse(
+            localStorage.getItem("hubris-settings") || "{}",
+          );
+          var appearance =
+            (settingsState.settings && settingsState.settings.appearance) || {};
+          var scheme = appearance.colorScheme || "auto";
           var prefersDark = window.matchMedia(
             "(prefers-color-scheme: dark)",
           ).matches;

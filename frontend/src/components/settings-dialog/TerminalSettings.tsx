@@ -9,16 +9,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useTerminalStore } from "@/lib/stores/terminal";
+import { useSettingsStore } from "@/lib/stores/settings";
+import { useTerminalSettings } from "@/lib/stores/terminal";
 import { BUNDLED_FONTS } from "@/lib/terminal/fonts";
 
 const settingsRowClass =
   "grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center sm:gap-3";
 
 export default function TerminalSettings() {
-  const settings = useTerminalStore((state) => state.settings);
-  const fontFamily = useTerminalStore((state) => state.fontFamily);
-  const updateSettings = useTerminalStore((state) => state.updateSettings);
+  const settings = useTerminalSettings((state) => state.settings);
+  const fontFamily = useTerminalSettings((state) => state.fontFamily);
+  const updateSettings = useTerminalSettings((state) => state.updateSettings);
+  const writesBlocked = useSettingsStore((state) => state.status.writesBlocked);
 
   const fontPreviewLines = [
     "Hello, World!",
@@ -40,6 +42,7 @@ export default function TerminalSettings() {
           <Button
             variant={settings.fontSource === "default" ? "secondary" : "ghost"}
             size="sm"
+            disabled={writesBlocked}
             onClick={() => void updateSettings({ fontSource: "default" })}
           >
             Default
@@ -47,6 +50,7 @@ export default function TerminalSettings() {
           <Button
             variant={settings.fontSource === "system" ? "secondary" : "ghost"}
             size="sm"
+            disabled={writesBlocked}
             onClick={() => void updateSettings({ fontSource: "system" })}
           >
             System
@@ -54,6 +58,7 @@ export default function TerminalSettings() {
           <Button
             variant={settings.fontSource === "bundled" ? "secondary" : "ghost"}
             size="sm"
+            disabled={writesBlocked}
             onClick={() => void updateSettings({ fontSource: "bundled" })}
           >
             <Type className="mr-1.5 h-3.5 w-3.5" />
@@ -71,10 +76,16 @@ export default function TerminalSettings() {
             type="text"
             placeholder="'My Font', monospace"
             value={settings.systemFontFamily}
+            disabled={writesBlocked}
             onChange={(event) =>
-              void updateSettings({
-                systemFontFamily: event.currentTarget.value,
-              })
+              void updateSettings(
+                {
+                  systemFontFamily: event.currentTarget.value,
+                },
+                {
+                  debounceKey: "terminal.systemFontFamily",
+                },
+              )
             }
           />
         </div>
@@ -87,6 +98,7 @@ export default function TerminalSettings() {
           </Label>
           <Select
             value={settings.bundledFont}
+            disabled={writesBlocked}
             onValueChange={(value) =>
               void updateSettings({ bundledFont: value })
             }
@@ -113,7 +125,7 @@ export default function TerminalSettings() {
           <Button
             variant="outline"
             size="icon-sm"
-            disabled={settings.fontSize <= 8}
+            disabled={writesBlocked || settings.fontSize <= 8}
             onClick={() =>
               void updateSettings({ fontSize: settings.fontSize - 1 })
             }
@@ -124,17 +136,24 @@ export default function TerminalSettings() {
             type="text"
             inputMode="numeric"
             value={String(settings.fontSize)}
+            disabled={writesBlocked}
             onChange={(event) =>
-              void updateSettings({
-                fontSize: Number.parseInt(event.currentTarget.value, 10) || 14,
-              })
+              void updateSettings(
+                {
+                  fontSize:
+                    Number.parseInt(event.currentTarget.value, 10) || 14,
+                },
+                {
+                  debounceKey: "terminal.fontSize",
+                },
+              )
             }
             className="h-8 w-14 text-center"
           />
           <Button
             variant="outline"
             size="icon-sm"
-            disabled={settings.fontSize >= 32}
+            disabled={writesBlocked || settings.fontSize >= 32}
             onClick={() =>
               void updateSettings({ fontSize: settings.fontSize + 1 })
             }

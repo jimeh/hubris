@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef } from "react";
 import { createXtermAdapter } from "@/lib/terminal/xterm";
-import { useThemeStore } from "@/lib/stores/theme";
-import { useTerminalStore } from "@/lib/stores/terminal";
+import { useThemeSettings } from "@/lib/stores/theme";
+import { useTerminalSettings } from "@/lib/stores/terminal";
 import type { TerminalAdapter } from "@/lib/terminal/adapter";
 import { useTerminalConnection } from "@/components/terminal/useTerminalConnection";
 
@@ -11,10 +11,10 @@ type Props = {
   onClosed?: (tabId: string) => void;
 };
 function TerminalTab({ tabId, visible, onClosed }: Props) {
-  const themeVersion = useThemeStore((state) => state.version);
-  const terminalVersion = useTerminalStore((state) => state.version);
-  const fontFamily = useTerminalStore((state) => state.fontFamily);
-  const fontSize = useTerminalStore((state) => state.settings.fontSize);
+  const themeVersion = useThemeSettings((state) => state.version);
+  const terminalVersion = useTerminalSettings((state) => state.version);
+  const fontFamily = useTerminalSettings((state) => state.fontFamily);
+  const fontSize = useTerminalSettings((state) => state.settings.fontSize);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<TerminalAdapter | null>(null);
