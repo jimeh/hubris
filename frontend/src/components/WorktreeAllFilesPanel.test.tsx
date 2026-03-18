@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import {
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeAllFilesPanel from "./WorktreeAllFilesPanel";
 import type { Worktree } from "@/lib/types";
 
@@ -51,7 +52,19 @@ function getRowButton(name: string): HTMLElement {
   return screen.getByRole("button", { name: new RegExp(`^${name}(\\s|$)`) });
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe("WorktreeAllFilesPanel", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(async () => {
     vi.restoreAllMocks();
     mockListProjectWorktreeFiles.mockReset();
@@ -106,13 +119,15 @@ describe("WorktreeAllFilesPanel", () => {
 
     expect(await screen.findByText("README.md")).toBeInTheDocument();
     expect(screen.getByText("src")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockListProjectWorktreeFiles).toHaveBeenCalledTimes(2);
+    });
     expect(
       within(getRowButton("src")).getByTestId("folder-icon-closed"),
     ).toBeVisible();
     expect(
       within(getRowButton("README.md")).getByTestId("file-icon-manifest"),
     ).toHaveAttribute("data-icon-id", "readme");
-    expect(mockListProjectWorktreeFiles).toHaveBeenCalledTimes(1);
 
     fireEvent.click(getRowButton("src"));
 
@@ -165,6 +180,257 @@ describe("WorktreeAllFilesPanel", () => {
     expect(
       within(getRowButton("notes.foo")).getByTestId("file-icon-manifest"),
     ).toHaveAttribute("data-icon-id", "file");
+  });
+
+  it("shows the root loading placeholder immediately", async () => {
+    const rootListing = createDeferred<{
+      generation: number;
+      path: string;
+      entries: Array<{
+        name: string;
+        path: string;
+        kind: "file" | "directory";
+      }>;
+    }>();
+
+    mockListProjectWorktreeFiles.mockImplementation(
+      async (_projectId: string, _worktreeId: string, path = "") => {
+        if (path === "") {
+          return rootListing.promise;
+        }
+        return { generation: 1, path, entries: [] };
+      },
+    );
+
+    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+
+    expect(
+      screen.getByTestId("root-directory-loading-list"),
+    ).toBeInTheDocument();
+
+    rootListing.resolve({
+      generation: 1,
+      path: "",
+      entries: [{ name: "README.md", path: "README.md", kind: "file" }],
+    });
+
+    expect(await screen.findByText("README.md")).toBeInTheDocument();
+  });
+
+  it("does not show the nested loading placeholder for fast responses", async () => {
+    const noisyListing = createDeferred<{
+      generation: number;
+      path: string;
+      entries: Array<{
+        name: string;
+        path: string;
+        kind: "file" | "directory";
+      }>;
+    }>();
+
+    mockListProjectWorktreeFiles.mockImplementation(
+      async (_projectId: string, _worktreeId: string, path = "") => {
+        if (path === "node_modules") {
+          return noisyListing.promise;
+        }
+        return {
+          generation: 1,
+          path,
+          entries:
+            path === ""
+              ? [
+                  {
+                    name: "node_modules",
+                    path: "node_modules",
+                    kind: "directory",
+                  },
+                ]
+              : [],
+        };
+      },
+    );
+
+    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+
+    expect(await screen.findByText("node_modules")).toBeInTheDocument();
+
+    vi.useFakeTimers();
+
+    fireEvent.click(getRowButton("node_modules"));
+    expect(
+      screen.queryByTestId("nested-directory-loading-placeholder"),
+    ).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(
+      screen.queryByTestId("nested-directory-loading-placeholder"),
+    ).toBeNull();
+
+    await act(async () => {
+      noisyListing.resolve({
+        generation: 1,
+        path: "node_modules",
+        entries: [
+          {
+            name: "package.json",
+            path: "node_modules/package.json",
+            kind: "file",
+          },
+        ],
+      });
+      await Promise.resolve();
+    });
+
+    vi.useRealTimers();
+
+    expect(await screen.findByText("package.json")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("nested-directory-loading-placeholder"),
+    ).toBeNull();
+  });
+
+  it("shows the nested loading placeholder after the delay for slow responses", async () => {
+    const noisyListing = createDeferred<{
+      generation: number;
+      path: string;
+      entries: Array<{
+        name: string;
+        path: string;
+        kind: "file" | "directory";
+      }>;
+    }>();
+
+    mockListProjectWorktreeFiles.mockImplementation(
+      async (_projectId: string, _worktreeId: string, path = "") => {
+        if (path === "node_modules") {
+          return noisyListing.promise;
+        }
+        return {
+          generation: 1,
+          path,
+          entries:
+            path === ""
+              ? [
+                  {
+                    name: "node_modules",
+                    path: "node_modules",
+                    kind: "directory",
+                  },
+                ]
+              : [],
+        };
+      },
+    );
+
+    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+
+    expect(await screen.findByText("node_modules")).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    fireEvent.click(getRowButton("node_modules"));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(175);
+    });
+
+    expect(
+      screen.getByTestId("nested-directory-loading-placeholder"),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      noisyListing.resolve({
+        generation: 1,
+        path: "node_modules",
+        entries: [
+          {
+            name: "package.json",
+            path: "node_modules/package.json",
+            kind: "file",
+          },
+        ],
+      });
+      await Promise.resolve();
+    });
+
+    vi.useRealTimers();
+
+    expect(await screen.findByText("package.json")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("nested-directory-loading-placeholder"),
+    ).toBeNull();
+  });
+
+  it("preloads newly visible descendant directories when a folder opens", async () => {
+    mockListProjectWorktreeFiles.mockImplementation(
+      async (_projectId: string, _worktreeId: string, path = "") => {
+        if (path === "src") {
+          return {
+            generation: 1,
+            path: "src",
+            entries: [
+              {
+                name: "nested",
+                path: "src/nested",
+                kind: "directory",
+              },
+              { name: "lib.rs", path: "src/lib.rs", kind: "file" },
+            ],
+          };
+        }
+        if (path === "src/nested") {
+          return {
+            generation: 1,
+            path: "src/nested",
+            entries: [
+              {
+                name: "deep.txt",
+                path: "src/nested/deep.txt",
+                kind: "file",
+              },
+            ],
+          };
+        }
+        return {
+          generation: 1,
+          path: "",
+          entries: [{ name: "src", path: "src", kind: "directory" }],
+        };
+      },
+    );
+
+    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+
+    expect(await screen.findByText("src")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockListProjectWorktreeFiles).toHaveBeenCalledWith("p1", "w1", "");
+      expect(mockListProjectWorktreeFiles).toHaveBeenCalledWith(
+        "p1",
+        "w1",
+        "src",
+      );
+    });
+
+    fireEvent.click(getRowButton("src"));
+
+    expect(await screen.findByText("nested")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockListProjectWorktreeFiles).toHaveBeenCalledWith(
+        "p1",
+        "w1",
+        "src/nested",
+      );
+    });
+
+    const callCountBeforeOpenNested =
+      mockListProjectWorktreeFiles.mock.calls.length;
+    fireEvent.click(getRowButton("nested"));
+
+    expect(await screen.findByText("deep.txt")).toBeInTheDocument();
+    expect(mockListProjectWorktreeFiles.mock.calls.length).toBe(
+      callCountBeforeOpenNested,
+    );
   });
 
   it("renames files from the row action menu", async () => {

@@ -61,6 +61,8 @@ type DecorationState = {
   gitStatus: WorktreeGitStatus | null;
 };
 
+const NESTED_LOADING_PLACEHOLDER_DELAY_MS = 175;
+
 const EMPTY_STATE = {
   directories: {} as Record<string, DirectoryState>,
   expandedPaths: [] as string[],
@@ -316,6 +318,35 @@ function RenameInput({
   );
 }
 
+function DelayedNestedLoadingRow({ depth }: { depth: number }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setVisible(true);
+    }, NESTED_LOADING_PLACEHOLDER_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 px-2 py-1.5"
+      style={{ paddingLeft: `${depth * 14 + 36}px` }}
+      data-testid="nested-directory-loading-placeholder"
+    >
+      <Skeleton className="h-4 w-4 rounded-md" />
+      <Skeleton className="h-4 w-28 rounded-md" />
+    </div>
+  );
+}
+
 function FileTreeRow({
   worktree,
   entry,
@@ -447,13 +478,7 @@ function FileTreeRow({
       {entry.kind === "directory" && expanded ? (
         <div className="flex flex-col">
           {directoryState?.status === "loading" ? (
-            <div
-              className="flex items-center gap-2 px-2 py-1.5"
-              style={{ paddingLeft: `${depth * 14 + 36}px` }}
-            >
-              <Skeleton className="h-4 w-4 rounded-md" />
-              <Skeleton className="h-4 w-28 rounded-md" />
-            </div>
+            <DelayedNestedLoadingRow depth={depth} />
           ) : directoryState?.status === "error" ? (
             <div
               className="flex items-center gap-2 px-2 py-1 text-xs text-destructive"
@@ -514,11 +539,11 @@ export default function WorktreeAllFilesPanel({
   const loadDirectory = useWorktreeFileManagerStore(
     (state) => state.loadDirectory,
   );
-  const loadGitStatus = useWorktreeFileManagerStore(
-    (state) => state.loadGitStatus,
-  );
   const refreshVisiblePaths = useWorktreeFileManagerStore(
     (state) => state.refreshVisiblePaths,
+  );
+  const preloadVisibleDirectories = useWorktreeFileManagerStore(
+    (state) => state.preloadVisibleDirectories,
   );
   const renameEntry = useWorktreeFileManagerStore((state) => state.renameEntry);
   const setExpanded = useWorktreeFileManagerStore((state) => state.setExpanded);
@@ -538,12 +563,9 @@ export default function WorktreeAllFilesPanel({
 
   const refreshPanel = useCallback(
     async (force = false) => {
-      await Promise.all([
-        loadGitStatus(worktree.project_id, worktree.id, { force }),
-        loadDirectory(worktree.project_id, worktree.id, "", { force }),
-      ]);
+      await refreshVisiblePaths(worktree.project_id, worktree.id, { force });
     },
-    [loadDirectory, loadGitStatus, worktree.id, worktree.project_id],
+    [refreshVisiblePaths, worktree.id, worktree.project_id],
   );
 
   const headerActions = useMemo(
@@ -620,11 +642,15 @@ export default function WorktreeAllFilesPanel({
       setExpanded(worktree.id, entry.path, nextExpanded);
       setSelectedPath(worktree.id, entry.path);
       if (nextExpanded) {
-        void loadDirectory(worktree.project_id, worktree.id, entry.path);
+        void (async () => {
+          await loadDirectory(worktree.project_id, worktree.id, entry.path);
+          await preloadVisibleDirectories(worktree.project_id, worktree.id);
+        })();
       }
     },
     [
       loadDirectory,
+      preloadVisibleDirectories,
       setExpanded,
       setSelectedPath,
       worktree.id,
@@ -679,7 +705,7 @@ export default function WorktreeAllFilesPanel({
 
         {rootDirectory?.status === "loading" &&
         rootDirectory.entries.length === 0 ? (
-          <div className="space-y-2">
+          <div className="space-y-2" data-testid="root-directory-loading-list">
             {Array.from({ length: 6 }).map((_, index) => (
               <div key={index} className="flex items-center gap-2 px-2 py-1.5">
                 <Skeleton className="h-4 w-4 rounded-md" />

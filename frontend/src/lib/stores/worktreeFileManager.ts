@@ -32,6 +32,20 @@ type LoadOptions = {
   force?: boolean;
 };
 
+const PRELOAD_SKIP_DIRECTORY_NAMES = new Set([
+  "node_modules",
+  "tmp",
+  "temp",
+  "dist",
+  "build",
+  "target",
+  "coverage",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  ".cache",
+]);
+
 type WorktreeFileManagerState = {
   worktrees: Record<string, WorktreeFileManagerSlice>;
   setExpanded: (worktreeId: string, path: string, expanded: boolean) => void;
@@ -47,6 +61,10 @@ type WorktreeFileManagerState = {
     projectId: string,
     worktreeId: string,
     options?: LoadOptions,
+  ) => Promise<void>;
+  preloadVisibleDirectories: (
+    projectId: string,
+    worktreeId: string,
   ) => Promise<void>;
   refreshVisiblePaths: (
     projectId: string,
@@ -105,6 +123,19 @@ function parentPath(path: string): string {
     return "";
   }
   return normalized.slice(0, index);
+}
+
+function baseName(path: string): string {
+  const normalized = normalizePath(path);
+  if (!normalized) {
+    return "";
+  }
+  const segments = normalized.split("/");
+  return segments[segments.length - 1] ?? "";
+}
+
+function shouldSkipPreloadDirectory(name: string): boolean {
+  return PRELOAD_SKIP_DIRECTORY_NAMES.has(name);
 }
 
 export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
@@ -298,6 +329,50 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
         });
       }
     },
+    async preloadVisibleDirectories(projectId, worktreeId) {
+      const visited = new Set<string>();
+      const queue = [""];
+
+      while (queue.length > 0) {
+        const path = queue.shift() ?? "";
+        if (visited.has(path)) {
+          continue;
+        }
+        visited.add(path);
+
+        if (path && shouldSkipPreloadDirectory(baseName(path))) {
+          continue;
+        }
+
+        const current = getSlice(get().worktrees, worktreeId);
+        const directory = current.directories[path];
+        if (directory?.status !== "loaded") {
+          continue;
+        }
+
+        const childDirectories = directory.entries.filter(
+          (entry) =>
+            entry.kind === "directory" &&
+            !shouldSkipPreloadDirectory(entry.name),
+        );
+
+        await Promise.all(
+          childDirectories.map((entry) =>
+            get().loadDirectory(projectId, worktreeId, entry.path),
+          ),
+        );
+
+        const next = getSlice(get().worktrees, worktreeId);
+        for (const entry of childDirectories) {
+          if (
+            next.expandedPaths.includes(entry.path) &&
+            next.directories[entry.path]?.status === "loaded"
+          ) {
+            queue.push(entry.path);
+          }
+        }
+      }
+    },
     async refreshVisiblePaths(projectId, worktreeId, options = {}) {
       const current = getSlice(get().worktrees, worktreeId);
       const targetGeneration = current.pendingGeneration;
@@ -318,6 +393,8 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
           }),
         ),
       ]);
+
+      await get().preloadVisibleDirectories(projectId, worktreeId);
 
       set((state) => {
         const next = getSlice(state.worktrees, worktreeId);
