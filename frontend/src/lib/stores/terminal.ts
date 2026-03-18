@@ -1,4 +1,7 @@
-import { useSettingsStore } from "@/lib/stores/settings";
+import {
+  type SettingsUpdateOptions,
+  useSettingsStore,
+} from "@/lib/stores/settings";
 import { useShallow } from "zustand/react/shallow";
 import type {
   TerminalSettings,
@@ -9,11 +12,17 @@ type TerminalStoreSlice = {
   settings: TerminalSettings;
   fontFamily: string;
   version: number;
-  updateSettings: (partial: TerminalSettingsPatch) => void;
+  updateSettings: (
+    partial: TerminalSettingsPatch,
+    options?: SettingsUpdateOptions,
+  ) => void;
 };
 
-function updateTerminalSettings(partial: TerminalSettingsPatch): void {
-  useSettingsStore.getState().updateTerminal(partial);
+function updateTerminalSettings(
+  partial: TerminalSettingsPatch,
+  options?: SettingsUpdateOptions,
+): void {
+  useSettingsStore.getState().updateTerminal(partial, options);
 }
 
 function selectTerminalSlice(

@@ -8,11 +8,15 @@ import { useTerminalSettings } from "@/lib/stores/terminal";
 const mockGetSettings = vi.fn();
 const mockPatchSettings = vi.fn();
 const mockResetApiStateForTests = vi.fn();
+const mockShowSettingsInvalidFileToast = vi.fn();
+const mockShowSettingsSaveFailedToast = vi.fn();
+
 const okStatus = {
   kind: "ok" as const,
   writesBlocked: false,
   message: null,
 };
+
 const invalidStatus = {
   kind: "invalidFile" as const,
   writesBlocked: true,
@@ -39,6 +43,11 @@ vi.mock("@/lib/events", () => ({
   }),
 }));
 
+vi.mock("@/lib/stores/toasts", () => ({
+  showSettingsInvalidFileToast: () => mockShowSettingsInvalidFileToast(),
+  showSettingsSaveFailedToast: () => mockShowSettingsSaveFailedToast(),
+}));
+
 function emit(name: string, payload: unknown): void {
   for (const handler of handlers.get(name) ?? []) {
     handler(payload);
@@ -47,7 +56,6 @@ function emit(name: string, payload: unknown): void {
 
 type MatchMediaStub = {
   media: MediaQueryList;
-  matchMedia: ReturnType<typeof vi.fn>;
 };
 
 function stubMatchMedia(
@@ -64,12 +72,13 @@ function stubMatchMedia(
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
   } as unknown as MediaQueryList;
-  const matchMedia = vi.fn().mockImplementation(() => media);
+
   Object.defineProperty(window, "matchMedia", {
     writable: true,
-    value: matchMedia,
+    value: vi.fn().mockImplementation(() => media),
   });
-  return { media, matchMedia };
+
+  return { media };
 }
 
 function deferred<T>() {
@@ -87,6 +96,51 @@ async function flushAsyncWork(): Promise<void> {
   await Promise.resolve();
 }
 
+function createSettingsState(
+  generation: string,
+  overrides?: Partial<{
+    appearance: Partial<{
+      colorScheme: "auto" | "light" | "dark";
+      lightTheme: string;
+      darkTheme: string;
+    }>;
+    terminal: Partial<{
+      fontSource: "default" | "system" | "bundled";
+      systemFontFamily: string;
+      bundledFont: string;
+      fontSize: number;
+    }>;
+    worktree: Partial<{
+      locationMode: "dataDir" | "repoLocalDotHubris";
+    }>;
+    status: typeof okStatus | typeof invalidStatus;
+  }>,
+) {
+  return {
+    settings: {
+      appearance: {
+        colorScheme: "light" as const,
+        lightTheme: "hubris-light",
+        darkTheme: "hubris-dark",
+        ...(overrides?.appearance ?? {}),
+      },
+      terminal: {
+        fontSource: "default" as const,
+        systemFontFamily: "",
+        bundledFont: "jetbrainsmono-nf",
+        fontSize: 14,
+        ...(overrides?.terminal ?? {}),
+      },
+      worktree: {
+        locationMode: "dataDir" as const,
+        ...(overrides?.worktree ?? {}),
+      },
+    },
+    generation,
+    status: overrides?.status ?? okStatus,
+  };
+}
+
 async function getStore() {
   const mod = await import("./settings");
   mod.resetSettingsStoreForTests();
@@ -102,29 +156,14 @@ describe("settings store", () => {
     document.documentElement.className = "";
     document.documentElement.removeAttribute("style");
     stubMatchMedia(false);
+
     mockGetSettings.mockReset();
     mockPatchSettings.mockReset();
     mockResetApiStateForTests.mockReset();
-    mockPatchSettings.mockResolvedValue({
-      settings: {
-        appearance: {
-          colorScheme: "dark",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "dataDir",
-        },
-      },
-      generation: "2",
-      status: okStatus,
-    });
+    mockShowSettingsInvalidFileToast.mockReset();
+    mockShowSettingsSaveFailedToast.mockReset();
+
+    mockPatchSettings.mockResolvedValue(createSettingsState("2"));
   });
 
   it("removes the media listener and rebinds on reset", async () => {
@@ -195,25 +234,81 @@ describe("settings store", () => {
     );
   });
 
-  it("debounces minimal PATCH payloads", async () => {
+  it("sends discrete control updates immediately with a leaf patch", async () => {
     const store = await getStore();
     store.initializeSettingsStore();
 
-    store.useSettingsStore.getState().updateAppearance({
-      colorScheme: "dark",
+    act(() => {
+      store.useSettingsStore.getState().updateAppearance({
+        colorScheme: "dark",
+      });
     });
-    store.useSettingsStore.getState().updateTerminal({
-      fontSize: 15,
-    });
 
-    expect(mockPatchSettings).not.toHaveBeenCalled();
-
-    await vi.runAllTimersAsync();
-
+    expect(
+      store.useSettingsStore.getState().settings.appearance.colorScheme,
+    ).toBe("dark");
     expect(mockPatchSettings).toHaveBeenCalledTimes(1);
     expect(mockPatchSettings).toHaveBeenCalledWith({
       appearance: { colorScheme: "dark" },
-      terminal: { fontSize: 15 },
+    });
+  });
+
+  it("debounces system font family typing and sends only the latest value", async () => {
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    act(() => {
+      store.useSettingsStore
+        .getState()
+        .updateTerminal(
+          { systemFontFamily: "Jet" },
+          { debounceKey: "terminal.systemFontFamily" },
+        );
+      store.useSettingsStore
+        .getState()
+        .updateTerminal(
+          { systemFontFamily: "JetBrains Mono" },
+          { debounceKey: "terminal.systemFontFamily" },
+        );
+    });
+
+    expect(mockPatchSettings).not.toHaveBeenCalled();
+    expect(
+      store.useSettingsStore.getState().settings.terminal.systemFontFamily,
+    ).toBe("JetBrains Mono");
+
+    await vi.advanceTimersByTimeAsync(249);
+    expect(mockPatchSettings).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockPatchSettings).toHaveBeenCalledTimes(1);
+    expect(mockPatchSettings).toHaveBeenCalledWith({
+      terminal: { systemFontFamily: "JetBrains Mono" },
+    });
+  });
+
+  it("debounces typed font size and sends only the final value", async () => {
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    act(() => {
+      store.useSettingsStore
+        .getState()
+        .updateTerminal({ fontSize: 15 }, { debounceKey: "terminal.fontSize" });
+      store.useSettingsStore
+        .getState()
+        .updateTerminal({ fontSize: 16 }, { debounceKey: "terminal.fontSize" });
+    });
+
+    expect(mockPatchSettings).not.toHaveBeenCalled();
+    expect(store.useSettingsStore.getState().settings.terminal.fontSize).toBe(
+      16,
+    );
+
+    await vi.advanceTimersByTimeAsync(250);
+    expect(mockPatchSettings).toHaveBeenCalledTimes(1);
+    expect(mockPatchSettings).toHaveBeenCalledWith({
+      terminal: { fontSize: 16 },
     });
   });
 
@@ -244,17 +339,6 @@ describe("settings store", () => {
     expect(afterTerminal.appearance).toBe(afterAppearance.appearance);
     expect(afterTerminal.terminal).not.toBe(afterAppearance.terminal);
     expect(afterTerminal.worktree).toBe(afterAppearance.worktree);
-
-    act(() => {
-      store.useSettingsStore.getState().updateWorktree({
-        locationMode: "repoLocalDotHubris",
-      });
-    });
-
-    const afterWorktree = store.useSettingsStore.getState().settings;
-    expect(afterWorktree.appearance).toBe(afterTerminal.appearance);
-    expect(afterWorktree.terminal).toBe(afterTerminal.terminal);
-    expect(afterWorktree.worktree).not.toBe(afterTerminal.worktree);
   });
 
   it("does not rerender terminal settings consumers on appearance-only updates", async () => {
@@ -273,17 +357,19 @@ describe("settings store", () => {
     expect(screen.getByText("14")).toBeInTheDocument();
     expect(renderSpy).toHaveBeenCalledTimes(1);
 
-    act(() => {
+    await act(async () => {
       store.useSettingsStore.getState().updateAppearance({
         colorScheme: "dark",
       });
+      await flushAsyncWork();
     });
     expect(renderSpy).toHaveBeenCalledTimes(1);
 
-    act(() => {
+    await act(async () => {
       store.useSettingsStore.getState().updateTerminal({
         fontSize: 16,
       });
+      await flushAsyncWork();
     });
     expect(renderSpy).toHaveBeenCalledTimes(2);
     expect(screen.getByText("16")).toBeInTheDocument();
@@ -294,45 +380,18 @@ describe("settings store", () => {
     store.initializeSettingsStore();
 
     emit("snapshot", {
-      settings: {
-        appearance: {
-          colorScheme: "dark",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "dataDir",
-        },
-      },
+      settings: createSettingsState("10", {
+        appearance: { colorScheme: "dark" },
+      }).settings,
       settings_generation: "10",
       settings_status: okStatus,
     });
 
     emit("settings_updated", {
-      settings: {
-        appearance: {
-          colorScheme: "light",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "repoLocalDotHubris",
-        },
-      },
-      generation: "9",
-      status: okStatus,
+      ...createSettingsState("9", {
+        appearance: { colorScheme: "light" },
+        worktree: { locationMode: "repoLocalDotHubris" },
+      }),
     });
 
     expect(
@@ -344,346 +403,174 @@ describe("settings store", () => {
     expect(store.useSettingsStore.getState().generation).toBe("10");
   });
 
-  it("keeps queued edits applied locally after PATCH failure", async () => {
-    const firstPatch = deferred<{
-      settings: {
-        appearance: {
-          colorScheme: string;
-          lightTheme: string;
-          darkTheme: string;
-        };
-        terminal: {
-          fontSource: string;
-          systemFontFamily: string;
-          bundledFont: string;
-          fontSize: number;
-        };
-        worktree: {
-          locationMode: string;
-        };
-      };
-      generation: string;
-      status: typeof okStatus;
-    }>();
-    mockPatchSettings.mockReturnValueOnce(firstPatch.promise);
-    mockGetSettings.mockResolvedValue({
-      settings: {
-        appearance: {
-          colorScheme: "light",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "dataDir",
-        },
-      },
-      generation: "3",
-      status: okStatus,
-    });
+  it("ignores older PATCH responses when a newer generation already applied", async () => {
+    const firstPatch = deferred<ReturnType<typeof createSettingsState>>();
+    const secondPatch = deferred<ReturnType<typeof createSettingsState>>();
+    mockPatchSettings
+      .mockReturnValueOnce(firstPatch.promise)
+      .mockReturnValueOnce(secondPatch.promise);
 
     const store = await getStore();
     store.initializeSettingsStore();
 
-    store.useSettingsStore.getState().updateAppearance({
-      colorScheme: "dark",
+    act(() => {
+      store.useSettingsStore.getState().updateAppearance({
+        colorScheme: "dark",
+      });
+      store.useSettingsStore.getState().updateTerminal({
+        fontSize: 16,
+      });
     });
-    await vi.advanceTimersByTimeAsync(250);
 
-    store.useSettingsStore.getState().updateTerminal({
-      fontSize: 16,
+    secondPatch.resolve(
+      createSettingsState("6", {
+        terminal: { fontSize: 16 },
+      }),
+    );
+    await flushAsyncWork();
+
+    firstPatch.resolve(
+      createSettingsState("5", {
+        appearance: { colorScheme: "dark" },
+      }),
+    );
+    await flushAsyncWork();
+
+    expect(store.useSettingsStore.getState().generation).toBe("6");
+    expect(store.useSettingsStore.getState().settings.terminal.fontSize).toBe(
+      16,
+    );
+    expect(
+      store.useSettingsStore.getState().settings.appearance.colorScheme,
+    ).toBe("light");
+  });
+
+  it("ignores stale failures after a newer request exists", async () => {
+    const firstPatch = deferred<ReturnType<typeof createSettingsState>>();
+    mockPatchSettings
+      .mockReturnValueOnce(firstPatch.promise)
+      .mockResolvedValueOnce(
+        createSettingsState("6", {
+          terminal: { fontSize: 16 },
+        }),
+      );
+
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    act(() => {
+      store.useSettingsStore.getState().updateAppearance({
+        colorScheme: "dark",
+      });
+      store.useSettingsStore.getState().updateTerminal({
+        fontSize: 16,
+      });
     });
+    await flushAsyncWork();
 
     firstPatch.reject(new Error("500"));
     await flushAsyncWork();
 
+    expect(mockShowSettingsSaveFailedToast).not.toHaveBeenCalled();
+    expect(mockShowSettingsInvalidFileToast).not.toHaveBeenCalled();
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    expect(store.useSettingsStore.getState().generation).toBe("6");
+  });
+
+  it("shows a failure toast and refetches canonical settings for the latest failed request", async () => {
+    mockPatchSettings.mockRejectedValueOnce(new Error("500"));
+    mockGetSettings.mockResolvedValue(createSettingsState("7"));
+
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    act(() => {
+      store.useSettingsStore.getState().updateAppearance({
+        colorScheme: "dark",
+      });
+    });
+    await flushAsyncWork();
+
+    expect(mockShowSettingsSaveFailedToast).toHaveBeenCalledTimes(1);
     expect(mockGetSettings).toHaveBeenCalledTimes(1);
     expect(
       store.useSettingsStore.getState().settings.appearance.colorScheme,
-    ).toBe("dark");
-    expect(store.useSettingsStore.getState().settings.terminal.fontSize).toBe(
-      16,
-    );
-    expect(store.useSettingsStore.getState().generation).toBe("3");
-    expect(store.useSettingsStore.getState().fontFamily).toBe(
-      DEFAULT_FONT_FAMILY,
-    );
+    ).toBe("light");
+    expect(store.useSettingsStore.getState().generation).toBe("7");
   });
 
-  it("retries queued edits after retryable PATCH failures", async () => {
-    mockPatchSettings
-      .mockRejectedValueOnce(new Error("500"))
-      .mockResolvedValueOnce({
-        settings: {
-          appearance: {
-            colorScheme: "dark",
-            lightTheme: "hubris-light",
-            darkTheme: "hubris-dark",
-          },
-          terminal: {
-            fontSource: "default",
-            systemFontFamily: "",
-            bundledFont: "jetbrainsmono-nf",
-            fontSize: 16,
-          },
-          worktree: {
-            locationMode: "dataDir",
-          },
-        },
-        generation: "4",
-        status: okStatus,
+  it("shows an invalid-file toast and refetches canonical settings on 409", async () => {
+    mockPatchSettings.mockRejectedValueOnce({
+      name: "ApiStatusError",
+      status: 409,
+      message: "409",
+    });
+    mockGetSettings.mockResolvedValue(
+      createSettingsState("3", { status: invalidStatus }),
+    );
+
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    act(() => {
+      store.useSettingsStore.getState().updateAppearance({
+        colorScheme: "dark",
       });
-    mockGetSettings.mockResolvedValue({
-      settings: {
-        appearance: {
-          colorScheme: "light",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "dataDir",
-        },
-      },
-      generation: "3",
-      status: okStatus,
     });
-
-    const store = await getStore();
-    store.initializeSettingsStore();
-
-    store.useSettingsStore.getState().updateTerminal({
-      fontSize: 16,
-    });
-
-    await vi.advanceTimersByTimeAsync(250);
     await flushAsyncWork();
 
     expect(mockPatchSettings).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(499);
-    expect(mockPatchSettings).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(1);
-    await flushAsyncWork();
-
-    expect(mockPatchSettings).toHaveBeenCalledTimes(2);
-    expect(mockPatchSettings).toHaveBeenNthCalledWith(2, {
-      terminal: { fontSize: 16 },
-    });
-    expect(store.useSettingsStore.getState().generation).toBe("4");
-    expect(store.useSettingsStore.getState().settings.terminal.fontSize).toBe(
-      16,
-    );
-  });
-
-  it("does not auto-retry 409 conflicts but keeps edits queued", async () => {
-    mockPatchSettings.mockRejectedValueOnce({
-      name: "ApiStatusError",
-      status: 409,
-      message: "409",
-    });
-    mockGetSettings.mockResolvedValue({
-      settings: {
-        appearance: {
-          colorScheme: "light",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "dataDir",
-        },
-      },
-      generation: "3",
-      status: invalidStatus,
-    });
-
-    const store = await getStore();
-    store.initializeSettingsStore();
-
-    store.useSettingsStore.getState().updateAppearance({
-      colorScheme: "dark",
-    });
-
-    await vi.advanceTimersByTimeAsync(250);
-    await flushAsyncWork();
-    await vi.advanceTimersByTimeAsync(5000);
-
-    expect(mockPatchSettings).toHaveBeenCalledTimes(1);
+    expect(mockGetSettings).toHaveBeenCalledTimes(1);
+    expect(mockShowSettingsInvalidFileToast).toHaveBeenCalledTimes(1);
+    expect(mockShowSettingsSaveFailedToast).not.toHaveBeenCalled();
     expect(
       store.useSettingsStore.getState().settings.appearance.colorScheme,
-    ).toBe("dark");
-
-    store.useSettingsStore.getState().updateTerminal({
-      fontSize: 16,
-    });
-    await vi.advanceTimersByTimeAsync(5000);
-    await flushAsyncWork();
-
-    expect(mockPatchSettings).toHaveBeenCalledTimes(1);
-    expect(store.useSettingsStore.getState().settings.terminal.fontSize).toBe(
-      16,
-    );
+    ).toBe("light");
+    expect(store.useSettingsStore.getState().status).toEqual(invalidStatus);
   });
 
-  it("resumes queued flushes after settings recover on the same generation", async () => {
-    mockPatchSettings.mockRejectedValueOnce({
-      name: "ApiStatusError",
-      status: 409,
-      message: "409",
-    });
-    mockGetSettings.mockResolvedValue({
-      settings: {
-        appearance: {
-          colorScheme: "light",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "dataDir",
-        },
-      },
-      generation: "3",
-      status: invalidStatus,
-    });
-
-    const store = await getStore();
-    store.initializeSettingsStore();
-
-    store.useSettingsStore.getState().updateAppearance({
-      colorScheme: "dark",
-    });
-
-    await vi.advanceTimersByTimeAsync(250);
-    await flushAsyncWork();
-
-    mockPatchSettings.mockResolvedValueOnce({
-      settings: {
-        appearance: {
-          colorScheme: "dark",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "repoLocalDotHubris",
-        },
-      },
-      generation: "5",
-      status: okStatus,
-    });
-
-    emit("settings_updated", {
-      settings: {
-        appearance: {
-          colorScheme: "light",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "repoLocalDotHubris",
-        },
-      },
-      generation: "3",
-      status: okStatus,
-    });
-
-    await vi.advanceTimersByTimeAsync(0);
-    await flushAsyncWork();
-
-    expect(mockPatchSettings).toHaveBeenCalledTimes(2);
-    expect(mockPatchSettings).toHaveBeenNthCalledWith(2, {
-      appearance: { colorScheme: "dark" },
-    });
-    expect(store.useSettingsStore.getState().generation).toBe("5");
-    expect(
-      store.useSettingsStore.getState().settings.appearance.colorScheme,
-    ).toBe("dark");
-    expect(
-      store.useSettingsStore.getState().settings.worktree.locationMode,
-    ).toBe("repoLocalDotHubris");
-  });
-
-  it("updates invalid-file status from equal-generation server events", async () => {
+  it("applies equal-generation invalid-file status updates from the server", async () => {
     const store = await getStore();
     store.initializeSettingsStore();
 
     emit("snapshot", {
-      settings: {
-        appearance: {
-          colorScheme: "auto",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "dataDir",
-        },
-      },
+      settings: createSettingsState("10", {
+        appearance: { colorScheme: "auto" },
+      }).settings,
       settings_generation: "10",
       settings_status: okStatus,
     });
 
     emit("settings_updated", {
-      settings: {
-        appearance: {
-          colorScheme: "auto",
-          lightTheme: "hubris-light",
-          darkTheme: "hubris-dark",
-        },
-        terminal: {
-          fontSource: "default",
-          systemFontFamily: "",
-          bundledFont: "jetbrainsmono-nf",
-          fontSize: 14,
-        },
-        worktree: {
-          locationMode: "dataDir",
-        },
-      },
-      generation: "10",
-      status: invalidStatus,
+      ...createSettingsState("10", {
+        appearance: { colorScheme: "auto" },
+        status: invalidStatus,
+      }),
     });
 
     expect(store.useSettingsStore.getState().generation).toBe("10");
     expect(store.useSettingsStore.getState().status).toEqual(invalidStatus);
+  });
+
+  it("keeps the resolved default font after failed-save refetches", async () => {
+    mockPatchSettings.mockRejectedValueOnce(new Error("500"));
+    mockGetSettings.mockResolvedValue(createSettingsState("8"));
+
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    act(() => {
+      store.useSettingsStore.getState().updateTerminal({
+        fontSize: 16,
+      });
+    });
+    await flushAsyncWork();
+
+    expect(store.useSettingsStore.getState().fontFamily).toBe(
+      DEFAULT_FONT_FAMILY,
+    );
+    expect(store.useSettingsStore.getState().settings.terminal.fontSize).toBe(
+      14,
+    );
   });
 });

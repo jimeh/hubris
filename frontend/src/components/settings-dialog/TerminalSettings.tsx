@@ -78,9 +78,14 @@ export default function TerminalSettings() {
             value={settings.systemFontFamily}
             disabled={writesBlocked}
             onChange={(event) =>
-              void updateSettings({
-                systemFontFamily: event.currentTarget.value,
-              })
+              void updateSettings(
+                {
+                  systemFontFamily: event.currentTarget.value,
+                },
+                {
+                  debounceKey: "terminal.systemFontFamily",
+                },
+              )
             }
           />
         </div>
@@ -133,9 +138,15 @@ export default function TerminalSettings() {
             value={String(settings.fontSize)}
             disabled={writesBlocked}
             onChange={(event) =>
-              void updateSettings({
-                fontSize: Number.parseInt(event.currentTarget.value, 10) || 14,
-              })
+              void updateSettings(
+                {
+                  fontSize:
+                    Number.parseInt(event.currentTarget.value, 10) || 14,
+                },
+                {
+                  debounceKey: "terminal.fontSize",
+                },
+              )
             }
             className="h-8 w-14 text-center"
           />

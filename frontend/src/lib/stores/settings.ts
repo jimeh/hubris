@@ -8,6 +8,10 @@ import {
 import { builtinThemes } from "@/lib/theme/builtin";
 import { getSettings, patchSettings, resetApiStateForTests } from "@/lib/api";
 import { getEventClient } from "@/lib/events";
+import {
+  showSettingsInvalidFileToast,
+  showSettingsSaveFailedToast,
+} from "@/lib/stores/toasts";
 import { DEFAULT_FONT_FAMILY, resolveFont } from "@/lib/terminal/fonts";
 import type {
   AppearanceSettings,
@@ -25,9 +29,8 @@ import type {
 } from "@/lib/theme/types";
 
 const LS_SETTINGS = "hubris-settings";
-const INITIAL_RETRY_DELAY_MS = 500;
-const MAX_RETRY_DELAY_MS = 5000;
 const COLOR_SCHEME_MEDIA_QUERY = "(prefers-color-scheme: dark)";
+const DEFAULT_INPUT_DEBOUNCE_MS = 250;
 
 const DEFAULT_SETTINGS: Settings = {
   appearance: {
@@ -56,6 +59,17 @@ const builtinsById = new Map(
   builtinThemes.map((theme) => [theme.id, theme] as const),
 );
 
+type SettingsUpdateOptions = {
+  debounceKey?: string;
+  debounceMs?: number;
+};
+
+type DebouncedSave = {
+  timer: number;
+  patch: SettingsPatch;
+  revision: number;
+};
+
 type SettingsStoreState = {
   settings: Settings;
   generation: string;
@@ -66,21 +80,21 @@ type SettingsStoreState = {
   prefersLight: boolean;
   fontFamily: string;
   updateAppearance: (partial: AppearanceSettingsPatch) => void;
-  updateTerminal: (partial: TerminalSettingsPatch) => void;
+  updateTerminal: (
+    partial: TerminalSettingsPatch,
+    options?: SettingsUpdateOptions,
+  ) => void;
   updateWorktree: (partial: WorktreeSettingsPatch) => void;
 };
+
+type CachedSettingsState = Pick<SettingsState, "settings" | "generation">;
 
 let initialized = false;
 let eventUnsubscribers: Array<() => void> = [];
 let mediaListenerBound = false;
-let flushTimer: number | null = null;
-let pendingPatch: SettingsPatch = {};
-let inFlightPatch: SettingsPatch | null = null;
 let fontLoadGeneration = 0;
-let retryDelayMs = INITIAL_RETRY_DELAY_MS;
-let writesBlockedByConflict = false;
-
-type CachedSettingsState = Pick<SettingsState, "settings" | "generation">;
+let latestLocalRevision = 0;
+const debounceEntries = new Map<string, DebouncedSave>();
 
 function allThemeEntries(): ThemeListEntry[] {
   return [...builtinThemes];
@@ -143,6 +157,10 @@ function normalizeAppearanceSettings(candidate: unknown): {
     },
     changed,
   };
+}
+
+function clampFontSize(size: number): number {
+  return Math.max(8, Math.min(32, size));
 }
 
 function normalizeTerminalSettings(candidate: unknown): {
@@ -249,10 +267,6 @@ function normalizeSettingsStatus(candidate: unknown): SettingsStatus {
   };
 }
 
-function clampFontSize(size: number): number {
-  return Math.max(8, Math.min(32, size));
-}
-
 function getActiveTheme(
   settings: AppearanceSettings,
   prefersLight: boolean,
@@ -308,14 +322,6 @@ function syncActiveTheme(
   cacheThemeVars(settings);
 }
 
-function compareGeneration(left: string, right: string): number {
-  const leftValue = parseGeneration(left);
-  const rightValue = parseGeneration(right);
-  if (leftValue < rightValue) return -1;
-  if (leftValue > rightValue) return 1;
-  return 0;
-}
-
 function parseGeneration(value: string): bigint {
   try {
     return BigInt(value);
@@ -324,38 +330,12 @@ function parseGeneration(value: string): bigint {
   }
 }
 
-function mergeSettingsPatch(
-  base: SettingsPatch,
-  next: SettingsPatch,
-): SettingsPatch {
-  const merged: SettingsPatch = {
-    appearance: base.appearance ? { ...base.appearance } : undefined,
-    terminal: base.terminal ? { ...base.terminal } : undefined,
-    worktree: base.worktree ? { ...base.worktree } : undefined,
-  };
-
-  if (next.appearance) {
-    merged.appearance = {
-      ...(merged.appearance ?? {}),
-      ...next.appearance,
-    };
-  }
-
-  if (next.terminal) {
-    merged.terminal = {
-      ...(merged.terminal ?? {}),
-      ...next.terminal,
-    };
-  }
-
-  if (next.worktree) {
-    merged.worktree = {
-      ...(merged.worktree ?? {}),
-      ...next.worktree,
-    };
-  }
-
-  return stripEmptyPatch(merged);
+function compareGeneration(left: string, right: string): number {
+  const leftValue = parseGeneration(left);
+  const rightValue = parseGeneration(right);
+  if (leftValue < rightValue) return -1;
+  if (leftValue > rightValue) return 1;
+  return 0;
 }
 
 function stripEmptyPatch(patch: SettingsPatch): SettingsPatch {
@@ -420,7 +400,7 @@ function applyPatchToSettings(
 function cacheCanonicalSettings(state: SettingsState): void {
   try {
     const cached: CachedSettingsState = {
-      settings: state.settings,
+      settings: normalizeSettings(state.settings).settings,
       generation: state.generation,
     };
     localStorage.setItem(LS_SETTINGS, JSON.stringify(cached));
@@ -447,21 +427,20 @@ function readCachedSettingsState(): CachedSettingsState | null {
   }
 }
 
-function scheduleFlush(delay = 250): void {
-  if (flushTimer !== null) {
-    window.clearTimeout(flushTimer);
+function clearDebounceTimer(key: string): void {
+  const entry = debounceEntries.get(key);
+  if (!entry) {
+    return;
   }
-  flushTimer = window.setTimeout(() => {
-    flushTimer = null;
-    void flushPendingPatch();
-  }, delay);
+  window.clearTimeout(entry.timer);
+  debounceEntries.delete(key);
 }
 
-function clearFlushTimer(): void {
-  if (flushTimer !== null) {
-    window.clearTimeout(flushTimer);
-    flushTimer = null;
+function clearAllDebounceTimers(): void {
+  for (const entry of debounceEntries.values()) {
+    window.clearTimeout(entry.timer);
   }
+  debounceEntries.clear();
 }
 
 function updateResolvedFont(settings: TerminalSettings): void {
@@ -600,91 +579,121 @@ function commitSettings(
   }
 }
 
-function applyCanonicalState(
+function applyServerState(
   serverState: SettingsState,
-  allowOlder = false,
+  source: "response" | "canonical",
+): boolean {
+  const current = useSettingsStore.getState();
+  const comparison = compareGeneration(
+    serverState.generation,
+    current.generation,
+  );
+
+  if (comparison < 0) {
+    return false;
+  }
+  if (source === "response" && comparison === 0) {
+    return false;
+  }
+
+  const normalizedSettings = normalizeSettings(serverState.settings).settings;
+  const normalizedStatus = normalizeSettingsStatus(serverState.status);
+
+  clearAllDebounceTimers();
+  cacheCanonicalSettings({
+    settings: normalizedSettings,
+    generation: serverState.generation,
+    status: normalizedStatus,
+  });
+  commitSettings(normalizedSettings, serverState.generation, normalizedStatus);
+  return true;
+}
+
+async function refetchCanonicalState(): Promise<void> {
+  try {
+    const nextState = await getSettings();
+    applyServerState(nextState, "canonical");
+  } catch {
+    // Keep the current UI state if the fallback read fails too.
+  }
+}
+
+function sendPatchRequest(patch: SettingsPatch, revision: number): void {
+  if (!hasPatch(patch)) {
+    return;
+  }
+
+  void (async () => {
+    try {
+      const nextState = await patchSettings(patch);
+      applyServerState(nextState, "response");
+    } catch (error) {
+      if (revision !== latestLocalRevision) {
+        return;
+      }
+
+      if (getErrorStatus(error) === 409) {
+        showSettingsInvalidFileToast();
+      } else {
+        showSettingsSaveFailedToast();
+      }
+      await refetchCanonicalState();
+    }
+  })();
+}
+
+function scheduleDebouncedSave(
+  patch: SettingsPatch,
+  revision: number,
+  options: SettingsUpdateOptions,
+): void {
+  const debounceKey = options.debounceKey;
+  if (!debounceKey) {
+    return;
+  }
+
+  clearDebounceTimer(debounceKey);
+  const delay = options.debounceMs ?? DEFAULT_INPUT_DEBOUNCE_MS;
+  const timer = window.setTimeout(() => {
+    const entry = debounceEntries.get(debounceKey);
+    if (!entry) {
+      return;
+    }
+    debounceEntries.delete(debounceKey);
+    sendPatchRequest(entry.patch, entry.revision);
+  }, delay);
+
+  debounceEntries.set(debounceKey, {
+    timer,
+    patch,
+    revision,
+  });
+}
+
+function applyOptimisticPatch(
+  patch: SettingsPatch,
+  options: SettingsUpdateOptions = {},
 ): void {
   const current = useSettingsStore.getState();
-  const nextStatus = normalizeSettingsStatus(serverState.status);
-  const generationAdvanced =
-    compareGeneration(serverState.generation, current.generation) > 0;
-  if (
-    !allowOlder &&
-    compareGeneration(serverState.generation, current.generation) < 0
-  ) {
+  if (current.status.writesBlocked) {
     return;
   }
 
-  cacheCanonicalSettings(serverState);
-  const unsynced = mergeSettingsPatch(inFlightPatch ?? {}, pendingPatch);
-  const settings = hasPatch(unsynced)
-    ? applyPatchToSettings(serverState.settings, unsynced)
-    : serverState.settings;
-  commitSettings(settings, serverState.generation, nextStatus);
+  latestLocalRevision += 1;
+  const revision = latestLocalRevision;
 
-  const writesRecovered =
-    current.status.writesBlocked && !nextStatus.writesBlocked;
-  if ((generationAdvanced || writesRecovered) && !allowOlder) {
-    retryDelayMs = INITIAL_RETRY_DELAY_MS;
-    if (writesBlockedByConflict && !nextStatus.writesBlocked) {
-      writesBlockedByConflict = false;
-      if (hasPatch(pendingPatch) && !inFlightPatch) {
-        scheduleFlush(0);
-      }
-    }
-  }
-}
-
-async function flushPendingPatch(): Promise<void> {
-  if (writesBlockedByConflict || inFlightPatch || !hasPatch(pendingPatch)) {
-    return;
-  }
-
-  const patch = pendingPatch;
-  pendingPatch = {};
-  inFlightPatch = patch;
-  let nextFlushDelay: number | null = null;
-
-  try {
-    const nextState = await patchSettings(patch);
-    inFlightPatch = null;
-    retryDelayMs = INITIAL_RETRY_DELAY_MS;
-    writesBlockedByConflict = false;
-    applyCanonicalState(nextState);
-  } catch (error) {
-    inFlightPatch = null;
-    pendingPatch = mergeSettingsPatch(patch, pendingPatch);
-    writesBlockedByConflict = getErrorStatus(error) === 409;
-
-    try {
-      const current = await getSettings();
-      applyCanonicalState(current, true);
-    } catch {
-      // Keep optimistic state if refetch also fails.
-    }
-
-    if (!writesBlockedByConflict) {
-      nextFlushDelay = retryDelayMs;
-      retryDelayMs = Math.min(retryDelayMs * 2, MAX_RETRY_DELAY_MS);
-    }
-  } finally {
-    if (hasPatch(pendingPatch) && !writesBlockedByConflict) {
-      scheduleFlush(nextFlushDelay ?? 0);
-    }
-  }
-}
-
-function applyLocalPatch(patch: SettingsPatch): void {
-  pendingPatch = mergeSettingsPatch(pendingPatch, patch);
-  const current = useSettingsStore.getState();
   commitSettings(
     applyPatchToSettings(current.settings, patch),
     current.generation,
     current.status,
   );
-  if (!writesBlockedByConflict) {
-    scheduleFlush();
+
+  if (options.debounceKey) {
+    scheduleDebouncedSave(patch, revision, options);
+    return;
   }
+
+  sendPatchRequest(patch, revision);
 }
 
 function handleSystemColorSchemeChange(event: MediaQueryListEvent): void {
@@ -730,13 +739,13 @@ export const useSettingsStore = create<SettingsStoreState>(() => ({
   prefersLight: readPrefersLight(),
   fontFamily: DEFAULT_FONT_FAMILY,
   updateAppearance(partial) {
-    applyLocalPatch({ appearance: partial });
+    applyOptimisticPatch({ appearance: partial });
   },
-  updateTerminal(partial) {
-    applyLocalPatch({ terminal: partial });
+  updateTerminal(partial, options) {
+    applyOptimisticPatch({ terminal: partial }, options);
   },
   updateWorktree(partial) {
-    applyLocalPatch({ worktree: partial });
+    applyOptimisticPatch({ worktree: partial });
   },
 }));
 
@@ -757,28 +766,25 @@ export function initializeSettingsStore(): void {
   const events = getEventClient();
   eventUnsubscribers = [
     events.on("snapshot", (data) => {
-      applyCanonicalState(
+      applyServerState(
         {
           settings: data.settings,
           generation: data.settings_generation,
           status: data.settings_status,
         },
-        false,
+        "canonical",
       );
     }),
     events.on("settings_updated", (data) => {
-      applyCanonicalState(data, false);
+      applyServerState(data, "canonical");
     }),
   ];
 }
 
 export function resetSettingsStoreForTests(): void {
-  clearFlushTimer();
-  pendingPatch = {};
-  inFlightPatch = null;
+  clearAllDebounceTimers();
   fontLoadGeneration = 0;
-  retryDelayMs = INITIAL_RETRY_DELAY_MS;
-  writesBlockedByConflict = false;
+  latestLocalRevision = 0;
   resetApiStateForTests();
 
   for (const unsubscribe of eventUnsubscribers) {
@@ -816,3 +822,5 @@ export function resetSettingsStoreForTests(): void {
 export function themeEntries(): ThemeListEntry[] {
   return allThemeEntries();
 }
+
+export type { SettingsUpdateOptions };

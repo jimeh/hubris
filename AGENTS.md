@@ -166,6 +166,14 @@ No periodic reconciliation — drift corrects on reconnect.
   same `SettingsState` payload. The frontend ignores older generations
   but still applies equal-generation status changes so invalid-file
   recovery can unblock queued writes.
+- **Frontend settings saves are optimistic but backend-authoritative**:
+  the browser applies local changes immediately, sends discrete
+  `PATCH /api/settings` writes right away, and debounces typed terminal
+  inputs (`systemFontFamily`, typed `fontSize`). Server responses and
+  SSE are canonical: the store accepts newer generations, still applies
+  equal-generation status changes, and on latest-request failures shows
+  a toast then refetches `/api/settings` instead of retrying or
+  rebasing unsaved local diffs.
 - **Invalid settings files block writes until fixed**: malformed
   `settings.toml` at startup or during runtime no longer crashes
   Hubris; the backend keeps the last known/default in-memory settings,

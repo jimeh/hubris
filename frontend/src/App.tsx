@@ -22,6 +22,7 @@ import {
 import AppSidebar from "@/components/AppSidebar";
 import SettingsStatusNotice from "@/components/SettingsStatusNotice";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
+import ToastViewport from "@/components/ToastViewport";
 import WorktreeView from "@/components/WorktreeView";
 import { Button } from "@/components/ui/button";
 import { useProjectStore } from "@/lib/stores/projects";
@@ -220,6 +221,7 @@ export default function App() {
               </div>
             )}
           </div>
+          <ToastViewport />
         </SidebarInset>
       </SidebarProvider>
     </div>
