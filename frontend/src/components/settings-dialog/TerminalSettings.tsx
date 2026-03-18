@@ -103,7 +103,7 @@ export default function TerminalSettings() {
               void updateSettings({ bundledFont: value })
             }
           >
-            <SelectTrigger className="w-full" disabled={writesBlocked}>
+            <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

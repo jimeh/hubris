@@ -322,6 +322,12 @@ function syncActiveTheme(
   cacheThemeVars(settings);
 }
 
+/**
+ * Parses a generation string into a bigint, falling back to `0n` if parsing
+ * fails. This is ambiguous with a legitimate `"0"` generation; a future
+ * cleanup could instead return `null`/`undefined` or throw so callers can
+ * distinguish malformed generations from a real zero value.
+ */
 function parseGeneration(value: string): bigint {
   try {
     return BigInt(value);
