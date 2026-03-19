@@ -31,6 +31,9 @@ type ListWorktreeStartPointsResponse =
 type CreateWorktreeRequest = components["schemas"]["CreateWorktreeRequest"];
 type WorktreeGitStatusResponse =
   components["schemas"]["WorktreeGitStatusResponse"];
+type GitCommitPerson = components["schemas"]["GitCommitPerson"];
+type GitCommitDetailsResponse =
+  components["schemas"]["GitCommitDetailsResponse"];
 type WorktreeFileEntry = components["schemas"]["WorktreeFileEntry"];
 type WorktreeFileKind = components["schemas"]["WorktreeFileKind"];
 type GitFileChange = components["schemas"]["GitFileChange"];
@@ -130,6 +133,8 @@ export type WorktreeFile = WorktreeFileEntry;
 export type WorktreeFileType = WorktreeFileKind;
 export type WorktreeGitFileChange = GitFileChange;
 export type WorktreeGitCommitSummary = GitCommitSummary;
+export type WorktreeGitCommitPerson = GitCommitPerson;
+export type WorktreeGitCommitDetails = GitCommitDetailsResponse;
 
 export async function listProjectWorktreeStartPoints(
   projectId: string,
@@ -171,6 +176,21 @@ export async function getProjectWorktreeGitStatus(
     `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git-status`,
   );
   if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function getProjectWorktreeCommitDetails(
+  projectId: string,
+  worktreeId: string,
+  commitId: string,
+): Promise<GitCommitDetailsResponse> {
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git/commits/${commitId}`,
+  );
+  if (!res.ok) {
+    if (res.status === 404) throw new Error("Commit not found");
+    throw new Error(`${res.status}`);
+  }
   return res.json();
 }
 

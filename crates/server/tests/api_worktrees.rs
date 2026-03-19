@@ -140,6 +140,23 @@ async fn get_worktree_git_status(
     res.json().await.unwrap()
 }
 
+async fn get_worktree_commit_details(
+    client: &reqwest::Client,
+    base: &str,
+    project_id: &str,
+    worktree_id: &str,
+    commit_id: &str,
+) -> reqwest::Response {
+    client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/commits/{}",
+            base, project_id, worktree_id, commit_id
+        ))
+        .send()
+        .await
+        .unwrap()
+}
+
 async fn post_worktree_git_action(
     client: &reqwest::Client,
     base: &str,
@@ -533,6 +550,211 @@ async fn test_worktree_git_status_reports_staged_unstaged_and_ahead() {
     assert_eq!(body["staged_files"][0]["change_type"], "added");
     assert_eq!(body["unstaged_files"][0]["path"], "README.md");
     assert_eq!(body["unstaged_files"][0]["change_type"], "modified");
+}
+
+#[tokio::test]
+async fn test_worktree_commit_details_returns_metadata_and_changed_files() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("details.txt"), "hello\n").unwrap();
+    run_git(repo.path(), &["add", "details.txt"]);
+    run_git_env(
+        repo.path(),
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "feat: details",
+            "-m",
+            "body line one\nbody line two",
+        ],
+        &[
+            ("GIT_AUTHOR_NAME", "Author Example"),
+            ("GIT_AUTHOR_EMAIL", "author@example.com"),
+            ("GIT_COMMITTER_NAME", "Committer Example"),
+            ("GIT_COMMITTER_EMAIL", "committer@example.com"),
+        ],
+    );
+
+    let commit_id = String::from_utf8(
+        Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktrees = list_worktrees(&client, &base, &project_id).await;
+    let local = worktrees["worktrees"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|worktree| worktree["is_local"] == true)
+        .unwrap();
+
+    let res = get_worktree_commit_details(
+        &client,
+        &base,
+        &project_id,
+        local["id"].as_str().unwrap(),
+        &commit_id,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["id"], commit_id);
+    assert_eq!(body["summary"], "feat: details");
+    assert!(body["message"].as_str().unwrap().contains("body line one"));
+    assert_eq!(body["author"]["name"], "Author Example");
+    assert_eq!(body["author"]["email"], "author@example.com");
+    assert_eq!(body["committer"]["name"], "Committer Example");
+    assert_eq!(body["committer"]["email"], "committer@example.com");
+    assert_eq!(body["files"][0]["path"], "details.txt");
+    assert_eq!(body["files"][0]["change_type"], "added");
+}
+
+#[tokio::test]
+async fn test_worktree_commit_details_handles_root_commit_diff() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let root_commit_id = String::from_utf8(
+        Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["rev-list", "--max-parents=0", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktrees = list_worktrees(&client, &base, &project_id).await;
+    let local = worktrees["worktrees"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|worktree| worktree["is_local"] == true)
+        .unwrap();
+
+    let res = get_worktree_commit_details(
+        &client,
+        &base,
+        &project_id,
+        local["id"].as_str().unwrap(),
+        &root_commit_id,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body: Value = res.json().await.unwrap();
+    let files = body["files"].as_array().unwrap();
+    assert!(
+        files
+            .iter()
+            .any(|file| file["path"] == "README.md" && file["change_type"] == "added")
+    );
+}
+
+#[tokio::test]
+async fn test_worktree_commit_details_uses_first_parent_for_merge_commits() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    run_git(repo.path(), &["checkout", "-q", "-b", "feature"]);
+    std::fs::write(repo.path().join("feature.txt"), "feature\n").unwrap();
+    run_git(repo.path(), &["add", "feature.txt"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "feat: branch change"]);
+
+    run_git(repo.path(), &["checkout", "-q", "main"]);
+    std::fs::write(repo.path().join("main.txt"), "main\n").unwrap();
+    run_git(repo.path(), &["add", "main.txt"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "feat: main change"]);
+    run_git(
+        repo.path(),
+        &["merge", "--no-ff", "-m", "merge feature", "feature"],
+    );
+
+    let merge_commit_id = String::from_utf8(
+        Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktrees = list_worktrees(&client, &base, &project_id).await;
+    let local = worktrees["worktrees"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|worktree| worktree["is_local"] == true)
+        .unwrap();
+
+    let res = get_worktree_commit_details(
+        &client,
+        &base,
+        &project_id,
+        local["id"].as_str().unwrap(),
+        &merge_commit_id,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body: Value = res.json().await.unwrap();
+    let files = body["files"].as_array().unwrap();
+    assert!(
+        files
+            .iter()
+            .any(|file| file["path"] == "feature.txt" && file["change_type"] == "added")
+    );
+    assert!(!files.iter().any(|file| file["path"] == "main.txt"));
+}
+
+#[tokio::test]
+async fn test_worktree_commit_details_returns_404_for_unknown_commit() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktrees = list_worktrees(&client, &base, &project_id).await;
+    let local = worktrees["worktrees"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|worktree| worktree["is_local"] == true)
+        .unwrap();
+
+    let res = get_worktree_commit_details(
+        &client,
+        &base,
+        &project_id,
+        local["id"].as_str().unwrap(),
+        "deadbeef",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

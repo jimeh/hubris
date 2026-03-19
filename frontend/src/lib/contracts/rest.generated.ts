@@ -213,6 +213,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_project_worktree_commit_details"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/projects/{id}/worktrees/{worktree_id}/git/discard": {
     parameters: {
       query?: never;
@@ -382,6 +398,20 @@ export interface components {
     };
     DirEntry: {
       is_git_repo: boolean;
+      name: string;
+    };
+    GitCommitDetailsResponse: {
+      author: components["schemas"]["GitCommitPerson"];
+      committer: components["schemas"]["GitCommitPerson"];
+      files: components["schemas"]["GitFileChange"][];
+      id: string;
+      message: string;
+      short_id: string;
+      summary: string;
+    };
+    GitCommitPerson: {
+      date: string;
+      email: string;
       name: string;
     };
     GitCommitSummary: {
@@ -1261,6 +1291,47 @@ export interface operations {
         };
       };
       /** @description Project or worktree not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  get_project_worktree_commit_details: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+        /** @description Commit SHA */
+        commit_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Commit details for a worktree commit */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GitCommitDetailsResponse"];
+        };
+      };
+      /** @description Project, worktree, or commit not found */
       404: {
         headers: {
           [name: string]: unknown;

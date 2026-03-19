@@ -16,9 +16,10 @@ use crate::api::settings::{
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
 use crate::api::worktrees::{
-    CreateWorktreeRequest, GitCommitSummary, GitFileChange, GitFileChangeType,
-    ListWorktreeStartPointsResponse, ListWorktreesResponse, ReorderWorktreesRequest, StartPoint,
-    Worktree, WorktreeGitPathActionRequest, WorktreeGitStatusResponse,
+    CreateWorktreeRequest, GitCommitDetailsResponse, GitCommitPerson, GitCommitSummary,
+    GitFileChange, GitFileChangeType, ListWorktreeStartPointsResponse, ListWorktreesResponse,
+    ReorderWorktreesRequest, StartPoint, Worktree, WorktreeGitPathActionRequest,
+    WorktreeGitStatusResponse,
 };
 use crate::pty::live_tab::TabInfo;
 
@@ -40,6 +41,7 @@ use crate::pty::live_tab::TabInfo;
         crate::api::worktrees::reorder_project_worktrees,
         crate::api::worktrees::delete_project_worktree,
         crate::api::worktrees::get_project_worktree_git_status,
+        crate::api::worktrees::get_project_worktree_commit_details,
         crate::api::worktrees::stage_project_worktree_path,
         crate::api::worktrees::unstage_project_worktree_path,
         crate::api::worktrees::discard_project_worktree_path,
@@ -76,6 +78,8 @@ use crate::pty::live_tab::TabInfo;
             GitFileChangeType,
             GitFileChange,
             GitCommitSummary,
+            GitCommitPerson,
+            GitCommitDetailsResponse,
             WorktreeGitStatusResponse,
             WorktreeGitPathActionRequest,
             TabInfo,

@@ -14,6 +14,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import type { Worktree } from "@/lib/types";
 
 const mockGetProjectWorktreeGitStatus = vi.fn();
+const mockGetProjectWorktreeCommitDetails = vi.fn();
 const mockStageProjectWorktreePath = vi.fn();
 const mockUnstageProjectWorktreePath = vi.fn();
 const mockDiscardProjectWorktreePath = vi.fn();
@@ -24,6 +25,8 @@ vi.mock("@/lib/api", async () => {
     ...actual,
     getProjectWorktreeGitStatus: (...args: unknown[]) =>
       mockGetProjectWorktreeGitStatus(...args),
+    getProjectWorktreeCommitDetails: (...args: unknown[]) =>
+      mockGetProjectWorktreeCommitDetails(...args),
     stageProjectWorktreePath: (...args: unknown[]) =>
       mockStageProjectWorktreePath(...args),
     unstageProjectWorktreePath: (...args: unknown[]) =>
@@ -89,6 +92,7 @@ describe("WorktreeGitStatusPanel", () => {
     vi.useRealTimers();
     localStorage.clear();
     mockGetProjectWorktreeGitStatus.mockReset();
+    mockGetProjectWorktreeCommitDetails.mockReset();
     mockStageProjectWorktreePath.mockReset();
     mockUnstageProjectWorktreePath.mockReset();
     mockDiscardProjectWorktreePath.mockReset();
@@ -121,6 +125,26 @@ describe("WorktreeGitStatusPanel", () => {
     mockStageProjectWorktreePath.mockResolvedValue(undefined);
     mockUnstageProjectWorktreePath.mockResolvedValue(undefined);
     mockDiscardProjectWorktreePath.mockResolvedValue(undefined);
+    mockGetProjectWorktreeCommitDetails.mockResolvedValue({
+      id: "abcdef123456",
+      short_id: "abcdef1",
+      summary: "Ahead commit",
+      message: "Ahead commit\n\nMore context",
+      author: {
+        name: "Author Example",
+        email: "author@example.com",
+        date: "2026-03-19T12:00:00+00:00",
+      },
+      committer: {
+        name: "Committer Example",
+        email: "committer@example.com",
+        date: "2026-03-19T12:30:00+00:00",
+      },
+      files: [
+        { path: "src/nested/deep.ts", change_type: "modified" },
+        { path: "src/main.ts", change_type: "added" },
+      ],
+    });
   });
 
   it("fetches on mount and only again on manual refresh", async () => {
@@ -279,7 +303,7 @@ describe("WorktreeGitStatusPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders staged, unstaged, and ahead sections", async () => {
+  it("renders staged, unstaged, and commits sections", async () => {
     renderPanel();
 
     expect(
@@ -287,12 +311,8 @@ describe("WorktreeGitStatusPanel", () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
     expect(screen.getByRole("button", { name: "Staged" })).toBeInTheDocument();
-    expect(screen.getByText("Ahead of main")).toBeInTheDocument();
-    expect(sectionHeaderTitles()).toEqual([
-      "Staged",
-      "Unstaged",
-      "Ahead of main",
-    ]);
+    expect(screen.getByRole("button", { name: "Commits" })).toBeInTheDocument();
+    expect(sectionHeaderTitles()).toEqual(["Staged", "Unstaged", "Commits"]);
     expect(screen.getByText("bar.txt")).toBeInTheDocument();
     expect(screen.getAllByText("tmp2/bar").length).toBeGreaterThan(0);
     expect(screen.getByText("README.md")).toBeInTheDocument();
@@ -343,6 +363,20 @@ describe("WorktreeGitStatusPanel", () => {
     expect(unstagedHeader).toBeInTheDocument();
   });
 
+  it("collapses the commits section independently", async () => {
+    renderPanel();
+
+    const commitsHeader = await screen.findByRole("button", {
+      name: "Commits",
+    });
+    expect(screen.getByText("Ahead commit")).toBeInTheDocument();
+
+    fireEvent.click(commitsHeader);
+
+    expect(screen.queryByText("Ahead commit")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Commits" })).toBeInTheDocument();
+  });
+
   it("preserves section collapse state across view mode changes", async () => {
     renderPanel();
 
@@ -382,6 +416,111 @@ describe("WorktreeGitStatusPanel", () => {
     expect(screen.getByText("C")).toBeInTheDocument();
     expect(screen.getByText("R")).toBeInTheDocument();
     expect(screen.getByText("!")).toBeInTheDocument();
+  });
+
+  it("shows a rich hover card for commits and lazy-loads details once", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    const commitRow = await screen.findByRole("button", {
+      name: "Toggle commit Ahead commit",
+    });
+    await user.hover(commitRow);
+
+    expect(
+      await screen.findByText("Author Example <author@example.com>"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Committer Example <committer@example.com>"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Ahead commit").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText((_, element) => {
+        return element?.textContent === "Ahead commit\n\nMore context";
+      }),
+    ).toBeInTheDocument();
+
+    await user.unhover(commitRow);
+    await user.hover(commitRow);
+
+    expect(mockGetProjectWorktreeCommitDetails).toHaveBeenCalledTimes(1);
+    expect(mockGetProjectWorktreeCommitDetails).toHaveBeenCalledWith(
+      "p1",
+      "w1",
+      "abcdef123456",
+    );
+  });
+
+  it("renders a head marker and connector segments for the commit timeline", async () => {
+    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+      source_ref: "main",
+      generation: 1,
+      unstaged_files: [],
+      staged_files: [],
+      ahead_count: 2,
+      ahead_commits: [
+        { id: "head123456", short_id: "head123", summary: "Head commit" },
+        {
+          id: "older123456",
+          short_id: "older12",
+          summary: "Older commit",
+        },
+      ],
+      comparison_available: true,
+      comparison_error: null,
+    });
+
+    renderPanel();
+
+    expect(await screen.findByText("Head commit")).toBeInTheDocument();
+    expect(screen.getByText("Older commit")).toBeInTheDocument();
+    expect(screen.getAllByTestId("commit-marker-head")).toHaveLength(1);
+    expect(screen.getAllByTestId("commit-marker-dot")).toHaveLength(1);
+    expect(screen.queryAllByTestId("commit-marker-connector-after")).toHaveLength(
+      1,
+    );
+    expect(
+      screen.queryAllByTestId("commit-marker-connector-before"),
+    ).toHaveLength(1);
+  });
+
+  it("expands a commit into a changed-file tree", async () => {
+    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+      source_ref: "main",
+      generation: 1,
+      unstaged_files: [
+        { path: "tmp2/bar/bar.txt", change_type: "modified" },
+        { path: "tmp2/foo.txt", change_type: "modified" },
+      ],
+      staged_files: [{ path: "README.md", change_type: "added" }],
+      ahead_count: 2,
+      ahead_commits: [
+        { id: "abcdef123456", short_id: "abcdef1", summary: "Ahead commit" },
+        {
+          id: "older123456",
+          short_id: "older12",
+          summary: "Older commit",
+        },
+      ],
+      comparison_available: true,
+      comparison_error: null,
+    });
+
+    renderPanel();
+
+    const commitRow = await screen.findByRole("button", {
+      name: "Toggle commit Ahead commit",
+    });
+    fireEvent.click(commitRow);
+
+    expect(await screen.findByText("main.ts")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Toggle src/nested" }),
+    ).toBeVisible();
+    expect(
+      screen.getByTestId("commit-marker-connector-content"),
+    ).toBeInTheDocument();
+    expect(mockGetProjectWorktreeCommitDetails).toHaveBeenCalledTimes(1);
   });
 
   it("renders inline action buttons and manifest-backed icons in list mode", async () => {
@@ -540,13 +679,13 @@ describe("WorktreeGitStatusPanel", () => {
     const stagedHeader = document.querySelector<HTMLElement>(
       '[data-git-status-section-header="Staged"]',
     );
-    const aheadHeader = document.querySelector<HTMLElement>(
-      '[data-git-status-section-header="Ahead of main"]',
+    const commitsHeader = document.querySelector<HTMLElement>(
+      '[data-git-status-section-header="Commits"]',
     );
 
     expect(unstagedHeader).toHaveClass("sticky", "top-3");
     expect(stagedHeader).toHaveClass("sticky", "top-3");
-    expect(aheadHeader).toHaveClass("sticky", "top-3");
+    expect(commitsHeader).toHaveClass("sticky", "top-3");
   });
 
   it("defaults to tree mode", async () => {

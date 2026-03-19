@@ -446,7 +446,7 @@ function FileTreeRow({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div
-              className="ml-3 border-l border-sidebar-border/70 pl-3"
+              className="ml-[15px] border-l border-sidebar-border/70 pl-[9px]"
               data-testid={`explorer-tree-branch-${entry.path.replaceAll("/", "-")}`}
             >
               {directoryState?.status === "loading" ? (

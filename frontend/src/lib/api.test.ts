@@ -16,6 +16,7 @@ const {
   deleteProject,
   listProjectWorktreeStartPoints,
   createProjectWorktree,
+  getProjectWorktreeCommitDetails,
   getProjectWorktreeGitStatus,
   terminalWsUrl,
   listFiles,
@@ -334,6 +335,60 @@ describe("API client", () => {
         "/api/projects/p1/worktrees/w1/git-status",
       );
       expect(result).toEqual(mockStatus);
+    });
+  });
+
+  describe("getProjectWorktreeCommitDetails", () => {
+    it("fetches commit details for a worktree commit", async () => {
+      const mockDetails = {
+        id: "abcdef123456",
+        short_id: "abcdef1",
+        summary: "feat: commit details",
+        message: "feat: commit details\n\nmore",
+        author: {
+          name: "Author",
+          email: "author@example.com",
+          date: "2026-03-19T12:00:00+00:00",
+        },
+        committer: {
+          name: "Committer",
+          email: "committer@example.com",
+          date: "2026-03-19T12:30:00+00:00",
+        },
+        files: [{ path: "src/main.ts", change_type: "modified" }],
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockDetails),
+        }),
+      );
+
+      const result = await getProjectWorktreeCommitDetails(
+        "p1",
+        "w1",
+        "abcdef123456",
+      );
+
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/p1/worktrees/w1/git/commits/abcdef123456",
+      );
+      expect(result).toEqual(mockDetails);
+    });
+
+    it("throws a readable error for unknown commits", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+        }),
+      );
+
+      await expect(
+        getProjectWorktreeCommitDetails("p1", "w1", "deadbeef"),
+      ).rejects.toThrow("Commit not found");
     });
   });
 

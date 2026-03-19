@@ -672,6 +672,59 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}": {
+      "get": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "get_project_worktree_commit_details",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commit_id",
+            "in": "path",
+            "description": "Commit SHA",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Commit details for a worktree commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCommitDetailsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project, worktree, or commit not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/projects/{id}/worktrees/{worktree_id}/git/discard": {
       "post": {
         "tags": ["crate::api::worktrees"],
@@ -1224,6 +1277,59 @@
         "properties": {
           "is_git_repo": {
             "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "GitCommitDetailsResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "short_id",
+          "summary",
+          "message",
+          "author",
+          "committer",
+          "files"
+        ],
+        "properties": {
+          "author": {
+            "$ref": "#/components/schemas/GitCommitPerson"
+          },
+          "committer": {
+            "$ref": "#/components/schemas/GitCommitPerson"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitFileChange"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "short_id": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "GitCommitPerson": {
+        "type": "object",
+        "required": ["name", "email", "date"],
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
           },
           "name": {
             "type": "string"

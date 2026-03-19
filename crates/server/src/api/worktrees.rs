@@ -120,6 +120,24 @@ pub struct GitCommitSummary {
     pub summary: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+pub struct GitCommitPerson {
+    pub name: String,
+    pub email: String,
+    pub date: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+pub struct GitCommitDetailsResponse {
+    pub id: String,
+    pub short_id: String,
+    pub summary: String,
+    pub message: String,
+    pub author: GitCommitPerson,
+    pub committer: GitCommitPerson,
+    pub files: Vec<GitFileChange>,
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema, TS)]
 pub struct WorktreeGitStatusResponse {
     pub generation: u32,
@@ -541,6 +559,61 @@ pub async fn get_project_worktree_git_status(
         ahead_commits: status.ahead_commits,
         comparison_available: status.comparison_available,
         comparison_error: status.comparison_error,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("commit_id" = String, Path, description = "Commit SHA"),
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Commit details for a worktree commit",
+            body = GitCommitDetailsResponse
+        ),
+        (status = 404, description = "Project, worktree, or commit not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn get_project_worktree_commit_details(
+    State(state): State<AppState>,
+    Path((project_id, worktree_id, commit_id)): Path<(String, String, String)>,
+) -> Result<Json<GitCommitDetailsResponse>, StatusCode> {
+    let resolved = resolve_worktree(&state, &worktree_id)
+        .await?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if resolved.project_id != project_id {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let details = git::read_commit_details(&resolved.local_root, &commit_id)
+        .await
+        .map_err(|error| match error {
+            git::GitCommitDetailsError::NotFound => StatusCode::NOT_FOUND,
+            git::GitCommitDetailsError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
+
+    Ok(Json(GitCommitDetailsResponse {
+        id: details.id,
+        short_id: details.short_id,
+        summary: details.summary,
+        message: details.message,
+        author: GitCommitPerson {
+            name: details.author.name,
+            email: details.author.email,
+            date: details.author.date,
+        },
+        committer: GitCommitPerson {
+            name: details.committer.name,
+            email: details.committer.email,
+            date: details.committer.date,
+        },
+        files: details.files,
     }))
 }
 

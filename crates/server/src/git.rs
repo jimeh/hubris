@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::api::worktrees::{GitCommitSummary, GitFileChange, GitFileChangeType};
+use crate::api::worktrees::{GitCommitPerson, GitCommitSummary, GitFileChange, GitFileChangeType};
 use tokio::process::Command;
 use uuid::Uuid;
 
@@ -40,6 +40,23 @@ pub struct WorktreeGitStatus {
 #[derive(Debug, Clone)]
 pub struct GitError {
     pub message: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GitCommitDetails {
+    pub id: String,
+    pub short_id: String,
+    pub summary: String,
+    pub message: String,
+    pub author: GitCommitPerson,
+    pub committer: GitCommitPerson,
+    pub files: Vec<GitFileChange>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitCommitDetailsError {
+    NotFound,
+    Internal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,12 +140,220 @@ async fn run_git_in_worktree(
     run_git(&argv).await.map_err(map_git_path_error)
 }
 
+async fn run_git_bytes(args: &[&str]) -> Result<Vec<u8>, GitError> {
+    let output = Command::new("git")
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| GitError {
+            message: format!("failed to run git: {e}"),
+        })?;
+
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        let stderr = trim_output(&output.stderr);
+        let stdout = trim_output(&output.stdout);
+        Err(GitError {
+            message: if stderr.is_empty() {
+                if stdout.is_empty() {
+                    "git command failed".to_string()
+                } else {
+                    stdout
+                }
+            } else {
+                stderr
+            },
+        })
+    }
+}
+
+async fn run_git_in_worktree_bytes(
+    worktree_path: &Path,
+    args: &[&str],
+) -> Result<Vec<u8>, GitError> {
+    let cwd = worktree_path.to_string_lossy().to_string();
+    let mut argv = vec!["-C", &cwd];
+    argv.extend_from_slice(args);
+    run_git_bytes(&argv).await
+}
+
 fn split_nul_tokens(bytes: &[u8]) -> Vec<String> {
     bytes
         .split(|byte| *byte == 0)
         .filter(|token| !token.is_empty())
         .map(bytes_to_string)
         .collect()
+}
+
+fn map_git_commit_details_error(error: GitError) -> GitCommitDetailsError {
+    let message = error.message.to_lowercase();
+    if message.contains("unknown revision")
+        || message.contains("bad object")
+        || message.contains("bad revision")
+        || message.contains("needed a single revision")
+        || message.contains("ambiguous argument")
+    {
+        GitCommitDetailsError::NotFound
+    } else {
+        GitCommitDetailsError::Internal
+    }
+}
+
+fn trim_trailing_newlines(value: String) -> String {
+    value.trim_end_matches(['\n', '\r']).to_string()
+}
+
+fn parse_commit_meta(bytes: &[u8]) -> Result<GitCommitDetails, GitCommitDetailsError> {
+    let tokens = split_nul_tokens(bytes);
+    if tokens.len() < 9 {
+        return Err(GitCommitDetailsError::Internal);
+    }
+
+    Ok(GitCommitDetails {
+        id: tokens[0].clone(),
+        short_id: tokens[1].clone(),
+        summary: tokens[2].clone(),
+        message: trim_trailing_newlines(tokens[3].clone()),
+        author: GitCommitPerson {
+            name: tokens[4].clone(),
+            email: tokens[5].clone(),
+            date: tokens[6].trim().to_string(),
+        },
+        committer: GitCommitPerson {
+            name: tokens[7].clone(),
+            email: tokens[8].clone(),
+            date: tokens
+                .get(9)
+                .map(|value| value.trim().to_string())
+                .unwrap_or_default(),
+        },
+        files: Vec::new(),
+    })
+}
+
+fn map_diff_name_status(kind: &str) -> Option<GitFileChangeType> {
+    let code = kind.chars().next()?;
+    Some(match code {
+        'A' => GitFileChangeType::Added,
+        'C' => GitFileChangeType::Copied,
+        'D' => GitFileChangeType::Deleted,
+        'M' => GitFileChangeType::Modified,
+        'R' => GitFileChangeType::Renamed,
+        'T' => GitFileChangeType::Typechange,
+        _ => return None,
+    })
+}
+
+fn parse_diff_name_status(bytes: &[u8]) -> Vec<GitFileChange> {
+    let tokens = split_nul_tokens(bytes);
+    let mut index = 0;
+    let mut files = Vec::new();
+
+    while index < tokens.len() {
+        let status = &tokens[index];
+        index += 1;
+
+        let Some(change_type) = map_diff_name_status(status) else {
+            continue;
+        };
+
+        let path = match change_type {
+            GitFileChangeType::Copied | GitFileChangeType::Renamed => {
+                if index + 1 >= tokens.len() {
+                    break;
+                }
+                index += 1;
+                let value = tokens[index].clone();
+                index += 1;
+                value
+            }
+            _ => {
+                if index >= tokens.len() {
+                    break;
+                }
+                let value = tokens[index].clone();
+                index += 1;
+                value
+            }
+        };
+
+        files.push(GitFileChange { path, change_type });
+    }
+
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    files
+}
+
+pub async fn read_commit_details(
+    worktree_path: &Path,
+    commit_id: &str,
+) -> Result<GitCommitDetails, GitCommitDetailsError> {
+    let meta_bytes = run_git_in_worktree_bytes(
+        worktree_path,
+        &[
+            "show",
+            "-s",
+            "--no-patch",
+            "--format=%H%x00%h%x00%s%x00%B%x00%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI",
+            commit_id,
+        ],
+    )
+    .await
+    .map_err(map_git_commit_details_error)?;
+    let mut details = parse_commit_meta(&meta_bytes)?;
+
+    let parent_bytes = run_git_in_worktree_bytes(
+        worktree_path,
+        &["rev-list", "--parents", "-n", "1", commit_id],
+    )
+    .await
+    .map_err(map_git_commit_details_error)?;
+    let parent_tokens = String::from_utf8_lossy(&parent_bytes)
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if parent_tokens.is_empty() {
+        return Err(GitCommitDetailsError::NotFound);
+    }
+
+    let diff_bytes = if let Some(first_parent) = parent_tokens.get(1) {
+        run_git_in_worktree_bytes(
+            worktree_path,
+            &[
+                "diff-tree",
+                "--no-commit-id",
+                "--name-status",
+                "-r",
+                "-z",
+                "-M",
+                "-C",
+                first_parent,
+                commit_id,
+            ],
+        )
+        .await
+    } else {
+        run_git_in_worktree_bytes(
+            worktree_path,
+            &[
+                "diff-tree",
+                "--root",
+                "--no-commit-id",
+                "--name-status",
+                "-r",
+                "-z",
+                "-M",
+                "-C",
+                commit_id,
+            ],
+        )
+        .await
+    }
+    .map_err(map_git_commit_details_error)?;
+
+    details.files = parse_diff_name_status(&diff_bytes);
+    Ok(details)
 }
 
 #[derive(Debug)]
