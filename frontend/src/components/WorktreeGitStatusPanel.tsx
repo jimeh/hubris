@@ -1,29 +1,59 @@
 import {
+  Fragment,
+  forwardRef,
   startTransition,
   useCallback,
   useEffect,
   useMemo,
   useState,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 import {
+  ArrowDownToLine,
+  ArrowUpToLine,
   ChevronRight,
-  File,
-  Folder,
   FolderTree,
   List,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
+  discardProjectWorktreePath,
+  stageProjectWorktreePath,
+  unstageProjectWorktreePath,
   type WorktreeGitCommitSummary,
   type WorktreeGitFileChange,
 } from "@/lib/api";
+import {
+  gitChangeTypeClass,
+  gitChangeTypeLabel,
+  mostSignificantGitChangeType,
+  type GitChangeType,
+} from "@/lib/gitChangePresentation";
+import {
+  resolveMaterialFileIcon,
+  resolveMaterialFolderIcon,
+} from "@/lib/materialIconTheme";
 import {
   buildWorktreeGitStatusTree,
   type WorktreeGitStatusTreeNode,
 } from "@/lib/worktreeGitStatusTree";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
+import { useThemeSettings } from "@/lib/stores/theme";
+import type { HubrisTheme } from "@/lib/theme/types";
 import type { Worktree } from "@/lib/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,14 +61,16 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar";
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -49,31 +81,22 @@ type Props = {
 
 type FileViewMode = "list" | "tree";
 type TreeOpenState = Record<string, boolean>;
+type ChangeSection = "unstaged" | "staged";
+type SectionOpenState = Record<ChangeSection, boolean>;
+type GitAction = "stage" | "unstage" | "discard";
+
+type PendingDiscard = {
+  path: string;
+  label: string;
+  recursive: boolean;
+};
 
 const LOADING_SKELETON_DELAY_MS = 150;
-
-function changeTypeLabel(
-  changeType: WorktreeGitFileChange["change_type"],
-): string {
-  switch (changeType) {
-    case "added":
-      return "A";
-    case "copied":
-      return "C";
-    case "renamed":
-      return "R";
-    case "conflict":
-      return "!";
-    case "modified":
-      return "M";
-    case "deleted":
-      return "D";
-    case "typechange":
-      return "T";
-    case "untracked":
-      return "U";
-  }
-}
+const ACTION_ICONS = {
+  stage: ArrowUpToLine,
+  unstage: ArrowDownToLine,
+  discard: Trash2,
+} satisfies Record<GitAction, typeof ArrowUpToLine>;
 
 function splitChangePath(path: string): {
   basename: string;
@@ -87,112 +110,413 @@ function splitChangePath(path: string): {
   return { basename, directoryPath };
 }
 
-function ChangeBadge({
-  changeType,
+function actionLabel(action: GitAction): string {
+  switch (action) {
+    case "stage":
+      return "Stage";
+    case "unstage":
+      return "Unstage";
+    case "discard":
+      return "Discard";
+  }
+}
+
+function actionToneClass(action: GitAction): string {
+  switch (action) {
+    case "stage":
+      return "text-emerald-500 hover:text-emerald-400";
+    case "unstage":
+      return "text-amber-500 hover:text-amber-400";
+    case "discard":
+      return "text-rose-500 hover:text-rose-400";
+  }
+}
+
+function actionSuccessLabel(action: GitAction): string {
+  switch (action) {
+    case "stage":
+      return "Staged";
+    case "unstage":
+      return "Unstaged";
+    case "discard":
+      return "Discarded";
+  }
+}
+
+function actionsForSection(section: ChangeSection): GitAction[] {
+  return section === "unstaged" ? ["stage", "discard"] : ["unstage"];
+}
+
+function FolderIcon({
+  name,
+  open,
+  theme,
 }: {
-  changeType: WorktreeGitFileChange["change_type"];
+  name: string;
+  open: boolean;
+  theme: HubrisTheme | null;
 }) {
+  const basename = name.split("/").filter(Boolean).at(-1) ?? name;
+  const icon = resolveMaterialFolderIcon(basename, theme, open);
+
   return (
-    <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+    <img
+      src={icon.iconPath}
+      alt=""
+      className="hubris-explorer-icon h-5 w-5 shrink-0 object-contain"
+      data-testid={
+        open ? "changes-folder-icon-open" : "changes-folder-icon-closed"
+      }
+      data-icon-id={icon.iconId}
+      aria-hidden="true"
+      draggable={false}
+    />
+  );
+}
+
+function FileIcon({
+  path,
+  theme,
+}: {
+  path: string;
+  theme: HubrisTheme | null;
+}) {
+  const icon = resolveMaterialFileIcon(path, theme);
+
+  return (
+    <img
+      src={icon.iconPath}
+      alt=""
+      className="hubris-explorer-icon h-5 w-5 shrink-0 object-contain"
+      data-testid="changes-file-icon"
+      data-icon-id={icon.iconId}
+      aria-hidden="true"
+      draggable={false}
+    />
+  );
+}
+
+function ChangeStatusBadge({ changeType }: { changeType: GitChangeType }) {
+  return (
+    <span
+      className={cn(
+        "flex h-5 min-w-5 items-center justify-center rounded-full text-[10px] font-semibold tracking-[0.18em]",
+        gitChangeTypeClass(changeType),
+      )}
+    >
+      {gitChangeTypeLabel(changeType)}
+    </span>
+  );
+}
+
+function DirectoryStatusDot({ changeType }: { changeType: GitChangeType }) {
+  return (
+    <span className="flex h-5 w-5 shrink-0 items-center justify-center">
       <span
         className={cn(
-          "flex h-6 min-w-6 items-center justify-center rounded-full",
-          "border border-sidebar-border/80 bg-background/70 px-1.5",
-          "text-[10px] uppercase tracking-[0.2em] text-sidebar-foreground/80",
+          "h-2 w-2 rounded-full bg-current opacity-65",
+          gitChangeTypeClass(changeType),
         )}
-      >
-        {changeTypeLabel(changeType)}
-      </span>
+        data-testid="changes-directory-status-dot"
+      />
+    </span>
+  );
+}
+
+function CompactedDirectoryLabel({ name }: { name: string }) {
+  const segments = name.split("/").filter(Boolean);
+
+  return (
+    <span className="truncate">
+      {segments.map((segment, index) => (
+        <Fragment key={`${name}:${index}:${segment}`}>
+          {index > 0 ? (
+            <span
+              className="text-sidebar-foreground/35"
+              data-testid="changes-directory-separator"
+            >
+              {" / "}
+            </span>
+          ) : null}
+          <span>{segment}</span>
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
+function aggregateDirectoryChangeType(
+  node: Extract<WorktreeGitStatusTreeNode, { kind: "directory" }>,
+): GitChangeType | null {
+  return mostSignificantGitChangeType(walkDirectoryChangeTypes(node));
+}
+
+function* walkDirectoryChangeTypes(
+  node: Extract<WorktreeGitStatusTreeNode, { kind: "directory" }>,
+): Generator<GitChangeType> {
+  for (const child of node.children) {
+    if (child.kind === "file") {
+      yield child.change.change_type;
+      continue;
+    }
+
+    yield* walkDirectoryChangeTypes(child);
+  }
+}
+
+function RowActionButton({
+  action,
+  targetLabel,
+  disabled,
+  onAction,
+}: {
+  action: GitAction;
+  targetLabel: string;
+  disabled?: boolean;
+  onAction: (action: GitAction) => void;
+}) {
+  const Icon = ACTION_ICONS[action];
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      className={cn("rounded-md", actionToneClass(action))}
+      aria-label={`${actionLabel(action)} ${targetLabel}`}
+      title={`${actionLabel(action)} ${targetLabel}`}
+      disabled={disabled}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onAction(action);
+      }}
+    >
+      <Icon />
+    </Button>
+  );
+}
+
+const ChangeRowFrame = forwardRef<
+  HTMLDivElement,
+  ComponentProps<"div"> & {
+    primary: ReactNode;
+    actions?: ReactNode;
+    badge?: ReactNode;
+  }
+>(function ChangeRowFrame(
+  { primary, actions, badge, className, ...props },
+  ref,
+) {
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        "flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-[13px] text-sidebar-foreground/90",
+        "hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+        "focus-within:bg-sidebar-accent/60 focus-within:text-sidebar-accent-foreground",
+        className,
+      )}
+      {...props}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2">{primary}</div>
+      {actions ? (
+        <div className="ml-auto flex items-center gap-1">{actions}</div>
+      ) : null}
+      {badge ? <div className="flex items-center">{badge}</div> : null}
     </div>
+  );
+});
+
+function ChangeContextMenu({
+  children,
+  targetLabel,
+  actions,
+  disabled,
+  onAction,
+}: {
+  children: ReactNode;
+  targetLabel: string;
+  actions: GitAction[];
+  disabled?: boolean;
+  onAction: (action: GitAction) => void;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent>
+        {actions.map((action) => {
+          const Icon = ACTION_ICONS[action];
+          return (
+            <ContextMenuItem
+              key={action}
+              disabled={disabled}
+              onSelect={() => onAction(action)}
+            >
+              <Icon className={cn("h-4 w-4", actionToneClass(action))} />
+              {actionLabel(action)} {targetLabel}
+            </ContextMenuItem>
+          );
+        })}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
 function FilePathRow({
   change,
-  treeAligned = false,
+  section,
+  theme,
+  disabled,
+  onAction,
 }: {
   change: WorktreeGitFileChange;
-  treeAligned?: boolean;
+  section: ChangeSection;
+  theme: HubrisTheme | null;
+  disabled?: boolean;
+  onAction: (
+    action: GitAction,
+    path: string,
+    label: string,
+    recursive: boolean,
+  ) => void;
 }) {
   const { basename, directoryPath } = splitChangePath(change.path);
+  const actions = actionsForSection(section);
+  const targetLabel = basename;
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton className="h-8 pr-10 text-sidebar-foreground/90 hover:bg-sidebar-accent/60">
-        {treeAligned ? (
-          <span aria-hidden="true" className="h-4 w-4 shrink-0" />
-        ) : null}
-        <File className="text-sidebar-foreground/60" />
-        <span className="grid min-w-0 flex-1 grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 overflow-hidden">
-          <span className="shrink-0 text-[13px] font-medium text-sidebar-foreground">
-            {basename}
-          </span>
-          {directoryPath ? (
-            <span
-              className="min-w-0 w-full truncate text-[11px] text-sidebar-foreground/55"
-              title={directoryPath}
-            >
-              {directoryPath}
-            </span>
-          ) : (
-            <span aria-hidden="true" className="min-w-0 w-full" />
-          )}
-        </span>
-      </SidebarMenuButton>
-      <ChangeBadge changeType={change.change_type} />
+      <ChangeContextMenu
+        targetLabel={targetLabel}
+        actions={actions}
+        disabled={disabled}
+        onAction={(action) => onAction(action, change.path, targetLabel, false)}
+      >
+        <ChangeRowFrame
+          primary={
+            <>
+              <FileIcon path={change.path} theme={theme} />
+              <span className="grid min-w-0 flex-1 grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 overflow-hidden">
+                <span className="shrink-0 text-[13px] font-medium text-sidebar-foreground">
+                  {basename}
+                </span>
+                {directoryPath ? (
+                  <span
+                    className="min-w-0 w-full truncate text-[11px] text-sidebar-foreground/55"
+                    title={directoryPath}
+                  >
+                    {directoryPath}
+                  </span>
+                ) : (
+                  <span aria-hidden="true" className="min-w-0 w-full" />
+                )}
+              </span>
+            </>
+          }
+          actions={actions.map((action) => (
+            <RowActionButton
+              key={action}
+              action={action}
+              targetLabel={targetLabel}
+              disabled={disabled}
+              onAction={(nextAction) =>
+                onAction(nextAction, change.path, targetLabel, false)
+              }
+            />
+          ))}
+          badge={<ChangeStatusBadge changeType={change.change_type} />}
+        />
+      </ChangeContextMenu>
     </SidebarMenuItem>
   );
 }
 
-function StatusTreeNode({
+function TreeFileNode({
   node,
-  depth = 0,
-  openState,
-  onOpenChange,
+  section,
+  theme,
+  disabled,
+  onAction,
 }: {
-  node: WorktreeGitStatusTreeNode;
-  depth?: number;
-  openState: TreeOpenState;
-  onOpenChange: (path: string, open: boolean) => void;
+  node: Extract<WorktreeGitStatusTreeNode, { kind: "file" }>;
+  section: ChangeSection;
+  theme: HubrisTheme | null;
+  disabled?: boolean;
+  onAction: (
+    action: GitAction,
+    path: string,
+    label: string,
+    recursive: boolean,
+  ) => void;
 }) {
-  if (node.kind === "file") {
-    return (
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          className="h-7 pr-10 text-sidebar-foreground/90 hover:bg-sidebar-accent/60"
-          data-depth={depth}
-        >
-          <span aria-hidden="true" className="h-4 w-4 shrink-0" />
-          <File className="text-sidebar-foreground/60" />
-          <span>{node.name}</span>
-        </SidebarMenuButton>
-        <ChangeBadge changeType={node.change.change_type} />
-      </SidebarMenuItem>
-    );
-  }
+  const actions = actionsForSection(section);
+  const targetLabel = node.name;
 
   return (
-    <StatusDirectoryNode
-      node={node}
-      depth={depth}
-      openState={openState}
-      onOpenChange={onOpenChange}
-    />
+    <SidebarMenuItem>
+      <ChangeContextMenu
+        targetLabel={targetLabel}
+        actions={actions}
+        disabled={disabled}
+        onAction={(action) => onAction(action, node.path, targetLabel, false)}
+      >
+        <ChangeRowFrame
+          primary={
+            <>
+              <span aria-hidden="true" className="h-4 w-4 shrink-0" />
+              <FileIcon path={node.path} theme={theme} />
+              <span className="truncate text-[13px] font-medium">
+                {node.name}
+              </span>
+            </>
+          }
+          actions={actions.map((action) => (
+            <RowActionButton
+              key={action}
+              action={action}
+              targetLabel={targetLabel}
+              disabled={disabled}
+              onAction={(nextAction) =>
+                onAction(nextAction, node.path, targetLabel, false)
+              }
+            />
+          ))}
+          badge={<ChangeStatusBadge changeType={node.change.change_type} />}
+        />
+      </ChangeContextMenu>
+    </SidebarMenuItem>
   );
 }
 
-function StatusDirectoryNode({
+function TreeDirectoryNode({
   node,
   depth,
+  section,
+  theme,
   openState,
+  disabled,
   onOpenChange,
+  onAction,
 }: {
   node: Extract<WorktreeGitStatusTreeNode, { kind: "directory" }>;
   depth: number;
+  section: ChangeSection;
+  theme: HubrisTheme | null;
   openState: TreeOpenState;
+  disabled?: boolean;
   onOpenChange: (path: string, open: boolean) => void;
+  onAction: (
+    action: GitAction,
+    path: string,
+    label: string,
+    recursive: boolean,
+  ) => void;
 }) {
   const open = openState[node.path] ?? depth === 0;
+  const actions = actionsForSection(section);
+  const targetLabel = node.name;
+  const changeType = useMemo(() => aggregateDirectoryChangeType(node), [node]);
 
   return (
     <SidebarMenuItem>
@@ -201,33 +525,74 @@ function StatusDirectoryNode({
         onOpenChange={(nextOpen) => onOpenChange(node.path, nextOpen)}
         className="group/collapsible"
       >
-        <CollapsibleTrigger asChild>
-          <SidebarMenuButton
-            className="h-7 text-sidebar-foreground/90 hover:bg-sidebar-accent/60"
-            aria-label={`Toggle ${node.path}`}
-          >
-            <ChevronRight
-              className={cn(
-                "transition-transform duration-150",
-                open && "rotate-90",
-              )}
-            />
-            <Folder className="text-sidebar-foreground/60" />
-            <span>{node.name}</span>
-          </SidebarMenuButton>
-        </CollapsibleTrigger>
+        <ChangeContextMenu
+          targetLabel={targetLabel}
+          actions={actions}
+          disabled={disabled}
+          onAction={(action) => onAction(action, node.path, targetLabel, true)}
+        >
+          <ChangeRowFrame
+            primary={
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left text-[13px] font-medium outline-hidden"
+                  aria-label={`Toggle ${node.path}`}
+                >
+                  <ChevronRight
+                    className={cn(
+                      "size-4 shrink-0 transition-transform duration-150",
+                      open && "rotate-90",
+                    )}
+                  />
+                  <FolderIcon name={node.name} open={open} theme={theme} />
+                  <CompactedDirectoryLabel name={node.name} />
+                </button>
+              </CollapsibleTrigger>
+            }
+            actions={actions.map((action) => (
+              <RowActionButton
+                key={action}
+                action={action}
+                targetLabel={targetLabel}
+                disabled={disabled}
+                onAction={(nextAction) =>
+                  onAction(nextAction, node.path, targetLabel, true)
+                }
+              />
+            ))}
+            badge={
+              changeType ? <DirectoryStatusDot changeType={changeType} /> : null
+            }
+          />
+        </ChangeContextMenu>
         <CollapsibleContent>
           <div className="ml-3 border-l border-sidebar-border/70 pl-3">
             <SidebarMenu className="gap-0.5 py-0.5">
-              {node.children.map((child) => (
-                <StatusTreeNode
-                  key={child.path}
-                  node={child}
-                  depth={depth + 1}
-                  openState={openState}
-                  onOpenChange={onOpenChange}
-                />
-              ))}
+              {node.children.map((child) =>
+                child.kind === "directory" ? (
+                  <TreeDirectoryNode
+                    key={child.path}
+                    node={child}
+                    depth={depth + 1}
+                    section={section}
+                    theme={theme}
+                    openState={openState}
+                    disabled={disabled}
+                    onOpenChange={onOpenChange}
+                    onAction={onAction}
+                  />
+                ) : (
+                  <TreeFileNode
+                    key={child.path}
+                    node={child}
+                    section={section}
+                    theme={theme}
+                    disabled={disabled}
+                    onAction={onAction}
+                  />
+                ),
+              )}
             </SidebarMenu>
           </div>
         </CollapsibleContent>
@@ -283,12 +648,29 @@ function FileViewToggle({
 
 function StatusFileSection({
   title,
+  section,
+  open,
   changes,
   viewMode,
+  theme,
+  disabled,
+  onOpenChange,
+  onAction,
 }: {
   title: string;
+  section: ChangeSection;
+  open: boolean;
   changes: WorktreeGitFileChange[];
   viewMode: FileViewMode;
+  theme: HubrisTheme | null;
+  disabled?: boolean;
+  onOpenChange: (section: ChangeSection, open: boolean) => void;
+  onAction: (
+    action: GitAction,
+    path: string,
+    label: string,
+    recursive: boolean,
+  ) => void;
 }) {
   const tree = useMemo(() => buildWorktreeGitStatusTree(changes), [changes]);
   const [treeOpenState, setTreeOpenState] = useState<TreeOpenState>({});
@@ -301,7 +683,11 @@ function StatusFileSection({
   }, []);
 
   return (
-    <section className="flex flex-col gap-3">
+    <Collapsible
+      open={open}
+      onOpenChange={(nextOpen) => onOpenChange(section, nextOpen)}
+      className="flex flex-col"
+    >
       <div
         data-git-status-section-header={title}
         className={cn(
@@ -312,39 +698,80 @@ function StatusFileSection({
           "after:bg-gradient-to-b after:from-background after:via-background/85 after:to-transparent",
         )}
       >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <h3 className="text-sm font-medium tracking-tight">{title}</h3>
-            <Badge
-              variant="secondary"
-              className="rounded-full px-2.5 text-[11px] tabular-nums"
-            >
-              {changes.length}
-            </Badge>
-          </div>
-        </div>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "flex w-full items-center justify-between gap-3 rounded-md px-1 py-1 text-left",
+              "text-sidebar-foreground/90 hover:bg-sidebar-accent/60",
+              "hover:text-sidebar-accent-foreground",
+            )}
+            aria-label={title}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <ChevronRight
+                className={cn(
+                  "shrink-0 transition-transform duration-150",
+                  open && "rotate-90",
+                )}
+              />
+              <h3 className="text-sm font-medium tracking-tight">{title}</h3>
+              <Badge
+                variant="secondary"
+                className="rounded-full px-2.5 text-[11px] tabular-nums"
+              >
+                {changes.length}
+              </Badge>
+            </div>
+          </button>
+        </CollapsibleTrigger>
       </div>
-      {tree.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No changes.</p>
-      ) : viewMode === "list" ? (
-        <SidebarMenu>
-          {changes.map((change) => (
-            <FilePathRow key={change.path} change={change} />
-          ))}
-        </SidebarMenu>
-      ) : (
-        <SidebarMenu>
-          {tree.map((node) => (
-            <StatusTreeNode
-              key={node.path}
-              node={node}
-              openState={treeOpenState}
-              onOpenChange={handleNodeOpenChange}
-            />
-          ))}
-        </SidebarMenu>
-      )}
-    </section>
+      <CollapsibleContent className="pt-3">
+        {tree.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No changes.</p>
+        ) : viewMode === "list" ? (
+          <SidebarMenu>
+            {changes.map((change) => (
+              <FilePathRow
+                key={change.path}
+                change={change}
+                section={section}
+                theme={theme}
+                disabled={disabled}
+                onAction={onAction}
+              />
+            ))}
+          </SidebarMenu>
+        ) : (
+          <SidebarMenu>
+            {tree.map((node) =>
+              node.kind === "directory" ? (
+                <TreeDirectoryNode
+                  key={node.path}
+                  node={node}
+                  depth={0}
+                  section={section}
+                  theme={theme}
+                  openState={treeOpenState}
+                  disabled={disabled}
+                  onOpenChange={handleNodeOpenChange}
+                  onAction={onAction}
+                />
+              ) : (
+                <TreeFileNode
+                  key={node.path}
+                  node={node}
+                  section={section}
+                  theme={theme}
+                  disabled={disabled}
+                  onAction={onAction}
+                />
+              ),
+            )}
+          </SidebarMenu>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -420,16 +847,28 @@ export default function WorktreeGitStatusPanel({
   onActionsChange,
 }: Props) {
   const [viewMode, setViewMode] = useState<FileViewMode>("list");
+  const [sectionOpenState, setSectionOpenState] = useState<SectionOpenState>({
+    staged: true,
+    unstaged: true,
+  });
   const [showLoadingSkeleton, setShowLoadingSkeleton] = useState(false);
+  const [pendingActionKey, setPendingActionKey] = useState<string | null>(null);
+  const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(
+    null,
+  );
   const worktreeState = useWorktreeFileManagerStore(
     (state) => state.worktrees[worktree.id],
   );
   const loadGitStatus = useWorktreeFileManagerStore(
     (state) => state.loadGitStatus,
   );
+  const refreshPaths = useWorktreeFileManagerStore(
+    (state) => state.refreshPaths,
+  );
   const refreshPendingPaths = useWorktreeFileManagerStore(
     (state) => state.refreshPendingPaths,
   );
+  const theme = useThemeSettings((state) => state.activeTheme);
   const status = worktreeState?.gitStatus ?? null;
   const loading = worktreeState?.gitStatusStatus === "loading";
   const error = worktreeState?.gitError
@@ -443,6 +882,72 @@ export default function WorktreeGitStatusPanel({
     },
     [loadGitStatus, worktree.id, worktree.project_id],
   );
+
+  const runAction = useCallback(
+    async (action: GitAction, path: string, label: string) => {
+      const actionKey = `${action}:${path}`;
+      setPendingActionKey(actionKey);
+      try {
+        if (action === "stage") {
+          await stageProjectWorktreePath(
+            worktree.project_id,
+            worktree.id,
+            path,
+          );
+        } else if (action === "unstage") {
+          await unstageProjectWorktreePath(
+            worktree.project_id,
+            worktree.id,
+            path,
+          );
+        } else {
+          await discardProjectWorktreePath(
+            worktree.project_id,
+            worktree.id,
+            path,
+          );
+        }
+
+        await refreshPaths(worktree.project_id, worktree.id, [path]);
+        toast.success(`${actionSuccessLabel(action)} ${label}`);
+      } catch {
+        toast.error(
+          `Couldn't ${actionLabel(action).toLowerCase()} ${label.toLowerCase()}`,
+        );
+      } finally {
+        setPendingActionKey((current) =>
+          current === actionKey ? null : current,
+        );
+      }
+    },
+    [refreshPaths, worktree.id, worktree.project_id],
+  );
+
+  const handleAction = useCallback(
+    (action: GitAction, path: string, label: string, recursive: boolean) => {
+      if (action === "discard") {
+        setPendingDiscard({
+          path,
+          label,
+          recursive,
+        });
+        return;
+      }
+
+      void runAction(action, path, label);
+    },
+    [runAction],
+  );
+
+  const confirmDiscard = useCallback(async () => {
+    if (!pendingDiscard) {
+      return;
+    }
+
+    const current = pendingDiscard;
+    setPendingDiscard(null);
+    await runAction("discard", current.path, current.label);
+  }, [pendingDiscard, runAction]);
 
   const headerActions = useMemo(
     () => (
@@ -460,6 +965,16 @@ export default function WorktreeGitStatusPanel({
       </>
     ),
     [loadStatus, loading, viewMode],
+  );
+
+  const handleSectionOpenChange = useCallback(
+    (section: ChangeSection, nextOpen: boolean) => {
+      setSectionOpenState((current) => ({
+        ...current,
+        [section]: nextOpen,
+      }));
+    },
+    [],
   );
 
   useEffect(() => {
@@ -521,45 +1036,93 @@ export default function WorktreeGitStatusPanel({
   }, [headerActions, onActionsChange, open]);
 
   return (
-    <ScrollArea className="min-h-0 flex-1">
-      <div className="flex min-h-full flex-col gap-4 p-3">
-        {loading && !status && showLoadingSkeleton ? (
-          <>
-            <Skeleton className="h-5 w-24" />
-            <Skeleton className="h-20 w-full rounded-md" />
-            <Skeleton className="h-5 w-20" />
-            <Skeleton className="h-20 w-full rounded-md" />
-            <Skeleton className="h-5 w-28" />
-            <Skeleton className="h-16 w-full rounded-md" />
-          </>
-        ) : loading && !status ? null : error ? (
-          <p className="text-sm text-destructive">{error}</p>
-        ) : status ? (
-          <>
-            <StatusFileSection
-              title="Unstaged"
-              changes={status.unstaged_files}
-              viewMode={viewMode}
-            />
-            <Separator />
-            <StatusFileSection
-              title="Staged"
-              changes={status.staged_files}
-              viewMode={viewMode}
-            />
-            <Separator />
-            <AheadCommitList
-              aheadCount={status.ahead_count}
-              aheadCommits={status.ahead_commits}
-              comparisonAvailable={status.comparison_available}
-              comparisonError={status.comparison_error}
-              sourceRef={status.source_ref}
-            />
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">No git status loaded.</p>
-        )}
-      </div>
-    </ScrollArea>
+    <>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="flex min-h-full flex-col gap-4 p-3">
+          {loading && !status && showLoadingSkeleton ? (
+            <>
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-20 w-full rounded-md" />
+              <Skeleton className="h-5 w-20" />
+              <Skeleton className="h-20 w-full rounded-md" />
+              <Skeleton className="h-5 w-28" />
+              <Skeleton className="h-16 w-full rounded-md" />
+            </>
+          ) : loading && !status ? null : error ? (
+            <p className="text-sm text-destructive">{error}</p>
+          ) : status ? (
+            <>
+              <StatusFileSection
+                title="Staged"
+                section="staged"
+                open={sectionOpenState.staged}
+                changes={status.staged_files}
+                viewMode={viewMode}
+                theme={theme}
+                disabled={pendingActionKey !== null}
+                onOpenChange={handleSectionOpenChange}
+                onAction={handleAction}
+              />
+              <Separator />
+              <StatusFileSection
+                title="Unstaged"
+                section="unstaged"
+                open={sectionOpenState.unstaged}
+                changes={status.unstaged_files}
+                viewMode={viewMode}
+                theme={theme}
+                disabled={pendingActionKey !== null}
+                onOpenChange={handleSectionOpenChange}
+                onAction={handleAction}
+              />
+              <Separator />
+              <AheadCommitList
+                aheadCount={status.ahead_count}
+                aheadCommits={status.ahead_commits}
+                comparisonAvailable={status.comparison_available}
+                comparisonError={status.comparison_error}
+                sourceRef={status.source_ref}
+              />
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No git status loaded.
+            </p>
+          )}
+        </div>
+      </ScrollArea>
+      <AlertDialog
+        open={pendingDiscard !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setPendingDiscard(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Discard changes in {pendingDiscard?.label}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDiscard?.recursive
+                ? "This will discard tracked edits and remove untracked files in this subtree."
+                : "This will discard tracked edits and remove untracked content for this file."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                void confirmDiscard();
+              }}
+            >
+              Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

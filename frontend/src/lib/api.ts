@@ -37,6 +37,8 @@ type GitFileChange = components["schemas"]["GitFileChange"];
 type GitCommitSummary = components["schemas"]["GitCommitSummary"];
 type RenameWorktreeFileRequest =
   components["schemas"]["RenameWorktreeFileRequest"];
+type WorktreeGitPathActionRequest =
+  components["schemas"]["WorktreeGitPathActionRequest"];
 type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
@@ -170,6 +172,53 @@ export async function getProjectWorktreeGitStatus(
   );
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
+}
+
+async function postWorktreeGitPathAction(
+  projectId: string,
+  worktreeId: string,
+  action: "stage" | "unstage" | "discard",
+  path: string,
+): Promise<void> {
+  const payload: WorktreeGitPathActionRequest = { path };
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git/${action}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) {
+    if (res.status === 400) throw new Error("Invalid path");
+    if (res.status === 403) throw new Error("Permission denied");
+    if (res.status === 404) throw new Error("Path not found");
+    throw new Error(`${res.status}`);
+  }
+}
+
+export async function stageProjectWorktreePath(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+): Promise<void> {
+  await postWorktreeGitPathAction(projectId, worktreeId, "stage", path);
+}
+
+export async function unstageProjectWorktreePath(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+): Promise<void> {
+  await postWorktreeGitPathAction(projectId, worktreeId, "unstage", path);
+}
+
+export async function discardProjectWorktreePath(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+): Promise<void> {
+  await postWorktreeGitPathAction(projectId, worktreeId, "discard", path);
 }
 
 export async function listProjectWorktreeFiles(

@@ -672,6 +672,165 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/{worktree_id}/git/discard": {
+      "post": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "discard_project_worktree_path",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorktreeGitPathActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Worktree changes discarded for the path"
+          },
+          "400": {
+            "description": "Invalid relative path"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Project, worktree, or path not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/{worktree_id}/git/stage": {
+      "post": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "stage_project_worktree_path",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorktreeGitPathActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Path staged"
+          },
+          "400": {
+            "description": "Invalid relative path"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Project, worktree, or path not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/{worktree_id}/git/unstage": {
+      "post": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "unstage_project_worktree_path",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorktreeGitPathActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Path unstaged"
+          },
+          "400": {
+            "description": "Invalid relative path"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Project, worktree, or path not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/settings": {
       "get": {
         "tags": ["crate::api::settings"],
@@ -1615,6 +1774,16 @@
       "WorktreeFileKind": {
         "type": "string",
         "enum": ["directory", "file"]
+      },
+      "WorktreeGitPathActionRequest": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative path from the worktree root."
+          }
+        }
       },
       "WorktreeGitStatusResponse": {
         "type": "object",

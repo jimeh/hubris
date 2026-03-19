@@ -134,6 +134,19 @@ pub struct WorktreeGitStatusResponse {
     pub comparison_error: Option<String>,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct WorktreeGitPathActionRequest {
+    /// Relative path from the worktree root.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum GitPathAction {
+    Stage,
+    Unstage,
+    Discard,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ProjectMeta {
     #[serde(default)]
@@ -529,6 +542,150 @@ pub async fn get_project_worktree_git_status(
         comparison_available: status.comparison_available,
         comparison_error: status.comparison_error,
     }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/git/stage",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+    ),
+    request_body = WorktreeGitPathActionRequest,
+    responses(
+        (status = 204, description = "Path staged"),
+        (status = 400, description = "Invalid relative path"),
+        (status = 403, description = "Permission denied"),
+        (status = 404, description = "Project, worktree, or path not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn stage_project_worktree_path(
+    State(state): State<AppState>,
+    Path((project_id, worktree_id)): Path<(String, String)>,
+    Json(request): Json<WorktreeGitPathActionRequest>,
+) -> Result<StatusCode, StatusCode> {
+    perform_git_path_action(
+        state,
+        project_id,
+        worktree_id,
+        &request.path,
+        GitPathAction::Stage,
+    )
+    .await
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/git/unstage",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+    ),
+    request_body = WorktreeGitPathActionRequest,
+    responses(
+        (status = 204, description = "Path unstaged"),
+        (status = 400, description = "Invalid relative path"),
+        (status = 403, description = "Permission denied"),
+        (status = 404, description = "Project, worktree, or path not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn unstage_project_worktree_path(
+    State(state): State<AppState>,
+    Path((project_id, worktree_id)): Path<(String, String)>,
+    Json(request): Json<WorktreeGitPathActionRequest>,
+) -> Result<StatusCode, StatusCode> {
+    perform_git_path_action(
+        state,
+        project_id,
+        worktree_id,
+        &request.path,
+        GitPathAction::Unstage,
+    )
+    .await
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/git/discard",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+    ),
+    request_body = WorktreeGitPathActionRequest,
+    responses(
+        (status = 204, description = "Worktree changes discarded for the path"),
+        (status = 400, description = "Invalid relative path"),
+        (status = 403, description = "Permission denied"),
+        (status = 404, description = "Project, worktree, or path not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn discard_project_worktree_path(
+    State(state): State<AppState>,
+    Path((project_id, worktree_id)): Path<(String, String)>,
+    Json(request): Json<WorktreeGitPathActionRequest>,
+) -> Result<StatusCode, StatusCode> {
+    perform_git_path_action(
+        state,
+        project_id,
+        worktree_id,
+        &request.path,
+        GitPathAction::Discard,
+    )
+    .await
+}
+
+async fn perform_git_path_action(
+    state: AppState,
+    project_id: String,
+    worktree_id: String,
+    path: &str,
+    action: GitPathAction,
+) -> Result<StatusCode, StatusCode> {
+    let resolved = resolve_worktree(&state, &worktree_id)
+        .await?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if resolved.project_id != project_id {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let worktree_path = PathBuf::from(&resolved.worktree.path);
+    let paths = match action {
+        GitPathAction::Stage => git::stage_worktree_path(&worktree_path, path).await,
+        GitPathAction::Unstage => git::unstage_worktree_path(&worktree_path, path).await,
+        GitPathAction::Discard => git::discard_worktree_path(&worktree_path, path).await,
+    }
+    .map_err(map_git_path_action_error)?;
+
+    state
+        .worktree_files
+        .invalidate_relative_paths(&resolved, &paths)
+        .map_err(map_worktree_files_error)?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn map_git_path_action_error(error: git::GitPathActionError) -> StatusCode {
+    match error {
+        git::GitPathActionError::InvalidPath => StatusCode::BAD_REQUEST,
+        git::GitPathActionError::NotFound => StatusCode::NOT_FOUND,
+        git::GitPathActionError::PermissionDenied => StatusCode::FORBIDDEN,
+        git::GitPathActionError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+fn map_worktree_files_error(error: crate::worktree_files::WorktreeFileError) -> StatusCode {
+    match error {
+        crate::worktree_files::WorktreeFileError::InvalidPath
+        | crate::worktree_files::WorktreeFileError::InvalidName => StatusCode::BAD_REQUEST,
+        crate::worktree_files::WorktreeFileError::NotFound
+        | crate::worktree_files::WorktreeFileError::NotDirectory => StatusCode::NOT_FOUND,
+        crate::worktree_files::WorktreeFileError::Conflict => StatusCode::CONFLICT,
+        crate::worktree_files::WorktreeFileError::PermissionDenied => StatusCode::FORBIDDEN,
+        crate::worktree_files::WorktreeFileError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+    }
 }
 
 #[utoipa::path(

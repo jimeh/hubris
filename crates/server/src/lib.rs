@@ -22,8 +22,9 @@ use api::settings::{get_settings, patch_settings, put_settings};
 use api::tabs::{create_tab, delete_tab, list_tabs, reorder_tabs, update_tab};
 use api::terminal::ws_handler;
 use api::worktrees::{
-    create_project_worktree, delete_project_worktree, get_project_worktree_git_status,
-    list_project_worktree_start_points, list_project_worktrees, reorder_project_worktrees,
+    create_project_worktree, delete_project_worktree, discard_project_worktree_path,
+    get_project_worktree_git_status, list_project_worktree_start_points, list_project_worktrees,
+    reorder_project_worktrees, stage_project_worktree_path, unstage_project_worktree_path,
 };
 use embedded::spa_handler;
 pub use state::AppState;
@@ -146,6 +147,18 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/projects/{id}/worktrees/{worktree_id}/git-status",
             get(get_project_worktree_git_status),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/git/stage",
+            post(stage_project_worktree_path),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/git/unstage",
+            post(unstage_project_worktree_path),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/git/discard",
+            post(discard_project_worktree_path),
         )
         .route(
             "/projects/{id}/worktrees/{worktree_id}/files",

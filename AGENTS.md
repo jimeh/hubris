@@ -261,6 +261,11 @@ No periodic reconciliation — drift corrects on reconnect.
   omit some generic language extensions (for example plain `.ts`) because VS
   Code can also use language IDs. Browser file explorers that only have paths
   should not assume the generated manifest alone reproduces full VS Code parity.
+- **Git index mutations need explicit worktree-file cache invalidation**:
+  stage/unstage operations may not trigger the worktree watcher, especially for
+  linked worktrees where `.git` points outside the watched root. Backend git
+  action handlers must invalidate `worktree_files` caches and emit
+  `worktree_files_updated` instead of relying on filesystem events alone.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.

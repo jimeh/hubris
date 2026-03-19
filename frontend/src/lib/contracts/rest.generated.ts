@@ -213,6 +213,54 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{id}/worktrees/{worktree_id}/git/discard": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["discard_project_worktree_path"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/projects/{id}/worktrees/{worktree_id}/git/stage": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["stage_project_worktree_path"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/projects/{id}/worktrees/{worktree_id}/git/unstage": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["unstage_project_worktree_path"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/settings": {
     parameters: {
       query?: never;
@@ -518,6 +566,10 @@ export interface components {
     };
     /** @enum {string} */
     WorktreeFileKind: "directory" | "file";
+    WorktreeGitPathActionRequest: {
+      /** @description Relative path from the worktree root. */
+      path: string;
+    };
     WorktreeGitStatusResponse: {
       ahead_commits: components["schemas"]["GitCommitSummary"][];
       ahead_count: number;
@@ -1209,6 +1261,171 @@ export interface operations {
         };
       };
       /** @description Project or worktree not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  discard_project_worktree_path: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WorktreeGitPathActionRequest"];
+      };
+    };
+    responses: {
+      /** @description Worktree changes discarded for the path */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Invalid relative path */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Permission denied */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Project, worktree, or path not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  stage_project_worktree_path: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WorktreeGitPathActionRequest"];
+      };
+    };
+    responses: {
+      /** @description Path staged */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Invalid relative path */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Permission denied */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Project, worktree, or path not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  unstage_project_worktree_path: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WorktreeGitPathActionRequest"];
+      };
+    };
+    responses: {
+      /** @description Path unstaged */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Invalid relative path */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Permission denied */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Project, worktree, or path not found */
       404: {
         headers: {
           [name: string]: unknown;

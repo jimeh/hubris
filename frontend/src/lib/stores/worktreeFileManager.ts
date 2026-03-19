@@ -72,6 +72,11 @@ type WorktreeFileManagerState = {
     worktreeId: string,
   ) => Promise<void>;
   refreshPendingPaths: (projectId: string, worktreeId: string) => Promise<void>;
+  refreshPaths: (
+    projectId: string,
+    worktreeId: string,
+    paths: string[],
+  ) => Promise<void>;
   refreshVisiblePaths: (
     projectId: string,
     worktreeId: string,
@@ -572,6 +577,47 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
           },
         };
       });
+    },
+    async refreshPaths(projectId, worktreeId, paths) {
+      const normalizedPaths = uniquePaths(paths.map(normalizePath));
+      if (normalizedPaths.length === 0) {
+        await get().loadGitStatus(projectId, worktreeId, { force: true });
+        return;
+      }
+
+      set((state) => {
+        const current = getSlice(state.worktrees, worktreeId);
+        return {
+          worktrees: {
+            ...state.worktrees,
+            [worktreeId]: {
+              ...current,
+              directories: markDirectoriesStale(current, normalizedPaths),
+            },
+          },
+        };
+      });
+
+      const current = getSlice(get().worktrees, worktreeId);
+      const visiblePaths = getVisiblePaths(
+        current,
+        (directory, path) =>
+          path === "" || (directory.status === "loaded" && directory.stale),
+      ).filter((path) => {
+        if (path === "") {
+          return normalizedPaths.includes("");
+        }
+        return shouldInvalidateDirectory(path, normalizedPaths);
+      });
+
+      await Promise.all([
+        get().loadGitStatus(projectId, worktreeId, { force: true }),
+        ...visiblePaths.map((path) =>
+          get().loadDirectory(projectId, worktreeId, path, { force: true }),
+        ),
+      ]);
+
+      await get().preloadVisibleDirectories(projectId, worktreeId);
     },
     async refreshVisiblePaths(projectId, worktreeId, options = {}) {
       const current = getSlice(get().worktrees, worktreeId);

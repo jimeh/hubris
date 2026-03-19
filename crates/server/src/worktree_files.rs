@@ -102,6 +102,16 @@ impl WorktreeFilesService {
         tracker.read_git_status().await
     }
 
+    pub fn invalidate_relative_paths(
+        &self,
+        resolved: &ResolvedWorktree,
+        paths: &[String],
+    ) -> Result<(), WorktreeFileError> {
+        self.start_cleanup_loop();
+        let tracker = self.ensure_tracker(resolved)?;
+        tracker.invalidate_relative_paths(&self.events, paths)
+    }
+
     fn start_cleanup_loop(&self) {
         if self
             .cleanup_started
@@ -251,6 +261,25 @@ impl WorktreeFileTracker {
             generation: to_public_generation(generation),
             paths: collect_invalidated_paths(&self.root_path, pending),
         });
+    }
+
+    fn invalidate_relative_paths(
+        &self,
+        events: &EventBus,
+        paths: &[String],
+    ) -> Result<(), WorktreeFileError> {
+        self.touch();
+        let invalidated_paths = collect_relative_invalidated_paths(paths)?;
+        self.directory_cache.clear();
+        *self.git_cache.lock().unwrap() = None;
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        events.emit(EventKind::WorktreeFilesUpdated {
+            project_id: self.project_id.clone(),
+            worktree_id: self.worktree_id.clone(),
+            generation: to_public_generation(generation),
+            paths: invalidated_paths,
+        });
+        Ok(())
     }
 
     async fn list_directory(
@@ -491,6 +520,22 @@ fn collect_invalidated_paths(root: &Path, pending: PendingWatchEvent) -> Vec<Str
     }
 
     invalidated_paths.into_iter().collect()
+}
+
+fn collect_relative_invalidated_paths(paths: &[String]) -> Result<Vec<String>, WorktreeFileError> {
+    let mut invalidated_paths = BTreeSet::new();
+
+    for path in paths {
+        let normalized = normalize_relative_path(path)?;
+        invalidated_paths.insert(normalized.clone());
+        invalidated_paths.insert(parent_path_str(&normalized));
+    }
+
+    if invalidated_paths.is_empty() {
+        invalidated_paths.insert(String::new());
+    }
+
+    Ok(invalidated_paths.into_iter().collect())
 }
 
 fn normalize_watcher_path(root: &Path, path: &Path) -> Option<String> {

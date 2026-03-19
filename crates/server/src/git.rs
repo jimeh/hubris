@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::api::worktrees::{GitCommitSummary, GitFileChange, GitFileChangeType};
@@ -42,6 +42,14 @@ pub struct GitError {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitPathActionError {
+    InvalidPath,
+    NotFound,
+    PermissionDenied,
+    Internal,
+}
+
 impl std::fmt::Display for GitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)
@@ -72,6 +80,201 @@ fn rewrite_tracking() -> gix::diff::Rewrites {
         }),
         ..Default::default()
     }
+}
+
+fn normalize_relative_git_path(raw: &str) -> Result<String, GitPathActionError> {
+    let trimmed = raw.trim_matches('/');
+    if trimmed.is_empty() {
+        return Err(GitPathActionError::InvalidPath);
+    }
+
+    let mut parts = Vec::new();
+    for segment in trimmed.split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." || segment.contains('\\') {
+            return Err(GitPathActionError::InvalidPath);
+        }
+        parts.push(segment);
+    }
+
+    Ok(parts.join("/"))
+}
+
+fn map_git_path_error(error: GitError) -> GitPathActionError {
+    let message = error.message.to_lowercase();
+    if message.contains("permission denied") {
+        GitPathActionError::PermissionDenied
+    } else if message.contains("did not match any file")
+        || message.contains("pathspec")
+        || message.contains("no such file")
+    {
+        GitPathActionError::NotFound
+    } else {
+        GitPathActionError::Internal
+    }
+}
+
+async fn run_git_in_worktree(
+    worktree_path: &Path,
+    args: &[&str],
+) -> Result<String, GitPathActionError> {
+    let cwd = worktree_path.to_string_lossy().to_string();
+    let mut argv = vec!["-C", &cwd];
+    argv.extend_from_slice(args);
+    run_git(&argv).await.map_err(map_git_path_error)
+}
+
+fn split_nul_tokens(bytes: &[u8]) -> Vec<String> {
+    bytes
+        .split(|byte| *byte == 0)
+        .filter(|token| !token.is_empty())
+        .map(bytes_to_string)
+        .collect()
+}
+
+#[derive(Debug)]
+struct PorcelainStatusEntry {
+    index_status: char,
+    worktree_status: char,
+    path: String,
+    original_path: Option<String>,
+}
+
+fn parse_porcelain_status(bytes: &[u8]) -> Vec<PorcelainStatusEntry> {
+    let mut entries = Vec::new();
+    let mut tokens = split_nul_tokens(bytes).into_iter();
+
+    while let Some(token) = tokens.next() {
+        if token.len() < 4 {
+            continue;
+        }
+
+        let mut chars = token.chars();
+        let Some(index_status) = chars.next() else {
+            continue;
+        };
+        let Some(worktree_status) = chars.next() else {
+            continue;
+        };
+        if chars.next() != Some(' ') {
+            continue;
+        }
+
+        let path = chars.collect::<String>();
+        let original_path =
+            if matches!(index_status, 'R' | 'C') || matches!(worktree_status, 'R' | 'C') {
+                tokens.next()
+            } else {
+                None
+            };
+
+        entries.push(PorcelainStatusEntry {
+            index_status,
+            worktree_status,
+            path,
+            original_path,
+        });
+    }
+
+    entries
+}
+
+async fn read_porcelain_status(
+    worktree_path: &Path,
+    relative_path: &str,
+) -> Result<Vec<PorcelainStatusEntry>, GitPathActionError> {
+    let cwd = worktree_path.to_string_lossy().to_string();
+    let output = Command::new("git")
+        .args([
+            "-C",
+            &cwd,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--find-renames",
+            "--",
+            relative_path,
+        ])
+        .output()
+        .await
+        .map_err(|_| GitPathActionError::Internal)?;
+
+    if !output.status.success() {
+        let stderr = trim_output(&output.stderr);
+        let stdout = trim_output(&output.stdout);
+        return Err(map_git_path_error(GitError {
+            message: if stderr.is_empty() { stdout } else { stderr },
+        }));
+    }
+
+    Ok(parse_porcelain_status(&output.stdout))
+}
+
+fn status_contains_worktree_change(entry: &PorcelainStatusEntry) -> bool {
+    entry.worktree_status != ' '
+}
+
+fn status_contains_tracked_change(entry: &PorcelainStatusEntry) -> bool {
+    entry.index_status != '?'
+}
+
+fn invalidated_parent_paths(paths: &BTreeSet<String>) -> Vec<String> {
+    let mut invalidated = BTreeSet::new();
+    for path in paths {
+        invalidated.insert(path.clone());
+        if let Some((parent, _)) = path.rsplit_once('/') {
+            invalidated.insert(parent.to_string());
+        } else {
+            invalidated.insert(String::new());
+        }
+    }
+    invalidated.into_iter().collect()
+}
+
+fn prune_empty_parent_dirs(
+    worktree_path: &Path,
+    request_path: &str,
+    cleaned_paths: &[String],
+) -> Result<(), GitPathActionError> {
+    let request_root = worktree_path.join(request_path);
+
+    for cleaned_path in cleaned_paths {
+        let cleaned_abs = worktree_path.join(cleaned_path);
+        let mut current = if cleaned_abs.is_dir() {
+            cleaned_abs
+        } else {
+            match cleaned_abs.parent() {
+                Some(parent) => parent.to_path_buf(),
+                None => continue,
+            }
+        };
+
+        loop {
+            if !current.starts_with(&request_root)
+                || current == worktree_path
+                || current == request_root
+            {
+                break;
+            }
+
+            match std::fs::remove_dir(&current) {
+                Ok(()) => {
+                    let Some(parent) = current.parent() else {
+                        break;
+                    };
+                    current = parent.to_path_buf();
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => break,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    return Err(GitPathActionError::PermissionDenied);
+                }
+                Err(_) => return Err(GitPathActionError::Internal),
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn map_index_worktree_change(item: &gix::status::index_worktree::Item) -> Option<GitFileChange> {
@@ -478,6 +681,93 @@ pub async fn remove_worktree(
     }
     args.push(&target);
     run_git(&args).await.map(|_| ())
+}
+
+pub async fn stage_worktree_path(
+    worktree_path: &Path,
+    relative_path: &str,
+) -> Result<Vec<String>, GitPathActionError> {
+    let relative_path = normalize_relative_git_path(relative_path)?;
+    run_git_in_worktree(worktree_path, &["add", "--", &relative_path]).await?;
+    Ok(invalidated_parent_paths(&BTreeSet::from([relative_path])))
+}
+
+pub async fn unstage_worktree_path(
+    worktree_path: &Path,
+    relative_path: &str,
+) -> Result<Vec<String>, GitPathActionError> {
+    let relative_path = normalize_relative_git_path(relative_path)?;
+    run_git_in_worktree(
+        worktree_path,
+        &["restore", "--staged", "--", &relative_path],
+    )
+    .await?;
+    Ok(invalidated_parent_paths(&BTreeSet::from([relative_path])))
+}
+
+pub async fn discard_worktree_path(
+    worktree_path: &Path,
+    relative_path: &str,
+) -> Result<Vec<String>, GitPathActionError> {
+    let relative_path = normalize_relative_git_path(relative_path)?;
+    let statuses = read_porcelain_status(worktree_path, &relative_path).await?;
+
+    let mut restore_paths = BTreeSet::new();
+    let mut clean_paths = BTreeSet::new();
+    let mut invalidated_paths = BTreeSet::from([relative_path.clone()]);
+
+    for entry in statuses {
+        invalidated_paths.insert(entry.path.clone());
+        if let Some(original_path) = entry.original_path.clone() {
+            invalidated_paths.insert(original_path.clone());
+        }
+
+        if entry.index_status == '?' && entry.worktree_status == '?' {
+            clean_paths.insert(entry.path);
+            continue;
+        }
+
+        if !status_contains_worktree_change(&entry) {
+            continue;
+        }
+
+        if matches!(entry.worktree_status, 'R' | 'C') {
+            if let Some(original_path) = entry.original_path {
+                restore_paths.insert(original_path);
+            }
+            clean_paths.insert(entry.path);
+            continue;
+        }
+
+        if status_contains_tracked_change(&entry) {
+            restore_paths.insert(entry.path);
+        }
+    }
+
+    if restore_paths.is_empty() && clean_paths.is_empty() {
+        let candidate = worktree_path.join(&relative_path);
+        if !candidate.exists() {
+            return Err(GitPathActionError::NotFound);
+        }
+        return Ok(invalidated_parent_paths(&invalidated_paths));
+    }
+
+    if !restore_paths.is_empty() {
+        let restore_vec: Vec<String> = restore_paths.into_iter().collect();
+        let mut restore_args = vec!["restore", "--source=HEAD", "--worktree", "--"];
+        restore_args.extend(restore_vec.iter().map(String::as_str));
+        run_git_in_worktree(worktree_path, &restore_args).await?;
+    }
+
+    if !clean_paths.is_empty() {
+        let clean_vec: Vec<String> = clean_paths.into_iter().collect();
+        let mut clean_args = vec!["clean", "-fd", "--"];
+        clean_args.extend(clean_vec.iter().map(String::as_str));
+        run_git_in_worktree(worktree_path, &clean_args).await?;
+        prune_empty_parent_dirs(worktree_path, &relative_path, &clean_vec)?;
+    }
+
+    Ok(invalidated_parent_paths(&invalidated_paths))
 }
 
 pub fn read_worktree_status(

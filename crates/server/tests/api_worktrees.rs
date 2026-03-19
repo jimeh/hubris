@@ -122,6 +122,44 @@ async fn create_worktree_with_payload(
     res.json().await.unwrap()
 }
 
+async fn get_worktree_git_status(
+    client: &reqwest::Client,
+    base: &str,
+    project_id: &str,
+    worktree_id: &str,
+) -> Value {
+    let res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git-status",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    res.json().await.unwrap()
+}
+
+async fn post_worktree_git_action(
+    client: &reqwest::Client,
+    base: &str,
+    project_id: &str,
+    worktree_id: &str,
+    action: &str,
+    path: &str,
+) -> StatusCode {
+    client
+        .post(format!(
+            "{}/api/projects/{}/worktrees/{}/git/{}",
+            base, project_id, worktree_id, action
+        ))
+        .json(&serde_json::json!({ "path": path }))
+        .send()
+        .await
+        .unwrap()
+        .status()
+}
+
 #[tokio::test]
 async fn test_list_worktrees_contains_only_local_by_default() {
     let (base, _tmp) = start_test_server().await;
@@ -715,6 +753,209 @@ async fn test_worktree_git_status_reports_conflicts() {
             .iter()
             .any(|file| { file["path"] == "README.md" && file["change_type"] == "conflict" })
     );
+}
+
+#[tokio::test]
+async fn test_worktree_git_stage_and_unstage_actions_refresh_cached_git_status() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    std::fs::write(repo.path().join("README.md"), "hello\nstage me\n").unwrap();
+
+    let initial_status =
+        get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    assert_eq!(initial_status["unstaged_files"][0]["path"], "README.md");
+    assert_eq!(initial_status["staged_files"], serde_json::json!([]));
+
+    let stage_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "stage",
+        "README.md",
+    )
+    .await;
+    assert_eq!(stage_status, StatusCode::NO_CONTENT);
+
+    let staged_status =
+        get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    assert_eq!(staged_status["unstaged_files"], serde_json::json!([]));
+    assert_eq!(staged_status["staged_files"][0]["path"], "README.md");
+    assert_eq!(staged_status["staged_files"][0]["change_type"], "modified");
+
+    let unstage_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "unstage",
+        "README.md",
+    )
+    .await;
+    assert_eq!(unstage_status, StatusCode::NO_CONTENT);
+
+    let unstaged_status =
+        get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    assert_eq!(unstaged_status["staged_files"], serde_json::json!([]));
+    assert_eq!(unstaged_status["unstaged_files"][0]["path"], "README.md");
+    assert_eq!(
+        unstaged_status["unstaged_files"][0]["change_type"],
+        "modified"
+    );
+}
+
+#[tokio::test]
+async fn test_worktree_git_actions_accept_directory_paths() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::create_dir_all(repo.path().join("src/nested")).unwrap();
+    std::fs::write(repo.path().join("src/lib.rs"), "pub fn a() {}\n").unwrap();
+    std::fs::write(repo.path().join("src/nested/mod.rs"), "pub fn b() {}\n").unwrap();
+    run_git(repo.path(), &["add", "src/lib.rs", "src/nested/mod.rs"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "add src tree"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    std::fs::write(
+        repo.path().join("src/lib.rs"),
+        "pub fn a() { println!(\"a\"); }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/nested/mod.rs"),
+        "pub fn b() { println!(\"b\"); }\n",
+    )
+    .unwrap();
+
+    let stage_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "stage",
+        "src",
+    )
+    .await;
+    assert_eq!(stage_status, StatusCode::NO_CONTENT);
+
+    let staged_status =
+        get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    let staged_files = staged_status["staged_files"].as_array().unwrap();
+    assert!(staged_files.iter().any(|file| file["path"] == "src/lib.rs"));
+    assert!(
+        staged_files
+            .iter()
+            .any(|file| file["path"] == "src/nested/mod.rs")
+    );
+
+    let unstage_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "unstage",
+        "src",
+    )
+    .await;
+    assert_eq!(unstage_status, StatusCode::NO_CONTENT);
+
+    let unstaged_status =
+        get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    let unstaged_files = unstaged_status["unstaged_files"].as_array().unwrap();
+    assert!(
+        unstaged_files
+            .iter()
+            .any(|file| file["path"] == "src/lib.rs")
+    );
+    assert!(
+        unstaged_files
+            .iter()
+            .any(|file| file["path"] == "src/nested/mod.rs")
+    );
+}
+
+#[tokio::test]
+async fn test_worktree_git_discard_action_restores_tracked_and_removes_untracked_content() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::create_dir_all(repo.path().join("docs")).unwrap();
+    std::fs::write(repo.path().join("docs/guide.md"), "original\n").unwrap();
+    run_git(repo.path(), &["add", "docs/guide.md"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "add docs"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    std::fs::write(repo.path().join("docs/guide.md"), "changed\n").unwrap();
+    std::fs::write(repo.path().join("docs/scratch.txt"), "scratch\n").unwrap();
+    std::fs::create_dir_all(repo.path().join("docs/drafts")).unwrap();
+    std::fs::write(repo.path().join("docs/drafts/extra.md"), "extra\n").unwrap();
+
+    let discard_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "discard",
+        "docs",
+    )
+    .await;
+    assert_eq!(discard_status, StatusCode::NO_CONTENT);
+
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("docs/guide.md")).unwrap(),
+        "original\n"
+    );
+    assert!(!repo.path().join("docs/scratch.txt").exists());
+    assert!(!repo.path().join("docs/drafts").exists());
+
+    let status = get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    assert_eq!(status["unstaged_files"], serde_json::json!([]));
+    assert_eq!(status["staged_files"], serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn test_worktree_git_actions_reject_invalid_paths() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "stage",
+        "../README.md",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

@@ -34,6 +34,11 @@ import {
   resolveMaterialFileIcon,
   resolveMaterialFolderIcon,
 } from "@/lib/materialIconTheme";
+import {
+  gitChangeTypeClass,
+  gitChangeTypeLabel,
+  type GitChangeType,
+} from "@/lib/gitChangePresentation";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import { useThemeSettings } from "@/lib/stores/theme";
 import type { HubrisTheme } from "@/lib/theme/types";
@@ -45,16 +50,6 @@ type Props = {
   open?: boolean;
   onActionsChange?: (actions: ReactNode | null) => void;
 };
-
-type ChangeType =
-  | "added"
-  | "copied"
-  | "renamed"
-  | "conflict"
-  | "modified"
-  | "deleted"
-  | "typechange"
-  | "untracked";
 
 type DirectoryState = {
   status: "idle" | "loading" | "loaded" | "error";
@@ -79,56 +74,14 @@ const EMPTY_STATE = {
   pendingGeneration: 0,
 };
 
-function changeTypeLabel(changeType: ChangeType): string {
-  switch (changeType) {
-    case "added":
-      return "A";
-    case "copied":
-      return "C";
-    case "renamed":
-      return "R";
-    case "conflict":
-      return "!";
-    case "modified":
-      return "M";
-    case "deleted":
-      return "D";
-    case "typechange":
-      return "T";
-    case "untracked":
-      return "U";
-  }
-}
-
-function changeTypeClass(changeType: ChangeType): string {
-  switch (changeType) {
-    case "added":
-      return "text-emerald-500";
-    case "copied":
-      return "text-sky-500";
-    case "renamed":
-      return "text-amber-500";
-    case "conflict":
-      return "text-rose-500";
-    case "modified":
-      return "text-amber-500";
-    case "deleted":
-      return "text-rose-500";
-    case "typechange":
-      return "text-fuchsia-500";
-    case "untracked":
-      return "text-emerald-500";
-  }
-}
-
 function buildDecorations(worktreeState: DecorationState): {
-  fileChanges: Map<string, ChangeType>;
-  directoryChanges: Map<string, ChangeType>;
+  fileChanges: Map<string, GitChangeType>;
+  directoryChanges: Map<string, GitChangeType>;
 } {
-  const fileChanges = new Map<string, ChangeType>();
-  const directoryChanges = new Map<string, ChangeType>();
+  const fileChanges = new Map<string, GitChangeType>();
+  const directoryChanges = new Map<string, GitChangeType>();
 
-  function record(changeType: ChangeType, path: string): void {
+  function record(changeType: GitChangeType, path: string): void {
     fileChanges.set(path, changeType);
     const segments = path.split("/").filter(Boolean);
     let current = "";
@@ -141,10 +94,10 @@ function buildDecorations(worktreeState: DecorationState): {
   }
 
   for (const change of worktreeState.gitStatus?.staged_files ?? []) {
-    record(change.change_type as ChangeType, change.path);
+    record(change.change_type as GitChangeType, change.path);
   }
   for (const change of worktreeState.gitStatus?.unstaged_files ?? []) {
-    record(change.change_type as ChangeType, change.path);
+    record(change.change_type as GitChangeType, change.path);
   }
 
   return { fileChanges, directoryChanges };
@@ -200,7 +153,7 @@ function ExplorerDecoration({
   changeType,
   directory = false,
 }: {
-  changeType?: ChangeType;
+  changeType?: GitChangeType;
   directory?: boolean;
 }) {
   if (!changeType) {
@@ -211,7 +164,7 @@ function ExplorerDecoration({
     return (
       <span className="flex h-5 w-5 shrink-0 items-center justify-center">
         <span
-          className={cn("h-2 w-2 rounded-full", changeTypeClass(changeType))}
+          className={cn("h-2 w-2 rounded-full", gitChangeTypeClass(changeType))}
         />
       </span>
     );
@@ -221,10 +174,10 @@ function ExplorerDecoration({
     <span
       className={cn(
         "flex h-5 min-w-5 items-center justify-center rounded-full text-[10px] font-semibold tracking-[0.18em]",
-        changeTypeClass(changeType),
+        gitChangeTypeClass(changeType),
       )}
     >
-      {changeTypeLabel(changeType)}
+      {gitChangeTypeLabel(changeType)}
     </span>
   );
 }
@@ -382,8 +335,8 @@ function FileTreeRow({
   directories: Record<string, DirectoryState>;
   selectedPath: string | null;
   renamePath: string | null;
-  fileChanges: Map<string, ChangeType>;
-  directoryChanges: Map<string, ChangeType>;
+  fileChanges: Map<string, GitChangeType>;
+  directoryChanges: Map<string, GitChangeType>;
   theme: HubrisTheme | null;
   onToggleDirectory: (entry: WorktreeFileEntry) => void;
   onSelect: (path: string) => void;
