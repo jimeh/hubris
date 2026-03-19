@@ -41,6 +41,11 @@ import {
   type WorktreeGitStatusTreeNode,
 } from "@/lib/worktreeGitStatusTree";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
+import {
+  DEFAULT_WORKTREE_GIT_STATUS_VIEW_MODE,
+  useWorktreeGitStatusViewStore,
+  type WorktreeGitStatusViewMode,
+} from "@/lib/stores/worktreeGitStatusView";
 import { useThemeSettings } from "@/lib/stores/theme";
 import type { HubrisTheme } from "@/lib/theme/types";
 import type { Worktree } from "@/lib/types";
@@ -79,7 +84,6 @@ type Props = {
   onActionsChange?: (actions: ReactNode | null) => void;
 };
 
-type FileViewMode = "list" | "tree";
 type TreeOpenState = Record<string, boolean>;
 type ChangeSection = "unstaged" | "staged";
 type SectionOpenState = Record<ChangeSection, boolean>;
@@ -613,8 +617,8 @@ function FileViewToggle({
   viewMode,
   onViewModeChange,
 }: {
-  viewMode: FileViewMode;
-  onViewModeChange: (viewMode: FileViewMode) => void;
+  viewMode: WorktreeGitStatusViewMode;
+  onViewModeChange: (viewMode: WorktreeGitStatusViewMode) => void;
 }) {
   return (
     <div className="inline-flex items-center gap-1">
@@ -669,7 +673,7 @@ function StatusFileSection({
   section: ChangeSection;
   open: boolean;
   changes: WorktreeGitFileChange[];
-  viewMode: FileViewMode;
+  viewMode: WorktreeGitStatusViewMode;
   theme: HubrisTheme | null;
   disabled?: boolean;
   onOpenChange: (section: ChangeSection, open: boolean) => void;
@@ -854,7 +858,6 @@ export default function WorktreeGitStatusPanel({
   open = true,
   onActionsChange,
 }: Props) {
-  const [viewMode, setViewMode] = useState<FileViewMode>("list");
   const [sectionOpenState, setSectionOpenState] = useState<SectionOpenState>({
     staged: true,
     unstaged: true,
@@ -875,6 +878,14 @@ export default function WorktreeGitStatusPanel({
   );
   const refreshPendingPaths = useWorktreeFileManagerStore(
     (state) => state.refreshPendingPaths,
+  );
+  const viewMode = useWorktreeGitStatusViewStore(
+    (state) =>
+      state.viewModeByWorktree[worktree.id] ??
+      DEFAULT_WORKTREE_GIT_STATUS_VIEW_MODE,
+  );
+  const setStoredViewMode = useWorktreeGitStatusViewStore(
+    (state) => state.setViewMode,
   );
   const theme = useThemeSettings((state) => state.activeTheme);
   const status = worktreeState?.gitStatus ?? null;
@@ -957,10 +968,20 @@ export default function WorktreeGitStatusPanel({
     await runAction("discard", current.path, current.label);
   }, [pendingDiscard, runAction]);
 
+  const handleViewModeChange = useCallback(
+    (nextViewMode: WorktreeGitStatusViewMode) => {
+      setStoredViewMode(worktree.id, nextViewMode);
+    },
+    [setStoredViewMode, worktree.id],
+  );
+
   const headerActions = useMemo(
     () => (
       <>
-        <FileViewToggle viewMode={viewMode} onViewModeChange={setViewMode} />
+        <FileViewToggle
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
+        />
         <Button
           variant="ghost"
           size="icon-sm"
@@ -972,7 +993,7 @@ export default function WorktreeGitStatusPanel({
         </Button>
       </>
     ),
-    [loadStatus, loading, viewMode],
+    [handleViewModeChange, loadStatus, loading, viewMode],
   );
 
   const handleSectionOpenChange = useCallback(

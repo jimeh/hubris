@@ -33,7 +33,7 @@ vi.mock("@/lib/api", async () => {
   };
 });
 
-function makeWorktree(): Worktree {
+function makeWorktree(overrides?: Partial<Worktree>): Worktree {
   return {
     id: "w1",
     project_id: "p1",
@@ -44,6 +44,7 @@ function makeWorktree(): Worktree {
     is_local: false,
     missing_on_disk: false,
     position: 2,
+    ...overrides,
   };
 }
 
@@ -51,7 +52,10 @@ function renderPanel(): RenderResult {
   return renderPanelWithOpen(true);
 }
 
-function renderPanelWithOpen(open: boolean): RenderResult {
+function renderPanelWithOpen(
+  open: boolean,
+  worktreeOverrides?: Partial<Worktree>,
+): RenderResult {
   function Harness({ open: isOpen }: { open: boolean }) {
     const [actions, setActions] = useState<ReactNode>(null);
 
@@ -61,7 +65,7 @@ function renderPanelWithOpen(open: boolean): RenderResult {
         <div className="h-96">
           {/* height ensures ScrollArea has a real container in tests */}
           <WorktreeGitStatusPanel
-            worktree={makeWorktree()}
+            worktree={makeWorktree(worktreeOverrides)}
             open={isOpen}
             onActionsChange={setActions}
           />
@@ -83,6 +87,7 @@ describe("WorktreeGitStatusPanel", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+    localStorage.clear();
     mockGetProjectWorktreeGitStatus.mockReset();
     mockStageProjectWorktreePath.mockReset();
     mockUnstageProjectWorktreePath.mockReset();
@@ -90,6 +95,9 @@ describe("WorktreeGitStatusPanel", () => {
     const { resetWorktreeFileManagerStoreForTests } =
       await import("@/lib/stores/worktreeFileManager");
     resetWorktreeFileManagerStoreForTests();
+    const { resetWorktreeGitStatusViewStoreForTests } =
+      await import("@/lib/stores/worktreeGitStatusView");
+    resetWorktreeGitStatusViewStoreForTests();
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 1,
@@ -277,6 +285,7 @@ describe("WorktreeGitStatusPanel", () => {
     expect(
       await screen.findByRole("button", { name: "Unstaged" }),
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
     expect(screen.getByRole("button", { name: "Staged" })).toBeInTheDocument();
     expect(screen.getByText("Ahead of main")).toBeInTheDocument();
     expect(sectionHeaderTitles()).toEqual([
@@ -295,7 +304,9 @@ describe("WorktreeGitStatusPanel", () => {
       source_ref: "main",
       generation: 1,
       unstaged_files: [],
-      staged_files: [{ path: "tmp2/bar/baz/file.txt", change_type: "modified" }],
+      staged_files: [
+        { path: "tmp2/bar/baz/file.txt", change_type: "modified" },
+      ],
       ahead_count: 0,
       ahead_commits: [],
       comparison_available: true,
@@ -319,6 +330,7 @@ describe("WorktreeGitStatusPanel", () => {
 
     const stagedHeader = await screen.findByRole("button", { name: "Staged" });
     const unstagedHeader = screen.getByRole("button", { name: "Unstaged" });
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
 
     expect(screen.getByText("README.md")).toBeInTheDocument();
     expect(screen.getByText("bar.txt")).toBeInTheDocument();
@@ -375,6 +387,8 @@ describe("WorktreeGitStatusPanel", () => {
   it("renders inline action buttons and manifest-backed icons in list mode", async () => {
     renderPanel();
 
+    await screen.findByText("Unstaged");
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
     expect(await screen.findByText("bar.txt")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Stage bar.txt" }),
@@ -398,6 +412,7 @@ describe("WorktreeGitStatusPanel", () => {
     renderPanel();
 
     await screen.findByText("Unstaged");
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
     fireEvent.contextMenu(screen.getByText("bar.txt"));
 
     await user.click(
@@ -478,10 +493,11 @@ describe("WorktreeGitStatusPanel", () => {
     renderPanel();
 
     await screen.findByRole("button", { name: "Unstaged" });
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
 
     expect(
-      screen.queryByTestId("changes-directory-status-dot"),
-    ).not.toBeInTheDocument();
+      screen.queryAllByTestId("changes-directory-status-dot"),
+    ).toHaveLength(0);
     expect(screen.getByText("A")).toBeInTheDocument();
   });
 
@@ -489,6 +505,8 @@ describe("WorktreeGitStatusPanel", () => {
     const user = userEvent.setup();
     renderPanel();
 
+    await screen.findByText("Unstaged");
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
     expect(await screen.findByText("bar.txt")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Discard bar.txt" }));
@@ -531,14 +549,16 @@ describe("WorktreeGitStatusPanel", () => {
     expect(aheadHeader).toHaveClass("sticky", "top-3");
   });
 
-  it("defaults to list mode", async () => {
+  it("defaults to tree mode", async () => {
     renderPanel();
 
-    expect(await screen.findByText("bar.txt")).toBeInTheDocument();
-    expect(screen.getAllByText("tmp2/bar").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: "Toggle tmp2" })).toBeNull();
+    await screen.findByText("Unstaged");
+
+    expect(screen.getByRole("button", { name: "Toggle tmp2" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Toggle src" })).toBeVisible();
+    expect(screen.queryByText("tmp2/bar/bar.txt")).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Show list view" }),
+      screen.getByRole("button", { name: "Show tree view" }),
     ).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -632,6 +652,53 @@ describe("WorktreeGitStatusPanel", () => {
       expect(screen.getByRole("button", { name: "Toggle tmp2" })).toBeVisible();
       expect(screen.getByRole("button", { name: "Toggle src" })).toBeVisible();
     });
+  });
+
+  it("persists list mode across remounts for the same worktree", async () => {
+    const firstRender = renderPanel();
+
+    await screen.findByRole("button", { name: "Unstaged" });
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Show list view" }),
+      ).toHaveAttribute("aria-pressed", "true");
+    });
+
+    firstRender.unmount();
+
+    renderPanel();
+
+    await screen.findByRole("button", { name: "Unstaged" });
+    expect(screen.getAllByText("tmp2/bar").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Toggle tmp2" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Show list view" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps view mode separate per worktree", async () => {
+    const firstRender = renderPanelWithOpen(true, { id: "w-alpha" });
+
+    await screen.findByRole("button", { name: "Unstaged" });
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Show list view" }),
+      ).toHaveAttribute("aria-pressed", "true");
+    });
+
+    firstRender.unmount();
+
+    renderPanelWithOpen(true, { id: "w-beta" });
+
+    await screen.findByRole("button", { name: "Unstaged" });
+    expect(screen.getByRole("button", { name: "Toggle tmp2" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Show tree view" }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("preserves section collapse state when the panel is temporarily closed", async () => {
