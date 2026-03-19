@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeAllFilesPanel from "./WorktreeAllFilesPanel";
 import type { Worktree } from "@/lib/types";
@@ -43,13 +44,13 @@ function makeWorktree(): Worktree {
 }
 
 async function openRowActionMenu(name: string): Promise<void> {
-  const trigger = screen.getByRole("button", { name: `Actions for ${name}` });
-  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+  const trigger = getRowButton(name);
+  fireEvent.contextMenu(trigger);
   await screen.findByRole("menuitem", { name: "Rename" });
 }
 
 function getRowButton(name: string): HTMLElement {
-  return screen.getByRole("button", { name: new RegExp(`^${name}(\\s|$)`) });
+  return screen.getByRole("button", { name: new RegExp(`^${name}`) });
 }
 
 function createDeferred<T>() {
@@ -123,6 +124,9 @@ describe("WorktreeAllFilesPanel", () => {
       expect(mockListProjectWorktreeFiles).toHaveBeenCalledTimes(2);
     });
     expect(
+      screen.queryByRole("button", { name: "Actions for src" }),
+    ).not.toBeInTheDocument();
+    expect(
       within(getRowButton("src")).getByTestId("folder-icon-closed"),
     ).toBeVisible();
     expect(
@@ -147,6 +151,19 @@ describe("WorktreeAllFilesPanel", () => {
       expect(screen.getByText("lib.rs")).toBeInTheDocument();
     });
     expect(mockListProjectWorktreeFiles).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens the context menu on right click without toggling a directory", async () => {
+    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+
+    expect(await screen.findByText("src")).toBeInTheDocument();
+
+    fireEvent.contextMenu(getRowButton("src"));
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Rename" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("lib.rs")).not.toBeInTheDocument();
   });
 
   it("renders git-aware decorations for files", async () => {
@@ -434,6 +451,7 @@ describe("WorktreeAllFilesPanel", () => {
   });
 
   it("renames files from the row action menu", async () => {
+    const user = userEvent.setup();
     mockListProjectWorktreeFiles
       .mockResolvedValueOnce({
         generation: 1,
@@ -456,9 +474,10 @@ describe("WorktreeAllFilesPanel", () => {
 
     expect(await screen.findByText("README.md")).toBeInTheDocument();
     await openRowActionMenu("README.md");
-    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
 
-    const input = screen.getByDisplayValue("README.md");
+    const input = await screen.findByDisplayValue("README.md");
+    expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: "README-renamed.md" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -474,6 +493,7 @@ describe("WorktreeAllFilesPanel", () => {
   });
 
   it("copies relative and absolute paths from the row action menu", async () => {
+    const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window.navigator, "clipboard", {
       configurable: true,
@@ -485,7 +505,7 @@ describe("WorktreeAllFilesPanel", () => {
     expect(await screen.findByText("README.md")).toBeInTheDocument();
 
     await openRowActionMenu("README.md");
-    fireEvent.click(
+    await user.click(
       screen.getByRole("menuitem", { name: "Copy Relative Path" }),
     );
     await waitFor(() => {
@@ -493,11 +513,19 @@ describe("WorktreeAllFilesPanel", () => {
     });
 
     await openRowActionMenu("README.md");
-    fireEvent.click(
+    await user.click(
       screen.getByRole("menuitem", { name: "Copy Absolute Path" }),
     );
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("/tmp/feature-a/README.md");
+    });
+
+    fireEvent.contextMenu(getRowButton("src"));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Copy Relative Path" }),
+    );
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("src");
     });
   });
 });

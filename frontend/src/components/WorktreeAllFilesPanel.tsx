@@ -3,25 +3,20 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
-import {
-  ChevronRight,
-  Copy,
-  Ellipsis,
-  PencilLine,
-  RefreshCw,
-} from "lucide-react";
+import { ChevronRight, Copy, PencilLine, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import type { WorktreeGitStatus } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -224,16 +219,19 @@ function ExplorerDecoration({
   );
 }
 
-function RowActionMenu({
+function RowContextMenu({
   entry,
   worktree,
+  children,
   onRename,
 }: {
   entry: WorktreeFileEntry;
   worktree: Worktree;
+  children: ReactNode;
   onRename: () => void;
 }) {
   const absolutePath = `${worktree.path}/${entry.path}`;
+  const preventCloseAutoFocusRef = useRef(false);
 
   async function copyText(value: string, label: string): Promise<void> {
     try {
@@ -244,42 +242,46 @@ function RowActionMenu({
     }
   }
 
+  function beginRename(): void {
+    preventCloseAutoFocusRef.current = true;
+    window.setTimeout(() => {
+      onRename();
+    }, 0);
+  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="h-7 w-7 rounded-md opacity-0 transition-opacity group-hover/file-row:opacity-100 data-[state=open]:opacity-100"
-          aria-label={`Actions for ${entry.name}`}
-        >
-          <Ellipsis className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onRename}>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent
+        onCloseAutoFocus={(event) => {
+          if (preventCloseAutoFocusRef.current) {
+            event.preventDefault();
+            preventCloseAutoFocusRef.current = false;
+          }
+        }}
+      >
+        <ContextMenuItem onSelect={beginRename}>
           <PencilLine className="h-4 w-4" />
           Rename
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => {
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => {
             void copyText(entry.path, "Relative path");
           }}
         >
           <Copy className="h-4 w-4" />
           Copy Relative Path
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => {
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => {
             void copyText(absolutePath, "Absolute path");
           }}
         >
           <Copy className="h-4 w-4" />
           Copy Absolute Path
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -401,17 +403,23 @@ function FileTreeRow({
 
   return (
     <div className="flex flex-col">
-      <div
-        className={cn(
-          "group/file-row flex items-center gap-1 rounded-lg px-2 py-0.5 transition-colors",
-          isSelected
-            ? "bg-sidebar-accent/80 text-sidebar-accent-foreground"
-            : "hover:bg-sidebar-accent/45",
-        )}
-        style={{ paddingLeft: `${depth * 14 + 8}px` }}
+      <RowContextMenu
+        entry={entry}
+        worktree={worktree}
+        onRename={() => onRenamePathChange(entry.path)}
       >
-        {entry.kind === "directory" ? (
-          <>
+        <div
+          className={cn(
+            "group/file-row flex items-center rounded-lg px-2 py-0.5 transition-colors",
+            isSelected
+              ? "bg-sidebar-accent/80 text-sidebar-accent-foreground"
+              : "hover:bg-sidebar-accent/45",
+          )}
+          style={{ paddingLeft: `${depth * 14 + 8}px` }}
+          data-testid="file-tree-row"
+          data-path={entry.path}
+        >
+          {entry.kind === "directory" ? (
             <button
               type="button"
               onClick={() => {
@@ -434,20 +442,11 @@ function FileTreeRow({
                   {entry.name}
                 </span>
               )}
-              <div className="ml-auto">
+              <span className="ml-auto">
                 <ExplorerDecoration changeType={changeType} directory />
-              </div>
+              </span>
             </button>
-            {!isRenaming ? (
-              <RowActionMenu
-                entry={entry}
-                worktree={worktree}
-                onRename={() => onRenamePathChange(entry.path)}
-              />
-            ) : null}
-          </>
-        ) : (
-          <>
+          ) : (
             <button
               type="button"
               onClick={() => onSelect(entry.path)}
@@ -460,20 +459,13 @@ function FileTreeRow({
                   {entry.name}
                 </span>
               )}
-              <div className="ml-auto">
+              <span className="ml-auto">
                 <ExplorerDecoration changeType={changeType} />
-              </div>
+              </span>
             </button>
-            {!isRenaming ? (
-              <RowActionMenu
-                entry={entry}
-                worktree={worktree}
-                onRename={() => onRenamePathChange(entry.path)}
-              />
-            ) : null}
-          </>
-        )}
-      </div>
+          )}
+        </div>
+      </RowContextMenu>
 
       {entry.kind === "directory" && expanded ? (
         <div className="flex flex-col">
