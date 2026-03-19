@@ -345,9 +345,12 @@ const ChangeRowFrame = forwardRef<
       {actions ? (
         <div
           className={cn(
-            "ml-auto flex items-center gap-1 transition-opacity duration-150",
-            "opacity-0 group-hover/change-row:opacity-100",
-            "group-focus-within/change-row:opacity-100",
+            "ml-auto flex max-w-0 items-center gap-1 overflow-hidden transition-[max-width,opacity] duration-150",
+            "pointer-events-none opacity-0",
+            "group-hover/change-row:max-w-16 group-hover/change-row:opacity-100",
+            "group-hover/change-row:pointer-events-auto",
+            "group-focus-within/change-row:max-w-16 group-focus-within/change-row:opacity-100",
+            "group-focus-within/change-row:pointer-events-auto",
           )}
         >
           {actions}
@@ -1014,7 +1017,7 @@ function CommitRow({
   );
 
   return (
-    <SidebarMenuItem className="relative">
+    <SidebarMenuItem className="relative min-w-0">
       <Collapsible
         open={expanded}
         onOpenChange={(nextOpen) => {
@@ -1027,7 +1030,7 @@ function CommitRow({
       >
         <HoverCard openDelay={180} closeDelay={120}>
           <HoverCardTrigger asChild>
-            <div className="relative">
+            <div className="relative w-full min-w-0 overflow-hidden">
               {index > 0 ? (
                 <span
                   className="pointer-events-none absolute -top-px left-[17px] bottom-[calc(50%+4px)] w-0.5 bg-sky-400/55"
@@ -1071,7 +1074,7 @@ function CommitRow({
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="w-full text-left"
+                  className="block w-full min-w-0 text-left"
                   data-testid="commit-row-trigger"
                   aria-label={`Toggle commit ${commit.summary}`}
                   onPointerEnter={() => onDetailsRequest()}
@@ -1079,22 +1082,19 @@ function CommitRow({
                 >
                   <ChangeRowFrame
                     className={cn(
-                      "pl-8 pr-1.5",
+                      "w-full pl-8 pr-1.5",
                       expanded &&
                         "bg-sidebar-accent/55 text-sidebar-accent-foreground",
                     )}
                     primary={
-                      <span className="truncate font-medium text-sidebar-foreground">
+                      <span className="block truncate font-medium text-sidebar-foreground">
                         {commit.summary}
                       </span>
                     }
                     badge={
-                      <Badge
-                        variant="outline"
-                        className="min-w-0 rounded-full border-sidebar-border/80 px-2.5 font-mono text-[10px] tracking-[0.16em] text-sidebar-foreground/70"
-                      >
+                      <span className="shrink-0 font-mono text-[11px] tracking-[0.16em] text-sidebar-foreground/60">
                         {commit.short_id}
-                      </Badge>
+                      </span>
                     }
                   />
                 </button>
