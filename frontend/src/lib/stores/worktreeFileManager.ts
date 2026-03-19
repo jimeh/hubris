@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import {
+  ApiStatusError,
   getProjectWorktreeGitStatus,
   listProjectWorktreeFiles,
   renameProjectWorktreeFile,
@@ -15,6 +16,7 @@ type DirectoryState = {
   generation: number;
   entries: WorktreeFile[];
   error: string | null;
+  stale: boolean;
 };
 
 type WorktreeFileManagerSlice = {
@@ -26,11 +28,14 @@ type WorktreeFileManagerSlice = {
   gitStatusStatus: RequestStatus;
   gitError: string | null;
   pendingGeneration: number;
+  pendingPaths: string[];
 };
 
 type LoadOptions = {
   force?: boolean;
 };
+
+const DIRECTORY_NOT_FOUND_RETRY_DELAY_MS = 500;
 
 const PRELOAD_SKIP_DIRECTORY_NAMES = new Set([
   "node_modules",
@@ -66,6 +71,7 @@ type WorktreeFileManagerState = {
     projectId: string,
     worktreeId: string,
   ) => Promise<void>;
+  refreshPendingPaths: (projectId: string, worktreeId: string) => Promise<void>;
   refreshVisiblePaths: (
     projectId: string,
     worktreeId: string,
@@ -85,6 +91,7 @@ function createDirectoryState(): DirectoryState {
     generation: 0,
     entries: [],
     error: null,
+    stale: false,
   };
 }
 
@@ -98,6 +105,7 @@ function createWorktreeSlice(): WorktreeFileManagerSlice {
     gitStatusStatus: "idle",
     gitError: null,
     pendingGeneration: 0,
+    pendingPaths: [],
   };
 }
 
@@ -136,6 +144,139 @@ function baseName(path: string): string {
 
 function shouldSkipPreloadDirectory(name: string): boolean {
   return PRELOAD_SKIP_DIRECTORY_NAMES.has(name);
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof ApiStatusError && error.status === 404;
+}
+
+function isSubpath(path: string, parent: string): boolean {
+  return path === parent || path.startsWith(`${parent}/`);
+}
+
+function shouldInvalidateDirectory(
+  directoryPath: string,
+  changedPaths: string[],
+): boolean {
+  return changedPaths.some((changedPath) => {
+    if (changedPath === "") {
+      return true;
+    }
+    return (
+      directoryPath === changedPath ||
+      directoryPath === parentPath(changedPath) ||
+      isSubpath(directoryPath, changedPath)
+    );
+  });
+}
+
+function markDirectoriesStale(
+  slice: WorktreeFileManagerSlice,
+  changedPaths: string[],
+): Record<string, DirectoryState> {
+  if (changedPaths.length === 0) {
+    return slice.directories;
+  }
+
+  const nextDirectories: Record<string, DirectoryState> = {};
+  for (const [path, directory] of Object.entries(slice.directories)) {
+    nextDirectories[path] =
+      directory.status === "loaded" &&
+      shouldInvalidateDirectory(path, changedPaths)
+        ? {
+            ...directory,
+            stale: true,
+          }
+        : directory;
+  }
+  return nextDirectories;
+}
+
+function mergePendingPaths(existing: string[], next: string[]): string[] {
+  return uniquePaths([...existing, ...next.map(normalizePath)]);
+}
+
+function getVisiblePaths(
+  slice: WorktreeFileManagerSlice,
+  predicate?: (directory: DirectoryState, path: string) => boolean,
+): string[] {
+  return uniquePaths(
+    ["", ...slice.expandedPaths].filter((path) => {
+      const directory = slice.directories[path];
+      if (path !== "" && directory?.status !== "loaded") {
+        return false;
+      }
+      return predicate
+        ? predicate(directory ?? createDirectoryState(), path)
+        : true;
+    }),
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function listDirectoryWithNotFoundRetry(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+): Promise<Awaited<ReturnType<typeof listProjectWorktreeFiles>>> {
+  try {
+    return await listProjectWorktreeFiles(projectId, worktreeId, path);
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+
+    await delay(DIRECTORY_NOT_FOUND_RETRY_DELAY_MS);
+    return listProjectWorktreeFiles(projectId, worktreeId, path);
+  }
+}
+
+function pruneMissingDirectory(
+  slice: WorktreeFileManagerSlice,
+  missingPath: string,
+): WorktreeFileManagerSlice {
+  if (!missingPath) {
+    return slice;
+  }
+
+  const parent = parentPath(missingPath);
+  const nextDirectories = Object.fromEntries(
+    Object.entries(slice.directories).filter(
+      ([path]) => !isSubpath(path, missingPath),
+    ),
+  );
+  const parentDirectory = nextDirectories[parent];
+  if (parentDirectory?.status === "loaded") {
+    nextDirectories[parent] = {
+      ...parentDirectory,
+      entries: parentDirectory.entries.filter(
+        (entry) => entry.path !== missingPath,
+      ),
+    };
+  }
+
+  const shouldClearPath = (path: string | null): path is string =>
+    path !== null && isSubpath(path, missingPath);
+
+  return {
+    ...slice,
+    directories: nextDirectories,
+    expandedPaths: slice.expandedPaths.filter(
+      (path) => !isSubpath(path, missingPath),
+    ),
+    selectedPath: shouldClearPath(slice.selectedPath)
+      ? null
+      : slice.selectedPath,
+    renamePath: shouldClearPath(slice.renamePath) ? null : slice.renamePath,
+    pendingPaths: slice.pendingPaths.filter(
+      (path) => !isSubpath(path, missingPath),
+    ),
+  };
 }
 
 export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
@@ -194,9 +335,7 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
         current.directories[normalizedPath] ?? createDirectoryState();
       if (
         directory.status === "loading" ||
-        (!options.force &&
-          directory.status === "loaded" &&
-          directory.generation >= current.pendingGeneration)
+        (!options.force && directory.status === "loaded" && !directory.stale)
       ) {
         return;
       }
@@ -222,13 +361,14 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
       });
 
       try {
-        const response = await listProjectWorktreeFiles(
+        const response = await listDirectoryWithNotFoundRetry(
           projectId,
           worktreeId,
           normalizedPath,
         );
         set((state) => {
           const next = getSlice(state.worktrees, worktreeId);
+          const stale = response.generation < next.pendingGeneration;
           return {
             worktrees: {
               ...state.worktrees,
@@ -241,6 +381,7 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
                     generation: response.generation,
                     entries: response.entries,
                     error: null,
+                    stale,
                   },
                 },
               },
@@ -248,6 +389,19 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
           };
         });
       } catch (error) {
+        if (isNotFoundError(error) && normalizedPath) {
+          set((state) => {
+            const next = getSlice(state.worktrees, worktreeId);
+            return {
+              worktrees: {
+                ...state.worktrees,
+                [worktreeId]: pruneMissingDirectory(next, normalizedPath),
+              },
+            };
+          });
+          return;
+        }
+
         set((state) => {
           const next = getSlice(state.worktrees, worktreeId);
           return {
@@ -346,7 +500,7 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
 
         const current = getSlice(get().worktrees, worktreeId);
         const directory = current.directories[path];
-        if (directory?.status !== "loaded") {
+        if (directory?.status !== "loaded" || directory.stale) {
           continue;
         }
 
@@ -366,31 +520,37 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
         for (const entry of childDirectories) {
           if (
             next.expandedPaths.includes(entry.path) &&
-            next.directories[entry.path]?.status === "loaded"
+            next.directories[entry.path]?.status === "loaded" &&
+            !next.directories[entry.path]?.stale
           ) {
             queue.push(entry.path);
           }
         }
       }
     },
-    async refreshVisiblePaths(projectId, worktreeId, options = {}) {
+    async refreshPendingPaths(projectId, worktreeId) {
       const current = getSlice(get().worktrees, worktreeId);
       const targetGeneration = current.pendingGeneration;
-      const visiblePaths = uniquePaths(
-        ["", ...current.expandedPaths].filter((path) => {
-          if (path === "") {
-            return true;
-          }
-          return current.directories[path]?.status === "loaded";
-        }),
-      );
+      const targetPaths = current.pendingPaths;
+      if (targetGeneration === 0 || targetPaths.length === 0) {
+        return;
+      }
+
+      const visiblePaths = getVisiblePaths(
+        current,
+        (directory, path) =>
+          path === "" || (directory.status === "loaded" && directory.stale),
+      ).filter((path) => {
+        if (path === "") {
+          return targetPaths.includes("");
+        }
+        return shouldInvalidateDirectory(path, targetPaths);
+      });
 
       await Promise.all([
         get().loadGitStatus(projectId, worktreeId, { force: true }),
         ...visiblePaths.map((path) =>
-          get().loadDirectory(projectId, worktreeId, path, {
-            force: options.force ?? true,
-          }),
+          get().loadDirectory(projectId, worktreeId, path, { force: true }),
         ),
       ]);
 
@@ -407,10 +567,26 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
             [worktreeId]: {
               ...next,
               pendingGeneration: 0,
+              pendingPaths: [],
             },
           },
         };
       });
+    },
+    async refreshVisiblePaths(projectId, worktreeId, options = {}) {
+      const current = getSlice(get().worktrees, worktreeId);
+      const visiblePaths = getVisiblePaths(current);
+
+      await Promise.all([
+        get().loadGitStatus(projectId, worktreeId, { force: true }),
+        ...visiblePaths.map((path) =>
+          get().loadDirectory(projectId, worktreeId, path, {
+            force: options.force ?? true,
+          }),
+        ),
+      ]);
+
+      await get().preloadVisibleDirectories(projectId, worktreeId);
     },
     async renameEntry(projectId, worktreeId, path, newName) {
       const response = await renameProjectWorktreeFile(
@@ -477,15 +653,21 @@ export function initializeWorktreeFileManagerStore(): void {
       useWorktreeFileManagerStore.setState((state) => {
         const worktreeId = data.worktree_id;
         const current = getSlice(state.worktrees, worktreeId);
+        const pendingPaths = mergePendingPaths(
+          current.pendingPaths,
+          data.paths,
+        );
         return {
           worktrees: {
             ...state.worktrees,
             [worktreeId]: {
               ...current,
+              directories: markDirectoriesStale(current, pendingPaths),
               pendingGeneration: Math.max(
                 current.pendingGeneration,
                 Number(data.generation),
               ),
+              pendingPaths,
             },
           },
         };

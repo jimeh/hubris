@@ -146,6 +146,11 @@ export type EventKind =
     }
   | {
       type: "worktree_files_updated";
-      data: { project_id: string; worktree_id: string; generation: number };
+      data: {
+        project_id: string;
+        worktree_id: string;
+        generation: number;
+        paths: Array<string>;
+      };
     }
   | { type: "settings_updated"; data: SettingsState };

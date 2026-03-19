@@ -422,16 +422,71 @@ async fn test_worktree_file_watcher_emits_update_event() {
                 project_id: event_project_id,
                 worktree_id: event_worktree_id,
                 generation,
+                paths,
             } = &event.kind
                 && event_project_id == &project_id
                 && event_worktree_id == &worktree_id
             {
-                return *generation;
+                return (*generation, paths.clone());
             }
         }
     })
     .await
     .unwrap();
 
-    assert!(event >= 2);
+    assert!(event.0 >= 2);
+    assert_eq!(event.1, vec!["".to_string(), "watch-me.txt".to_string()]);
+}
+
+#[tokio::test]
+async fn test_worktree_file_watcher_reports_nested_parent_paths() {
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::create_dir_all(repo.path().join("src/nested")).unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let list_res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files?path=src",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(list_res.status(), StatusCode::OK);
+
+    let mut rx = state.events.subscribe();
+    std::fs::write(repo.path().join("src/nested/watch-me.txt"), "hello\n").unwrap();
+
+    let event = tokio::time::timeout(Duration::from_secs(3), async move {
+        loop {
+            let event = rx.recv().await.unwrap();
+            if let EventKind::WorktreeFilesUpdated {
+                project_id: event_project_id,
+                worktree_id: event_worktree_id,
+                generation,
+                paths,
+            } = &event.kind
+                && event_project_id == &project_id
+                && event_worktree_id == &worktree_id
+            {
+                return (*generation, paths.clone());
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    assert!(event.0 >= 2);
+    assert_eq!(
+        event.1,
+        vec![
+            "src/nested".to_string(),
+            "src/nested/watch-me.txt".to_string(),
+        ]
+    );
 }

@@ -71,6 +71,7 @@ pub enum EventKind {
         project_id: String,
         worktree_id: String,
         generation: u32,
+        paths: Vec<String>,
     },
     #[serde(rename = "settings_updated")]
     SettingsUpdated(SettingsState),

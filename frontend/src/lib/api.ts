@@ -14,8 +14,8 @@ const BASE = "/api";
 export class ApiStatusError extends Error {
   status: number;
 
-  constructor(status: number) {
-    super(`${status}`);
+  constructor(status: number, message = `${status}`) {
+    super(message);
     this.name = "ApiStatusError";
     this.status = status;
   }
@@ -42,8 +42,8 @@ type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
 
-function throwStatusError(status: number): never {
-  throw new ApiStatusError(status);
+function throwStatusError(status: number, message?: string): never {
+  throw new ApiStatusError(status, message);
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -189,7 +189,9 @@ export async function listProjectWorktreeFiles(
   if (!res.ok) {
     if (res.status === 400) throw new Error("Invalid path");
     if (res.status === 403) throw new Error("Permission denied");
-    if (res.status === 404) throw new Error("Directory not found");
+    if (res.status === 404) {
+      throwStatusError(404, "Directory not found");
+    }
     throw new Error(`${res.status}`);
   }
   return res.json();

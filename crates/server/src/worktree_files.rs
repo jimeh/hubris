@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -36,6 +37,12 @@ struct CachedDirectory {
 struct CachedGitStatus {
     generation: u32,
     status: git::WorktreeGitStatus,
+}
+
+#[derive(Debug, Default)]
+struct PendingWatchEvent {
+    paths: Vec<PathBuf>,
+    force_root: bool,
 }
 
 pub struct WorktreeFilesService {
@@ -180,11 +187,14 @@ impl WorktreeFileTracker {
     }
 
     fn install_watcher(self: &Arc<Self>, events: Arc<EventBus>) -> Result<(), WorktreeFileError> {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<PendingWatchEvent>();
         let mut watcher =
             notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
-                if result.is_ok() {
-                    let _ = tx.send(());
+                if let Ok(event) = result {
+                    let _ = tx.send(PendingWatchEvent {
+                        force_root: event.paths.is_empty(),
+                        paths: event.paths,
+                    });
                 }
             })
             .map_err(|_| WorktreeFileError::Internal)?;
@@ -199,7 +209,8 @@ impl WorktreeFileTracker {
 
         let weak = Arc::downgrade(self);
         tokio::spawn(async move {
-            while rx.recv().await.is_some() {
+            while let Some(first_event) = rx.recv().await {
+                let mut pending = first_event;
                 let sleep = tokio::time::sleep(WATCH_DEBOUNCE);
                 tokio::pin!(sleep);
 
@@ -207,9 +218,11 @@ impl WorktreeFileTracker {
                     tokio::select! {
                         _ = &mut sleep => break,
                         maybe = rx.recv() => {
-                            if maybe.is_none() {
+                            let Some(next_event) = maybe else {
                                 return;
-                            }
+                            };
+                            pending.force_root |= next_event.force_root;
+                            pending.paths.extend(next_event.paths);
                         }
                     }
                 }
@@ -217,7 +230,7 @@ impl WorktreeFileTracker {
                 let Some(tracker) = weak.upgrade() else {
                     return;
                 };
-                tracker.invalidate(&events);
+                tracker.invalidate(&events, pending);
             }
         });
         Ok(())
@@ -227,7 +240,7 @@ impl WorktreeFileTracker {
         self.last_access_ms.store(now_ms(), Ordering::SeqCst);
     }
 
-    fn invalidate(&self, events: &EventBus) {
+    fn invalidate(&self, events: &EventBus, pending: PendingWatchEvent) {
         self.touch();
         self.directory_cache.clear();
         *self.git_cache.lock().unwrap() = None;
@@ -236,6 +249,7 @@ impl WorktreeFileTracker {
             project_id: self.project_id.clone(),
             worktree_id: self.worktree_id.clone(),
             generation: to_public_generation(generation),
+            paths: collect_invalidated_paths(&self.root_path, pending),
         });
     }
 
@@ -445,6 +459,53 @@ fn relative_from_root(root: &Path, path: &Path) -> Result<String, WorktreeFileEr
     Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
+fn collect_invalidated_paths(root: &Path, pending: PendingWatchEvent) -> Vec<String> {
+    let mut invalidated_paths = BTreeSet::new();
+
+    if pending.force_root {
+        invalidated_paths.insert(String::new());
+    }
+
+    for path in pending.paths {
+        match normalize_watcher_path(root, &path) {
+            Some(relative_path) => {
+                if relative_path.is_empty()
+                    || relative_path == ".git"
+                    || relative_path.starts_with(".git/")
+                {
+                    invalidated_paths.insert(String::new());
+                    continue;
+                }
+
+                invalidated_paths.insert(relative_path.clone());
+                invalidated_paths.insert(parent_path_str(&relative_path));
+            }
+            None => {
+                invalidated_paths.insert(String::new());
+            }
+        }
+    }
+
+    if invalidated_paths.is_empty() {
+        invalidated_paths.insert(String::new());
+    }
+
+    invalidated_paths.into_iter().collect()
+}
+
+fn normalize_watcher_path(root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?;
+    let normalized = relative.to_string_lossy().replace('\\', "/");
+    Some(normalized.trim_matches('/').to_string())
+}
+
+fn parent_path_str(path: &str) -> String {
+    match path.rfind('/') {
+        Some(index) => path[..index].to_string(),
+        None => String::new(),
+    }
+}
+
 fn map_io_error(error: std::io::Error) -> WorktreeFileError {
     match error.kind() {
         std::io::ErrorKind::NotFound => WorktreeFileError::NotFound,
@@ -468,4 +529,51 @@ fn duration_ms(duration: Duration) -> u64 {
 
 fn to_public_generation(value: u64) -> u32 {
     value.min(u32::MAX as u64) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collect_invalidated_paths_includes_changed_paths_and_parents() {
+        let root = Path::new("/repo");
+        let paths = collect_invalidated_paths(
+            root,
+            PendingWatchEvent {
+                force_root: false,
+                paths: vec![root.join("src/nested/demo.txt"), root.join("src/nested")],
+            },
+        );
+
+        assert_eq!(paths, vec!["src", "src/nested", "src/nested/demo.txt"]);
+    }
+
+    #[test]
+    fn collect_invalidated_paths_falls_back_to_root_for_git_and_unknown_paths() {
+        let root = Path::new("/repo");
+        let paths = collect_invalidated_paths(
+            root,
+            PendingWatchEvent {
+                force_root: false,
+                paths: vec![root.join(".git/index"), PathBuf::from("/other/place.txt")],
+            },
+        );
+
+        assert_eq!(paths, vec![""]);
+    }
+
+    #[test]
+    fn collect_invalidated_paths_keeps_root_when_requested() {
+        let root = Path::new("/repo");
+        let paths = collect_invalidated_paths(
+            root,
+            PendingWatchEvent {
+                force_root: true,
+                paths: vec![root.join("README.md")],
+            },
+        );
+
+        assert_eq!(paths, vec!["", "README.md"]);
+    }
 }

@@ -542,6 +542,9 @@ export default function WorktreeAllFilesPanel({
   const refreshVisiblePaths = useWorktreeFileManagerStore(
     (state) => state.refreshVisiblePaths,
   );
+  const refreshPendingPaths = useWorktreeFileManagerStore(
+    (state) => state.refreshPendingPaths,
+  );
   const preloadVisibleDirectories = useWorktreeFileManagerStore(
     (state) => state.preloadVisibleDirectories,
   );
@@ -623,13 +626,11 @@ export default function WorktreeAllFilesPanel({
     }
 
     startTransition(() => {
-      void refreshVisiblePaths(worktree.project_id, worktree.id, {
-        force: true,
-      });
+      void refreshPendingPaths(worktree.project_id, worktree.id);
     });
   }, [
     open,
-    refreshVisiblePaths,
+    refreshPendingPaths,
     worktree.id,
     worktree.project_id,
     worktreeState.pendingGeneration,
