@@ -16,7 +16,7 @@ import {
   FolderTree,
   List,
   RefreshCw,
-  Trash2,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -95,7 +95,7 @@ const LOADING_SKELETON_DELAY_MS = 150;
 const ACTION_ICONS = {
   stage: ArrowUpToLine,
   unstage: ArrowDownToLine,
-  discard: Trash2,
+  discard: Undo2,
 } satisfies Record<GitAction, typeof ArrowUpToLine>;
 
 function splitChangePath(path: string): {
@@ -144,7 +144,7 @@ function actionSuccessLabel(action: GitAction): string {
 }
 
 function actionsForSection(section: ChangeSection): GitAction[] {
-  return section === "unstaged" ? ["stage", "discard"] : ["unstage"];
+  return section === "unstaged" ? ["discard", "stage"] : ["unstage"];
 }
 
 function FolderIcon({
@@ -312,7 +312,7 @@ const ChangeRowFrame = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-[13px] text-sidebar-foreground/90",
+        "group/change-row flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-[13px] text-sidebar-foreground/90",
         "hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
         "focus-within:bg-sidebar-accent/60 focus-within:text-sidebar-accent-foreground",
         className,
@@ -321,7 +321,15 @@ const ChangeRowFrame = forwardRef<
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">{primary}</div>
       {actions ? (
-        <div className="ml-auto flex items-center gap-1">{actions}</div>
+        <div
+          className={cn(
+            "ml-auto flex items-center gap-1 transition-opacity duration-150",
+            "opacity-0 group-hover/change-row:opacity-100",
+            "group-focus-within/change-row:opacity-100",
+          )}
+        >
+          {actions}
+        </div>
       ) : null}
       {badge ? <div className="flex items-center">{badge}</div> : null}
     </div>
@@ -609,7 +617,7 @@ function FileViewToggle({
   onViewModeChange: (viewMode: FileViewMode) => void;
 }) {
   return (
-    <div className="inline-flex items-center rounded-lg border border-border/70 bg-muted/40 p-0.5">
+    <div className="inline-flex items-center gap-1">
       <Button
         type="button"
         variant="ghost"
@@ -617,7 +625,7 @@ function FileViewToggle({
         className={cn(
           "rounded-md text-muted-foreground",
           viewMode === "list" &&
-            "bg-background text-foreground shadow-xs hover:bg-background",
+            "bg-sidebar-accent/70 text-sidebar-accent-foreground hover:bg-sidebar-accent/70",
         )}
         aria-label="Show list view"
         title="Show list view"
@@ -633,7 +641,7 @@ function FileViewToggle({
         className={cn(
           "rounded-md text-muted-foreground",
           viewMode === "tree" &&
-            "bg-background text-foreground shadow-xs hover:bg-background",
+            "bg-sidebar-accent/70 text-sidebar-accent-foreground hover:bg-sidebar-accent/70",
         )}
         aria-label="Show tree view"
         title="Show tree view"

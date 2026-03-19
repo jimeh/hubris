@@ -66,65 +66,43 @@ type Props = {
 };
 
 function RightSidebarHeader({
-  title,
-  worktreeName,
-  Icon,
+  activeTab,
+  onTabChange,
   actions,
   closeAction,
 }: {
-  title: string;
-  worktreeName: string;
-  Icon: LucideIcon;
+  activeTab: WorktreeRightSidebarTabId;
+  onTabChange: (tabId: WorktreeRightSidebarTabId) => void;
   actions: ReactNode;
   closeAction?: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{title}</h2>
-          <p className="truncate text-xs text-muted-foreground">
-            {worktreeName}
-          </p>
+    <div className="flex items-start justify-between gap-2 border-b px-3 py-2">
+      <div className="min-w-0">
+        <div className="-ml-1 flex items-center gap-1">
+          {Object.values(RIGHT_SIDEBAR_TABS).map((tab) => (
+            <Button
+              key={tab.id}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-8 rounded-md px-3 text-sidebar-foreground/75",
+                activeTab === tab.id &&
+                  "bg-sidebar-accent/70 text-sidebar-accent-foreground hover:bg-sidebar-accent/70",
+              )}
+              aria-pressed={activeTab === tab.id}
+              onClick={() => onTabChange(tab.id)}
+            >
+              <tab.icon className="mr-2 h-4 w-4" />
+              {tab.title}
+            </Button>
+          ))}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {actions}
         {closeAction}
-      </div>
-    </div>
-  );
-}
-
-function TabStrip({
-  activeTab,
-  onTabChange,
-}: {
-  activeTab: WorktreeRightSidebarTabId;
-  onTabChange: (tabId: WorktreeRightSidebarTabId) => void;
-}) {
-  return (
-    <div className="border-b px-3 py-2">
-      <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/70 bg-muted/35 p-1">
-        {Object.values(RIGHT_SIDEBAR_TABS).map((tab) => (
-          <Button
-            key={tab.id}
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "justify-start rounded-lg px-3",
-              activeTab === tab.id &&
-                "bg-background shadow-xs hover:bg-background",
-            )}
-            aria-pressed={activeTab === tab.id}
-            onClick={() => onTabChange(tab.id)}
-          >
-            <tab.icon className="mr-2 h-4 w-4" />
-            {tab.title}
-          </Button>
-        ))}
       </div>
     </div>
   );
@@ -152,7 +130,6 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
     [activeTab],
   );
   const TabContent = tab.Content;
-  const TabIcon = tab.icon;
 
   if (isMobile) {
     return (
@@ -168,9 +145,8 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
           </SheetHeader>
           <div className="flex h-full min-h-0 flex-col overflow-hidden">
             <RightSidebarHeader
-              title={tab.title}
-              worktreeName={worktree.name}
-              Icon={TabIcon}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
               actions={tabActions}
               closeAction={
                 <Button
@@ -184,7 +160,6 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
                 </Button>
               }
             />
-            <TabStrip activeTab={activeTab} onTabChange={setActiveTab} />
             <TabContent
               key={`${tab.id}:${worktree.id}:mobile`}
               worktree={worktree}
@@ -231,12 +206,10 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <RightSidebarHeader
-            title={tab.title}
-            worktreeName={worktree.name}
-            Icon={TabIcon}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
             actions={tabActions}
           />
-          <TabStrip activeTab={activeTab} onTabChange={setActiveTab} />
           <TabContent
             key={`${tab.id}:${worktree.id}:desktop`}
             worktree={worktree}
