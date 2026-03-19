@@ -10,11 +10,11 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ArrowDownToLine,
-  ArrowUpToLine,
   ChevronRight,
   FolderTree,
   List,
+  Minus,
+  Plus,
   RefreshCw,
   Undo2,
 } from "lucide-react";
@@ -110,10 +110,10 @@ type PendingDiscard = {
 
 const LOADING_SKELETON_DELAY_MS = 150;
 const ACTION_ICONS = {
-  stage: ArrowUpToLine,
-  unstage: ArrowDownToLine,
+  stage: Plus,
+  unstage: Minus,
   discard: Undo2,
-} satisfies Record<GitAction, typeof ArrowUpToLine>;
+} satisfies Record<GitAction, typeof Plus>;
 const EMPTY_COMMIT_DETAILS_STATE: CommitDetailsState = {
   status: "idle",
   details: null,
@@ -372,7 +372,7 @@ function ChangeContextMenu({
   onAction: (action: GitAction) => void;
 }) {
   return (
-    <ContextMenu>
+    <ContextMenu modal={false}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
         {actions.map((action) => {

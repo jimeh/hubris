@@ -213,7 +213,7 @@ function RowContextMenu({
   }
 
   return (
-    <ContextMenu>
+    <ContextMenu modal={false}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent
         onCloseAutoFocus={(event) => {
