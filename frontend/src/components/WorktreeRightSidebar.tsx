@@ -1,4 +1,9 @@
-import { useMemo, useState, type ComponentType, type ReactNode } from "react";
+import {
+  useMemo,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import {
   Files,
   GitBranch,
@@ -23,6 +28,7 @@ import {
   WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
   type WorktreeRightSidebarTabId,
 } from "@/lib/worktreeRightSidebar";
+import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -68,11 +74,13 @@ type Props = {
 function RightSidebarHeader({
   activeTab,
   onTabChange,
+  badgeCounts,
   actions,
   closeAction,
 }: {
   activeTab: WorktreeRightSidebarTabId;
   onTabChange: (tabId: WorktreeRightSidebarTabId) => void;
+  badgeCounts: Partial<Record<WorktreeRightSidebarTabId, number | null>>;
   actions: ReactNode;
   closeAction?: ReactNode;
 }) {
@@ -96,6 +104,13 @@ function RightSidebarHeader({
             >
               <tab.icon className="mr-2 h-4 w-4" />
               {tab.title}
+              {tab.id === WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB &&
+              badgeCounts[tab.id] !== null &&
+              badgeCounts[tab.id] !== undefined ? (
+                <span className="ml-2 rounded-full bg-sidebar-accent px-2 py-0.5 text-[11px] leading-none text-sidebar-accent-foreground">
+                  {badgeCounts[tab.id]}
+                </span>
+              ) : null}
             </Button>
           ))}
         </div>
@@ -121,6 +136,14 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
   const setActiveTab = useWorktreeRightSidebarStore(
     (state) => state.setActiveTab,
   );
+  const changesBadgeCount = useWorktreeFileManagerStore((state) => {
+    const gitStatus = state.worktrees[worktree.id]?.gitStatus;
+    if (!gitStatus) {
+      return null;
+    }
+
+    return gitStatus.staged_files.length + gitStatus.unstaged_files.length;
+  });
   const [tabActions, setTabActions] = useState<ReactNode>(null);
 
   const tab = useMemo(
@@ -147,6 +170,9 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
             <RightSidebarHeader
               activeTab={activeTab}
               onTabChange={setActiveTab}
+              badgeCounts={{
+                [WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB]: changesBadgeCount,
+              }}
               actions={tabActions}
               closeAction={
                 <Button
@@ -208,6 +234,9 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
           <RightSidebarHeader
             activeTab={activeTab}
             onTabChange={setActiveTab}
+            badgeCounts={{
+              [WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB]: changesBadgeCount,
+            }}
             actions={tabActions}
           />
           <TabContent

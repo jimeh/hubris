@@ -27,7 +27,9 @@ vi.mock("@/components/WorktreeGitStatusPanel", () => ({
       }
 
       onActionsChange?.(<button type="button">Panel action</button>);
-      return () => onActionsChange?.(null);
+      return () => {
+        onActionsChange?.(null);
+      };
     }, [onActionsChange, open]);
 
     return <div>Git panel body {open ? "open" : "closed"}</div>;
@@ -82,8 +84,12 @@ describe("WorktreeRightSidebar", () => {
       await import("@/lib/stores/worktreeRightSidebar");
     const { resetWorktreeRightSidebarWidthStoreForTests } =
       await import("@/lib/stores/worktreeRightSidebarWidth");
+    const { resetWorktreeFileManagerStoreForTests } = await import(
+      "@/lib/stores/worktreeFileManager"
+    );
     resetWorktreeRightSidebarStoreForTests();
     resetWorktreeRightSidebarWidthStoreForTests();
+    resetWorktreeFileManagerStoreForTests();
   });
 
   it("renders the active tab and resize handle on desktop", async () => {
@@ -111,6 +117,54 @@ describe("WorktreeRightSidebar", () => {
       expect(
         screen.getByRole("button", { name: "Explorer action" }),
       ).toBeInTheDocument();
+    });
+  });
+
+  it("shows the total change count on the changes tab", async () => {
+    const { useWorktreeRightSidebarStore } =
+      await import("@/lib/stores/worktreeRightSidebar");
+    const { useWorktreeFileManagerStore } = await import(
+      "@/lib/stores/worktreeFileManager"
+    );
+    useWorktreeRightSidebarStore.setState({
+      activeTab: "changes",
+    });
+    useWorktreeFileManagerStore.setState({
+      worktrees: {
+        w1: {
+          directories: {},
+          expandedPaths: [],
+          selectedPath: null,
+          renamePath: null,
+          gitStatus: {
+            source_ref: "main",
+            generation: 1,
+            unstaged_files: [
+              { path: "foo.txt", change_type: "modified" },
+              { path: "bar.txt", change_type: "untracked" },
+            ],
+            staged_files: [{ path: "README.md", change_type: "added" }],
+            ahead_count: 0,
+            ahead_commits: [],
+            comparison_available: true,
+            comparison_error: null,
+          },
+          gitStatusStatus: "loaded",
+          gitError: null,
+          pendingGeneration: 0,
+          pendingPaths: [],
+        },
+      },
+    });
+    const { default: WorktreeRightSidebar } =
+      await import("./WorktreeRightSidebar");
+
+    render(<WorktreeRightSidebar worktree={makeWorktree()} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Changes/ })).toHaveTextContent(
+        "Changes3",
+      );
     });
   });
 
