@@ -8,8 +8,10 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeAllFilesPanel from "./WorktreeAllFilesPanel";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import type { Worktree } from "@/lib/types";
 
 const mockListProjectWorktreeFiles = vi.fn();
@@ -50,7 +52,9 @@ async function openRowActionMenu(name: string): Promise<void> {
 }
 
 function getRowButton(name: string): HTMLElement {
-  return screen.getByRole("button", { name: new RegExp(`^${name}`) });
+  return screen.getByRole("button", {
+    name: new RegExp(`^(Toggle )?(?:.+/)?${name}`),
+  });
 }
 
 function createDeferred<T>() {
@@ -59,6 +63,27 @@ function createDeferred<T>() {
     resolve = res;
   });
   return { promise, resolve };
+}
+
+function renderPanel(open = true) {
+  function Harness({ isOpen }: { isOpen: boolean }) {
+    const [actions, setActions] = useState<ReactNode>(null);
+
+    return (
+      <SidebarProvider defaultOpen>
+        <div>{actions}</div>
+        <div className="h-96">
+          <WorktreeAllFilesPanel
+            worktree={makeWorktree()}
+            open={isOpen}
+            onActionsChange={setActions}
+          />
+        </div>
+      </SidebarProvider>
+    );
+  }
+
+  return render(<Harness isOpen={open} />);
 }
 
 describe("WorktreeAllFilesPanel", () => {
@@ -116,7 +141,7 @@ describe("WorktreeAllFilesPanel", () => {
   });
 
   it("loads root entries and lazily expands directories once", async () => {
-    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+    renderPanel();
 
     expect(await screen.findByText("README.md")).toBeInTheDocument();
     expect(screen.getByText("src")).toBeInTheDocument();
@@ -154,7 +179,7 @@ describe("WorktreeAllFilesPanel", () => {
   });
 
   it("opens the context menu on right click without toggling a directory", async () => {
-    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+    renderPanel();
 
     expect(await screen.findByText("src")).toBeInTheDocument();
 
@@ -167,7 +192,7 @@ describe("WorktreeAllFilesPanel", () => {
   });
 
   it("renders git-aware decorations for files", async () => {
-    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+    renderPanel();
 
     expect(await screen.findByText("README.md")).toBeInTheDocument();
     expect(
@@ -191,7 +216,7 @@ describe("WorktreeAllFilesPanel", () => {
       entries: [{ name: "notes.foo", path: "notes.foo", kind: "file" }],
     });
 
-    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+    renderPanel();
 
     expect(await screen.findByText("notes.foo")).toBeInTheDocument();
     expect(
@@ -219,7 +244,7 @@ describe("WorktreeAllFilesPanel", () => {
       },
     );
 
-    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+    renderPanel();
 
     expect(
       screen.getByTestId("root-directory-loading-list"),
@@ -267,7 +292,7 @@ describe("WorktreeAllFilesPanel", () => {
       },
     );
 
-    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+    renderPanel();
 
     expect(await screen.findByText("node_modules")).toBeInTheDocument();
 
@@ -341,7 +366,7 @@ describe("WorktreeAllFilesPanel", () => {
       },
     );
 
-    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+    renderPanel();
 
     expect(await screen.findByText("node_modules")).toBeInTheDocument();
 
@@ -417,7 +442,7 @@ describe("WorktreeAllFilesPanel", () => {
       },
     );
 
-    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+    renderPanel();
 
     expect(await screen.findByText("src")).toBeInTheDocument();
     await waitFor(() => {
@@ -432,6 +457,7 @@ describe("WorktreeAllFilesPanel", () => {
     fireEvent.click(getRowButton("src"));
 
     expect(await screen.findByText("nested")).toBeInTheDocument();
+    expect(screen.getByTestId("explorer-tree-branch-src")).toBeInTheDocument();
     await waitFor(() => {
       expect(mockListProjectWorktreeFiles).toHaveBeenCalledWith(
         "p1",
@@ -470,7 +496,7 @@ describe("WorktreeAllFilesPanel", () => {
         ],
       });
 
-    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+    renderPanel();
 
     expect(await screen.findByText("README.md")).toBeInTheDocument();
     await openRowActionMenu("README.md");
@@ -500,7 +526,7 @@ describe("WorktreeAllFilesPanel", () => {
       value: { writeText },
     });
 
-    render(<WorktreeAllFilesPanel worktree={makeWorktree()} />);
+    renderPanel();
 
     expect(await screen.findByText("README.md")).toBeInTheDocument();
 

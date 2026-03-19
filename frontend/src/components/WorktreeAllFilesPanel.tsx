@@ -12,6 +12,11 @@ import { toast } from "sonner";
 import type { WorktreeGitStatus } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -19,6 +24,11 @@ import {
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   resolveMaterialFileIcon,
@@ -320,7 +330,7 @@ function RenameInput({
   );
 }
 
-function DelayedNestedLoadingRow({ depth }: { depth: number }) {
+function DelayedNestedLoadingRow() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -339,8 +349,7 @@ function DelayedNestedLoadingRow({ depth }: { depth: number }) {
 
   return (
     <div
-      className="flex items-center gap-2 px-2 py-1.5"
-      style={{ paddingLeft: `${depth * 14 + 36}px` }}
+      className="flex items-center gap-2 py-1.5"
       data-testid="nested-directory-loading-placeholder"
     >
       <Skeleton className="h-4 w-4 rounded-md" />
@@ -401,38 +410,73 @@ function FileTreeRow({
     />
   ) : null;
 
+  if (entry.kind === "file") {
+    return (
+      <SidebarMenuItem>
+        <RowContextMenu
+          entry={entry}
+          worktree={worktree}
+          onRename={() => onRenamePathChange(entry.path)}
+        >
+          <SidebarMenuButton
+            className={cn(
+              "h-8 pr-0 text-sidebar-foreground/90 hover:bg-sidebar-accent/60",
+              isSelected &&
+                "bg-sidebar-accent/80 text-sidebar-accent-foreground hover:bg-sidebar-accent/80",
+            )}
+            isActive={isSelected}
+            data-testid="file-tree-row"
+            data-path={entry.path}
+            onClick={() => onSelect(entry.path)}
+          >
+            <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <FileIcon path={entry.path} theme={theme} />
+            {renameInput ?? (
+              <span className="truncate text-[13px] font-medium">
+                {entry.name}
+              </span>
+            )}
+            <span className="ml-auto">
+              <ExplorerDecoration changeType={changeType} />
+            </span>
+          </SidebarMenuButton>
+        </RowContextMenu>
+      </SidebarMenuItem>
+    );
+  }
+
   return (
-    <div className="flex flex-col">
+    <SidebarMenuItem>
       <RowContextMenu
         entry={entry}
         worktree={worktree}
         onRename={() => onRenamePathChange(entry.path)}
       >
-        <div
-          className={cn(
-            "group/file-row flex items-center rounded-lg px-2 py-0.5 transition-colors",
-            isSelected
-              ? "bg-sidebar-accent/80 text-sidebar-accent-foreground"
-              : "hover:bg-sidebar-accent/45",
-          )}
-          style={{ paddingLeft: `${depth * 14 + 8}px` }}
-          data-testid="file-tree-row"
-          data-path={entry.path}
+        <Collapsible
+          open={expanded}
+          onOpenChange={() => {
+            if (isRenaming) {
+              return;
+            }
+            onToggleDirectory(entry);
+          }}
+          className="group/collapsible"
         >
-          {entry.kind === "directory" ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (isRenaming) {
-                  return;
-                }
-                onToggleDirectory(entry);
-              }}
-              className="flex h-8 min-w-0 flex-1 items-center gap-2 text-left"
+          <CollapsibleTrigger asChild>
+            <SidebarMenuButton
+              className={cn(
+                "h-8 pr-0 text-sidebar-foreground/90 hover:bg-sidebar-accent/60",
+                isSelected &&
+                  "bg-sidebar-accent/80 text-sidebar-accent-foreground hover:bg-sidebar-accent/80",
+              )}
+              isActive={isSelected}
+              data-testid="file-tree-row"
+              data-path={entry.path}
+              aria-label={`Toggle ${entry.path}`}
             >
               <ChevronRight
                 className={cn(
-                  "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                  "transition-transform duration-150",
                   expanded && "rotate-90",
                 )}
               />
@@ -445,78 +489,69 @@ function FileTreeRow({
               <span className="ml-auto">
                 <ExplorerDecoration changeType={changeType} directory />
               </span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onSelect(entry.path)}
-              className="flex h-8 min-w-0 flex-1 items-center gap-2 text-left"
+            </SidebarMenuButton>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div
+              className="ml-3 border-l border-sidebar-border/70 pl-3"
+              data-testid={`explorer-tree-branch-${entry.path.replaceAll("/", "-")}`}
             >
-              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <FileIcon path={entry.path} theme={theme} />
-              {renameInput ?? (
-                <span className="truncate text-[13px] font-medium">
-                  {entry.name}
-                </span>
+              {directoryState?.status === "loading" ? (
+                <DelayedNestedLoadingRow />
+              ) : directoryState?.status === "error" ? (
+                <div className="flex items-center gap-2 py-1 text-xs text-destructive">
+                  <span className="truncate">{directoryState.error}</span>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-foreground underline"
+                    onClick={() => onRetryDirectory(entry.path)}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : directoryState?.entries.length ? (
+                <SidebarMenu className="gap-0.5 py-0.5">
+                  {directoryState.entries.map((child) => (
+                    <FileTreeRow
+                      key={child.path}
+                      worktree={worktree}
+                      entry={child}
+                      depth={depth + 1}
+                      expandedPaths={expandedPaths}
+                      directories={directories}
+                      selectedPath={selectedPath}
+                      renamePath={renamePath}
+                      fileChanges={fileChanges}
+                      directoryChanges={directoryChanges}
+                      theme={theme}
+                      onToggleDirectory={onToggleDirectory}
+                      onSelect={onSelect}
+                      onRenamePathChange={onRenamePathChange}
+                      onRenameSubmit={onRenameSubmit}
+                      onRetryDirectory={onRetryDirectory}
+                    />
+                  ))}
+                </SidebarMenu>
+              ) : (
+                <SidebarMenu className="gap-0.5 py-0.5">
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      className="h-8 pr-0 text-muted-foreground/80 hover:bg-transparent hover:text-muted-foreground/80"
+                      disabled
+                    >
+                      <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span className="text-[13px] font-medium">
+                        Empty folder
+                      </span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
               )}
-              <span className="ml-auto">
-                <ExplorerDecoration changeType={changeType} />
-              </span>
-            </button>
-          )}
-        </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </RowContextMenu>
-
-      {entry.kind === "directory" && expanded ? (
-        <div className="flex flex-col">
-          {directoryState?.status === "loading" ? (
-            <DelayedNestedLoadingRow depth={depth} />
-          ) : directoryState?.status === "error" ? (
-            <div
-              className="flex items-center gap-2 px-2 py-1 text-xs text-destructive"
-              style={{ paddingLeft: `${depth * 14 + 36}px` }}
-            >
-              <span className="truncate">{directoryState.error}</span>
-              <button
-                type="button"
-                className="text-xs font-medium text-foreground underline"
-                onClick={() => onRetryDirectory(entry.path)}
-              >
-                Retry
-              </button>
-            </div>
-          ) : directoryState?.entries.length ? (
-            directoryState.entries.map((child) => (
-              <FileTreeRow
-                key={child.path}
-                worktree={worktree}
-                entry={child}
-                depth={depth + 1}
-                expandedPaths={expandedPaths}
-                directories={directories}
-                selectedPath={selectedPath}
-                renamePath={renamePath}
-                fileChanges={fileChanges}
-                directoryChanges={directoryChanges}
-                theme={theme}
-                onToggleDirectory={onToggleDirectory}
-                onSelect={onSelect}
-                onRenamePathChange={onRenamePathChange}
-                onRenameSubmit={onRenameSubmit}
-                onRetryDirectory={onRetryDirectory}
-              />
-            ))
-          ) : (
-            <div
-              className="px-2 py-1 text-xs text-muted-foreground"
-              style={{ paddingLeft: `${depth * 14 + 36}px` }}
-            >
-              Empty folder
-            </div>
-          )}
-        </div>
-      ) : null}
-    </div>
+    </SidebarMenuItem>
   );
 }
 
@@ -698,7 +733,10 @@ export default function WorktreeAllFilesPanel({
 
         {rootDirectory?.status === "loading" &&
         rootDirectory.entries.length === 0 ? (
-          <div className="space-y-2" data-testid="root-directory-loading-list">
+          <div
+            className="flex flex-col gap-2"
+            data-testid="root-directory-loading-list"
+          >
             {Array.from({ length: 6 }).map((_, index) => (
               <div key={index} className="flex items-center gap-2 px-2 py-1.5">
                 <Skeleton className="h-4 w-4 rounded-md" />
@@ -722,7 +760,7 @@ export default function WorktreeAllFilesPanel({
             </Button>
           </div>
         ) : rootDirectory?.entries.length ? (
-          <div className="flex flex-col gap-0.5">
+          <SidebarMenu className="gap-0.5">
             {rootDirectory.entries.map((entry) => (
               <FileTreeRow
                 key={entry.path}
@@ -749,7 +787,7 @@ export default function WorktreeAllFilesPanel({
                 }}
               />
             ))}
-          </div>
+          </SidebarMenu>
         ) : (
           <div className="rounded-xl border border-dashed border-border/70 bg-muted/25 px-3 py-5 text-sm text-muted-foreground">
             No files found.
