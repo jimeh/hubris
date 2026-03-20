@@ -73,6 +73,22 @@ async fn local_worktree_id(client: &reqwest::Client, base: &str, project_id: &st
     body["worktrees"][0]["id"].as_str().unwrap().to_string()
 }
 
+async fn create_worktree(
+    client: &reqwest::Client,
+    base: &str,
+    project_id: &str,
+    branch: &str,
+) -> Value {
+    let res = client
+        .post(format!("{}/api/projects/{}/worktrees", base, project_id))
+        .json(&serde_json::json!({ "branch": branch }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    res.json().await.unwrap()
+}
+
 #[tokio::test]
 async fn test_list_files_default_path() {
     let (base, _tmp) = start_test_server().await;
@@ -489,4 +505,60 @@ async fn test_worktree_file_watcher_reports_nested_parent_paths() {
             "src/nested/watch-me.txt".to_string(),
         ]
     );
+}
+
+#[tokio::test]
+async fn test_linked_worktree_git_metadata_watcher_emits_git_status_event() {
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let created = create_worktree(&client, &base, &project_id, "feature").await;
+    let worktree_id = created["id"].as_str().unwrap().to_string();
+    let linked_path = Path::new(created["path"].as_str().unwrap()).to_path_buf();
+
+    let status_res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git-status",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(status_res.status(), StatusCode::OK);
+
+    let mut rx = state.events.subscribe();
+    run_git(
+        linked_path.as_path(),
+        &["commit", "--allow-empty", "-q", "-m", "external"],
+    );
+
+    let event = tokio::time::timeout(Duration::from_secs(3), async move {
+        loop {
+            let event = rx.recv().await.unwrap();
+            match &event.kind {
+                EventKind::WorktreeGitStatusUpdated {
+                    project_id: event_project_id,
+                    worktree_id: event_worktree_id,
+                    generation,
+                } if event_project_id == &project_id && event_worktree_id == &worktree_id => {
+                    return ("git", *generation);
+                }
+                EventKind::WorktreeFilesUpdated {
+                    project_id: event_project_id,
+                    worktree_id: event_worktree_id,
+                    ..
+                } if event_project_id == &project_id && event_worktree_id == &worktree_id => {
+                    return ("files", 0);
+                }
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(event.0, "git");
+    assert!(event.1 >= 2);
 }

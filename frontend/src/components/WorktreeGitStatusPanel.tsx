@@ -1053,9 +1053,7 @@ function CommitRow({
                   <span
                     className={cn(
                       "relative flex size-3 items-center justify-center rounded-full border-2 ring-2 ring-background",
-                      expanded
-                        ? "border-sky-400"
-                        : "border-sky-400/80",
+                      expanded ? "border-sky-400" : "border-sky-400/80",
                     )}
                     data-testid="commit-marker-head"
                   >
@@ -1340,6 +1338,7 @@ export default function WorktreeGitStatusPanel({
     ? `Failed to load git status (${worktreeState.gitError})`
     : "";
   const pendingGeneration = worktreeState?.pendingGeneration ?? 0;
+  const pendingGitGeneration = worktreeState?.pendingGitGeneration ?? 0;
 
   const loadStatus = useCallback(
     async (force = false) => {
@@ -1557,6 +1556,16 @@ export default function WorktreeGitStatusPanel({
     worktree.id,
     worktree.project_id,
   ]);
+
+  useEffect(() => {
+    if (!open || pendingGeneration !== 0 || pendingGitGeneration === 0) {
+      return;
+    }
+
+    startTransition(() => {
+      void loadStatus(true);
+    });
+  }, [loadStatus, open, pendingGeneration, pendingGitGeneration]);
 
   useEffect(() => {
     if (!loading || status || error) {

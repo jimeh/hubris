@@ -153,4 +153,8 @@ export type EventKind =
         paths: Array<string>;
       };
     }
+  | {
+      type: "worktree_git_status_updated";
+      data: { project_id: string; worktree_id: string; generation: number };
+    }
   | { type: "settings_updated"; data: SettingsState };

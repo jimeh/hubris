@@ -476,9 +476,9 @@ describe("WorktreeGitStatusPanel", () => {
     expect(screen.getByText("Older commit")).toBeInTheDocument();
     expect(screen.getAllByTestId("commit-marker-head")).toHaveLength(1);
     expect(screen.getAllByTestId("commit-marker-dot")).toHaveLength(1);
-    expect(screen.queryAllByTestId("commit-marker-connector-after")).toHaveLength(
-      1,
-    );
+    expect(
+      screen.queryAllByTestId("commit-marker-connector-after"),
+    ).toHaveLength(1);
     expect(
       screen.queryAllByTestId("commit-marker-connector-before"),
     ).toHaveLength(1);

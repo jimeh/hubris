@@ -72,6 +72,7 @@ const EMPTY_STATE = {
   gitStatusStatus: "idle",
   gitError: null,
   pendingGeneration: 0,
+  pendingGitGeneration: 0,
 };
 
 function buildDecorations(worktreeState: DecorationState): {
@@ -519,6 +520,9 @@ export default function WorktreeAllFilesPanel({
   const loadDirectory = useWorktreeFileManagerStore(
     (state) => state.loadDirectory,
   );
+  const loadGitStatus = useWorktreeFileManagerStore(
+    (state) => state.loadGitStatus,
+  );
   const refreshVisiblePaths = useWorktreeFileManagerStore(
     (state) => state.refreshVisiblePaths,
   );
@@ -614,6 +618,27 @@ export default function WorktreeAllFilesPanel({
     worktree.id,
     worktree.project_id,
     worktreeState.pendingGeneration,
+  ]);
+
+  useEffect(() => {
+    if (
+      !open ||
+      worktreeState.pendingGeneration !== 0 ||
+      worktreeState.pendingGitGeneration === 0
+    ) {
+      return;
+    }
+
+    startTransition(() => {
+      void loadGitStatus(worktree.project_id, worktree.id, { force: true });
+    });
+  }, [
+    loadGitStatus,
+    open,
+    worktree.id,
+    worktree.project_id,
+    worktreeState.pendingGeneration,
+    worktreeState.pendingGitGeneration,
   ]);
 
   const handleToggleDirectory = useCallback(

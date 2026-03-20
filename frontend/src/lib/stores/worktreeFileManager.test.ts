@@ -460,6 +460,54 @@ describe("worktree file manager store", () => {
     ]);
   });
 
+  it("tracks git-only watcher invalidation without staling directories", async () => {
+    const store = await getStore();
+    mockListProjectWorktreeFiles.mockResolvedValue({
+      generation: 1,
+      path: "",
+      entries: [{ name: "src", path: "src", kind: "directory" }],
+    });
+
+    await store.getState().loadDirectory("p1", "w1", "");
+
+    emitEvent("worktree_git_status_updated", {
+      project_id: "p1",
+      worktree_id: "w1",
+      generation: 3,
+    });
+
+    const next = store.getState().worktrees["w1"];
+    expect(next?.pendingGitGeneration).toBe(3);
+    expect(next?.pendingGeneration).toBe(0);
+    expect(next?.directories[""]?.stale).toBe(false);
+  });
+
+  it("clears pending git invalidation after a fresh git status reload", async () => {
+    const store = await getStore();
+    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+      generation: 3,
+      source_ref: "main",
+      unstaged_files: [],
+      staged_files: [],
+      ahead_count: 0,
+      ahead_commits: [],
+      comparison_available: true,
+      comparison_error: null,
+    });
+
+    emitEvent("worktree_git_status_updated", {
+      project_id: "p1",
+      worktree_id: "w1",
+      generation: 3,
+    });
+
+    await store.getState().loadGitStatus("p1", "w1");
+
+    const next = store.getState().worktrees["w1"];
+    expect(next?.gitStatus?.generation).toBe(3);
+    expect(next?.pendingGitGeneration).toBe(0);
+  });
+
   it("retries a transient 404 once before keeping a directory loaded", async () => {
     vi.useFakeTimers();
     const store = await getStore();

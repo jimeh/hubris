@@ -28,6 +28,7 @@ type WorktreeFileManagerSlice = {
   gitStatusStatus: RequestStatus;
   gitError: string | null;
   pendingGeneration: number;
+  pendingGitGeneration: number;
   pendingPaths: string[];
 };
 
@@ -110,6 +111,7 @@ function createWorktreeSlice(): WorktreeFileManagerSlice {
     gitStatusStatus: "idle",
     gitError: null,
     pendingGeneration: 0,
+    pendingGitGeneration: 0,
     pendingPaths: [],
   };
 }
@@ -430,11 +432,15 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
     },
     async loadGitStatus(projectId, worktreeId, options = {}) {
       const current = getSlice(get().worktrees, worktreeId);
+      const targetGitGeneration = Math.max(
+        current.pendingGeneration,
+        current.pendingGitGeneration,
+      );
       if (
         current.gitStatusStatus === "loading" ||
         (!options.force &&
           current.gitStatus &&
-          current.gitStatus.generation >= current.pendingGeneration)
+          current.gitStatus.generation >= targetGitGeneration)
       ) {
         return;
       }
@@ -468,6 +474,10 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
                 gitStatus,
                 gitStatusStatus: "loaded",
                 gitError: null,
+                pendingGitGeneration:
+                  gitStatus.generation >= next.pendingGitGeneration
+                    ? 0
+                    : next.pendingGitGeneration,
               },
             },
           };
@@ -714,6 +724,24 @@ export function initializeWorktreeFileManagerStore(): void {
                 Number(data.generation),
               ),
               pendingPaths,
+            },
+          },
+        };
+      });
+    }),
+    events.on("worktree_git_status_updated", (data) => {
+      useWorktreeFileManagerStore.setState((state) => {
+        const worktreeId = data.worktree_id;
+        const current = getSlice(state.worktrees, worktreeId);
+        return {
+          worktrees: {
+            ...state.worktrees,
+            [worktreeId]: {
+              ...current,
+              pendingGitGeneration: Math.max(
+                current.pendingGitGeneration,
+                Number(data.generation),
+              ),
             },
           },
         };

@@ -41,8 +41,10 @@ struct CachedGitStatus {
 
 #[derive(Debug, Default)]
 struct PendingWatchEvent {
-    paths: Vec<PathBuf>,
-    force_root: bool,
+    file_tree_paths: Vec<PathBuf>,
+    git_metadata_paths: Vec<PathBuf>,
+    force_file_root: bool,
+    force_git_refresh: bool,
 }
 
 pub struct WorktreeFilesService {
@@ -56,11 +58,12 @@ struct WorktreeFileTracker {
     worktree_id: String,
     root_path: PathBuf,
     source_ref: Option<String>,
-    generation: AtomicU64,
+    file_generation: AtomicU64,
+    git_generation: AtomicU64,
     last_access_ms: AtomicU64,
     directory_cache: DashMap<String, CachedDirectory>,
     git_cache: std::sync::Mutex<Option<CachedGitStatus>>,
-    watcher: std::sync::Mutex<Option<RecommendedWatcher>>,
+    watchers: std::sync::Mutex<Vec<RecommendedWatcher>>,
 }
 
 impl WorktreeFilesService {
@@ -185,11 +188,12 @@ impl WorktreeFileTracker {
             worktree_id: resolved.worktree.id.clone(),
             root_path,
             source_ref: resolved.worktree.source_ref.clone(),
-            generation: AtomicU64::new(1),
+            file_generation: AtomicU64::new(1),
+            git_generation: AtomicU64::new(1),
             last_access_ms: AtomicU64::new(now_ms()),
             directory_cache: DashMap::new(),
             git_cache: std::sync::Mutex::new(None),
-            watcher: std::sync::Mutex::new(None),
+            watchers: std::sync::Mutex::new(Vec::new()),
         });
 
         tracker.install_watcher(events)?;
@@ -198,23 +202,59 @@ impl WorktreeFileTracker {
 
     fn install_watcher(self: &Arc<Self>, events: Arc<EventBus>) -> Result<(), WorktreeFileError> {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<PendingWatchEvent>();
-        let mut watcher =
+        let mut watchers = Vec::new();
+
+        let file_tx = tx.clone();
+        let mut root_watcher =
             notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
                 if let Ok(event) = result {
-                    let _ = tx.send(PendingWatchEvent {
-                        force_root: event.paths.is_empty(),
-                        paths: event.paths,
+                    let force_file_root = event.paths.is_empty();
+                    let _ = file_tx.send(PendingWatchEvent {
+                        file_tree_paths: event.paths,
+                        force_file_root,
+                        ..PendingWatchEvent::default()
                     });
                 }
             })
             .map_err(|_| WorktreeFileError::Internal)?;
-        watcher
+        root_watcher
             .watch(&self.root_path, RecursiveMode::Recursive)
             .map_err(|_| WorktreeFileError::Internal)?;
+        watchers.push(root_watcher);
+
+        let git_watch_paths = git::resolve_git_metadata_watch_paths(&self.root_path)
+            .map_err(|_| WorktreeFileError::Internal)?;
+        let extra_git_watch_paths: Vec<PathBuf> = git_watch_paths
+            .into_iter()
+            .filter(|path| !path.starts_with(&self.root_path))
+            .collect();
+
+        if !extra_git_watch_paths.is_empty() {
+            let git_tx = tx.clone();
+            let mut git_watcher =
+                notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+                    if let Ok(event) = result {
+                        let force_git_refresh = event.paths.is_empty();
+                        let _ = git_tx.send(PendingWatchEvent {
+                            git_metadata_paths: event.paths,
+                            force_git_refresh,
+                            ..PendingWatchEvent::default()
+                        });
+                    }
+                })
+                .map_err(|_| WorktreeFileError::Internal)?;
+
+            for path in &extra_git_watch_paths {
+                git_watcher
+                    .watch(path, RecursiveMode::Recursive)
+                    .map_err(|_| WorktreeFileError::Internal)?;
+            }
+            watchers.push(git_watcher);
+        }
 
         {
-            let mut slot = self.watcher.lock().unwrap();
-            *slot = Some(watcher);
+            let mut slot = self.watchers.lock().unwrap();
+            *slot = watchers;
         }
 
         let weak = Arc::downgrade(self);
@@ -231,8 +271,10 @@ impl WorktreeFileTracker {
                             let Some(next_event) = maybe else {
                                 return;
                             };
-                            pending.force_root |= next_event.force_root;
-                            pending.paths.extend(next_event.paths);
+                            pending.force_file_root |= next_event.force_file_root;
+                            pending.force_git_refresh |= next_event.force_git_refresh;
+                            pending.file_tree_paths.extend(next_event.file_tree_paths);
+                            pending.git_metadata_paths.extend(next_event.git_metadata_paths);
                         }
                     }
                 }
@@ -252,15 +294,17 @@ impl WorktreeFileTracker {
 
     fn invalidate(&self, events: &EventBus, pending: PendingWatchEvent) {
         self.touch();
-        self.directory_cache.clear();
-        *self.git_cache.lock().unwrap() = None;
-        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        events.emit(EventKind::WorktreeFilesUpdated {
-            project_id: self.project_id.clone(),
-            worktree_id: self.worktree_id.clone(),
-            generation: to_public_generation(generation),
-            paths: collect_invalidated_paths(&self.root_path, pending),
-        });
+        let (invalidated_paths, git_refresh_from_file_tree) =
+            collect_file_invalidated_paths(&self.root_path, pending);
+
+        if !invalidated_paths.is_empty() {
+            self.emit_file_invalidation(events, invalidated_paths);
+            return;
+        }
+
+        if git_refresh_from_file_tree {
+            self.emit_git_invalidation(events);
+        }
     }
 
     fn invalidate_relative_paths(
@@ -270,16 +314,31 @@ impl WorktreeFileTracker {
     ) -> Result<(), WorktreeFileError> {
         self.touch();
         let invalidated_paths = collect_relative_invalidated_paths(paths)?;
+        self.emit_file_invalidation(events, invalidated_paths);
+        Ok(())
+    }
+
+    fn emit_file_invalidation(&self, events: &EventBus, paths: Vec<String>) {
         self.directory_cache.clear();
         *self.git_cache.lock().unwrap() = None;
-        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let file_generation = self.file_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.git_generation.fetch_add(1, Ordering::SeqCst);
         events.emit(EventKind::WorktreeFilesUpdated {
             project_id: self.project_id.clone(),
             worktree_id: self.worktree_id.clone(),
-            generation: to_public_generation(generation),
-            paths: invalidated_paths,
+            generation: to_public_generation(file_generation),
+            paths,
         });
-        Ok(())
+    }
+
+    fn emit_git_invalidation(&self, events: &EventBus) {
+        *self.git_cache.lock().unwrap() = None;
+        let git_generation = self.git_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        events.emit(EventKind::WorktreeGitStatusUpdated {
+            project_id: self.project_id.clone(),
+            worktree_id: self.worktree_id.clone(),
+            generation: to_public_generation(git_generation),
+        });
     }
 
     async fn list_directory(
@@ -288,7 +347,7 @@ impl WorktreeFileTracker {
     ) -> Result<ListWorktreeFilesResponse, WorktreeFileError> {
         self.touch();
         let relative_path = normalize_relative_path(relative_path)?;
-        let generation = to_public_generation(self.generation.load(Ordering::SeqCst));
+        let generation = to_public_generation(self.file_generation.load(Ordering::SeqCst));
 
         if let Some(cached) = self.directory_cache.get(&relative_path)
             && cached.generation == generation
@@ -401,12 +460,13 @@ impl WorktreeFileTracker {
         self.touch();
         self.directory_cache.clear();
         *self.git_cache.lock().unwrap() = None;
-        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.file_generation.fetch_add(1, Ordering::SeqCst);
+        self.git_generation.fetch_add(1, Ordering::SeqCst);
     }
 
     async fn read_git_status(&self) -> Result<(u32, git::WorktreeGitStatus), WorktreeFileError> {
         self.touch();
-        let generation = to_public_generation(self.generation.load(Ordering::SeqCst));
+        let generation = to_public_generation(self.git_generation.load(Ordering::SeqCst));
         if let Some(cached) = self.git_cache.lock().unwrap().clone()
             && cached.generation == generation
         {
@@ -423,7 +483,7 @@ impl WorktreeFileTracker {
         .map_err(|_| WorktreeFileError::Internal)?;
 
         let mut cache = self.git_cache.lock().unwrap();
-        if to_public_generation(self.generation.load(Ordering::SeqCst)) == generation {
+        if to_public_generation(self.git_generation.load(Ordering::SeqCst)) == generation {
             *cache = Some(CachedGitStatus {
                 generation,
                 status: status.clone(),
@@ -488,21 +548,22 @@ fn relative_from_root(root: &Path, path: &Path) -> Result<String, WorktreeFileEr
     Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
-fn collect_invalidated_paths(root: &Path, pending: PendingWatchEvent) -> Vec<String> {
+fn collect_file_invalidated_paths(root: &Path, pending: PendingWatchEvent) -> (Vec<String>, bool) {
     let mut invalidated_paths = BTreeSet::new();
+    let mut git_refresh = pending.force_git_refresh || !pending.git_metadata_paths.is_empty();
 
-    if pending.force_root {
+    if pending.force_file_root {
         invalidated_paths.insert(String::new());
     }
 
-    for path in pending.paths {
+    for path in pending.file_tree_paths {
         match normalize_watcher_path(root, &path) {
             Some(relative_path) => {
                 if relative_path.is_empty()
                     || relative_path == ".git"
                     || relative_path.starts_with(".git/")
                 {
-                    invalidated_paths.insert(String::new());
+                    git_refresh = true;
                     continue;
                 }
 
@@ -515,11 +576,11 @@ fn collect_invalidated_paths(root: &Path, pending: PendingWatchEvent) -> Vec<Str
         }
     }
 
-    if invalidated_paths.is_empty() {
+    if invalidated_paths.is_empty() && !git_refresh {
         invalidated_paths.insert(String::new());
     }
 
-    invalidated_paths.into_iter().collect()
+    (invalidated_paths.into_iter().collect(), git_refresh)
 }
 
 fn collect_relative_invalidated_paths(paths: &[String]) -> Result<Vec<String>, WorktreeFileError> {
@@ -583,42 +644,48 @@ mod tests {
     #[test]
     fn collect_invalidated_paths_includes_changed_paths_and_parents() {
         let root = Path::new("/repo");
-        let paths = collect_invalidated_paths(
+        let (paths, git_refresh) = collect_file_invalidated_paths(
             root,
             PendingWatchEvent {
-                force_root: false,
-                paths: vec![root.join("src/nested/demo.txt"), root.join("src/nested")],
+                force_file_root: false,
+                file_tree_paths: vec![root.join("src/nested/demo.txt"), root.join("src/nested")],
+                ..PendingWatchEvent::default()
             },
         );
 
+        assert!(!git_refresh);
         assert_eq!(paths, vec!["src", "src/nested", "src/nested/demo.txt"]);
     }
 
     #[test]
-    fn collect_invalidated_paths_falls_back_to_root_for_git_and_unknown_paths() {
+    fn collect_invalidated_paths_separates_git_metadata_from_file_paths() {
         let root = Path::new("/repo");
-        let paths = collect_invalidated_paths(
+        let (paths, git_refresh) = collect_file_invalidated_paths(
             root,
             PendingWatchEvent {
-                force_root: false,
-                paths: vec![root.join(".git/index"), PathBuf::from("/other/place.txt")],
+                force_file_root: false,
+                file_tree_paths: vec![root.join(".git/index"), PathBuf::from("/other/place.txt")],
+                ..PendingWatchEvent::default()
             },
         );
 
+        assert!(git_refresh);
         assert_eq!(paths, vec![""]);
     }
 
     #[test]
     fn collect_invalidated_paths_keeps_root_when_requested() {
         let root = Path::new("/repo");
-        let paths = collect_invalidated_paths(
+        let (paths, git_refresh) = collect_file_invalidated_paths(
             root,
             PendingWatchEvent {
-                force_root: true,
-                paths: vec![root.join("README.md")],
+                force_file_root: true,
+                file_tree_paths: vec![root.join("README.md")],
+                ..PendingWatchEvent::default()
             },
         );
 
+        assert!(!git_refresh);
         assert_eq!(paths, vec!["", "README.md"]);
     }
 }

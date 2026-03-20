@@ -89,6 +89,7 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         | EventKind::WorktreesReordered { .. }
         | EventKind::ProjectWorktreesUpdated { .. }
         | EventKind::WorktreeFilesUpdated { .. }
+        | EventKind::WorktreeGitStatusUpdated { .. }
         | EventKind::SettingsUpdated(_) => true,
     }
 }

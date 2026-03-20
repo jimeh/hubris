@@ -84,9 +84,8 @@ describe("WorktreeRightSidebar", () => {
       await import("@/lib/stores/worktreeRightSidebar");
     const { resetWorktreeRightSidebarWidthStoreForTests } =
       await import("@/lib/stores/worktreeRightSidebarWidth");
-    const { resetWorktreeFileManagerStoreForTests } = await import(
-      "@/lib/stores/worktreeFileManager"
-    );
+    const { resetWorktreeFileManagerStoreForTests } =
+      await import("@/lib/stores/worktreeFileManager");
     resetWorktreeRightSidebarStoreForTests();
     resetWorktreeRightSidebarWidthStoreForTests();
     resetWorktreeFileManagerStoreForTests();
@@ -123,9 +122,8 @@ describe("WorktreeRightSidebar", () => {
   it("shows the total change count on the changes tab", async () => {
     const { useWorktreeRightSidebarStore } =
       await import("@/lib/stores/worktreeRightSidebar");
-    const { useWorktreeFileManagerStore } = await import(
-      "@/lib/stores/worktreeFileManager"
-    );
+    const { useWorktreeFileManagerStore } =
+      await import("@/lib/stores/worktreeFileManager");
     useWorktreeRightSidebarStore.setState({
       activeTab: "changes",
     });
@@ -152,6 +150,7 @@ describe("WorktreeRightSidebar", () => {
           gitStatusStatus: "loaded",
           gitError: null,
           pendingGeneration: 0,
+          pendingGitGeneration: 0,
           pendingPaths: [],
         },
       },

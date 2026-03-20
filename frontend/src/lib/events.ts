@@ -23,6 +23,7 @@ const SSE_EVENT_NAMES = [
   "worktrees_reordered",
   "project_worktrees_updated",
   "worktree_files_updated",
+  "worktree_git_status_updated",
   "settings_updated",
 ] as const satisfies ReadonlyArray<SseEventName>;
 

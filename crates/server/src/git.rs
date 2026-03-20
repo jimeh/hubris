@@ -1,5 +1,6 @@
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
+use std::process::Command as StdCommand;
 
 use crate::api::worktrees::{GitCommitPerson, GitCommitSummary, GitFileChange, GitFileChangeType};
 use tokio::process::Command;
@@ -82,6 +83,33 @@ fn trim_output(bytes: &[u8]) -> String {
 fn to_git_error(error: impl std::fmt::Display) -> GitError {
     GitError {
         message: error.to_string(),
+    }
+}
+
+fn run_git_sync(args: &[&str]) -> Result<String, GitError> {
+    let output = StdCommand::new("git")
+        .args(args)
+        .output()
+        .map_err(|e| GitError {
+            message: format!("failed to run git: {e}"),
+        })?;
+
+    if output.status.success() {
+        Ok(trim_output(&output.stdout))
+    } else {
+        let stderr = trim_output(&output.stderr);
+        let stdout = trim_output(&output.stdout);
+        Err(GitError {
+            message: if stderr.is_empty() {
+                if stdout.is_empty() {
+                    "git command failed".to_string()
+                } else {
+                    stdout
+                }
+            } else {
+                stderr
+            },
+        })
     }
 }
 
@@ -653,6 +681,33 @@ pub fn worktree_id(path: &Path) -> String {
     Uuid::new_v5(&WORKTREE_NAMESPACE, path.to_string_lossy().as_bytes()).to_string()
 }
 
+pub fn resolve_git_metadata_watch_paths(worktree_path: &Path) -> Result<Vec<PathBuf>, GitError> {
+    let cwd = worktree_path.to_string_lossy().to_string();
+    let git_dir = run_git_sync(&[
+        "-C",
+        &cwd,
+        "rev-parse",
+        "--path-format=absolute",
+        "--absolute-git-dir",
+    ])?;
+    let common_dir = run_git_sync(&[
+        "-C",
+        &cwd,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+    ])?;
+
+    let mut paths = BTreeSet::new();
+    for raw_path in [git_dir, common_dir] {
+        let path = PathBuf::from(raw_path);
+        let canonical = std::fs::canonicalize(&path).unwrap_or(path);
+        paths.insert(canonical);
+    }
+
+    Ok(paths.into_iter().collect())
+}
+
 pub async fn resolve_local_root(path: &Path) -> Result<PathBuf, GitError> {
     let cwd = path.to_string_lossy().to_string();
     let common_dir = run_git(&[
@@ -1048,10 +1103,36 @@ pub fn read_worktree_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+
+    fn run_git(repo_path: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(repo_path)
+            .arg("-c")
+            .arg("commit.gpgsign=false")
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git failed: {:?}", args);
+    }
 
     #[test]
     fn test_worktree_id_is_stable() {
         let path = Path::new("/tmp/repo");
         assert_eq!(worktree_id(path), worktree_id(path));
+    }
+
+    #[test]
+    fn resolve_git_metadata_watch_paths_dedupes_local_repo_paths() {
+        let repo = tempfile::TempDir::new().unwrap();
+        run_git(repo.path(), &["init", "-q"]);
+        run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+        run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+
+        let paths = resolve_git_metadata_watch_paths(repo.path()).unwrap();
+
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].ends_with(".git"));
     }
 }

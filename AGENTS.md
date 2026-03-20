@@ -266,6 +266,11 @@ No periodic reconciliation — drift corrects on reconnect.
   linked worktrees where `.git` points outside the watched root. Backend git
   action handlers must invalidate `worktree_files` caches and emit
   `worktree_files_updated` instead of relying on filesystem events alone.
+- **Linked worktree git metadata lives outside the worktree root**:
+  watching `worktree.path` recursively is not enough to catch external commits,
+  ref updates, or index changes for linked worktrees. Git-status freshness needs
+  separate watches on the resolved absolute git dir and git common dir, and
+  git-only invalidation should not stale file listings.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.
