@@ -38,6 +38,13 @@ vi.mock("@/lib/stores/worktreeFileManager", () => ({
     calls.push("reset-worktree-file-manager"),
 }));
 
+vi.mock("@/lib/stores/worktreeRightSidebar", () => ({
+  initializeWorktreeRightSidebarStore: () =>
+    calls.push("worktree-right-sidebar"),
+  resetWorktreeRightSidebarStoreForTests: () =>
+    calls.push("reset-worktree-right-sidebar"),
+}));
+
 vi.mock("@/lib/stores/settings", () => ({
   initializeSettingsStore: () => calls.push("settings"),
   resetSettingsStoreForTests: () => calls.push("reset-settings"),
@@ -72,6 +79,7 @@ describe("bootstrapApp", () => {
       "worktrees",
       "tabs",
       "worktree-file-manager",
+      "worktree-right-sidebar",
       "settings",
       "connect",
     ]);
@@ -87,6 +95,7 @@ describe("bootstrapApp", () => {
       "reset-worktrees",
       "reset-tabs",
       "reset-worktree-file-manager",
+      "reset-worktree-right-sidebar",
       "reset-settings",
       "disconnect",
     ]);

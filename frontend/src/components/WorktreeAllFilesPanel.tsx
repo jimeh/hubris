@@ -1,5 +1,4 @@
 import {
-  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -7,10 +6,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ChevronRight, Copy, PencilLine, RefreshCw } from "lucide-react";
+import { ChevronRight, Copy, PencilLine } from "lucide-react";
 import { toast } from "sonner";
 import type { WorktreeGitStatus } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -29,6 +27,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   resolveMaterialFileIcon,
@@ -47,8 +46,6 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   worktree: Worktree;
-  open?: boolean;
-  onActionsChange?: (actions: ReactNode | null) => void;
 };
 
 type DirectoryState = {
@@ -532,25 +529,12 @@ function FileTreeRow({
   );
 }
 
-export default function WorktreeAllFilesPanel({
-  worktree,
-  open = true,
-  onActionsChange,
-}: Props) {
+export default function WorktreeAllFilesPanel({ worktree }: Props) {
   const worktreeState =
     useWorktreeFileManagerStore((state) => state.worktrees[worktree.id]) ??
     EMPTY_STATE;
   const loadDirectory = useWorktreeFileManagerStore(
     (state) => state.loadDirectory,
-  );
-  const loadGitStatus = useWorktreeFileManagerStore(
-    (state) => state.loadGitStatus,
-  );
-  const refreshVisiblePaths = useWorktreeFileManagerStore(
-    (state) => state.refreshVisiblePaths,
-  );
-  const refreshPendingPaths = useWorktreeFileManagerStore(
-    (state) => state.refreshPendingPaths,
   );
   const preloadVisibleDirectories = useWorktreeFileManagerStore(
     (state) => state.preloadVisibleDirectories,
@@ -570,99 +554,6 @@ export default function WorktreeAllFilesPanel({
     () => buildDecorations(worktreeState),
     [worktreeState],
   );
-
-  const refreshPanel = useCallback(
-    async (force = false) => {
-      await refreshVisiblePaths(worktree.project_id, worktree.id, { force });
-    },
-    [refreshVisiblePaths, worktree.id, worktree.project_id],
-  );
-
-  const headerActions = useMemo(
-    () => (
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={() =>
-          void refreshVisiblePaths(worktree.project_id, worktree.id, {
-            force: true,
-          })
-        }
-        title="Refresh files"
-        aria-label="Refresh files"
-      >
-        <RefreshCw
-          className={cn(
-            "h-4 w-4",
-            (rootDirectory?.status === "loading" ||
-              worktreeState.gitStatusStatus === "loading") &&
-              "animate-spin",
-          )}
-        />
-      </Button>
-    ),
-    [
-      refreshVisiblePaths,
-      rootDirectory?.status,
-      worktree.id,
-      worktree.project_id,
-      worktreeState.gitStatusStatus,
-    ],
-  );
-
-  useEffect(() => {
-    if (!open) {
-      onActionsChange?.(null);
-      return;
-    }
-
-    onActionsChange?.(headerActions);
-    return () => onActionsChange?.(null);
-  }, [headerActions, onActionsChange, open]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    void refreshPanel(false);
-  }, [open, refreshPanel]);
-
-  useEffect(() => {
-    if (!open || worktreeState.pendingGeneration === 0) {
-      return;
-    }
-
-    startTransition(() => {
-      void refreshPendingPaths(worktree.project_id, worktree.id);
-    });
-  }, [
-    open,
-    refreshPendingPaths,
-    worktree.id,
-    worktree.project_id,
-    worktreeState.pendingGeneration,
-  ]);
-
-  useEffect(() => {
-    if (
-      !open ||
-      worktreeState.pendingGeneration !== 0 ||
-      worktreeState.pendingGitGeneration === 0
-    ) {
-      return;
-    }
-
-    startTransition(() => {
-      void loadGitStatus(worktree.project_id, worktree.id, { force: true });
-    });
-  }, [
-    loadGitStatus,
-    open,
-    worktree.id,
-    worktree.project_id,
-    worktreeState.pendingGeneration,
-    worktreeState.pendingGitGeneration,
-  ]);
 
   const handleToggleDirectory = useCallback(
     (entry: WorktreeFileEntry) => {
@@ -736,7 +627,9 @@ export default function WorktreeAllFilesPanel({
               size="sm"
               className="mt-3"
               onClick={() => {
-                void refreshPanel(true);
+                void loadDirectory(worktree.project_id, worktree.id, "", {
+                  force: true,
+                });
               }}
             >
               Retry

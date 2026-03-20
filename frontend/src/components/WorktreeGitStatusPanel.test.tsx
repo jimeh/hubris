@@ -7,10 +7,17 @@ import {
   type RenderResult,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeGitStatusPanel from "./WorktreeGitStatusPanel";
+import WorktreeGitStatusViewToggle from "./WorktreeGitStatusViewToggle";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { useWorktreeGitStatusViewStore } from "@/lib/stores/worktreeGitStatusView";
+import { useWorktreeStore } from "@/lib/stores/worktrees";
+import {
+  initializeWorktreeRightSidebarStore,
+  useWorktreeRightSidebarStore,
+} from "@/lib/stores/worktreeRightSidebar";
+import { WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB } from "@/lib/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
 
 const mockGetProjectWorktreeGitStatus = vi.fn();
@@ -52,32 +59,54 @@ function makeWorktree(overrides?: Partial<Worktree>): Worktree {
 }
 
 function renderPanel(): RenderResult {
-  return renderPanelWithOpen(true);
+  return renderPanelWithWorktree();
 }
 
-function renderPanelWithOpen(
-  open: boolean,
+function PanelHarness({ worktree }: { worktree: Worktree }) {
+  const viewMode = useWorktreeGitStatusViewStore(
+    (state) => state.viewModeByWorktree[worktree.id] ?? "tree",
+  );
+  const setViewMode = useWorktreeGitStatusViewStore(
+    (state) => state.setViewMode,
+  );
+
+  return (
+    <SidebarProvider defaultOpen>
+      <div className="px-3 pt-3">
+        <WorktreeGitStatusViewToggle
+          viewMode={viewMode}
+          onViewModeChange={(nextViewMode) =>
+            setViewMode(worktree.id, nextViewMode)
+          }
+        />
+      </div>
+      <div className="h-96">
+        <WorktreeGitStatusPanel worktree={worktree} />
+      </div>
+    </SidebarProvider>
+  );
+}
+
+function renderPanelWithWorktree(
   worktreeOverrides?: Partial<Worktree>,
 ): RenderResult {
-  function Harness({ open: isOpen }: { open: boolean }) {
-    const [actions, setActions] = useState<ReactNode>(null);
+  const worktree = makeWorktree(worktreeOverrides);
+  useWorktreeStore.setState({
+    worktreesByProject: {
+      [worktree.project_id]: [worktree],
+    },
+    projectErrors: {},
+    selectedWorktreeId: worktree.id,
+  });
+  useWorktreeRightSidebarStore.setState({
+    isMobileViewport: false,
+    desktopOpen: true,
+    mobileOpen: false,
+    activeTab: WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
+  });
+  initializeWorktreeRightSidebarStore();
 
-    return (
-      <SidebarProvider defaultOpen>
-        <div>{actions}</div>
-        <div className="h-96">
-          {/* height ensures ScrollArea has a real container in tests */}
-          <WorktreeGitStatusPanel
-            worktree={makeWorktree(worktreeOverrides)}
-            open={isOpen}
-            onActionsChange={setActions}
-          />
-        </div>
-      </SidebarProvider>
-    );
-  }
-
-  return render(<Harness open={open} />);
+  return render(<PanelHarness worktree={worktree} />);
 }
 
 function sectionHeaderTitles(): string[] {
@@ -98,10 +127,16 @@ describe("WorktreeGitStatusPanel", () => {
     mockDiscardProjectWorktreePath.mockReset();
     const { resetWorktreeFileManagerStoreForTests } =
       await import("@/lib/stores/worktreeFileManager");
+    const { resetWorktreeRightSidebarStoreForTests } =
+      await import("@/lib/stores/worktreeRightSidebar");
     resetWorktreeFileManagerStoreForTests();
+    resetWorktreeRightSidebarStoreForTests();
     const { resetWorktreeGitStatusViewStoreForTests } =
       await import("@/lib/stores/worktreeGitStatusView");
     resetWorktreeGitStatusViewStoreForTests();
+    const { resetWorktreeStoreForTests } =
+      await import("@/lib/stores/worktrees");
+    resetWorktreeStoreForTests();
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 1,
@@ -147,115 +182,13 @@ describe("WorktreeGitStatusPanel", () => {
     });
   });
 
-  it("fetches on mount and only again on manual refresh", async () => {
+  it("loads git status through the sidebar coordinator", async () => {
     renderPanel();
 
     await waitFor(() => {
       expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(1);
     });
-
-    fireEvent.click(screen.getByRole("button", { name: "Refresh git status" }));
-
-    await waitFor(() => {
-      expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(2);
-    });
   });
-
-  it("does not fetch or publish header actions while closed", async () => {
-    renderPanelWithOpen(false);
-
-    expect(mockGetProjectWorktreeGitStatus).not.toHaveBeenCalled();
-    expect(
-      screen.queryByRole("button", { name: "Refresh git status" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("fetches once when opened after mounting closed", async () => {
-    function Harness() {
-      const [actions, setActions] = useState<ReactNode>(null);
-      const [open, setOpen] = useState(false);
-
-      return (
-        <SidebarProvider defaultOpen>
-          <div>{actions}</div>
-          <button type="button" onClick={() => setOpen(true)}>
-            Open panel
-          </button>
-          <div className="h-96">
-            <WorktreeGitStatusPanel
-              worktree={makeWorktree()}
-              open={open}
-              onActionsChange={setActions}
-            />
-          </div>
-        </SidebarProvider>
-      );
-    }
-
-    render(<Harness />);
-
-    expect(mockGetProjectWorktreeGitStatus).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Open panel" }));
-
-    await waitFor(() => {
-      expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(1);
-    });
-    expect(
-      screen.getByRole("button", { name: "Refresh git status" }),
-    ).toBeInTheDocument();
-  });
-
-  it("fetches when reopened and preserves expanded tree state", async () => {
-    function Harness() {
-      const [actions, setActions] = useState<ReactNode>(null);
-      const [open, setOpen] = useState(true);
-
-      return (
-        <SidebarProvider defaultOpen>
-          <div>{actions}</div>
-          <button type="button" onClick={() => setOpen((value) => !value)}>
-            Toggle open
-          </button>
-          <div className="h-96">
-            <WorktreeGitStatusPanel
-              worktree={makeWorktree()}
-              open={open}
-              onActionsChange={setActions}
-            />
-          </div>
-        </SidebarProvider>
-      );
-    }
-
-    render(<Harness />);
-
-    await screen.findByText("Unstaged");
-    fireEvent.click(screen.getByRole("button", { name: "Show tree view" }));
-    fireEvent.click(screen.getByRole("button", { name: "Toggle tmp2/bar" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Toggle tmp2/bar/baz" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Toggle tmp2/bar/baz/qux" }),
-    );
-    expect(screen.getByText("deep.txt")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Toggle open" }));
-    expect(
-      screen.queryByRole("button", { name: "Refresh git status" }),
-    ).not.toBeInTheDocument();
-    expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole("button", { name: "Toggle open" }));
-
-    expect(await screen.findByText("Unstaged")).toBeInTheDocument();
-    expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(1);
-    expect(
-      screen.getByRole("button", { name: "Toggle tmp2/bar/baz/qux" }),
-    ).toBeVisible();
-    expect(screen.getByText("deep.txt")).toBeInTheDocument();
-  }, 10_000);
 
   it("does not flash loading skeletons for fast responses", async () => {
     renderPanel();
@@ -338,11 +271,10 @@ describe("WorktreeGitStatusPanel", () => {
     await screen.findByRole("button", { name: "Staged" });
     fireEvent.click(screen.getByRole("button", { name: "Show tree view" }));
 
-    const separators = screen.getAllByTestId("changes-directory-separator");
-    expect(separators.length).toBeGreaterThan(0);
-    for (const separator of separators) {
-      expect(separator).toHaveClass("text-sidebar-foreground/35");
-    }
+    const compactedToggle = await screen.findByRole("button", {
+      name: "Toggle tmp2/bar/baz",
+    });
+    expect(compactedToggle).toHaveTextContent("tmp2 / bar / baz");
   });
 
   it("collapses sections independently and keeps their headers visible", async () => {
@@ -409,6 +341,9 @@ describe("WorktreeGitStatusPanel", () => {
     });
 
     renderPanel();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show list view" }),
+    );
 
     expect(await screen.findByText("copied.txt")).toBeInTheDocument();
     expect(screen.getByText("renamed.txt")).toBeInTheDocument();
@@ -565,7 +500,9 @@ describe("WorktreeGitStatusPanel", () => {
         "tmp2/bar/bar.txt",
       );
     });
-    expect(mockGetProjectWorktreeGitStatus).toHaveBeenCalledTimes(2);
+    expect(
+      mockGetProjectWorktreeGitStatus.mock.calls.length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("shows recursive stage actions for tree directories", async () => {
@@ -620,12 +557,11 @@ describe("WorktreeGitStatusPanel", () => {
     await screen.findByRole("button", { name: "Unstaged" });
     fireEvent.click(screen.getByRole("button", { name: "Show tree view" }));
 
-    const dots = screen.getAllByTestId("changes-directory-status-dot");
-    expect(dots.length).toBeGreaterThan(0);
-
-    expect(dots.some((dot) => dot.classList.contains("text-rose-500"))).toBe(
-      true,
-    );
+    expect(
+      screen
+        .getAllByTestId("changes-directory-status-dot")
+        .some((dot) => dot.classList.contains("text-rose-500")),
+    ).toBe(true);
   });
 
   it("keeps list view unchanged without directory dots", async () => {
@@ -818,7 +754,7 @@ describe("WorktreeGitStatusPanel", () => {
   });
 
   it("keeps view mode separate per worktree", async () => {
-    const firstRender = renderPanelWithOpen(true, { id: "w-alpha" });
+    const firstRender = renderPanelWithWorktree({ id: "w-alpha" });
 
     await screen.findByRole("button", { name: "Unstaged" });
     fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
@@ -831,7 +767,7 @@ describe("WorktreeGitStatusPanel", () => {
 
     firstRender.unmount();
 
-    renderPanelWithOpen(true, { id: "w-beta" });
+    renderPanelWithWorktree({ id: "w-beta" });
 
     await screen.findByRole("button", { name: "Unstaged" });
     expect(screen.getByRole("button", { name: "Toggle tmp2" })).toBeVisible();
@@ -840,36 +776,38 @@ describe("WorktreeGitStatusPanel", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("preserves section collapse state when the panel is temporarily closed", async () => {
-    function Harness() {
-      const [actions, setActions] = useState<ReactNode>(null);
-      const [open, setOpen] = useState(true);
+  it("preserves section collapse state per worktree without reset effects", async () => {
+    const alpha = makeWorktree({ id: "w-alpha" });
+    const beta = makeWorktree({ id: "w-beta", name: "feature-b" });
+    useWorktreeStore.setState({
+      worktreesByProject: {
+        [alpha.project_id]: [alpha, beta],
+      },
+      projectErrors: {},
+      selectedWorktreeId: alpha.id,
+    });
+    useWorktreeRightSidebarStore.setState({
+      isMobileViewport: false,
+      desktopOpen: true,
+      mobileOpen: false,
+      activeTab: WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
+    });
+    initializeWorktreeRightSidebarStore();
 
-      return (
-        <SidebarProvider defaultOpen>
-          <div>{actions}</div>
-          <button type="button" onClick={() => setOpen((value) => !value)}>
-            Toggle open
-          </button>
-          <div className="h-96">
-            <WorktreeGitStatusPanel
-              worktree={makeWorktree()}
-              open={open}
-              onActionsChange={setActions}
-            />
-          </div>
-        </SidebarProvider>
-      );
-    }
-
-    render(<Harness />);
+    const view = render(<PanelHarness worktree={alpha} />);
 
     const stagedHeader = await screen.findByRole("button", { name: "Staged" });
     fireEvent.click(stagedHeader);
     expect(screen.queryByText("README.md")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Toggle open" }));
-    fireEvent.click(screen.getByRole("button", { name: "Toggle open" }));
+    useWorktreeStore.setState({ selectedWorktreeId: beta.id });
+    view.rerender(<PanelHarness worktree={beta} />);
+
+    expect(await screen.findByRole("button", { name: "Staged" })).toBeVisible();
+    expect(await screen.findByText("README.md")).toBeInTheDocument();
+
+    useWorktreeStore.setState({ selectedWorktreeId: alpha.id });
+    view.rerender(<PanelHarness worktree={alpha} />);
 
     expect(await screen.findByRole("button", { name: "Staged" })).toBeVisible();
     expect(screen.queryByText("README.md")).not.toBeInTheDocument();

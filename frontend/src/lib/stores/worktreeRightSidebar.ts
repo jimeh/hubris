@@ -1,14 +1,19 @@
 import { create } from "zustand";
 import {
   DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB,
+  WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
   type WorktreeRightSidebarTabId,
 } from "@/lib/worktreeRightSidebar";
+import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
+import { useWorktreeStore } from "@/lib/stores/worktrees";
 
 const LS_DESKTOP_OPEN = "hubris-worktree-right-sidebar-open";
 const LS_LEGACY_DESKTOP_OPEN = "hubris-worktree-git-sidebar-open";
 const LS_ACTIVE_TAB = "hubris-worktree-right-sidebar-tab";
+const MOBILE_BREAKPOINT = 768;
 
 type WorktreeRightSidebarState = {
+  isMobileViewport: boolean;
   desktopOpen: boolean;
   mobileOpen: boolean;
   activeTab: WorktreeRightSidebarTabId;
@@ -19,6 +24,118 @@ type WorktreeRightSidebarState = {
   openTab: (tabId: WorktreeRightSidebarTabId, isMobile: boolean) => void;
   setActiveTab: (tabId: WorktreeRightSidebarTabId) => void;
 };
+
+function readIsMobileViewport(): boolean {
+  try {
+    return window.innerWidth < MOBILE_BREAKPOINT;
+  } catch {
+    return false;
+  }
+}
+
+function isSidebarVisible(state: WorktreeRightSidebarState): boolean {
+  return state.isMobileViewport ? state.mobileOpen : state.desktopOpen;
+}
+
+function selectedWorktree() {
+  const state = useWorktreeStore.getState();
+  if (!state.selectedWorktreeId) {
+    return null;
+  }
+
+  return (
+    Object.values(state.worktreesByProject)
+      .flat()
+      .find((worktree) => worktree.id === state.selectedWorktreeId) ?? null
+  );
+}
+
+let initialized = false;
+let storeUnsubscribers: Array<() => void> = [];
+let mobileMediaQuery: MediaQueryList | null = null;
+let mobileMediaQueryListener: ((event: MediaQueryListEvent) => void) | null =
+  null;
+let coordinationScheduled = false;
+let coordinationRunning = false;
+let coordinationReschedule = false;
+
+function scheduleSidebarCoordination(): void {
+  if (coordinationRunning) {
+    coordinationReschedule = true;
+    return;
+  }
+
+  if (coordinationScheduled) {
+    return;
+  }
+
+  coordinationScheduled = true;
+  queueMicrotask(() => {
+    coordinationScheduled = false;
+    void runSidebarCoordination();
+  });
+}
+
+async function runSidebarCoordination(): Promise<void> {
+  if (coordinationRunning) {
+    coordinationReschedule = true;
+    return;
+  }
+
+  coordinationRunning = true;
+
+  try {
+    do {
+      coordinationReschedule = false;
+
+      const worktree = selectedWorktree();
+      if (!worktree) {
+        continue;
+      }
+
+      const sidebarState = useWorktreeRightSidebarStore.getState();
+      if (!isSidebarVisible(sidebarState)) {
+        continue;
+      }
+
+      const fileManager = useWorktreeFileManagerStore.getState();
+      const worktreeState = fileManager.worktrees[worktree.id];
+      const pendingGeneration = worktreeState?.pendingGeneration ?? 0;
+      const pendingGitGeneration = worktreeState?.pendingGitGeneration ?? 0;
+
+      if (pendingGeneration > 0) {
+        await fileManager.refreshPendingPaths(worktree.project_id, worktree.id);
+        continue;
+      }
+
+      if (pendingGitGeneration > 0) {
+        await fileManager.loadGitStatus(worktree.project_id, worktree.id, {
+          force: true,
+        });
+        continue;
+      }
+
+      if (sidebarState.activeTab === WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB) {
+        await fileManager.loadDirectory(worktree.project_id, worktree.id, "");
+        await Promise.all([
+          fileManager.loadGitStatus(worktree.project_id, worktree.id),
+          fileManager.preloadVisibleDirectories(
+            worktree.project_id,
+            worktree.id,
+          ),
+        ]);
+        continue;
+      }
+
+      await fileManager.loadGitStatus(worktree.project_id, worktree.id);
+    } while (coordinationReschedule);
+  } finally {
+    coordinationRunning = false;
+    if (coordinationReschedule) {
+      scheduleSidebarCoordination();
+    }
+  }
+}
 
 function readDesktopOpen(): boolean {
   try {
@@ -64,6 +181,7 @@ function writeActiveTab(tabId: WorktreeRightSidebarTabId): void {
 
 export const useWorktreeRightSidebarStore = create<WorktreeRightSidebarState>(
   (set, get) => ({
+    isMobileViewport: readIsMobileViewport(),
     desktopOpen: readDesktopOpen(),
     mobileOpen: false,
     activeTab: readActiveTab(),
@@ -105,8 +223,56 @@ export const useWorktreeRightSidebarStore = create<WorktreeRightSidebarState>(
   }),
 );
 
+export function initializeWorktreeRightSidebarStore(): void {
+  if (initialized) return;
+  initialized = true;
+
+  if (typeof window.matchMedia === "function") {
+    mobileMediaQuery = window.matchMedia(
+      `(max-width: ${MOBILE_BREAKPOINT - 1}px)`,
+    );
+    mobileMediaQueryListener = (event) => {
+      useWorktreeRightSidebarStore.setState({
+        isMobileViewport: event.matches,
+      });
+    };
+    mobileMediaQuery.addEventListener("change", mobileMediaQueryListener);
+    useWorktreeRightSidebarStore.setState({
+      isMobileViewport: mobileMediaQuery.matches,
+    });
+  }
+
+  storeUnsubscribers = [
+    useWorktreeRightSidebarStore.subscribe(() => {
+      scheduleSidebarCoordination();
+    }),
+    useWorktreeStore.subscribe(() => {
+      scheduleSidebarCoordination();
+    }),
+    useWorktreeFileManagerStore.subscribe(() => {
+      scheduleSidebarCoordination();
+    }),
+  ];
+
+  scheduleSidebarCoordination();
+}
+
 export function resetWorktreeRightSidebarStoreForTests(): void {
+  initialized = false;
+  for (const unsubscribe of storeUnsubscribers) {
+    unsubscribe();
+  }
+  storeUnsubscribers = [];
+  if (mobileMediaQuery && mobileMediaQueryListener) {
+    mobileMediaQuery.removeEventListener("change", mobileMediaQueryListener);
+  }
+  mobileMediaQuery = null;
+  mobileMediaQueryListener = null;
+  coordinationScheduled = false;
+  coordinationRunning = false;
+  coordinationReschedule = false;
   useWorktreeRightSidebarStore.setState({
+    isMobileViewport: readIsMobileViewport(),
     desktopOpen: readDesktopOpen(),
     mobileOpen: false,
     activeTab: readActiveTab(),

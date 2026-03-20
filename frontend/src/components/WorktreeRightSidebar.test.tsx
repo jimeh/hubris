@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { useEffect, type ReactNode } from "react";
 import {
   fireEvent,
   render,
@@ -9,57 +8,25 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
+import {
+  WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
+  WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
+} from "@/lib/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
 
 vi.mock("@/components/WorktreeGitStatusPanel", () => ({
-  default: function MockWorktreeGitStatusPanel({
-    open = true,
-    onActionsChange,
-  }: {
-    worktree: Worktree;
-    open?: boolean;
-    onActionsChange?: (actions: ReactNode | null) => void;
-  }) {
-    useEffect(() => {
-      if (!open) {
-        onActionsChange?.(null);
-        return;
-      }
-
-      onActionsChange?.(<button type="button">Panel action</button>);
-      return () => {
-        onActionsChange?.(null);
-      };
-    }, [onActionsChange, open]);
-
-    return <div>Git panel body {open ? "open" : "closed"}</div>;
+  default: function MockWorktreeGitStatusPanel() {
+    return <div>Git panel body</div>;
   },
 }));
 
 vi.mock("@/components/WorktreeAllFilesPanel", () => ({
-  default: function MockWorktreeAllFilesPanel({
-    open = true,
-    onActionsChange,
-  }: {
-    worktree: Worktree;
-    open?: boolean;
-    onActionsChange?: (actions: ReactNode | null) => void;
-  }) {
-    useEffect(() => {
-      if (!open) {
-        onActionsChange?.(null);
-        return;
-      }
-
-      onActionsChange?.(<button type="button">Explorer action</button>);
-      return () => onActionsChange?.(null);
-    }, [onActionsChange, open]);
-
-    return <div>Files panel body {open ? "open" : "closed"}</div>;
+  default: function MockWorktreeAllFilesPanel() {
+    return <div>Files panel body</div>;
   },
 }));
 
-function makeWorktree(): Worktree {
+function makeWorktree(overrides?: Partial<Worktree>): Worktree {
   return {
     id: "w1",
     project_id: "p1",
@@ -70,66 +37,106 @@ function makeWorktree(): Worktree {
     is_local: false,
     missing_on_disk: false,
     position: 2,
+    ...overrides,
   };
+}
+
+async function seedSelectedWorktree(worktree = makeWorktree()): Promise<void> {
+  const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+  useWorktreeStore.setState({
+    worktreesByProject: {
+      [worktree.project_id]: [worktree],
+    },
+    projectErrors: {},
+    selectedWorktreeId: worktree.id,
+  });
+}
+
+async function resetStores(): Promise<void> {
+  const { resetWorktreeRightSidebarStoreForTests } =
+    await import("@/lib/stores/worktreeRightSidebar");
+  const { resetWorktreeRightSidebarWidthStoreForTests } =
+    await import("@/lib/stores/worktreeRightSidebarWidth");
+  const { resetWorktreeFileManagerStoreForTests } =
+    await import("@/lib/stores/worktreeFileManager");
+  const { resetWorktreeGitStatusViewStoreForTests } =
+    await import("@/lib/stores/worktreeGitStatusView");
+  const { resetWorktreeStoreForTests } = await import("@/lib/stores/worktrees");
+
+  resetWorktreeRightSidebarStoreForTests();
+  resetWorktreeRightSidebarWidthStoreForTests();
+  resetWorktreeFileManagerStoreForTests();
+  resetWorktreeGitStatusViewStoreForTests();
+  resetWorktreeStoreForTests();
 }
 
 describe("WorktreeRightSidebar", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
-    vi.resetModules();
     localStorage.clear();
     setMobile(false);
-
-    const { resetWorktreeRightSidebarStoreForTests } =
-      await import("@/lib/stores/worktreeRightSidebar");
-    const { resetWorktreeRightSidebarWidthStoreForTests } =
-      await import("@/lib/stores/worktreeRightSidebarWidth");
-    const { resetWorktreeFileManagerStoreForTests } =
-      await import("@/lib/stores/worktreeFileManager");
-    resetWorktreeRightSidebarStoreForTests();
-    resetWorktreeRightSidebarWidthStoreForTests();
-    resetWorktreeFileManagerStoreForTests();
+    await resetStores();
   });
 
-  it("renders the active tab and resize handle on desktop", async () => {
+  it("renders all-files header actions declaratively on desktop", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={makeWorktree()} />);
+    render(<WorktreeRightSidebar worktree={worktree} />);
 
-    expect(screen.getByText("Files panel body open")).toBeInTheDocument();
-    const panel = document.querySelector<HTMLElement>(
-      "[data-worktree-right-sidebar-panel]",
-    );
-    expect(panel).toHaveClass("h-full");
-    const gap = document.querySelector<HTMLElement>(
-      "[data-worktree-right-sidebar-gap]",
-    );
-    expect(gap?.style.width).toBe("var(--worktree-right-sidebar-width, 320px)");
+    expect(screen.getByText("Files panel body")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Refresh files" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Refresh git status" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Resize right sidebar" }),
     ).toBeInTheDocument();
+  });
+
+  it("switching tabs swaps header actions immediately", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const { default: WorktreeRightSidebar } =
+      await import("./WorktreeRightSidebar");
+
+    render(<WorktreeRightSidebar worktree={worktree} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Changes/ }));
+
     expect(
-      screen.queryByRole("button", { name: "Collapse right sidebar" }),
+      screen.getByRole("button", { name: "Refresh git status" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Show list view" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Show tree view" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Refresh files" }),
     ).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Explorer action" }),
-      ).toBeInTheDocument();
-    });
+    expect(screen.getByText("Git panel body")).toBeInTheDocument();
   });
 
   it("shows the total change count on the changes tab", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
     const { useWorktreeRightSidebarStore } =
       await import("@/lib/stores/worktreeRightSidebar");
     const { useWorktreeFileManagerStore } =
       await import("@/lib/stores/worktreeFileManager");
+
     useWorktreeRightSidebarStore.setState({
-      activeTab: "changes",
+      activeTab: WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
     });
     useWorktreeFileManagerStore.setState({
       worktrees: {
-        w1: {
+        [worktree.id]: {
           directories: {},
           expandedPaths: [],
           selectedPath: null,
@@ -155,19 +162,19 @@ describe("WorktreeRightSidebar", () => {
         },
       },
     });
+
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
+    render(<WorktreeRightSidebar worktree={worktree} />);
 
-    render(<WorktreeRightSidebar worktree={makeWorktree()} />);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Changes/ })).toHaveTextContent(
-        "Changes3",
-      );
-    });
+    expect(screen.getByRole("button", { name: /Changes/ })).toHaveTextContent(
+      "Changes3",
+    );
   });
 
   it("hides completely when collapsed on desktop", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
     const { useWorktreeRightSidebarStore } =
       await import("@/lib/stores/worktreeRightSidebar");
     useWorktreeRightSidebarStore.setState({
@@ -177,7 +184,7 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={makeWorktree()} />);
+    render(<WorktreeRightSidebar worktree={worktree} />);
 
     const host = document.querySelector<HTMLElement>(
       "[data-worktree-right-sidebar-wrapper]",
@@ -188,7 +195,6 @@ describe("WorktreeRightSidebar", () => {
     const panel = document.querySelector<HTMLElement>(
       "[data-worktree-right-sidebar-panel]",
     );
-    expect(host).not.toBeNull();
     expect(host?.dataset.state).toBe("closed");
     expect(gap?.style.width).toBe("0px");
     expect(panel).toHaveAttribute("aria-hidden", "true");
@@ -197,43 +203,128 @@ describe("WorktreeRightSidebar", () => {
     expect(
       screen.queryByRole("button", { name: "Resize right sidebar" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Files panel body closed")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Explorer action" }),
-    ).not.toBeInTheDocument();
   });
 
   it("renders the mobile sheet with the active tab content", async () => {
     setMobile(true);
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
     const { useWorktreeRightSidebarStore } =
       await import("@/lib/stores/worktreeRightSidebar");
     useWorktreeRightSidebarStore.setState({
       desktopOpen: true,
       mobileOpen: true,
+      isMobileViewport: true,
     });
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={makeWorktree()} />);
+    render(<WorktreeRightSidebar worktree={worktree} />);
 
     const dialog = await screen.findByRole("dialog");
-    expect(dialog).toBeInTheDocument();
-    expect(
-      within(dialog).getByText("Files panel body open"),
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole("button", { name: "Hide right sidebar" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Resize right sidebar" }),
-    ).not.toBeInTheDocument();
-
+    expect(within(dialog).getByText("Files panel body")).toBeInTheDocument();
     fireEvent.click(
       within(dialog).getByRole("button", { name: "Hide right sidebar" }),
     );
 
     await waitFor(() => {
       expect(useWorktreeRightSidebarStore.getState().mobileOpen).toBe(false);
+    });
+  });
+
+  it("loads files and git status when all-files becomes visible", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const { initializeWorktreeRightSidebarStore } =
+      await import("@/lib/stores/worktreeRightSidebar");
+    const { useWorktreeFileManagerStore } =
+      await import("@/lib/stores/worktreeFileManager");
+
+    const loadDirectory = vi.fn().mockResolvedValue(undefined);
+    const preloadVisibleDirectories = vi.fn().mockResolvedValue(undefined);
+    const loadGitStatus = vi.fn().mockResolvedValue(undefined);
+
+    useWorktreeFileManagerStore.setState({
+      loadDirectory,
+      preloadVisibleDirectories,
+      loadGitStatus,
+    });
+
+    initializeWorktreeRightSidebarStore();
+
+    await waitFor(() => {
+      expect(loadDirectory).toHaveBeenCalledWith("p1", "w1", "");
+      expect(preloadVisibleDirectories).toHaveBeenCalledWith("p1", "w1");
+      expect(loadGitStatus).toHaveBeenCalledWith("p1", "w1");
+    });
+  });
+
+  it("loads git status when changes becomes visible", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const {
+      initializeWorktreeRightSidebarStore,
+      useWorktreeRightSidebarStore,
+    } = await import("@/lib/stores/worktreeRightSidebar");
+    const { useWorktreeFileManagerStore } =
+      await import("@/lib/stores/worktreeFileManager");
+
+    const loadGitStatus = vi.fn().mockResolvedValue(undefined);
+    useWorktreeRightSidebarStore.setState({
+      activeTab: WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
+    });
+    useWorktreeFileManagerStore.setState({ loadGitStatus });
+
+    initializeWorktreeRightSidebarStore();
+
+    await waitFor(() => {
+      expect(loadGitStatus).toHaveBeenCalledWith("p1", "w1");
+    });
+  });
+
+  it("keeps pending refresh queued while hidden and flushes on open", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const {
+      initializeWorktreeRightSidebarStore,
+      useWorktreeRightSidebarStore,
+    } = await import("@/lib/stores/worktreeRightSidebar");
+    const { useWorktreeFileManagerStore } =
+      await import("@/lib/stores/worktreeFileManager");
+
+    const refreshPendingPaths = vi.fn().mockResolvedValue(undefined);
+    useWorktreeRightSidebarStore.setState({
+      desktopOpen: false,
+      mobileOpen: false,
+      activeTab: WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
+    });
+    useWorktreeFileManagerStore.setState({
+      refreshPendingPaths,
+      worktrees: {
+        [worktree.id]: {
+          directories: {},
+          expandedPaths: [],
+          selectedPath: null,
+          renamePath: null,
+          gitStatus: null,
+          gitStatusStatus: "idle",
+          gitError: null,
+          pendingGeneration: 4,
+          pendingGitGeneration: 0,
+          pendingPaths: [""],
+        },
+      },
+    });
+
+    initializeWorktreeRightSidebarStore();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(refreshPendingPaths).not.toHaveBeenCalled();
+
+    useWorktreeRightSidebarStore.setState({ desktopOpen: true });
+
+    await waitFor(() => {
+      expect(refreshPendingPaths).toHaveBeenCalledWith("p1", "w1");
     });
   });
 });

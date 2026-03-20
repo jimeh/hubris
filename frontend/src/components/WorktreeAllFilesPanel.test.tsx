@@ -8,10 +8,10 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeAllFilesPanel from "./WorktreeAllFilesPanel";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB } from "@/lib/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
 
 const mockListProjectWorktreeFiles = vi.fn();
@@ -65,25 +65,40 @@ function createDeferred<T>() {
   return { promise, resolve };
 }
 
-function renderPanel(open = true) {
-  function Harness({ isOpen }: { isOpen: boolean }) {
-    const [actions, setActions] = useState<ReactNode>(null);
+async function renderPanel() {
+  const worktree = makeWorktree();
+  const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+  const { useWorktreeRightSidebarStore, initializeWorktreeRightSidebarStore } =
+    await import("@/lib/stores/worktreeRightSidebar");
 
-    return (
+  useWorktreeStore.setState({
+    worktreesByProject: {
+      [worktree.project_id]: [worktree],
+    },
+    projectErrors: {},
+    selectedWorktreeId: worktree.id,
+  });
+  useWorktreeRightSidebarStore.setState({
+    isMobileViewport: false,
+    desktopOpen: true,
+    mobileOpen: false,
+    activeTab: WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
+  });
+  initializeWorktreeRightSidebarStore();
+
+  let result: ReturnType<typeof render> | undefined;
+  await act(async () => {
+    result = render(
       <SidebarProvider defaultOpen>
-        <div>{actions}</div>
         <div className="h-96">
-          <WorktreeAllFilesPanel
-            worktree={makeWorktree()}
-            open={isOpen}
-            onActionsChange={setActions}
-          />
+          <WorktreeAllFilesPanel worktree={worktree} />
         </div>
-      </SidebarProvider>
+      </SidebarProvider>,
     );
-  }
+    await Promise.resolve();
+  });
 
-  return render(<Harness isOpen={open} />);
+  return result!;
 }
 
 describe("WorktreeAllFilesPanel", () => {
@@ -98,7 +113,13 @@ describe("WorktreeAllFilesPanel", () => {
     mockRenameProjectWorktreeFile.mockReset();
     const { resetWorktreeFileManagerStoreForTests } =
       await import("@/lib/stores/worktreeFileManager");
+    const { resetWorktreeRightSidebarStoreForTests } =
+      await import("@/lib/stores/worktreeRightSidebar");
+    const { resetWorktreeStoreForTests } =
+      await import("@/lib/stores/worktrees");
     resetWorktreeFileManagerStoreForTests();
+    resetWorktreeRightSidebarStoreForTests();
+    resetWorktreeStoreForTests();
 
     mockListProjectWorktreeFiles.mockImplementation(
       async (_projectId: string, _worktreeId: string, path = "") => {
@@ -141,7 +162,7 @@ describe("WorktreeAllFilesPanel", () => {
   });
 
   it("loads root entries and lazily expands directories once", async () => {
-    renderPanel();
+    await renderPanel();
 
     expect(await screen.findByText("README.md")).toBeInTheDocument();
     expect(screen.getByText("src")).toBeInTheDocument();
@@ -179,7 +200,7 @@ describe("WorktreeAllFilesPanel", () => {
   });
 
   it("opens the context menu on right click without toggling a directory", async () => {
-    renderPanel();
+    await renderPanel();
 
     expect(await screen.findByText("src")).toBeInTheDocument();
 
@@ -192,7 +213,7 @@ describe("WorktreeAllFilesPanel", () => {
   });
 
   it("renders git-aware decorations for files", async () => {
-    renderPanel();
+    await renderPanel();
 
     const readmeLabel = await screen.findByText("README.md");
     expect(readmeLabel).toBeInTheDocument();
@@ -216,7 +237,7 @@ describe("WorktreeAllFilesPanel", () => {
   });
 
   it("removes the explorer header box and shows directory status dots", async () => {
-    renderPanel();
+    await renderPanel();
 
     expect(screen.queryByText("Explorer")).not.toBeInTheDocument();
     expect(screen.queryByText("/tmp/feature-a")).not.toBeInTheDocument();
@@ -229,7 +250,7 @@ describe("WorktreeAllFilesPanel", () => {
   });
 
   it("keeps git text colors on selected changed rows", async () => {
-    renderPanel();
+    await renderPanel();
 
     await screen.findByText("README.md");
     const readmeButton = Array.from(
@@ -251,7 +272,7 @@ describe("WorktreeAllFilesPanel", () => {
       entries: [{ name: "notes.foo", path: "notes.foo", kind: "file" }],
     });
 
-    renderPanel();
+    await renderPanel();
 
     expect(await screen.findByText("notes.foo")).toBeInTheDocument();
     expect(
@@ -279,7 +300,7 @@ describe("WorktreeAllFilesPanel", () => {
       },
     );
 
-    renderPanel();
+    await renderPanel();
 
     expect(
       screen.getByTestId("root-directory-loading-list"),
@@ -327,7 +348,7 @@ describe("WorktreeAllFilesPanel", () => {
       },
     );
 
-    renderPanel();
+    await renderPanel();
 
     expect(await screen.findByText("node_modules")).toBeInTheDocument();
 
@@ -401,7 +422,7 @@ describe("WorktreeAllFilesPanel", () => {
       },
     );
 
-    renderPanel();
+    await renderPanel();
 
     expect(await screen.findByText("node_modules")).toBeInTheDocument();
 
@@ -477,7 +498,7 @@ describe("WorktreeAllFilesPanel", () => {
       },
     );
 
-    renderPanel();
+    await renderPanel();
 
     expect(await screen.findByText("src")).toBeInTheDocument();
     await waitFor(() => {
@@ -531,7 +552,7 @@ describe("WorktreeAllFilesPanel", () => {
         ],
       });
 
-    renderPanel();
+    await renderPanel();
 
     expect(await screen.findByText("README.md")).toBeInTheDocument();
     await openRowActionMenu("README.md");
@@ -561,7 +582,7 @@ describe("WorktreeAllFilesPanel", () => {
       value: { writeText },
     });
 
-    renderPanel();
+    await renderPanel();
 
     expect(await screen.findByText("README.md")).toBeInTheDocument();
 

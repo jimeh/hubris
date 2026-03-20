@@ -13,6 +13,10 @@ import {
   resetWorktreeFileManagerStoreForTests,
 } from "@/lib/stores/worktreeFileManager";
 import {
+  initializeWorktreeRightSidebarStore,
+  resetWorktreeRightSidebarStoreForTests,
+} from "@/lib/stores/worktreeRightSidebar";
+import {
   initializeSettingsStore,
   resetSettingsStoreForTests,
 } from "@/lib/stores/settings";
@@ -27,6 +31,7 @@ export function bootstrapApp(): void {
   initializeWorktreeStore();
   initializeTabStore();
   initializeWorktreeFileManagerStore();
+  initializeWorktreeRightSidebarStore();
   initializeSettingsStore();
 
   getEventClient().connect();
@@ -38,6 +43,7 @@ export function resetBootstrapForTests(): void {
   resetWorktreeStoreForTests();
   resetTabStoreForTests();
   resetWorktreeFileManagerStoreForTests();
+  resetWorktreeRightSidebarStoreForTests();
   resetSettingsStoreForTests();
   getEventClient().disconnect();
 }

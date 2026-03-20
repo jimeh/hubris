@@ -111,6 +111,12 @@ No periodic reconciliation — drift corrects on reconnect.
 - Rust edition 2024, `style_edition = "2024"` in `rustfmt.toml`
 - React app imports should use `@/lib/...`, `@/components/...`, and
   `@/hooks/...`; do not introduce `$lib/...`
+- **Avoid `useEffect` unless it is clearly necessary**:
+  prefer deriving UI directly from Zustand or React state instead of using
+  effects for orchestration, prop syncing, or data flow. Valid exceptions are:
+  unavoidable external synchronization, timer/debounced presentation logic, or
+  performance-sensitive imperative paths where state-driven rerenders cause
+  visible lag (for example sidebar resize width writes).
 
 ## Gotchas
 
@@ -277,6 +283,11 @@ No periodic reconciliation — drift corrects on reconnect.
   ref updates, or index changes for linked worktrees. Git-status freshness needs
   separate watches on the resolved absolute git dir and git common dir, and
   git-only invalidation should not stale file listings.
+- **Sidebar passive loads must not use `refreshVisiblePaths()`**:
+  `refreshVisiblePaths()` is the invalidation path and force-refreshes git
+  status. The right-sidebar visibility coordinator should use
+  `loadDirectory("")`, `preloadVisibleDirectories()`, and `loadGitStatus()`
+  for normal tab-open hydration, or it can spin on already-fresh state.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.

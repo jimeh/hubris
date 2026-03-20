@@ -1,7 +1,6 @@
 import {
   Fragment,
   forwardRef,
-  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -9,15 +8,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import {
-  ChevronRight,
-  FolderTree,
-  List,
-  Minus,
-  Plus,
-  RefreshCw,
-  Undo2,
-} from "lucide-react";
+import { ChevronRight, Minus, Plus, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   discardProjectWorktreePath,
@@ -87,14 +78,22 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   worktree: Worktree;
-  open?: boolean;
-  onActionsChange?: (actions: ReactNode | null) => void;
 };
 
 type TreeOpenState = Record<string, boolean>;
 type ChangeSection = "unstaged" | "staged";
 type SectionKey = ChangeSection | "commits";
 type SectionOpenState = Record<SectionKey, boolean>;
+type SectionOpenStateByWorktree = Record<string, SectionOpenState>;
+type TreeOpenStateByWorktree = Record<string, TreeOpenState>;
+type CommitTreeOpenStateByWorktree = Record<
+  string,
+  Record<string, TreeOpenState>
+>;
+type CommitDetailsByWorktree = Record<
+  string,
+  Record<string, CommitDetailsState>
+>;
 type GitAction = "stage" | "unstage" | "discard";
 type CommitDetailsState = {
   status: "idle" | "loading" | "loaded" | "error";
@@ -118,6 +117,11 @@ const EMPTY_COMMIT_DETAILS_STATE: CommitDetailsState = {
   status: "idle",
   details: null,
   error: null,
+};
+const DEFAULT_SECTION_OPEN_STATE: SectionOpenState = {
+  commits: true,
+  staged: true,
+  unstaged: true,
 };
 
 function splitChangePath(path: string): {
@@ -631,51 +635,6 @@ function TreeDirectoryNode({
         </CollapsibleContent>
       </Collapsible>
     </SidebarMenuItem>
-  );
-}
-
-function FileViewToggle({
-  viewMode,
-  onViewModeChange,
-}: {
-  viewMode: WorktreeGitStatusViewMode;
-  onViewModeChange: (viewMode: WorktreeGitStatusViewMode) => void;
-}) {
-  return (
-    <div className="inline-flex items-center gap-1">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className={cn(
-          "rounded-md text-muted-foreground",
-          viewMode === "list" &&
-            "bg-sidebar-accent/70 text-sidebar-accent-foreground hover:bg-sidebar-accent/70",
-        )}
-        aria-label="Show list view"
-        title="Show list view"
-        aria-pressed={viewMode === "list"}
-        onClick={() => onViewModeChange("list")}
-      >
-        <List className="h-3.5 w-3.5" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className={cn(
-          "rounded-md text-muted-foreground",
-          viewMode === "tree" &&
-            "bg-sidebar-accent/70 text-sidebar-accent-foreground hover:bg-sidebar-accent/70",
-        )}
-        aria-label="Show tree view"
-        title="Show tree view"
-        aria-pressed={viewMode === "tree"}
-        onClick={() => onViewModeChange("tree")}
-      >
-        <FolderTree className="h-3.5 w-3.5" />
-      </Button>
-    </div>
   );
 }
 
@@ -1289,23 +1248,15 @@ function CommitsSection({
   );
 }
 
-export default function WorktreeGitStatusPanel({
-  worktree,
-  open = true,
-  onActionsChange,
-}: Props) {
-  const [sectionOpenState, setSectionOpenState] = useState<SectionOpenState>({
-    commits: true,
-    staged: true,
-    unstaged: true,
-  });
-  const [commitOpenState, setCommitOpenState] = useState<TreeOpenState>({});
-  const [commitTreeOpenState, setCommitTreeOpenState] = useState<
-    Record<string, TreeOpenState>
-  >({});
-  const [commitDetailsById, setCommitDetailsById] = useState<
-    Record<string, CommitDetailsState>
-  >({});
+export default function WorktreeGitStatusPanel({ worktree }: Props) {
+  const [sectionOpenStateByWorktree, setSectionOpenStateByWorktree] =
+    useState<SectionOpenStateByWorktree>({});
+  const [commitOpenStateByWorktree, setCommitOpenStateByWorktree] =
+    useState<TreeOpenStateByWorktree>({});
+  const [commitTreeOpenStateByWorktree, setCommitTreeOpenStateByWorktree] =
+    useState<CommitTreeOpenStateByWorktree>({});
+  const [commitDetailsByWorktree, setCommitDetailsByWorktree] =
+    useState<CommitDetailsByWorktree>({});
   const [showLoadingSkeleton, setShowLoadingSkeleton] = useState(false);
   const [pendingActionKey, setPendingActionKey] = useState<string | null>(null);
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(
@@ -1314,22 +1265,13 @@ export default function WorktreeGitStatusPanel({
   const worktreeState = useWorktreeFileManagerStore(
     (state) => state.worktrees[worktree.id],
   );
-  const loadGitStatus = useWorktreeFileManagerStore(
-    (state) => state.loadGitStatus,
-  );
   const refreshPaths = useWorktreeFileManagerStore(
     (state) => state.refreshPaths,
-  );
-  const refreshPendingPaths = useWorktreeFileManagerStore(
-    (state) => state.refreshPendingPaths,
   );
   const viewMode = useWorktreeGitStatusViewStore(
     (state) =>
       state.viewModeByWorktree[worktree.id] ??
       DEFAULT_WORKTREE_GIT_STATUS_VIEW_MODE,
-  );
-  const setStoredViewMode = useWorktreeGitStatusViewStore(
-    (state) => state.setViewMode,
   );
   const theme = useThemeSettings((state) => state.activeTheme);
   const status = worktreeState?.gitStatus ?? null;
@@ -1337,15 +1279,11 @@ export default function WorktreeGitStatusPanel({
   const error = worktreeState?.gitError
     ? `Failed to load git status (${worktreeState.gitError})`
     : "";
-  const pendingGeneration = worktreeState?.pendingGeneration ?? 0;
-  const pendingGitGeneration = worktreeState?.pendingGitGeneration ?? 0;
-
-  const loadStatus = useCallback(
-    async (force = false) => {
-      await loadGitStatus(worktree.project_id, worktree.id, { force });
-    },
-    [loadGitStatus, worktree.id, worktree.project_id],
-  );
+  const sectionOpenState =
+    sectionOpenStateByWorktree[worktree.id] ?? DEFAULT_SECTION_OPEN_STATE;
+  const commitOpenState = commitOpenStateByWorktree[worktree.id] ?? {};
+  const commitTreeOpenState = commitTreeOpenStateByWorktree[worktree.id] ?? {};
+  const commitDetailsById = commitDetailsByWorktree[worktree.id] ?? {};
 
   const runAction = useCallback(
     async (action: GitAction, path: string, label: string) => {
@@ -1413,28 +1351,32 @@ export default function WorktreeGitStatusPanel({
     await runAction("discard", current.path, current.label);
   }, [pendingDiscard, runAction]);
 
-  const handleViewModeChange = useCallback(
-    (nextViewMode: WorktreeGitStatusViewMode) => {
-      setStoredViewMode(worktree.id, nextViewMode);
-    },
-    [setStoredViewMode, worktree.id],
-  );
-
   const ensureCommitDetails = useCallback(
     async (commitId: string) => {
-      const current = commitDetailsById[commitId];
-      if (current?.status === "loading" || current?.status === "loaded") {
+      let shouldFetch = false;
+      setCommitDetailsByWorktree((existing) => {
+        const current = existing[worktree.id]?.[commitId];
+        if (current?.status === "loading" || current?.status === "loaded") {
+          return existing;
+        }
+
+        shouldFetch = true;
+        return {
+          ...existing,
+          [worktree.id]: {
+            ...(existing[worktree.id] ?? {}),
+            [commitId]: {
+              status: "loading",
+              details: current?.details ?? null,
+              error: null,
+            },
+          },
+        };
+      });
+
+      if (!shouldFetch) {
         return;
       }
-
-      setCommitDetailsById((existing) => ({
-        ...existing,
-        [commitId]: {
-          status: "loading",
-          details: existing[commitId]?.details ?? null,
-          error: null,
-        },
-      }));
 
       try {
         const details = await getProjectWorktreeCommitDetails(
@@ -1442,130 +1384,78 @@ export default function WorktreeGitStatusPanel({
           worktree.id,
           commitId,
         );
-        setCommitDetailsById((existing) => ({
+        setCommitDetailsByWorktree((existing) => ({
           ...existing,
-          [commitId]: {
-            status: "loaded",
-            details,
-            error: null,
+          [worktree.id]: {
+            ...(existing[worktree.id] ?? {}),
+            [commitId]: {
+              status: "loaded",
+              details,
+              error: null,
+            },
           },
         }));
       } catch (error) {
-        setCommitDetailsById((existing) => ({
+        setCommitDetailsByWorktree((existing) => ({
           ...existing,
-          [commitId]: {
-            status: "error",
-            details: null,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Failed to load commit details.",
+          [worktree.id]: {
+            ...(existing[worktree.id] ?? {}),
+            [commitId]: {
+              status: "error",
+              details: null,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to load commit details.",
+            },
           },
         }));
       }
     },
-    [commitDetailsById, worktree.id, worktree.project_id],
-  );
-
-  const headerActions = useMemo(
-    () => (
-      <>
-        <FileViewToggle
-          viewMode={viewMode}
-          onViewModeChange={handleViewModeChange}
-        />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => void loadStatus(true)}
-          title="Refresh git status"
-          aria-label="Refresh git status"
-        >
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-        </Button>
-      </>
-    ),
-    [handleViewModeChange, loadStatus, loading, viewMode],
+    [worktree.id, worktree.project_id],
   );
 
   const handleSectionOpenChange = useCallback(
     (section: SectionKey, nextOpen: boolean) => {
-      setSectionOpenState((current) => ({
+      setSectionOpenStateByWorktree((current) => ({
         ...current,
-        [section]: nextOpen,
+        [worktree.id]: {
+          ...(current[worktree.id] ?? DEFAULT_SECTION_OPEN_STATE),
+          [section]: nextOpen,
+        },
       }));
     },
-    [],
+    [worktree.id],
   );
 
   const handleCommitOpenChange = useCallback(
     (commitId: string, nextOpen: boolean) => {
-      setCommitOpenState((current) => ({
+      setCommitOpenStateByWorktree((current) => ({
         ...current,
-        [commitId]: nextOpen,
+        [worktree.id]: {
+          ...(current[worktree.id] ?? {}),
+          [commitId]: nextOpen,
+        },
       }));
     },
-    [],
+    [worktree.id],
   );
 
   const handleCommitTreeOpenChange = useCallback(
     (commitId: string, path: string, nextOpen: boolean) => {
-      setCommitTreeOpenState((current) => ({
+      setCommitTreeOpenStateByWorktree((current) => ({
         ...current,
-        [commitId]: {
-          ...(current[commitId] ?? {}),
-          [path]: nextOpen,
+        [worktree.id]: {
+          ...(current[worktree.id] ?? {}),
+          [commitId]: {
+            ...((current[worktree.id] ?? {})[commitId] ?? {}),
+            [path]: nextOpen,
+          },
         },
       }));
     },
-    [],
+    [worktree.id],
   );
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setShowLoadingSkeleton(false);
-    }, 0);
-
-    setCommitOpenState({});
-    setCommitTreeOpenState({});
-    setCommitDetailsById({});
-
-    return () => window.clearTimeout(timer);
-  }, [worktree.id]);
-
-  useEffect(() => {
-    if (!open || status || error || loading) {
-      return;
-    }
-
-    void loadStatus();
-  }, [error, loadStatus, loading, open, status]);
-
-  useEffect(() => {
-    if (!open || pendingGeneration === 0) {
-      return;
-    }
-
-    startTransition(() => {
-      void refreshPendingPaths(worktree.project_id, worktree.id);
-    });
-  }, [
-    open,
-    pendingGeneration,
-    refreshPendingPaths,
-    worktree.id,
-    worktree.project_id,
-  ]);
-
-  useEffect(() => {
-    if (!open || pendingGeneration !== 0 || pendingGitGeneration === 0) {
-      return;
-    }
-
-    startTransition(() => {
-      void loadStatus(true);
-    });
-  }, [loadStatus, open, pendingGeneration, pendingGitGeneration]);
 
   useEffect(() => {
     if (!loading || status || error) {
@@ -1582,16 +1472,6 @@ export default function WorktreeGitStatusPanel({
 
     return () => window.clearTimeout(timer);
   }, [error, loading, status]);
-
-  useEffect(() => {
-    if (!open) {
-      onActionsChange?.(null);
-      return;
-    }
-
-    onActionsChange?.(headerActions);
-    return () => onActionsChange?.(null);
-  }, [headerActions, onActionsChange, open]);
 
   return (
     <>

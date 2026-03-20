@@ -1,11 +1,18 @@
-import { useMemo, useState, type ComponentType, type ReactNode } from "react";
+import {
+  useCallback,
+  useMemo,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import {
   Files,
   GitBranch,
   PanelRightClose,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 import WorktreeAllFilesPanel from "@/components/WorktreeAllFilesPanel";
+import WorktreeGitStatusViewToggle from "@/components/WorktreeGitStatusViewToggle";
 import WorktreeGitStatusPanel from "@/components/WorktreeGitStatusPanel";
 import WorktreeRightSidebarResizeHandle from "@/components/WorktreeRightSidebarResizeHandle";
 import { Button } from "@/components/ui/button";
@@ -16,7 +23,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useWorktreeGitStatusViewStore } from "@/lib/stores/worktreeGitStatusView";
 import {
   DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB,
   WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
@@ -30,8 +37,6 @@ import { cn } from "@/lib/utils";
 
 type WorktreeRightSidebarTabProps = {
   worktree: Worktree;
-  open?: boolean;
-  onActionsChange?: (actions: ReactNode | null) => void;
 };
 
 type WorktreeRightSidebarTabDefinition = {
@@ -119,7 +124,9 @@ function RightSidebarHeader({
 }
 
 export default function WorktreeRightSidebar({ worktree }: Props) {
-  const isMobile = useIsMobile();
+  const isMobile = useWorktreeRightSidebarStore(
+    (state) => state.isMobileViewport,
+  );
   const desktopOpen = useWorktreeRightSidebarStore(
     (state) => state.desktopOpen,
   );
@@ -131,15 +138,29 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
   const setActiveTab = useWorktreeRightSidebarStore(
     (state) => state.setActiveTab,
   );
-  const changesBadgeCount = useWorktreeFileManagerStore((state) => {
-    const gitStatus = state.worktrees[worktree.id]?.gitStatus;
+  const worktreeState = useWorktreeFileManagerStore(
+    (state) => state.worktrees[worktree.id],
+  );
+  const refreshVisiblePaths = useWorktreeFileManagerStore(
+    (state) => state.refreshVisiblePaths,
+  );
+  const loadGitStatus = useWorktreeFileManagerStore(
+    (state) => state.loadGitStatus,
+  );
+  const changesBadgeCount = useMemo(() => {
+    const gitStatus = worktreeState?.gitStatus;
     if (!gitStatus) {
       return null;
     }
 
     return gitStatus.staged_files.length + gitStatus.unstaged_files.length;
-  });
-  const [tabActions, setTabActions] = useState<ReactNode>(null);
+  }, [worktreeState?.gitStatus]);
+  const viewMode = useWorktreeGitStatusViewStore(
+    (state) => state.viewModeByWorktree[worktree.id] ?? "tree",
+  );
+  const setStoredViewMode = useWorktreeGitStatusViewStore(
+    (state) => state.setViewMode,
+  );
 
   const tab = useMemo(
     () =>
@@ -148,6 +169,75 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
     [activeTab],
   );
   const TabContent = tab.Content;
+  const allFilesLoading =
+    worktreeState?.directories[""]?.status === "loading" ||
+    worktreeState?.gitStatusStatus === "loading";
+  const changesLoading = worktreeState?.gitStatusStatus === "loading";
+
+  const handleAllFilesRefresh = useCallback(() => {
+    void refreshVisiblePaths(worktree.project_id, worktree.id, {
+      force: true,
+    });
+  }, [refreshVisiblePaths, worktree.id, worktree.project_id]);
+
+  const handleChangesRefresh = useCallback(() => {
+    void loadGitStatus(worktree.project_id, worktree.id, {
+      force: true,
+    });
+  }, [loadGitStatus, worktree.id, worktree.project_id]);
+
+  const handleViewModeChange = useCallback(
+    (nextViewMode: "list" | "tree") => {
+      setStoredViewMode(worktree.id, nextViewMode);
+    },
+    [setStoredViewMode, worktree.id],
+  );
+
+  const tabActions = useMemo(() => {
+    if (activeTab === WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB) {
+      return (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={handleAllFilesRefresh}
+          title="Refresh files"
+          aria-label="Refresh files"
+        >
+          <RefreshCw
+            className={cn("h-4 w-4", allFilesLoading && "animate-spin")}
+          />
+        </Button>
+      );
+    }
+
+    return (
+      <>
+        <WorktreeGitStatusViewToggle
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
+        />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={handleChangesRefresh}
+          title="Refresh git status"
+          aria-label="Refresh git status"
+        >
+          <RefreshCw
+            className={cn("h-4 w-4", changesLoading && "animate-spin")}
+          />
+        </Button>
+      </>
+    );
+  }, [
+    activeTab,
+    allFilesLoading,
+    changesLoading,
+    handleAllFilesRefresh,
+    handleChangesRefresh,
+    handleViewModeChange,
+    viewMode,
+  ]);
 
   if (isMobile) {
     return (
@@ -184,8 +274,6 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
             <TabContent
               key={`${tab.id}:${worktree.id}:mobile`}
               worktree={worktree}
-              open={mobileOpen}
-              onActionsChange={setTabActions}
             />
           </div>
         </SheetContent>
@@ -237,8 +325,6 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
           <TabContent
             key={`${tab.id}:${worktree.id}:desktop`}
             worktree={worktree}
-            open={desktopOpen}
-            onActionsChange={setTabActions}
           />
         </div>
       </div>
