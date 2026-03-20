@@ -1254,7 +1254,7 @@ function CommitsSection({
           </p>
         ) : (
           <div className="flex flex-col gap-2">
-            <SidebarMenu className="gap-0.5">
+            <SidebarMenu className="gap-0">
               {aheadCommits.map((commit, index) => (
                 <CommitRow
                   key={commit.id}

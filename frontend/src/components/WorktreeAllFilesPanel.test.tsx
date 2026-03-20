@@ -194,19 +194,54 @@ describe("WorktreeAllFilesPanel", () => {
   it("renders git-aware decorations for files", async () => {
     renderPanel();
 
-    expect(await screen.findByText("README.md")).toBeInTheDocument();
+    const readmeLabel = await screen.findByText("README.md");
+    expect(readmeLabel).toBeInTheDocument();
     expect(
       within(getRowButton("README.md")).getByTestId("file-icon-manifest"),
     ).toHaveAttribute("data-icon-id", "readme");
     expect(screen.getByText("M")).toBeInTheDocument();
+    expect(readmeLabel.className).toContain("text-amber-500");
+
+    const srcLabel = within(getRowButton("src")).getByText("src");
+    expect(srcLabel.className).toContain("text-emerald-500");
 
     fireEvent.click(getRowButton("src"));
 
-    expect(await screen.findByText("lib.rs")).toBeInTheDocument();
+    const libLabel = await screen.findByText("lib.rs");
     expect(
       within(getRowButton("lib.rs")).getByTestId("file-icon-manifest"),
     ).toHaveAttribute("data-icon-id", "rust");
     expect(screen.getByText("A")).toBeInTheDocument();
+    expect(libLabel.className).toContain("text-emerald-500");
+  });
+
+  it("removes the explorer header box and shows directory status dots", async () => {
+    renderPanel();
+
+    expect(screen.queryByText("Explorer")).not.toBeInTheDocument();
+    expect(screen.queryByText("/tmp/feature-a")).not.toBeInTheDocument();
+
+    const srcRow = await screen.findByRole("button", { name: "Toggle src" });
+    expect(within(srcRow).getByText("src").className).toContain(
+      "text-emerald-500",
+    );
+    expect(srcRow.querySelector(".bg-current.opacity-65")).toBeTruthy();
+  });
+
+  it("keeps git text colors on selected changed rows", async () => {
+    renderPanel();
+
+    await screen.findByText("README.md");
+    const readmeButton = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-testid='file-tree-row']"),
+    ).find((element) => element.getAttribute("data-path") === "README.md");
+    expect(readmeButton).toBeTruthy();
+    const targetRow = readmeButton!;
+    fireEvent.click(targetRow);
+
+    const readmeLabel = within(targetRow).getByText("README.md");
+    expect(targetRow.className).toContain("text-sidebar-accent-foreground");
+    expect(readmeLabel.className).toContain("text-amber-500");
   });
 
   it("uses the theme default file icon when no specific match exists", async () => {

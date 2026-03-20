@@ -165,7 +165,10 @@ function ExplorerDecoration({
     return (
       <span className="flex h-5 w-5 shrink-0 items-center justify-center">
         <span
-          className={cn("h-2 w-2 rounded-full", gitChangeTypeClass(changeType))}
+          className={cn(
+            "h-2 w-2 rounded-full bg-current opacity-65",
+            gitChangeTypeClass(changeType),
+          )}
         />
       </span>
     );
@@ -181,6 +184,16 @@ function ExplorerDecoration({
       {gitChangeTypeLabel(changeType)}
     </span>
   );
+}
+
+function rowLabelClass({
+  changeType,
+}: {
+  changeType?: GitChangeType;
+}): string {
+  return changeType
+    ? cn("text-[13px] font-medium", gitChangeTypeClass(changeType))
+    : "text-[13px] font-medium";
 }
 
 function RowContextMenu({
@@ -386,7 +399,14 @@ function FileTreeRow({
             <span className="h-4 w-4 shrink-0" aria-hidden="true" />
             <FileIcon path={entry.path} theme={theme} />
             {renameInput ?? (
-              <span className="truncate text-[13px] font-medium">
+              <span
+                className={cn(
+                  "truncate",
+                  rowLabelClass({
+                    changeType,
+                  }),
+                )}
+              >
                 {entry.name}
               </span>
             )}
@@ -436,7 +456,14 @@ function FileTreeRow({
               />
               <FolderIcon name={entry.name} open={expanded} theme={theme} />
               {renameInput ?? (
-                <span className="truncate text-[13px] font-medium">
+                <span
+                  className={cn(
+                  "truncate",
+                  rowLabelClass({
+                    changeType,
+                  }),
+                )}
+              >
                   {entry.name}
                 </span>
               )}
@@ -691,24 +718,6 @@ export default function WorktreeAllFilesPanel({
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="flex min-h-full flex-col gap-3 p-3">
-        <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-background via-background to-muted/40 p-3 shadow-[0_10px_30px_rgba(0,0,0,0.06)]">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                Explorer
-              </p>
-              <p className="truncate text-sm font-medium">{worktree.path}</p>
-            </div>
-            {worktreeState.gitStatus ? (
-              <div className="rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                {worktreeState.gitStatus.unstaged_files.length +
-                  worktreeState.gitStatus.staged_files.length}{" "}
-                changed
-              </div>
-            ) : null}
-          </div>
-        </div>
-
         {rootDirectory?.status === "loading" &&
         rootDirectory.entries.length === 0 ? (
           <div
