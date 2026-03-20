@@ -186,11 +186,7 @@ function ExplorerDecoration({
   );
 }
 
-function rowLabelClass({
-  changeType,
-}: {
-  changeType?: GitChangeType;
-}): string {
+function rowLabelClass({ changeType }: { changeType?: GitChangeType }): string {
   return changeType
     ? cn("text-[13px] font-medium", gitChangeTypeClass(changeType))
     : "text-[13px] font-medium";
@@ -458,12 +454,12 @@ function FileTreeRow({
               {renameInput ?? (
                 <span
                   className={cn(
-                  "truncate",
-                  rowLabelClass({
-                    changeType,
-                  }),
-                )}
-              >
+                    "truncate",
+                    rowLabelClass({
+                      changeType,
+                    }),
+                  )}
+                >
                   {entry.name}
                 </span>
               )}

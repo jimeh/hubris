@@ -42,11 +42,13 @@ function buildExplorerData(manifest: Manifest) {
     associations: {
       fileNames: manifest.fileNames ?? {},
       fileExtensions: manifest.fileExtensions ?? {},
+      languageIds: manifest.languageIds ?? {},
       folderNames: manifest.folderNames ?? {},
       folderNamesExpanded: manifest.folderNamesExpanded ?? {},
       light: {
         fileNames: manifest.light?.fileNames ?? {},
         fileExtensions: manifest.light?.fileExtensions ?? {},
+        languageIds: manifest.light?.languageIds ?? {},
         folderNames: manifest.light?.folderNames ?? {},
         folderNamesExpanded: manifest.light?.folderNamesExpanded ?? {},
       },

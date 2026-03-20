@@ -18,11 +18,13 @@ type MaterialIconThemeData = {
   associations: {
     fileNames: Record<string, string>;
     fileExtensions: Record<string, string>;
+    languageIds: Record<string, string>;
     folderNames: Record<string, string>;
     folderNamesExpanded: Record<string, string>;
     light: {
       fileNames: Record<string, string>;
       fileExtensions: Record<string, string>;
+      languageIds: Record<string, string>;
       folderNames: Record<string, string>;
       folderNamesExpanded: Record<string, string>;
     };
@@ -70,6 +72,25 @@ function extensionCandidates(name: string): string[] {
   return candidates;
 }
 
+const EXTENSION_LANGUAGE_ID_ALIASES: Record<string, string> = {
+  yml: "yaml",
+};
+
+function languageIdCandidates(name: string): string[] {
+  const candidates: string[] = [];
+
+  for (const extension of extensionCandidates(name)) {
+    candidates.push(extension);
+
+    const alias = EXTENSION_LANGUAGE_ID_ALIASES[extension];
+    if (alias) {
+      candidates.push(alias);
+    }
+  }
+
+  return [...new Set(candidates)];
+}
+
 function resolveIcon(
   iconId: string | null,
   fallbackIconId: string,
@@ -108,6 +129,13 @@ export function resolveMaterialFileIcon(
     );
     if (fileExtensionMatch) {
       return resolveIcon(fileExtensionMatch, fallbackIconId);
+    }
+  }
+
+  for (const candidate of languageIdCandidates(name)) {
+    const languageMatch = associationValue(variant, "languageIds", candidate);
+    if (languageMatch) {
+      return resolveIcon(languageMatch, fallbackIconId);
     }
   }
 

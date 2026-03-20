@@ -261,6 +261,12 @@ No periodic reconciliation — drift corrects on reconnect.
   omit some generic language extensions (for example plain `.ts`) because VS
   Code can also use language IDs. Browser file explorers that only have paths
   should not assume the generated manifest alone reproduces full VS Code parity.
+- **`material-icon-theme` browser resolution must include `languageIds` too**:
+  plain path-based resolution for files like `.html` and `.yml` can miss custom
+  icons if it only consults `fileNames` and `fileExtensions`. The generated
+  manifest and browser resolver should carry `languageIds`, with a minimal alias
+  layer such as `yml -> yaml` where the file extension and VS Code language ID
+  differ.
 - **Git index mutations need explicit worktree-file cache invalidation**:
   stage/unstage operations may not trigger the worktree watcher, especially for
   linked worktrees where `.git` points outside the watched root. Backend git
