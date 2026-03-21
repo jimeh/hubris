@@ -1018,23 +1018,22 @@ pub fn read_worktree_status(
         .map_err(to_git_error)?
         .untracked_files(gix::status::UntrackedFiles::Files)
         .index_worktree_rewrites(Some(rewrite_tracking()))
-        .into_iter(Vec::<gix::bstr::BString>::new())
+        .into_index_worktree_iter(Vec::<gix::bstr::BString>::new())
         .map_err(to_git_error)?;
 
     let mut unstaged_files = Vec::new();
 
     for item in &mut status {
-        match item.map_err(to_git_error)? {
-            gix::status::Item::IndexWorktree(change) => {
-                if let Some(change) = map_index_worktree_change(&change) {
-                    unstaged_files.push(change);
-                }
-            }
-            gix::status::Item::TreeIndex(_) => {}
+        let change = item.map_err(to_git_error)?;
+        if let Some(change) = map_index_worktree_change(&change) {
+            unstaged_files.push(change);
         }
     }
 
     unstaged_files.sort_by(|a, b| a.path.cmp(&b.path));
+    // Keep staged reads on the dedicated tree-vs-index path so rewrite-aware
+    // rename/copy detection stays isolated from unstaged index-vs-worktree
+    // status.
     let staged_files = read_staged_files(&repo)?;
 
     let (ahead_count, ahead_commits, comparison_available, comparison_error) =
