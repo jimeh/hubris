@@ -1034,7 +1034,7 @@ pub async fn discard_worktree_path(
 
     if !restore_paths.is_empty() {
         let restore_vec: Vec<String> = restore_paths.into_iter().collect();
-        let mut restore_args = vec!["restore", "--source=HEAD", "--worktree", "--"];
+        let mut restore_args = vec!["restore", "--worktree", "--"];
         restore_args.extend(restore_vec.iter().map(String::as_str));
         run_git_in_worktree(worktree_path, &restore_args).await?;
     }

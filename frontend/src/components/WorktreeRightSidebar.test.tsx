@@ -329,4 +329,74 @@ describe("WorktreeRightSidebar", () => {
       expect(refreshPendingPaths).toHaveBeenCalledWith("p1", "w1");
     });
   });
+
+  it("ignores unrelated file-manager updates for sidebar coordination", async () => {
+    const selectedWorktree = makeWorktree();
+    const unrelatedWorktree = makeWorktree({
+      id: "w2",
+      name: "feature-b",
+      path: "/tmp/feature-b",
+      branch: "feature-b",
+      position: 3,
+    });
+    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+    useWorktreeStore.setState({
+      worktreesByProject: {
+        [selectedWorktree.project_id]: [selectedWorktree, unrelatedWorktree],
+      },
+      projectErrors: {},
+      selectedWorktreeId: selectedWorktree.id,
+    });
+    const { initializeWorktreeRightSidebarStore } =
+      await import("@/lib/stores/worktreeRightSidebar");
+    const { useWorktreeFileManagerStore } =
+      await import("@/lib/stores/worktreeFileManager");
+
+    const loadDirectory = vi.fn().mockResolvedValue(undefined);
+    const preloadVisibleDirectories = vi.fn().mockResolvedValue(undefined);
+    const loadGitStatus = vi.fn().mockResolvedValue(undefined);
+
+    useWorktreeFileManagerStore.setState({
+      loadDirectory,
+      preloadVisibleDirectories,
+      loadGitStatus,
+    });
+
+    initializeWorktreeRightSidebarStore();
+
+    await waitFor(() => {
+      expect(loadDirectory).toHaveBeenCalledWith("p1", "w1", "");
+      expect(preloadVisibleDirectories).toHaveBeenCalledWith("p1", "w1");
+      expect(loadGitStatus).toHaveBeenCalledWith("p1", "w1");
+    });
+
+    loadDirectory.mockClear();
+    preloadVisibleDirectories.mockClear();
+    loadGitStatus.mockClear();
+
+    useWorktreeFileManagerStore.setState((state) => ({
+      worktrees: {
+        ...state.worktrees,
+        [unrelatedWorktree.id]: {
+          directories: {},
+          expandedPaths: [],
+          selectedPath: null,
+          renamePath: null,
+          gitStatus: null,
+          gitStatusStatus: "idle",
+          gitError: null,
+          pendingGeneration: 7,
+          pendingGitGeneration: 0,
+          pendingChangedPaths: [""],
+          pendingListingPaths: [""],
+        },
+      },
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(loadDirectory).not.toHaveBeenCalled();
+    expect(preloadVisibleDirectories).not.toHaveBeenCalled();
+    expect(loadGitStatus).not.toHaveBeenCalled();
+  });
 });

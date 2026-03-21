@@ -297,6 +297,14 @@ No periodic reconciliation — drift corrects on reconnect.
   linked worktrees where `.git` points outside the watched root. Backend git
   action handlers must invalidate `worktree_files` caches and emit
   `worktree_files_updated` instead of relying on filesystem events alone.
+- **Discarding unstaged git changes must restore from the index, not `HEAD`**:
+  use `git restore --worktree -- <path>` so mixed staged+unstaged files keep
+  their staged content intact. `--source=HEAD` is too destructive for `MM` and
+  can fail for staged-added files.
+- **Worktree file watchers coalesce overload to root+git invalidation**:
+  the watcher queue is intentionally bounded. When it overflows, Hubris falls
+  back to broad root file invalidation plus git refresh rather than risking
+  dropped fs events.
 - **Linked worktree git metadata lives outside the worktree root**:
   watching `worktree.path` recursively is not enough to catch external commits,
   ref updates, or index changes for linked worktrees. Git-status freshness needs

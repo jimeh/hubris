@@ -10,6 +10,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::{Notify, mpsc};
 
 use crate::api::files::{ListWorktreeFilesResponse, WorktreeFileEntry, WorktreeFileKind};
 use crate::api::worktrees::ResolvedWorktree;
@@ -19,6 +21,7 @@ use crate::git;
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(175);
 const IDLE_TTL: Duration = Duration::from_secs(300);
 const IDLE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+const WATCH_EVENT_CHANNEL_CAPACITY: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorktreeFileError {
@@ -212,19 +215,28 @@ impl WorktreeFileTracker {
     }
 
     fn install_watcher(self: &Arc<Self>, events: Arc<EventBus>) -> Result<(), WorktreeFileError> {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<PendingWatchEvent>();
+        let (tx, mut rx) = mpsc::channel::<PendingWatchEvent>(WATCH_EVENT_CHANNEL_CAPACITY);
+        let overflowed = Arc::new(AtomicBool::new(false));
+        let overflow_notify = Arc::new(Notify::new());
         let mut watchers = Vec::new();
 
         let file_tx = tx.clone();
+        let file_overflowed = Arc::clone(&overflowed);
+        let file_overflow_notify = Arc::clone(&overflow_notify);
         let mut root_watcher =
             notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
                 if let Ok(event) = result {
                     let force_file_root = event.paths.is_empty();
-                    let _ = file_tx.send(PendingWatchEvent {
-                        file_tree_paths: event.paths,
-                        force_file_root,
-                        ..PendingWatchEvent::default()
-                    });
+                    enqueue_watch_event(
+                        &file_tx,
+                        &file_overflowed,
+                        &file_overflow_notify,
+                        PendingWatchEvent {
+                            file_tree_paths: event.paths,
+                            force_file_root,
+                            ..PendingWatchEvent::default()
+                        },
+                    );
                 }
             })
             .map_err(|_| WorktreeFileError::Internal)?;
@@ -242,15 +254,22 @@ impl WorktreeFileTracker {
 
         if !extra_git_watch_paths.is_empty() {
             let git_tx = tx.clone();
+            let git_overflowed = Arc::clone(&overflowed);
+            let git_overflow_notify = Arc::clone(&overflow_notify);
             let mut git_watcher =
                 notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
                     if let Ok(event) = result {
                         let force_git_refresh = event.paths.is_empty();
-                        let _ = git_tx.send(PendingWatchEvent {
-                            git_metadata_paths: event.paths,
-                            force_git_refresh,
-                            ..PendingWatchEvent::default()
-                        });
+                        enqueue_watch_event(
+                            &git_tx,
+                            &git_overflowed,
+                            &git_overflow_notify,
+                            PendingWatchEvent {
+                                git_metadata_paths: event.paths,
+                                force_git_refresh,
+                                ..PendingWatchEvent::default()
+                            },
+                        );
                     }
                 })
                 .map_err(|_| WorktreeFileError::Internal)?;
@@ -270,22 +289,29 @@ impl WorktreeFileTracker {
 
         let weak = Arc::downgrade(self);
         tokio::spawn(async move {
-            while let Some(first_event) = rx.recv().await {
-                let mut pending = first_event;
+            loop {
+                let Some(mut pending) =
+                    next_pending_watch_event(&mut rx, &overflowed, &overflow_notify).await
+                else {
+                    return;
+                };
                 let sleep = tokio::time::sleep(WATCH_DEBOUNCE);
                 tokio::pin!(sleep);
 
                 loop {
                     tokio::select! {
                         _ = &mut sleep => break,
+                        _ = overflow_notify.notified() => {
+                            merge_pending_watch_event(
+                                &mut pending,
+                                take_overflow_watch_event(&overflowed),
+                            );
+                        }
                         maybe = rx.recv() => {
                             let Some(next_event) = maybe else {
                                 return;
                             };
-                            pending.force_file_root |= next_event.force_file_root;
-                            pending.force_git_refresh |= next_event.force_git_refresh;
-                            pending.file_tree_paths.extend(next_event.file_tree_paths);
-                            pending.git_metadata_paths.extend(next_event.git_metadata_paths);
+                            merge_pending_watch_event(&mut pending, Some(next_event));
                         }
                     }
                 }
@@ -506,6 +532,62 @@ impl WorktreeFileTracker {
 
         Ok((generation, status))
     }
+}
+
+fn enqueue_watch_event(
+    tx: &mpsc::Sender<PendingWatchEvent>,
+    overflowed: &AtomicBool,
+    overflow_notify: &Notify,
+    event: PendingWatchEvent,
+) {
+    match tx.try_send(event) {
+        Ok(()) | Err(TrySendError::Closed(_)) => {}
+        Err(TrySendError::Full(_)) => {
+            overflowed.store(true, Ordering::SeqCst);
+            overflow_notify.notify_one();
+        }
+    }
+}
+
+async fn next_pending_watch_event(
+    rx: &mut mpsc::Receiver<PendingWatchEvent>,
+    overflowed: &AtomicBool,
+    overflow_notify: &Notify,
+) -> Option<PendingWatchEvent> {
+    if let Some(event) = take_overflow_watch_event(overflowed) {
+        return Some(event);
+    }
+
+    tokio::select! {
+        maybe = rx.recv() => maybe,
+        _ = overflow_notify.notified() => take_overflow_watch_event(overflowed),
+    }
+}
+
+fn take_overflow_watch_event(overflowed: &AtomicBool) -> Option<PendingWatchEvent> {
+    overflowed
+        .swap(false, Ordering::SeqCst)
+        .then_some(PendingWatchEvent {
+            force_file_root: true,
+            force_git_refresh: true,
+            ..PendingWatchEvent::default()
+        })
+}
+
+fn merge_pending_watch_event(
+    pending: &mut PendingWatchEvent,
+    next_event: Option<PendingWatchEvent>,
+) {
+    let Some(next_event) = next_event else {
+        return;
+    };
+
+    pending.force_file_root |= next_event.force_file_root;
+    pending.force_git_refresh |= next_event.force_git_refresh;
+    pending.file_tree_paths.extend(next_event.file_tree_paths);
+    pending
+        .git_metadata_paths
+        .extend(next_event.git_metadata_paths);
 }
 
 fn should_skip_entry(name: &str) -> bool {
@@ -851,5 +933,21 @@ mod tests {
 
         assert_eq!(invalidation.changed_paths, vec!["src/nested/watch-me.txt"]);
         assert_eq!(invalidation.listing_paths, vec!["src/nested"]);
+    }
+
+    #[test]
+    fn overflow_watch_event_forces_safe_root_and_git_refresh() {
+        let invalidation = collect_file_invalidated_paths(
+            Path::new("/repo"),
+            PendingWatchEvent {
+                force_file_root: true,
+                force_git_refresh: true,
+                ..PendingWatchEvent::default()
+            },
+        );
+
+        assert!(invalidation.git_refresh);
+        assert_eq!(invalidation.changed_paths, vec![""]);
+        assert_eq!(invalidation.listing_paths, vec![""]);
     }
 }

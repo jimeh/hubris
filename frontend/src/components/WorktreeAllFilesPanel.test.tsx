@@ -249,6 +249,32 @@ describe("WorktreeAllFilesPanel", () => {
     expect(srcRow.querySelector(".bg-current.opacity-65")).toBeTruthy();
   });
 
+  it("uses the most significant descendant change for directory styling", async () => {
+    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+      generation: 1,
+      source_ref: "main",
+      unstaged_files: [
+        { path: "src/added.txt", change_type: "added" },
+        { path: "src/deleted.txt", change_type: "deleted" },
+      ],
+      staged_files: [],
+      ahead_count: 0,
+      ahead_commits: [],
+      comparison_available: true,
+      comparison_error: null,
+    });
+
+    await renderPanel();
+
+    const srcRow = await screen.findByRole("button", { name: "Toggle src" });
+    expect(within(srcRow).getByText("src").className).toContain(
+      "text-rose-500",
+    );
+    expect(
+      srcRow.querySelector(".text-rose-500.bg-current.opacity-65"),
+    ).toBeTruthy();
+  });
+
   it("keeps git text colors on selected changed rows", async () => {
     await renderPanel();
 

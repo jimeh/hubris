@@ -58,6 +58,18 @@ let mobileMediaQueryListener: ((event: MediaQueryListEvent) => void) | null =
 let coordinationScheduled = false;
 let coordinationRunning = false;
 let coordinationReschedule = false;
+let lastCoordinationSnapshot: SidebarCoordinationSnapshot | null = null;
+
+type SidebarCoordinationSnapshot = {
+  selectedWorktreeId: string | null;
+  selectedProjectId: string | null;
+  sidebarVisible: boolean;
+  activeTab: WorktreeRightSidebarTabId;
+  pendingGeneration: number;
+  pendingGitGeneration: number;
+  rootDirectoryStatus: string | null;
+  gitStatusGeneration: number;
+};
 
 function scheduleSidebarCoordination(): void {
   if (coordinationRunning) {
@@ -74,6 +86,50 @@ function scheduleSidebarCoordination(): void {
     coordinationScheduled = false;
     void runSidebarCoordination();
   });
+}
+
+function readCoordinationSnapshot(): SidebarCoordinationSnapshot {
+  const worktree = selectedWorktree();
+  const sidebarState = useWorktreeRightSidebarStore.getState();
+  const worktreeState = worktree
+    ? useWorktreeFileManagerStore.getState().worktrees[worktree.id]
+    : undefined;
+
+  return {
+    selectedWorktreeId: worktree?.id ?? null,
+    selectedProjectId: worktree?.project_id ?? null,
+    sidebarVisible: isSidebarVisible(sidebarState),
+    activeTab: sidebarState.activeTab,
+    pendingGeneration: worktreeState?.pendingGeneration ?? 0,
+    pendingGitGeneration: worktreeState?.pendingGitGeneration ?? 0,
+    rootDirectoryStatus: worktreeState?.directories[""]?.status ?? null,
+    gitStatusGeneration: worktreeState?.gitStatus?.generation ?? 0,
+  };
+}
+
+function coordinationSnapshotChanged(
+  previous: SidebarCoordinationSnapshot | null,
+  next: SidebarCoordinationSnapshot,
+): boolean {
+  return (
+    previous?.selectedWorktreeId !== next.selectedWorktreeId ||
+    previous?.selectedProjectId !== next.selectedProjectId ||
+    previous?.sidebarVisible !== next.sidebarVisible ||
+    previous?.activeTab !== next.activeTab ||
+    previous?.pendingGeneration !== next.pendingGeneration ||
+    previous?.pendingGitGeneration !== next.pendingGitGeneration ||
+    previous?.rootDirectoryStatus !== next.rootDirectoryStatus ||
+    previous?.gitStatusGeneration !== next.gitStatusGeneration
+  );
+}
+
+function handleCoordinationSourceChange(): void {
+  const nextSnapshot = readCoordinationSnapshot();
+  if (!coordinationSnapshotChanged(lastCoordinationSnapshot, nextSnapshot)) {
+    return;
+  }
+  lastCoordinationSnapshot = nextSnapshot;
+  scheduleSidebarCoordination();
 }
 
 async function runSidebarCoordination(): Promise<void> {
@@ -243,18 +299,12 @@ export function initializeWorktreeRightSidebarStore(): void {
   }
 
   storeUnsubscribers = [
-    useWorktreeRightSidebarStore.subscribe(() => {
-      scheduleSidebarCoordination();
-    }),
-    useWorktreeStore.subscribe(() => {
-      scheduleSidebarCoordination();
-    }),
-    useWorktreeFileManagerStore.subscribe(() => {
-      scheduleSidebarCoordination();
-    }),
+    useWorktreeRightSidebarStore.subscribe(handleCoordinationSourceChange),
+    useWorktreeStore.subscribe(handleCoordinationSourceChange),
+    useWorktreeFileManagerStore.subscribe(handleCoordinationSourceChange),
   ];
 
-  scheduleSidebarCoordination();
+  handleCoordinationSourceChange();
 }
 
 export function resetWorktreeRightSidebarStoreForTests(): void {
@@ -271,6 +321,7 @@ export function resetWorktreeRightSidebarStoreForTests(): void {
   coordinationScheduled = false;
   coordinationRunning = false;
   coordinationReschedule = false;
+  lastCoordinationSnapshot = null;
   useWorktreeRightSidebarStore.setState({
     isMobileViewport: readIsMobileViewport(),
     desktopOpen: readDesktopOpen(),

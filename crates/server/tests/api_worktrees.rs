@@ -1156,6 +1156,86 @@ async fn test_worktree_git_discard_action_restores_tracked_and_removes_untracked
 }
 
 #[tokio::test]
+async fn test_worktree_git_discard_action_preserves_staged_tracked_content() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    std::fs::write(repo.path().join("README.md"), "hello\nstaged\n").unwrap();
+    run_git(repo.path(), &["add", "README.md"]);
+    std::fs::write(repo.path().join("README.md"), "hello\nstaged\nunstaged\n").unwrap();
+
+    let discard_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "discard",
+        "README.md",
+    )
+    .await;
+    assert_eq!(discard_status, StatusCode::NO_CONTENT);
+
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("README.md")).unwrap(),
+        "hello\nstaged\n"
+    );
+
+    let status = get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    assert_eq!(status["unstaged_files"], serde_json::json!([]));
+    let staged_files = status["staged_files"].as_array().unwrap();
+    assert_eq!(staged_files.len(), 1);
+    assert_eq!(staged_files[0]["path"], "README.md");
+    assert_eq!(staged_files[0]["change_type"], "modified");
+}
+
+#[tokio::test]
+async fn test_worktree_git_discard_action_preserves_staged_added_content() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    std::fs::write(repo.path().join("added.txt"), "staged add\n").unwrap();
+    run_git(repo.path(), &["add", "added.txt"]);
+    std::fs::write(repo.path().join("added.txt"), "staged add\nunstaged edit\n").unwrap();
+
+    let discard_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "discard",
+        "added.txt",
+    )
+    .await;
+    assert_eq!(discard_status, StatusCode::NO_CONTENT);
+
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("added.txt")).unwrap(),
+        "staged add\n"
+    );
+
+    let status = get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    assert_eq!(status["unstaged_files"], serde_json::json!([]));
+    let staged_files = status["staged_files"].as_array().unwrap();
+    assert_eq!(staged_files.len(), 1);
+    assert_eq!(staged_files[0]["path"], "added.txt");
+    assert_eq!(staged_files[0]["change_type"], "added");
+}
+
+#[tokio::test]
 async fn test_worktree_git_actions_reject_invalid_paths() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();

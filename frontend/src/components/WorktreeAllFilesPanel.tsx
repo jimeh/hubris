@@ -36,6 +36,7 @@ import {
 import {
   gitChangeTypeClass,
   gitChangeTypeLabel,
+  mostSignificantGitChangeType,
   type GitChangeType,
 } from "@/lib/gitChangePresentation";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
@@ -94,9 +95,14 @@ function buildDecorations(worktreeState: DecorationState): {
     let current = "";
     for (const segment of segments.slice(0, -1)) {
       current = current ? `${current}/${segment}` : segment;
-      if (!directoryChanges.has(current)) {
-        directoryChanges.set(current, changeType);
-      }
+      directoryChanges.set(
+        current,
+        mostSignificantGitChangeType(
+          [changeType, directoryChanges.get(current)].filter(
+            (value): value is GitChangeType => value != null,
+          ),
+        ) ?? changeType,
+      );
     }
   }
 
