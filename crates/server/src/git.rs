@@ -710,8 +710,13 @@ pub fn resolve_git_metadata_watch_paths(worktree_path: &Path) -> Result<Vec<Path
 
 fn resolve_local_root_gix(path: &Path) -> Result<PathBuf, GitError> {
     let repo = gix::open(path).map_err(to_git_error)?;
-    let common_dir = repo.common_dir();
+    if let Some(workdir) = repo.workdir() {
+        return std::fs::canonicalize(workdir).map_err(|e| GitError {
+            message: format!("failed to canonicalize git top-level: {e}"),
+        });
+    }
 
+    let common_dir = repo.common_dir();
     if common_dir
         .file_name()
         .and_then(|name| name.to_str())
@@ -720,12 +725,6 @@ fn resolve_local_root_gix(path: &Path) -> Result<PathBuf, GitError> {
     {
         return std::fs::canonicalize(parent).map_err(|e| GitError {
             message: format!("failed to canonicalize git root: {e}"),
-        });
-    }
-
-    if let Some(workdir) = repo.workdir() {
-        return std::fs::canonicalize(workdir).map_err(|e| GitError {
-            message: format!("failed to canonicalize git top-level: {e}"),
         });
     }
 
@@ -924,8 +923,10 @@ pub async fn stage_worktree_path(
     original_path: Option<&str>,
 ) -> Result<Vec<String>, GitPathActionError> {
     let paths = normalized_git_action_paths(relative_path, original_path)?;
-    let relative_path = normalize_relative_git_path(relative_path)?;
-    run_git_in_worktree(worktree_path, &["add", "--", &relative_path]).await?;
+    let path_vec: Vec<String> = paths.iter().cloned().collect();
+    let mut args = vec!["add", "--"];
+    args.extend(path_vec.iter().map(String::as_str));
+    run_git_in_worktree(worktree_path, &args).await?;
     Ok(invalidated_parent_paths(&paths))
 }
 
@@ -1118,5 +1119,28 @@ mod tests {
             .find(|worktree| worktree.path == worktree_path)
             .unwrap();
         assert_eq!(detached.branch, None);
+    }
+
+    #[test]
+    fn resolve_local_root_uses_linked_worktree_checkout() {
+        let repo = tempfile::TempDir::new().unwrap();
+        run_git(repo.path(), &["init", "-q"]);
+        run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+        run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+        std::fs::write(repo.path().join("README.md"), "hello\n").unwrap();
+        run_git(repo.path(), &["add", "README.md"]);
+        run_git(repo.path(), &["commit", "-q", "-m", "init"]);
+        run_git(repo.path(), &["branch", "-M", "main"]);
+
+        let worktree_root = tempfile::TempDir::new().unwrap();
+        let worktree_path = worktree_root.path().join("linked-worktree");
+        let worktree_path_str = worktree_path.to_string_lossy().to_string();
+        run_git(
+            repo.path(),
+            &["worktree", "add", "-b", "feature", &worktree_path_str],
+        );
+
+        let resolved = resolve_local_root_gix(&worktree_path).unwrap();
+        assert_eq!(resolved, std::fs::canonicalize(&worktree_path).unwrap());
     }
 }

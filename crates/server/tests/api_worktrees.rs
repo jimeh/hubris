@@ -1160,7 +1160,11 @@ async fn test_worktree_git_stage_and_unstage_actions_accept_original_path_for_re
         .unwrap()
         .to_string();
 
-    run_git(repo.path(), &["mv", "old/source.txt", "new/target.txt"]);
+    std::fs::rename(
+        repo.path().join("old/source.txt"),
+        repo.path().join("new/target.txt"),
+    )
+    .unwrap();
 
     let mut rx = state.events.subscribe();
     let expected_project_id = project_id.clone();

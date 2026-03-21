@@ -635,9 +635,15 @@ async fn next_pending_watch_event(
         return Some(event);
     }
 
-    tokio::select! {
-        maybe = rx.recv() => maybe,
-        _ = overflow_notify.notified() => take_overflow_watch_event(overflowed),
+    loop {
+        tokio::select! {
+            maybe = rx.recv() => return maybe,
+            _ = overflow_notify.notified() => {
+                if let Some(event) = take_overflow_watch_event(overflowed) {
+                    return Some(event);
+                }
+            }
+        }
     }
 }
 
@@ -947,6 +953,7 @@ fn to_public_generation(value: u64) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn collect_invalidated_paths_includes_changed_paths_and_parents() {
@@ -1032,5 +1039,27 @@ mod tests {
         assert!(invalidation.git_refresh);
         assert_eq!(invalidation.changed_paths, vec![""]);
         assert_eq!(invalidation.listing_paths, vec![""]);
+    }
+
+    #[tokio::test]
+    async fn stale_overflow_notify_permit_does_not_terminate_watch_loop() {
+        let (_tx, mut rx) = mpsc::channel(1);
+        let overflowed = AtomicBool::new(true);
+        let overflow_notify = Arc::new(Notify::new());
+        overflow_notify.notify_one();
+
+        let first = next_pending_watch_event(&mut rx, &overflowed, &overflow_notify)
+            .await
+            .unwrap();
+        assert!(first.force_file_root);
+        assert!(first.force_git_refresh);
+
+        let second = tokio::time::timeout(
+            Duration::from_millis(50),
+            next_pending_watch_event(&mut rx, &overflowed, &overflow_notify),
+        )
+        .await;
+
+        assert!(second.is_err(), "stale notify permit should be ignored");
     }
 }

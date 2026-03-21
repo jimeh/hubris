@@ -305,11 +305,19 @@ No periodic reconciliation — drift corrects on reconnect.
   the watcher queue is intentionally bounded. When it overflows, Hubris falls
   back to broad root file invalidation plus git refresh rather than risking
   dropped fs events.
+- **Overflow `Notify` permits can outlive the overflow flag**:
+  the watcher overflow path must ignore stale `Notify` wakes after
+  `take_overflow_watch_event()` already consumed the atomic flag, or the
+  watcher task can misread that stale permit as stream termination and exit.
 - **Linked worktree git metadata lives outside the worktree root**:
   watching `worktree.path` recursively is not enough to catch external commits,
   ref updates, or index changes for linked worktrees. Git-status freshness needs
   separate watches on the resolved absolute git dir and git common dir, and
   git-only invalidation should not stale file listings.
+- **Linked worktree local-root resolution must prefer `repo.workdir()`**:
+  when deriving a git local root with `gix`, check `workdir()` before the
+  shared `common_dir()` parent or linked worktrees collapse to the main repo
+  root instead of their own checkout path.
 - **Prefer `gix` for read-only git operations**:
   repository inspection like status, refs, branch/default-start-point lookup,
   commit history/details, worktree enumeration, root resolution, and
@@ -321,6 +329,10 @@ No periodic reconciliation — drift corrects on reconnect.
   especially when the copy is the only staged change. Preserve any
   API-supplied `original_path` hint so staged status can still surface
   copied entries with source context for later unstage actions.
+- **Manual rewrite staging must include both source and destination paths**:
+  for plain filesystem renames, `git add -- <old> <new>` is what collapses the
+  tracked delete+add into a staged rename. Staging only the destination leaves
+  the source side as an unstaged delete.
 - **Sidebar passive loads must not use `refreshVisiblePaths()`**:
   `refreshVisiblePaths()` is the invalidation path and force-refreshes git
   status. The right-sidebar visibility coordinator should use
