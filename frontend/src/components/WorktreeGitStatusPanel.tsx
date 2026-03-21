@@ -349,7 +349,7 @@ const ChangeRowFrame = forwardRef<
       {actions ? (
         <div
           className={cn(
-            "ml-auto flex max-w-0 items-center gap-1 overflow-hidden transition-[max-width,opacity] duration-150",
+            "ml-auto flex max-w-0 items-center gap-1 overflow-hidden transition-opacity duration-150",
             "pointer-events-none opacity-0",
             "group-hover/change-row:max-w-16 group-hover/change-row:opacity-100",
             "group-hover/change-row:pointer-events-auto",
