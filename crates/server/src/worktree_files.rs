@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::ffi::CString;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -15,6 +15,7 @@ use tokio::sync::{Notify, mpsc};
 
 use crate::api::files::{ListWorktreeFilesResponse, WorktreeFileEntry, WorktreeFileKind};
 use crate::api::worktrees::ResolvedWorktree;
+use crate::api::worktrees::{GitFileChange, GitFileChangeType};
 use crate::events::{EventBus, EventKind};
 use crate::git;
 
@@ -77,6 +78,7 @@ struct WorktreeFileTracker {
     last_access_ms: AtomicU64,
     directory_cache: DashMap<String, CachedDirectory>,
     git_cache: std::sync::Mutex<Option<CachedGitStatus>>,
+    git_rewrite_hints: std::sync::Mutex<HashMap<String, String>>,
     watchers: std::sync::Mutex<Vec<RecommendedWatcher>>,
 }
 
@@ -107,7 +109,9 @@ impl WorktreeFilesService {
     ) -> Result<String, WorktreeFileError> {
         self.start_cleanup_loop();
         let tracker = self.ensure_tracker(resolved)?;
-        tracker.rename_entry(relative_path, new_name).await
+        tracker
+            .rename_entry(&self.events, relative_path, new_name)
+            .await
     }
 
     pub async fn read_git_status(
@@ -127,6 +131,17 @@ impl WorktreeFilesService {
         self.start_cleanup_loop();
         let tracker = self.ensure_tracker(resolved)?;
         tracker.invalidate_relative_paths(&self.events, paths)
+    }
+
+    pub fn record_git_rewrite_hint(
+        &self,
+        resolved: &ResolvedWorktree,
+        path: &str,
+        original_path: &str,
+    ) -> Result<(), WorktreeFileError> {
+        self.start_cleanup_loop();
+        let tracker = self.ensure_tracker(resolved)?;
+        tracker.record_git_rewrite_hint(path, original_path)
     }
 
     fn start_cleanup_loop(&self) {
@@ -207,6 +222,7 @@ impl WorktreeFileTracker {
             last_access_ms: AtomicU64::new(now_ms()),
             directory_cache: DashMap::new(),
             git_cache: std::sync::Mutex::new(None),
+            git_rewrite_hints: std::sync::Mutex::new(HashMap::new()),
             watchers: std::sync::Mutex::new(Vec::new()),
         });
 
@@ -390,6 +406,20 @@ impl WorktreeFileTracker {
         });
     }
 
+    fn record_git_rewrite_hint(
+        &self,
+        path: &str,
+        original_path: &str,
+    ) -> Result<(), WorktreeFileError> {
+        let path = normalize_relative_path(path)?;
+        let original_path = normalize_relative_path(original_path)?;
+        self.git_rewrite_hints
+            .lock()
+            .unwrap()
+            .insert(path, original_path);
+        Ok(())
+    }
+
     async fn list_directory(
         &self,
         relative_path: &str,
@@ -470,6 +500,7 @@ impl WorktreeFileTracker {
 
     async fn rename_entry(
         &self,
+        events: &EventBus,
         relative_path: &str,
         new_name: &str,
     ) -> Result<String, WorktreeFileError> {
@@ -490,18 +521,15 @@ impl WorktreeFileTracker {
 
         let target_path = parent.join(new_name);
         rename_path_noreplace(source_path, target_path.clone()).await?;
-
-        self.invalidate_path_local();
-
-        relative_from_root(&self.root_path, &target_path)
-    }
-
-    fn invalidate_path_local(&self) {
-        self.touch();
-        self.directory_cache.clear();
-        *self.git_cache.lock().unwrap() = None;
-        self.file_generation.fetch_add(1, Ordering::SeqCst);
-        self.git_generation.fetch_add(1, Ordering::SeqCst);
+        let next_relative_path = relative_from_root(&self.root_path, &target_path)?;
+        let invalidated_paths = vec![relative_path.clone(), next_relative_path.clone()];
+        let invalidation = collect_relative_invalidated_paths(&invalidated_paths)?;
+        self.emit_file_invalidation(
+            events,
+            invalidation.changed_paths,
+            invalidation.listing_paths,
+        );
+        Ok(next_relative_path)
     }
 
     async fn read_git_status(&self) -> Result<(u32, git::WorktreeGitStatus), WorktreeFileError> {
@@ -521,6 +549,8 @@ impl WorktreeFileTracker {
         .await
         .map_err(|_| WorktreeFileError::Internal)?
         .map_err(|_| WorktreeFileError::Internal)?;
+        let mut status = status;
+        self.apply_git_rewrite_hints(&mut status);
 
         let mut cache = self.git_cache.lock().unwrap();
         if to_public_generation(self.git_generation.load(Ordering::SeqCst)) == generation {
@@ -531,6 +561,53 @@ impl WorktreeFileTracker {
         }
 
         Ok((generation, status))
+    }
+
+    fn apply_git_rewrite_hints(&self, status: &mut git::WorktreeGitStatus) {
+        let mut hints = self.git_rewrite_hints.lock().unwrap();
+        if hints.is_empty() {
+            return;
+        }
+
+        apply_git_rewrite_hints_to_files(&mut status.staged_files, &hints, true);
+        apply_git_rewrite_hints_to_files(&mut status.unstaged_files, &hints, false);
+
+        let live_paths: BTreeSet<&str> = status
+            .staged_files
+            .iter()
+            .map(|file| file.path.as_str())
+            .chain(status.unstaged_files.iter().map(|file| file.path.as_str()))
+            .collect();
+        hints.retain(|path, _| live_paths.contains(path.as_str()));
+    }
+}
+
+fn apply_git_rewrite_hints_to_files(
+    files: &mut [GitFileChange],
+    hints: &HashMap<String, String>,
+    staged: bool,
+) {
+    for file in files {
+        let Some(original_path) = hints.get(&file.path).cloned() else {
+            continue;
+        };
+
+        let should_mark_copied = if staged {
+            matches!(file.change_type, GitFileChangeType::Added)
+        } else {
+            matches!(file.change_type, GitFileChangeType::Untracked)
+        };
+
+        if should_mark_copied {
+            file.change_type = GitFileChangeType::Copied;
+            file.original_path = Some(original_path);
+        } else if matches!(
+            file.change_type,
+            GitFileChangeType::Copied | GitFileChangeType::Renamed
+        ) && file.original_path.is_none()
+        {
+            file.original_path = Some(original_path);
+        }
     }
 }
 
@@ -596,6 +673,9 @@ fn should_skip_entry(name: &str) -> bool {
 
 fn normalize_relative_path(raw: &str) -> Result<String, WorktreeFileError> {
     let trimmed = raw.trim_matches('/');
+    if trimmed.contains('\0') {
+        return Err(WorktreeFileError::InvalidPath);
+    }
     if trimmed.is_empty() {
         return Ok(String::new());
     }
@@ -616,6 +696,7 @@ fn validate_new_name(raw: &str) -> Result<&str, WorktreeFileError> {
     if trimmed.is_empty()
         || trimmed == "."
         || trimmed == ".."
+        || trimmed.contains('\0')
         || trimmed.contains('/')
         || trimmed.contains('\\')
     {
@@ -789,6 +870,8 @@ async fn rename_path_noreplace(
     source_path: PathBuf,
     target_path: PathBuf,
 ) -> Result<(), WorktreeFileError> {
+    // This fallback is still TOCTOU-prone: without a native no-replace rename
+    // syscall on this platform we can only check, then rename.
     if tokio::fs::try_exists(&target_path)
         .await
         .map_err(map_io_error)?

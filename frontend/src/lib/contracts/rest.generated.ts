@@ -421,6 +421,7 @@ export interface components {
     };
     GitFileChange: {
       change_type: components["schemas"]["GitFileChangeType"];
+      original_path?: string | null;
       path: string;
     };
     /** @enum {string} */
@@ -597,6 +598,8 @@ export interface components {
     /** @enum {string} */
     WorktreeFileKind: "directory" | "file";
     WorktreeGitPathActionRequest: {
+      /** @description Original relative path for rename/copy actions. */
+      original_path?: string | null;
       /** @description Relative path from the worktree root. */
       path: string;
     };

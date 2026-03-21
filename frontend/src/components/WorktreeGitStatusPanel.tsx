@@ -414,6 +414,7 @@ function FilePathRow({
   onAction: (
     action: GitAction,
     path: string,
+    originalPath: string | undefined,
     label: string,
     recursive: boolean,
   ) => void;
@@ -428,7 +429,15 @@ function FilePathRow({
         targetLabel={targetLabel}
         actions={actions}
         disabled={disabled}
-        onAction={(action) => onAction(action, change.path, targetLabel, false)}
+        onAction={(action) =>
+          onAction(
+            action,
+            change.path,
+            change.original_path ?? undefined,
+            targetLabel,
+            false,
+          )
+        }
       >
         <ChangeRowFrame
           primary={
@@ -458,7 +467,13 @@ function FilePathRow({
               targetLabel={targetLabel}
               disabled={disabled}
               onAction={(nextAction) =>
-                onAction(nextAction, change.path, targetLabel, false)
+                onAction(
+                  nextAction,
+                  change.path,
+                  change.original_path ?? undefined,
+                  targetLabel,
+                  false,
+                )
               }
             />
           ))}
@@ -483,6 +498,7 @@ function TreeFileNode({
   onAction: (
     action: GitAction,
     path: string,
+    originalPath: string | undefined,
     label: string,
     recursive: boolean,
   ) => void;
@@ -496,7 +512,15 @@ function TreeFileNode({
         targetLabel={targetLabel}
         actions={actions}
         disabled={disabled}
-        onAction={(action) => onAction(action, node.path, targetLabel, false)}
+        onAction={(action) =>
+          onAction(
+            action,
+            node.path,
+            node.change.original_path ?? undefined,
+            targetLabel,
+            false,
+          )
+        }
       >
         <ChangeRowFrame
           primary={
@@ -515,7 +539,13 @@ function TreeFileNode({
               targetLabel={targetLabel}
               disabled={disabled}
               onAction={(nextAction) =>
-                onAction(nextAction, node.path, targetLabel, false)
+                onAction(
+                  nextAction,
+                  node.path,
+                  node.change.original_path ?? undefined,
+                  targetLabel,
+                  false,
+                )
               }
             />
           ))}
@@ -546,6 +576,7 @@ function TreeDirectoryNode({
   onAction: (
     action: GitAction,
     path: string,
+    originalPath: string | undefined,
     label: string,
     recursive: boolean,
   ) => void;
@@ -566,7 +597,9 @@ function TreeDirectoryNode({
           targetLabel={targetLabel}
           actions={actions}
           disabled={disabled}
-          onAction={(action) => onAction(action, node.path, targetLabel, true)}
+          onAction={(action) =>
+            onAction(action, node.path, undefined, targetLabel, true)
+          }
         >
           <ChangeRowFrame
             primary={
@@ -594,7 +627,7 @@ function TreeDirectoryNode({
                 targetLabel={targetLabel}
                 disabled={disabled}
                 onAction={(nextAction) =>
-                  onAction(nextAction, node.path, targetLabel, true)
+                  onAction(nextAction, node.path, undefined, targetLabel, true)
                 }
               />
             ))}
@@ -660,6 +693,7 @@ function StatusFileSection({
   onAction: (
     action: GitAction,
     path: string,
+    originalPath: string | undefined,
     label: string,
     recursive: boolean,
   ) => void;
@@ -1286,7 +1320,12 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
   const commitDetailsById = commitDetailsByWorktree[worktree.id] ?? {};
 
   const runAction = useCallback(
-    async (action: GitAction, path: string, label: string) => {
+    async (
+      action: GitAction,
+      path: string,
+      originalPath: string | undefined,
+      label: string,
+    ) => {
       const actionKey = `${action}:${path}`;
       setPendingActionKey(actionKey);
       try {
@@ -1295,12 +1334,14 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
             worktree.project_id,
             worktree.id,
             path,
+            originalPath,
           );
         } else if (action === "unstage") {
           await unstageProjectWorktreePath(
             worktree.project_id,
             worktree.id,
             path,
+            originalPath,
           );
         } else {
           await discardProjectWorktreePath(
@@ -1310,7 +1351,11 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
           );
         }
 
-        await refreshPaths(worktree.project_id, worktree.id, [path]);
+        await refreshPaths(
+          worktree.project_id,
+          worktree.id,
+          originalPath ? [path, originalPath] : [path],
+        );
         toast.success(`${actionSuccessLabel(action)} ${label}`);
       } catch {
         toast.error(
@@ -1326,7 +1371,13 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
   );
 
   const handleAction = useCallback(
-    (action: GitAction, path: string, label: string, recursive: boolean) => {
+    (
+      action: GitAction,
+      path: string,
+      originalPath: string | undefined,
+      label: string,
+      recursive: boolean,
+    ) => {
       if (action === "discard") {
         setPendingDiscard({
           path,
@@ -1336,7 +1387,7 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
         return;
       }
 
-      void runAction(action, path, label);
+      void runAction(action, path, originalPath, label);
     },
     [runAction],
   );
@@ -1348,7 +1399,7 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
 
     const current = pendingDiscard;
     setPendingDiscard(null);
-    await runAction("discard", current.path, current.label);
+    await runAction("discard", current.path, undefined, current.label);
   }, [pendingDiscard, runAction]);
 
   const ensureCommitDetails = useCallback(

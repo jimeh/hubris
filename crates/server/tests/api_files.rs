@@ -423,6 +423,87 @@ async fn test_rename_worktree_file_rejects_invalid_requests() {
         .await
         .unwrap();
     assert_eq!(dir_conflict.status(), StatusCode::CONFLICT);
+
+    let nul_path = client
+        .post(format!(
+            "{}/api/projects/{}/worktrees/{}/files/rename",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "file.txt\u{0000}evil",
+            "new_name": "renamed.txt"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nul_path.status(), StatusCode::BAD_REQUEST);
+
+    let nul_name = client
+        .post(format!(
+            "{}/api/projects/{}/worktrees/{}/files/rename",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "file.txt",
+            "new_name": "renamed\u{0000}.txt"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nul_name.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_rename_worktree_file_emits_immediate_invalidation_for_old_and_new_paths() {
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::create_dir_all(repo.path().join("old")).unwrap();
+    std::fs::create_dir_all(repo.path().join("new")).unwrap();
+    std::fs::write(repo.path().join("old/file.txt"), "rename me\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+    let mut rx = state.events.subscribe();
+
+    let rename_res = client
+        .post(format!(
+            "{}/api/projects/{}/worktrees/{}/files/rename",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "old/file.txt",
+            "new_name": "renamed.txt"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rename_res.status(), StatusCode::OK);
+
+    let event = tokio::time::timeout(Duration::from_secs(3), async move {
+        loop {
+            let event = rx.recv().await.unwrap();
+            if let EventKind::WorktreeFilesUpdated {
+                project_id: event_project_id,
+                worktree_id: event_worktree_id,
+                changed_paths,
+                listing_paths,
+                ..
+            } = &event.kind
+                && event_project_id == &project_id
+                && event_worktree_id == &worktree_id
+            {
+                return (changed_paths.clone(), listing_paths.clone());
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    assert!(event.0.contains(&"old/file.txt".to_string()));
+    assert!(event.0.contains(&"old/renamed.txt".to_string()));
+    assert!(event.1.contains(&"old".to_string()));
 }
 
 #[tokio::test]

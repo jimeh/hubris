@@ -199,8 +199,12 @@ async function postWorktreeGitPathAction(
   worktreeId: string,
   action: "stage" | "unstage" | "discard",
   path: string,
+  originalPath?: string,
 ): Promise<void> {
   const payload: WorktreeGitPathActionRequest = { path };
+  if (originalPath) {
+    payload.original_path = originalPath;
+  }
   const res = await fetch(
     `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git/${action}`,
     {
@@ -221,16 +225,30 @@ export async function stageProjectWorktreePath(
   projectId: string,
   worktreeId: string,
   path: string,
+  originalPath?: string,
 ): Promise<void> {
-  await postWorktreeGitPathAction(projectId, worktreeId, "stage", path);
+  await postWorktreeGitPathAction(
+    projectId,
+    worktreeId,
+    "stage",
+    path,
+    originalPath,
+  );
 }
 
 export async function unstageProjectWorktreePath(
   projectId: string,
   worktreeId: string,
   path: string,
+  originalPath?: string,
 ): Promise<void> {
-  await postWorktreeGitPathAction(projectId, worktreeId, "unstage", path);
+  await postWorktreeGitPathAction(
+    projectId,
+    worktreeId,
+    "unstage",
+    path,
+    originalPath,
+  );
 }
 
 export async function discardProjectWorktreePath(

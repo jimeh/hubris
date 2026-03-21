@@ -111,6 +111,8 @@ pub enum GitFileChangeType {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
 pub struct GitFileChange {
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_path: Option<String>,
     pub change_type: GitFileChangeType,
 }
 
@@ -157,6 +159,9 @@ pub struct WorktreeGitStatusResponse {
 pub struct WorktreeGitPathActionRequest {
     /// Relative path from the worktree root.
     pub path: String,
+    /// Original relative path for rename/copy actions.
+    #[serde(default)]
+    pub original_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -645,6 +650,7 @@ pub async fn stage_project_worktree_path(
         project_id,
         worktree_id,
         &request.path,
+        request.original_path.as_deref(),
         GitPathAction::Stage,
     )
     .await
@@ -676,6 +682,7 @@ pub async fn unstage_project_worktree_path(
         project_id,
         worktree_id,
         &request.path,
+        request.original_path.as_deref(),
         GitPathAction::Unstage,
     )
     .await
@@ -707,6 +714,7 @@ pub async fn discard_project_worktree_path(
         project_id,
         worktree_id,
         &request.path,
+        request.original_path.as_deref(),
         GitPathAction::Discard,
     )
     .await
@@ -717,6 +725,7 @@ async fn perform_git_path_action(
     project_id: String,
     worktree_id: String,
     path: &str,
+    original_path: Option<&str>,
     action: GitPathAction,
 ) -> Result<StatusCode, StatusCode> {
     let resolved = resolve_worktree(&state, &worktree_id)
@@ -728,11 +737,20 @@ async fn perform_git_path_action(
 
     let worktree_path = PathBuf::from(&resolved.worktree.path);
     let paths = match action {
-        GitPathAction::Stage => git::stage_worktree_path(&worktree_path, path).await,
-        GitPathAction::Unstage => git::unstage_worktree_path(&worktree_path, path).await,
+        GitPathAction::Stage => git::stage_worktree_path(&worktree_path, path, original_path).await,
+        GitPathAction::Unstage => {
+            git::unstage_worktree_path(&worktree_path, path, original_path).await
+        }
         GitPathAction::Discard => git::discard_worktree_path(&worktree_path, path).await,
     }
     .map_err(map_git_path_action_error)?;
+
+    if let Some(original_path) = original_path {
+        state
+            .worktree_files
+            .record_git_rewrite_hint(&resolved, path, original_path)
+            .map_err(map_worktree_file_error)?;
+    }
 
     state
         .worktree_files

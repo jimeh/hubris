@@ -498,6 +498,7 @@ describe("WorktreeGitStatusPanel", () => {
         "p1",
         "w1",
         "tmp2/bar/bar.txt",
+        undefined,
       );
     });
     expect(
@@ -519,6 +520,79 @@ describe("WorktreeGitStatusPanel", () => {
         "p1",
         "w1",
         "tmp2",
+        undefined,
+      );
+    });
+  });
+
+  it("passes original_path when staging a renamed file in list view", async () => {
+    const user = userEvent.setup();
+    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+      source_ref: "main",
+      generation: 1,
+      unstaged_files: [
+        {
+          path: "new/target.txt",
+          original_path: "old/source.txt",
+          change_type: "renamed",
+        },
+      ],
+      staged_files: [],
+      ahead_count: 0,
+      ahead_commits: [],
+      comparison_available: true,
+      comparison_error: null,
+    });
+
+    renderPanel();
+
+    await screen.findByText("Unstaged");
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
+    await user.click(screen.getByRole("button", { name: "Stage target.txt" }));
+
+    await waitFor(() => {
+      expect(mockStageProjectWorktreePath).toHaveBeenCalledWith(
+        "p1",
+        "w1",
+        "new/target.txt",
+        "old/source.txt",
+      );
+    });
+  });
+
+  it("passes original_path when staging a copied file in tree view", async () => {
+    const user = userEvent.setup();
+    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+      source_ref: "main",
+      generation: 1,
+      unstaged_files: [
+        {
+          path: "copied-target.txt",
+          original_path: "copy-source.txt",
+          change_type: "copied",
+        },
+      ],
+      staged_files: [],
+      ahead_count: 0,
+      ahead_commits: [],
+      comparison_available: true,
+      comparison_error: null,
+    });
+
+    renderPanel();
+
+    await screen.findByText("Unstaged");
+    fireEvent.click(screen.getByRole("button", { name: "Show tree view" }));
+    await user.click(
+      screen.getByRole("button", { name: "Stage copied-target.txt" }),
+    );
+
+    await waitFor(() => {
+      expect(mockStageProjectWorktreePath).toHaveBeenCalledWith(
+        "p1",
+        "w1",
+        "copied-target.txt",
+        "copy-source.txt",
       );
     });
   });

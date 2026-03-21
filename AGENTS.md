@@ -316,6 +316,11 @@ No periodic reconciliation — drift corrects on reconnect.
   git/common-dir discovery should stay on `gix`. Keep the git CLI for worktree
   management (`git worktree ...`) and path-scoped mutation flows where `gix`
   does not yet provide an equivalent.
+- **Staged copy detection may need action-time fallback context**:
+  `gix` can miss some staged copy rewrites after a path-scoped `git add`,
+  especially when the copy is the only staged change. Preserve any
+  API-supplied `original_path` hint so staged status can still surface
+  copied entries with source context for later unstage actions.
 - **Sidebar passive loads must not use `refreshVisiblePaths()`**:
   `refreshVisiblePaths()` is the invalidation path and force-refreshes git
   status. The right-sidebar visibility coordinator should use

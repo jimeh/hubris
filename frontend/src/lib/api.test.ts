@@ -18,6 +18,8 @@ const {
   createProjectWorktree,
   getProjectWorktreeCommitDetails,
   getProjectWorktreeGitStatus,
+  stageProjectWorktreePath,
+  unstageProjectWorktreePath,
   terminalWsUrl,
   listFiles,
   listTabs,
@@ -389,6 +391,48 @@ describe("API client", () => {
       await expect(
         getProjectWorktreeCommitDetails("p1", "w1", "deadbeef"),
       ).rejects.toThrow("Commit not found");
+    });
+  });
+
+  describe("worktree git path actions", () => {
+    it("sends original_path when staging a renamed or copied path", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+
+      await stageProjectWorktreePath(
+        "p1",
+        "w1",
+        "new/target.txt",
+        "old/source.txt",
+      );
+
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/p1/worktrees/w1/git/stage",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: "new/target.txt",
+            original_path: "old/source.txt",
+          }),
+        },
+      );
+    });
+
+    it("omits original_path for normal unstage actions", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+
+      await unstageProjectWorktreePath("p1", "w1", "README.md");
+
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/p1/worktrees/w1/git/unstage",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: "README.md",
+          }),
+        },
+      );
     });
   });
 

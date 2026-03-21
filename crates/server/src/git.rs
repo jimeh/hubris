@@ -101,7 +101,7 @@ fn rewrite_tracking() -> gix::diff::Rewrites {
 
 fn normalize_relative_git_path(raw: &str) -> Result<String, GitPathActionError> {
     let trimmed = raw.trim_matches('/');
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || trimmed.contains('\0') {
         return Err(GitPathActionError::InvalidPath);
     }
 
@@ -168,12 +168,17 @@ fn map_commit_person(signature: gix::actor::SignatureRef<'_>) -> GitCommitPerson
     }
 }
 
+fn non_empty_string(value: &[u8]) -> Option<String> {
+    let value = bytes_to_string(value);
+    (!value.is_empty()).then_some(value)
+}
+
 fn map_commit_tree_change(
     change: gix::object::tree::diff::ChangeDetached,
 ) -> Option<GitFileChange> {
     use gix::object::tree::diff::ChangeDetached;
 
-    let (path, change_type) = match change {
+    let (path, original_path, change_type) = match change {
         ChangeDetached::Addition {
             location,
             entry_mode,
@@ -182,7 +187,11 @@ fn map_commit_tree_change(
             if entry_mode.is_tree() {
                 return None;
             }
-            (bytes_to_string(location.as_ref()), GitFileChangeType::Added)
+            (
+                bytes_to_string(location.as_ref()),
+                None,
+                GitFileChangeType::Added,
+            )
         }
         ChangeDetached::Deletion {
             location,
@@ -194,6 +203,7 @@ fn map_commit_tree_change(
             }
             (
                 bytes_to_string(location.as_ref()),
+                None,
                 GitFileChangeType::Deleted,
             )
         }
@@ -211,9 +221,10 @@ fn map_commit_tree_change(
             } else {
                 GitFileChangeType::Modified
             };
-            (bytes_to_string(location.as_ref()), change_type)
+            (bytes_to_string(location.as_ref()), None, change_type)
         }
         ChangeDetached::Rewrite {
+            source_location,
             location,
             source_entry_mode,
             entry_mode,
@@ -228,11 +239,19 @@ fn map_commit_tree_change(
             } else {
                 GitFileChangeType::Renamed
             };
-            (bytes_to_string(location.as_ref()), change_type)
+            (
+                bytes_to_string(location.as_ref()),
+                non_empty_string(source_location.as_ref()),
+                change_type,
+            )
         }
     };
 
-    Some(GitFileChange { path, change_type })
+    Some(GitFileChange {
+        path,
+        original_path,
+        change_type,
+    })
 }
 
 fn read_commit_details_gix(
@@ -399,8 +418,19 @@ fn status_contains_worktree_change(entry: &PorcelainStatusEntry) -> bool {
     entry.worktree_status != ' '
 }
 
-fn status_contains_tracked_change(entry: &PorcelainStatusEntry) -> bool {
+fn is_tracked_path(entry: &PorcelainStatusEntry) -> bool {
     entry.index_status != '?'
+}
+
+fn normalized_git_action_paths(
+    relative_path: &str,
+    original_path: Option<&str>,
+) -> Result<BTreeSet<String>, GitPathActionError> {
+    let mut paths = BTreeSet::from([normalize_relative_git_path(relative_path)?]);
+    if let Some(original_path) = original_path {
+        paths.insert(normalize_relative_git_path(original_path)?);
+    }
+    Ok(paths)
 }
 
 fn invalidated_parent_paths(paths: &BTreeSet<String>) -> Vec<String> {
@@ -435,15 +465,15 @@ fn prune_empty_parent_dirs(
         };
 
         loop {
-            if !current.starts_with(&request_root)
-                || current == worktree_path
-                || current == request_root
-            {
+            if !current.starts_with(&request_root) || current == worktree_path {
                 break;
             }
 
             match std::fs::remove_dir(&current) {
                 Ok(()) => {
+                    if current == request_root {
+                        break;
+                    }
                     let Some(parent) = current.parent() else {
                         break;
                     };
@@ -475,27 +505,44 @@ fn map_index_worktree_change(item: &gix::status::index_worktree::Item) -> Option
         Summary::TypeChange => GitFileChangeType::Typechange,
     };
 
-    let path = match item {
-        Item::Modification { rela_path, .. } => bytes_to_string(rela_path),
-        Item::DirectoryContents { entry, .. } => bytes_to_string(&entry.rela_path),
-        Item::Rewrite { dirwalk_entry, .. } => bytes_to_string(&dirwalk_entry.rela_path),
+    let (path, original_path) = match item {
+        Item::Modification { rela_path, .. } => (bytes_to_string(rela_path), None),
+        Item::DirectoryContents { entry, .. } => (bytes_to_string(&entry.rela_path), None),
+        Item::Rewrite {
+            source,
+            dirwalk_entry,
+            ..
+        } => (
+            bytes_to_string(&dirwalk_entry.rela_path),
+            Some(bytes_to_string(source.rela_path())),
+        ),
     };
 
-    Some(GitFileChange { path, change_type })
+    Some(GitFileChange {
+        path,
+        original_path,
+        change_type,
+    })
 }
 
-fn map_tree_index_change(change: gix::diff::index::Change) -> Option<GitFileChange> {
-    use gix::diff::index::Change;
+fn map_tree_index_change(
+    change: gix::diff::index::ChangeRef<'_, '_>,
+    tree_index: &gix::index::State,
+) -> Option<GitFileChange> {
+    use gix::diff::index::ChangeRef;
 
-    let (path, change_type) = match change {
-        Change::Addition { location, .. } => {
-            (bytes_to_string(location.as_ref()), GitFileChangeType::Added)
-        }
-        Change::Deletion { location, .. } => (
+    let (path, original_path, change_type) = match change {
+        ChangeRef::Addition { location, .. } => (
             bytes_to_string(location.as_ref()),
+            None,
+            GitFileChangeType::Added,
+        ),
+        ChangeRef::Deletion { location, .. } => (
+            bytes_to_string(location.as_ref()),
+            None,
             GitFileChangeType::Deleted,
         ),
-        Change::Modification {
+        ChangeRef::Modification {
             location,
             previous_entry_mode,
             entry_mode,
@@ -506,10 +553,19 @@ fn map_tree_index_change(change: gix::diff::index::Change) -> Option<GitFileChan
             } else {
                 GitFileChangeType::Modified
             };
-            (bytes_to_string(location.as_ref()), change_type)
+            (bytes_to_string(location.as_ref()), None, change_type)
         }
-        Change::Rewrite { location, copy, .. } => (
+        ChangeRef::Rewrite {
+            source_index,
+            location,
+            copy,
+            ..
+        } => (
             bytes_to_string(location.as_ref()),
+            tree_index
+                .entries()
+                .get(source_index)
+                .map(|entry| bytes_to_string(entry.path(tree_index).as_ref())),
             if copy {
                 GitFileChangeType::Copied
             } else {
@@ -518,7 +574,32 @@ fn map_tree_index_change(change: gix::diff::index::Change) -> Option<GitFileChan
         ),
     };
 
-    Some(GitFileChange { path, change_type })
+    Some(GitFileChange {
+        path,
+        original_path,
+        change_type,
+    })
+}
+
+fn read_staged_files(repo: &gix::Repository) -> Result<Vec<GitFileChange>, GitError> {
+    let head_tree_id = repo.head_tree_id_or_empty().map_err(to_git_error)?.detach();
+    let index = repo.index_or_empty().map_err(to_git_error)?;
+    let mut staged_files = Vec::new();
+    repo.tree_index_status(
+        &head_tree_id,
+        &index,
+        None,
+        gix::status::tree_index::TrackRenames::Given(rewrite_tracking()),
+        |change, tree_index, _| {
+            if let Some(change) = map_tree_index_change(change, tree_index) {
+                staged_files.push(change);
+            }
+            Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Continue(()))
+        },
+    )
+    .map_err(to_git_error)?;
+    staged_files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(staged_files)
 }
 
 fn commit_summary(commit: &gix::Commit<'_>) -> Result<GitCommitSummary, GitError> {
@@ -840,23 +921,25 @@ pub async fn remove_worktree(
 pub async fn stage_worktree_path(
     worktree_path: &Path,
     relative_path: &str,
+    original_path: Option<&str>,
 ) -> Result<Vec<String>, GitPathActionError> {
+    let paths = normalized_git_action_paths(relative_path, original_path)?;
     let relative_path = normalize_relative_git_path(relative_path)?;
     run_git_in_worktree(worktree_path, &["add", "--", &relative_path]).await?;
-    Ok(invalidated_parent_paths(&BTreeSet::from([relative_path])))
+    Ok(invalidated_parent_paths(&paths))
 }
 
 pub async fn unstage_worktree_path(
     worktree_path: &Path,
     relative_path: &str,
+    original_path: Option<&str>,
 ) -> Result<Vec<String>, GitPathActionError> {
-    let relative_path = normalize_relative_git_path(relative_path)?;
-    run_git_in_worktree(
-        worktree_path,
-        &["restore", "--staged", "--", &relative_path],
-    )
-    .await?;
-    Ok(invalidated_parent_paths(&BTreeSet::from([relative_path])))
+    let paths = normalized_git_action_paths(relative_path, original_path)?;
+    let path_vec: Vec<String> = paths.iter().cloned().collect();
+    let mut args = vec!["restore", "--staged", "--"];
+    args.extend(path_vec.iter().map(String::as_str));
+    run_git_in_worktree(worktree_path, &args).await?;
+    Ok(invalidated_parent_paths(&paths))
 }
 
 pub async fn discard_worktree_path(
@@ -893,7 +976,7 @@ pub async fn discard_worktree_path(
             continue;
         }
 
-        if status_contains_tracked_change(&entry) {
+        if is_tracked_path(&entry) {
             restore_paths.insert(entry.path);
         }
     }
@@ -934,14 +1017,10 @@ pub fn read_worktree_status(
         .map_err(to_git_error)?
         .untracked_files(gix::status::UntrackedFiles::Files)
         .index_worktree_rewrites(Some(rewrite_tracking()))
-        .tree_index_track_renames(gix::status::tree_index::TrackRenames::Given(
-            rewrite_tracking(),
-        ))
         .into_iter(Vec::<gix::bstr::BString>::new())
         .map_err(to_git_error)?;
 
     let mut unstaged_files = Vec::new();
-    let mut staged_files = Vec::new();
 
     for item in &mut status {
         match item.map_err(to_git_error)? {
@@ -950,16 +1029,12 @@ pub fn read_worktree_status(
                     unstaged_files.push(change);
                 }
             }
-            gix::status::Item::TreeIndex(change) => {
-                if let Some(change) = map_tree_index_change(change) {
-                    staged_files.push(change);
-                }
-            }
+            gix::status::Item::TreeIndex(_) => {}
         }
     }
 
     unstaged_files.sort_by(|a, b| a.path.cmp(&b.path));
-    staged_files.sort_by(|a, b| a.path.cmp(&b.path));
+    let staged_files = read_staged_files(&repo)?;
 
     let (ahead_count, ahead_commits, comparison_available, comparison_error) =
         read_ahead_commits(&repo, source_ref)?;
