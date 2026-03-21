@@ -283,6 +283,11 @@ No periodic reconciliation — drift corrects on reconnect.
   invalidation should refresh exact matching loaded directories and exact parent
   listings, not recursively stale whole descendant subtrees from parent listing
   changes alone.
+- **Linux `notify` watcher batches can include ancestor directories**:
+  nested file writes may arrive as a batch containing the file plus one or more
+  parent directories. Backend watcher normalization must collapse strict
+  ancestors out of `changed_paths` and emit any concurrent git invalidation even
+  when the same batch also produces file invalidation.
 - **Git index mutations need explicit worktree-file cache invalidation**:
   stage/unstage operations may not trigger the worktree watcher, especially for
   linked worktrees where `.git` points outside the watched root. Backend git

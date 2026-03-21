@@ -303,17 +303,16 @@ impl WorktreeFileTracker {
         self.touch();
         let invalidation = collect_file_invalidated_paths(&self.root_path, pending);
 
+        if invalidation.git_refresh {
+            self.emit_git_invalidation(events);
+        }
+
         if !invalidation.changed_paths.is_empty() || !invalidation.listing_paths.is_empty() {
             self.emit_file_invalidation(
                 events,
                 invalidation.changed_paths,
                 invalidation.listing_paths,
             );
-            return;
-        }
-
-        if invalidation.git_refresh {
-            self.emit_git_invalidation(events);
         }
     }
 
@@ -569,13 +568,12 @@ fn relative_from_root(root: &Path, path: &Path) -> Result<String, WorktreeFileEr
 }
 
 fn collect_file_invalidated_paths(root: &Path, pending: PendingWatchEvent) -> FileInvalidation {
-    let mut changed_paths = BTreeSet::new();
-    let mut listing_paths = BTreeSet::new();
+    let mut raw_changed_paths = BTreeSet::new();
     let mut git_refresh = pending.force_git_refresh || !pending.git_metadata_paths.is_empty();
+    let mut force_root_listing = pending.force_file_root;
 
     if pending.force_file_root {
-        changed_paths.insert(String::new());
-        listing_paths.insert(String::new());
+        raw_changed_paths.insert(String::new());
     }
 
     for path in pending.file_tree_paths {
@@ -589,26 +587,68 @@ fn collect_file_invalidated_paths(root: &Path, pending: PendingWatchEvent) -> Fi
                     continue;
                 }
 
-                changed_paths.insert(relative_path.clone());
-                listing_paths.insert(parent_path_str(&relative_path));
+                raw_changed_paths.insert(relative_path.clone());
             }
             None => {
-                changed_paths.insert(String::new());
-                listing_paths.insert(String::new());
+                raw_changed_paths.insert(String::new());
+                force_root_listing = true;
             }
         }
     }
 
-    if changed_paths.is_empty() && listing_paths.is_empty() && !git_refresh {
-        changed_paths.insert(String::new());
-        listing_paths.insert(String::new());
-    }
+    let (changed_paths, listing_paths) = if force_root_listing || raw_changed_paths.contains("") {
+        raw_changed_paths.clear();
+        raw_changed_paths.insert(String::new());
+        (vec![String::new()], vec![String::new()])
+    } else {
+        let changed_paths = collapse_ancestor_paths(&raw_changed_paths);
+        let listing_paths = changed_paths
+            .iter()
+            .map(|path| parent_path_str(path))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        (changed_paths, listing_paths)
+    };
+
+    let (changed_paths, listing_paths) =
+        if changed_paths.is_empty() && listing_paths.is_empty() && !git_refresh {
+            (vec![String::new()], vec![String::new()])
+        } else {
+            (changed_paths, listing_paths)
+        };
 
     FileInvalidation {
-        changed_paths: changed_paths.into_iter().collect(),
-        listing_paths: listing_paths.into_iter().collect(),
+        changed_paths,
+        listing_paths,
         git_refresh,
     }
+}
+
+fn collapse_ancestor_paths(paths: &BTreeSet<String>) -> Vec<String> {
+    let mut collapsed = Vec::new();
+
+    for path in paths {
+        if path.is_empty() {
+            collapsed.push(String::new());
+            continue;
+        }
+
+        let is_ancestor = paths
+            .iter()
+            .any(|other| other != path && is_strict_subpath(other, path));
+        if !is_ancestor {
+            collapsed.push(path.clone());
+        }
+    }
+
+    collapsed
+}
+
+fn is_strict_subpath(path: &str, parent: &str) -> bool {
+    path.len() > parent.len()
+        && path.starts_with(parent)
+        && path.as_bytes().get(parent.len()) == Some(&b'/')
 }
 
 fn collect_relative_invalidated_paths(
@@ -690,11 +730,8 @@ mod tests {
         );
 
         assert!(!invalidation.git_refresh);
-        assert_eq!(
-            invalidation.changed_paths,
-            vec!["src/nested", "src/nested/demo.txt"]
-        );
-        assert_eq!(invalidation.listing_paths, vec!["src", "src/nested"]);
+        assert_eq!(invalidation.changed_paths, vec!["src/nested/demo.txt"]);
+        assert_eq!(invalidation.listing_paths, vec!["src/nested"]);
     }
 
     #[test]
@@ -727,7 +764,26 @@ mod tests {
         );
 
         assert!(!invalidation.git_refresh);
-        assert_eq!(invalidation.changed_paths, vec!["", "README.md"]);
+        assert_eq!(invalidation.changed_paths, vec![""]);
         assert_eq!(invalidation.listing_paths, vec![""]);
+    }
+
+    #[test]
+    fn collect_invalidated_paths_filters_strict_ancestor_directories() {
+        let root = Path::new("/repo");
+        let invalidation = collect_file_invalidated_paths(
+            root,
+            PendingWatchEvent {
+                file_tree_paths: vec![
+                    root.join("src"),
+                    root.join("src/nested"),
+                    root.join("src/nested/watch-me.txt"),
+                ],
+                ..PendingWatchEvent::default()
+            },
+        );
+
+        assert_eq!(invalidation.changed_paths, vec!["src/nested/watch-me.txt"]);
+        assert_eq!(invalidation.listing_paths, vec!["src/nested"]);
     }
 }

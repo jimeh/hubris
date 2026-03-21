@@ -548,7 +548,7 @@ async fn test_linked_worktree_git_metadata_watcher_emits_git_status_event() {
                     worktree_id: event_worktree_id,
                     ..
                 } if event_project_id == &project_id && event_worktree_id == &worktree_id => {
-                    return ("files", 0);
+                    continue;
                 }
                 _ => {}
             }
