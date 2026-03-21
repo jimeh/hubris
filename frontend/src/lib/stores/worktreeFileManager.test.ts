@@ -51,6 +51,14 @@ function emitEvent<K extends SseEventName>(
   }
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 async function getStore() {
   const mod = await import("./worktreeFileManager");
   mod.initializeWorktreeFileManagerStore();
@@ -108,6 +116,124 @@ describe("worktree file manager store", () => {
       ["p1", "w1", ""],
       ["p1", "w1", "src"],
     ]);
+  });
+
+  it("uses loading-initial for a first directory load", async () => {
+    const store = await getStore();
+    const listing = createDeferred<{
+      generation: number;
+      path: string;
+      entries: Array<{
+        name: string;
+        path: string;
+        kind: "file" | "directory";
+      }>;
+    }>();
+
+    mockListProjectWorktreeFiles.mockImplementation(
+      async (_projectId: string, _worktreeId: string, path = "") => {
+        if (path === "") {
+          return listing.promise;
+        }
+        return { generation: 1, path, entries: [] };
+      },
+    );
+
+    const loadPromise = store.getState().loadDirectory("p1", "w1", "");
+
+    expect(store.getState().worktrees["w1"]?.directories[""]?.status).toBe(
+      "loading-initial",
+    );
+
+    listing.resolve({
+      generation: 1,
+      path: "",
+      entries: [],
+    });
+    await loadPromise;
+
+    expect(store.getState().worktrees["w1"]?.directories[""]?.status).toBe(
+      "loaded",
+    );
+  });
+
+  it("uses loading-refresh and preserves cached entries during refresh", async () => {
+    const store = await getStore();
+    const refreshListing = createDeferred<{
+      generation: number;
+      path: string;
+      entries: Array<{
+        name: string;
+        path: string;
+        kind: "file" | "directory";
+      }>;
+    }>();
+
+    mockListProjectWorktreeFiles
+      .mockResolvedValueOnce({
+        generation: 1,
+        path: "",
+        entries: [{ name: "src", path: "src", kind: "directory" }],
+      })
+      .mockResolvedValueOnce({
+        generation: 1,
+        path: "src",
+        entries: [{ name: "before.txt", path: "src/before.txt", kind: "file" }],
+      })
+      .mockImplementationOnce(async () => refreshListing.promise);
+
+    await store.getState().loadDirectory("p1", "w1", "");
+    await store.getState().loadDirectory("p1", "w1", "src");
+
+    const refreshPromise = store
+      .getState()
+      .loadDirectory("p1", "w1", "src", { force: true });
+
+    expect(store.getState().worktrees["w1"]?.directories["src"]).toMatchObject({
+      status: "loading-refresh",
+      entries: [{ name: "before.txt", path: "src/before.txt", kind: "file" }],
+    });
+
+    refreshListing.resolve({
+      generation: 2,
+      path: "src",
+      entries: [{ name: "after.txt", path: "src/after.txt", kind: "file" }],
+    });
+    await refreshPromise;
+
+    expect(store.getState().worktrees["w1"]?.directories["src"]).toMatchObject({
+      status: "loaded",
+      entries: [{ name: "after.txt", path: "src/after.txt", kind: "file" }],
+    });
+  });
+
+  it("uses error-refresh and preserves cached entries when refresh fails", async () => {
+    const store = await getStore();
+
+    mockListProjectWorktreeFiles
+      .mockResolvedValueOnce({
+        generation: 1,
+        path: "",
+        entries: [{ name: "empty", path: "empty", kind: "directory" }],
+      })
+      .mockResolvedValueOnce({
+        generation: 1,
+        path: "empty",
+        entries: [],
+      })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+
+    await store.getState().loadDirectory("p1", "w1", "");
+    await store.getState().loadDirectory("p1", "w1", "empty");
+    await store.getState().loadDirectory("p1", "w1", "empty", { force: true });
+
+    expect(
+      store.getState().worktrees["w1"]?.directories["empty"],
+    ).toMatchObject({
+      status: "error-refresh",
+      entries: [],
+      error: "refresh failed",
+    });
   });
 
   it("preloads newly visible descendant directories under expanded folders", async () => {
@@ -292,7 +418,8 @@ describe("worktree file manager store", () => {
       project_id: "p1",
       worktree_id: "w1",
       generation: 2,
-      paths: ["", "src", "src/nested"],
+      changed_paths: ["src/nested"],
+      listing_paths: ["", "src"],
     });
 
     await store.getState().refreshPendingPaths("p1", "w1");
@@ -353,7 +480,8 @@ describe("worktree file manager store", () => {
       project_id: "p1",
       worktree_id: "w1",
       generation: 2,
-      paths: ["src/nested", "src/nested/watch-me.txt"],
+      changed_paths: ["src/nested", "src/nested/watch-me.txt"],
+      listing_paths: ["src/nested"],
     });
 
     const afterEvent = store.getState().worktrees["w1"];
@@ -425,7 +553,8 @@ describe("worktree file manager store", () => {
       project_id: "p1",
       worktree_id: "w1",
       generation: 2,
-      paths: ["src/lib.rs", "src"],
+      changed_paths: ["src/lib.rs"],
+      listing_paths: ["src"],
     });
 
     expect(store.getState().worktrees["w1"]?.directories["src"]?.stale).toBe(
@@ -458,6 +587,207 @@ describe("worktree file manager store", () => {
         kind: "file",
       },
     ]);
+  });
+
+  it("refreshes only the parent listing for nested file renames", async () => {
+    const store = await getStore();
+    mockListProjectWorktreeFiles.mockImplementation(
+      async (_projectId: string, _worktreeId: string, path = "") => {
+        if (path === "tmp2") {
+          return {
+            generation: 1,
+            path: "tmp2",
+            entries: [
+              { name: "bar.txt", path: "tmp2/bar.txt", kind: "file" },
+              { name: "nested", path: "tmp2/nested", kind: "directory" },
+            ],
+          };
+        }
+        if (path === "tmp2/nested") {
+          return {
+            generation: 1,
+            path: "tmp2/nested",
+            entries: [
+              { name: "deep.txt", path: "tmp2/nested/deep.txt", kind: "file" },
+            ],
+          };
+        }
+        return {
+          generation: 1,
+          path: "",
+          entries: [{ name: "tmp2", path: "tmp2", kind: "directory" }],
+        };
+      },
+    );
+
+    await store.getState().loadDirectory("p1", "w1", "");
+    await store.getState().loadDirectory("p1", "w1", "tmp2");
+    await store.getState().loadDirectory("p1", "w1", "tmp2/nested");
+    store.getState().setExpanded("w1", "tmp2", true);
+    store.getState().setExpanded("w1", "tmp2/nested", true);
+
+    emitEvent("worktree_files_updated", {
+      project_id: "p1",
+      worktree_id: "w1",
+      generation: 2,
+      changed_paths: ["tmp2/bar.txt", "tmp2/bar2.txt"],
+      listing_paths: ["tmp2"],
+    });
+
+    expect(store.getState().worktrees["w1"]?.directories["tmp2"]?.stale).toBe(
+      true,
+    );
+    expect(
+      store.getState().worktrees["w1"]?.directories["tmp2/nested"]?.stale,
+    ).toBe(false);
+
+    mockListProjectWorktreeFiles.mockResolvedValueOnce({
+      generation: 2,
+      path: "tmp2",
+      entries: [
+        { name: "bar2.txt", path: "tmp2/bar2.txt", kind: "file" },
+        { name: "nested", path: "tmp2/nested", kind: "directory" },
+      ],
+    });
+
+    await store.getState().refreshPendingPaths("p1", "w1");
+
+    expect(mockListProjectWorktreeFiles.mock.calls).toEqual([
+      ["p1", "w1", ""],
+      ["p1", "w1", "tmp2"],
+      ["p1", "w1", "tmp2/nested"],
+      ["p1", "w1", "tmp2"],
+    ]);
+    expect(
+      store.getState().worktrees["w1"]?.directories["tmp2/nested"]?.entries,
+    ).toEqual([
+      {
+        name: "deep.txt",
+        path: "tmp2/nested/deep.txt",
+        kind: "file",
+      },
+    ]);
+  });
+
+  it("prunes removed direct child subtrees when a parent listing refreshes", async () => {
+    const store = await getStore();
+    const { ApiStatusError } = await import("@/lib/api");
+    mockListProjectWorktreeFiles.mockImplementation(
+      async (_projectId: string, _worktreeId: string, path = "") => {
+        if (path === "tmp2") {
+          return {
+            generation: 1,
+            path: "tmp2",
+            entries: [
+              { name: "stuff", path: "tmp2/stuff", kind: "directory" },
+              { name: "keep", path: "tmp2/keep", kind: "directory" },
+            ],
+          };
+        }
+        if (path === "tmp2/stuff") {
+          return {
+            generation: 1,
+            path: "tmp2/stuff",
+            entries: [
+              {
+                name: "gone.txt",
+                path: "tmp2/stuff/gone.txt",
+                kind: "file",
+              },
+            ],
+          };
+        }
+        if (path === "tmp2/keep") {
+          return {
+            generation: 1,
+            path: "tmp2/keep",
+            entries: [
+              {
+                name: "stay.txt",
+                path: "tmp2/keep/stay.txt",
+                kind: "file",
+              },
+            ],
+          };
+        }
+        return {
+          generation: 1,
+          path: "",
+          entries: [{ name: "tmp2", path: "tmp2", kind: "directory" }],
+        };
+      },
+    );
+
+    await store.getState().loadDirectory("p1", "w1", "");
+    await store.getState().loadDirectory("p1", "w1", "tmp2");
+    await store.getState().loadDirectory("p1", "w1", "tmp2/stuff");
+    await store.getState().loadDirectory("p1", "w1", "tmp2/keep");
+    store.getState().setExpanded("w1", "tmp2", true);
+    store.getState().setExpanded("w1", "tmp2/stuff", true);
+    store.getState().setExpanded("w1", "tmp2/keep", true);
+    store.getState().setSelectedPath("w1", "tmp2/stuff/gone.txt");
+
+    emitEvent("worktree_files_updated", {
+      project_id: "p1",
+      worktree_id: "w1",
+      generation: 2,
+      changed_paths: ["tmp2/stuff", "tmp2/stuff-old"],
+      listing_paths: ["tmp2"],
+    });
+
+    mockListProjectWorktreeFiles.mockReset();
+    mockListProjectWorktreeFiles.mockImplementation(
+      async (_projectId: string, _worktreeId: string, path = "") => {
+        if (path === "tmp2") {
+          return {
+            generation: 2,
+            path: "tmp2",
+            entries: [
+              { name: "stuff-old", path: "tmp2/stuff-old", kind: "directory" },
+              { name: "keep", path: "tmp2/keep", kind: "directory" },
+            ],
+          };
+        }
+        if (path === "tmp2/stuff") {
+          throw new ApiStatusError(404, "Directory not found");
+        }
+        if (path === "tmp2/keep") {
+          return {
+            generation: 2,
+            path: "tmp2/keep",
+            entries: [
+              {
+                name: "stay.txt",
+                path: "tmp2/keep/stay.txt",
+                kind: "file",
+              },
+            ],
+          };
+        }
+        if (path === "tmp2/stuff-old") {
+          return {
+            generation: 2,
+            path: "tmp2/stuff-old",
+            entries: [],
+          };
+        }
+        return {
+          generation: 2,
+          path,
+          entries: [],
+        };
+      },
+    );
+
+    await store.getState().refreshPendingPaths("p1", "w1");
+
+    const next = store.getState().worktrees["w1"];
+    expect(next?.directories["tmp2/stuff"]).toBeUndefined();
+    expect(next?.directories["tmp2/keep"]).toMatchObject({
+      entries: [{ name: "stay.txt", path: "tmp2/keep/stay.txt", kind: "file" }],
+    });
+    expect(next?.selectedPath).toBeNull();
+    expect(next?.expandedPaths).toEqual(["tmp2", "tmp2/keep"]);
   });
 
   it("tracks git-only watcher invalidation without staling directories", async () => {
@@ -613,7 +943,8 @@ describe("worktree file manager store", () => {
     expect(next?.expandedPaths).toEqual([]);
     expect(next?.selectedPath).toBeNull();
     expect(next?.renamePath).toBeNull();
-    expect(next?.pendingPaths).toEqual([]);
+    expect(next?.pendingChangedPaths).toEqual([]);
+    expect(next?.pendingListingPaths).toEqual([]);
     expect(mockListProjectWorktreeFiles.mock.calls).toEqual([
       ["p1", "w1", "src"],
       ["p1", "w1", "src"],

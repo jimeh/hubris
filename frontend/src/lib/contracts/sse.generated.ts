@@ -150,7 +150,8 @@ export type EventKind =
         project_id: string;
         worktree_id: string;
         generation: number;
-        paths: Array<string>;
+        changed_paths: Array<string>;
+        listing_paths: Array<string>;
       };
     }
   | {

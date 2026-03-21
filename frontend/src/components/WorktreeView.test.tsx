@@ -87,8 +87,7 @@ describe("WorktreeView", () => {
     const {
       initializeWorktreeRightSidebarStore,
       resetWorktreeRightSidebarStoreForTests,
-    } =
-      await import("@/lib/stores/worktreeRightSidebar");
+    } = await import("@/lib/stores/worktreeRightSidebar");
     const { resetWorktreeRightSidebarWidthStoreForTests } =
       await import("@/lib/stores/worktreeRightSidebarWidth");
     resetTabStoreForTests();

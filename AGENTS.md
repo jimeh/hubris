@@ -273,6 +273,16 @@ No periodic reconciliation — drift corrects on reconnect.
   manifest and browser resolver should carry `languageIds`, with a minimal alias
   layer such as `yml -> yaml` where the file extension and VS Code language ID
   differ.
+- **Explorer refresh UI should be stale-while-revalidate**:
+  watcher-driven refreshes for already-loaded directories should keep cached
+  children visible and use a refresh-specific status/indicator. Reusing the
+  initial-load placeholder state makes subtree renames/removals flash.
+- **`worktree_files_updated` separates exact changes from listing refreshes**:
+  `changed_paths` are the exact watcher-reported paths; `listing_paths` are the
+  directories whose immediate child list may have changed. Frontend explorer
+  invalidation should refresh exact matching loaded directories and exact parent
+  listings, not recursively stale whole descendant subtrees from parent listing
+  changes alone.
 - **Git index mutations need explicit worktree-file cache invalidation**:
   stage/unstage operations may not trigger the worktree watcher, especially for
   linked worktrees where `.git` points outside the watched root. Backend git

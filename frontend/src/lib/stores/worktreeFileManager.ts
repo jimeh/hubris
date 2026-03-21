@@ -10,9 +10,16 @@ import {
 import { getEventClient } from "@/lib/events";
 
 type RequestStatus = "idle" | "loading" | "loaded" | "error";
+type DirectoryRequestStatus =
+  | "idle"
+  | "loading-initial"
+  | "loading-refresh"
+  | "loaded"
+  | "error-initial"
+  | "error-refresh";
 
 type DirectoryState = {
-  status: RequestStatus;
+  status: DirectoryRequestStatus;
   generation: number;
   entries: WorktreeFile[];
   error: string | null;
@@ -29,7 +36,8 @@ type WorktreeFileManagerSlice = {
   gitError: string | null;
   pendingGeneration: number;
   pendingGitGeneration: number;
-  pendingPaths: string[];
+  pendingChangedPaths: string[];
+  pendingListingPaths: string[];
 };
 
 type LoadOptions = {
@@ -101,6 +109,14 @@ function createDirectoryState(): DirectoryState {
   };
 }
 
+function hasLoadedDirectoryContents(directory: DirectoryState): boolean {
+  return directory.generation > 0;
+}
+
+function isDirectoryLoading(status: DirectoryRequestStatus): boolean {
+  return status === "loading-initial" || status === "loading-refresh";
+}
+
 function createWorktreeSlice(): WorktreeFileManagerSlice {
   return {
     directories: {},
@@ -112,7 +128,8 @@ function createWorktreeSlice(): WorktreeFileManagerSlice {
     gitError: null,
     pendingGeneration: 0,
     pendingGitGeneration: 0,
-    pendingPaths: [],
+    pendingChangedPaths: [],
+    pendingListingPaths: [],
   };
 }
 
@@ -161,35 +178,26 @@ function isSubpath(path: string, parent: string): boolean {
   return path === parent || path.startsWith(`${parent}/`);
 }
 
-function shouldInvalidateDirectory(
-  directoryPath: string,
-  changedPaths: string[],
-): boolean {
-  return changedPaths.some((changedPath) => {
-    if (changedPath === "") {
-      return true;
-    }
-    return (
-      directoryPath === changedPath ||
-      directoryPath === parentPath(changedPath) ||
-      isSubpath(directoryPath, changedPath)
-    );
-  });
-}
-
 function markDirectoriesStale(
   slice: WorktreeFileManagerSlice,
+  listingPaths: string[],
   changedPaths: string[],
 ): Record<string, DirectoryState> {
-  if (changedPaths.length === 0) {
+  const stalePaths = new Set([
+    ...listingPaths.map(normalizePath),
+    ...changedPaths
+      .map(normalizePath)
+      .filter((path) => path === "" || path in slice.directories),
+  ]);
+
+  if (stalePaths.size === 0) {
     return slice.directories;
   }
 
   const nextDirectories: Record<string, DirectoryState> = {};
   for (const [path, directory] of Object.entries(slice.directories)) {
     nextDirectories[path] =
-      directory.status === "loaded" &&
-      shouldInvalidateDirectory(path, changedPaths)
+      hasLoadedDirectoryContents(directory) && stalePaths.has(path)
         ? {
             ...directory,
             stale: true,
@@ -203,6 +211,40 @@ function mergePendingPaths(existing: string[], next: string[]): string[] {
   return uniquePaths([...existing, ...next.map(normalizePath)]);
 }
 
+function pruneRemovedPaths(
+  slice: WorktreeFileManagerSlice,
+  removedPaths: string[],
+): WorktreeFileManagerSlice {
+  return removedPaths.reduce((nextSlice, removedPath) => {
+    if (!removedPath) {
+      return nextSlice;
+    }
+    return pruneMissingDirectory(nextSlice, removedPath);
+  }, slice);
+}
+
+function reconcileDirectoryEntries(
+  slice: WorktreeFileManagerSlice,
+  directoryPath: string,
+  nextEntries: WorktreeFile[],
+): WorktreeFileManagerSlice {
+  const previousDirectory = slice.directories[directoryPath];
+  if (!previousDirectory) {
+    return slice;
+  }
+
+  const nextEntryPaths = new Set(nextEntries.map((entry) => entry.path));
+  const removedPaths = previousDirectory.entries
+    .map((entry) => entry.path)
+    .filter((path) => !nextEntryPaths.has(path));
+
+  if (removedPaths.length === 0) {
+    return slice;
+  }
+
+  return pruneRemovedPaths(slice, removedPaths);
+}
+
 function getVisiblePaths(
   slice: WorktreeFileManagerSlice,
   predicate?: (directory: DirectoryState, path: string) => boolean,
@@ -210,7 +252,7 @@ function getVisiblePaths(
   return uniquePaths(
     ["", ...slice.expandedPaths].filter((path) => {
       const directory = slice.directories[path];
-      if (path !== "" && directory?.status !== "loaded") {
+      if (path !== "" && !directory) {
         return false;
       }
       return predicate
@@ -280,7 +322,10 @@ function pruneMissingDirectory(
       ? null
       : slice.selectedPath,
     renamePath: shouldClearPath(slice.renamePath) ? null : slice.renamePath,
-    pendingPaths: slice.pendingPaths.filter(
+    pendingChangedPaths: slice.pendingChangedPaths.filter(
+      (path) => !isSubpath(path, missingPath),
+    ),
+    pendingListingPaths: slice.pendingListingPaths.filter(
       (path) => !isSubpath(path, missingPath),
     ),
   };
@@ -340,8 +385,9 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
       const current = getSlice(get().worktrees, worktreeId);
       const directory =
         current.directories[normalizedPath] ?? createDirectoryState();
+      const isRefresh = hasLoadedDirectoryContents(directory);
       if (
-        directory.status === "loading" ||
+        isDirectoryLoading(directory.status) ||
         (!options.force && directory.status === "loaded" && !directory.stale)
       ) {
         return;
@@ -358,7 +404,7 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
                 ...next.directories,
                 [normalizedPath]: {
                   ...directory,
-                  status: "loading",
+                  status: isRefresh ? "loading-refresh" : "loading-initial",
                   error: null,
                 },
               },
@@ -374,7 +420,12 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
           normalizedPath,
         );
         set((state) => {
-          const next = getSlice(state.worktrees, worktreeId);
+          let next = getSlice(state.worktrees, worktreeId);
+          next = reconcileDirectoryEntries(
+            next,
+            normalizedPath,
+            response.entries,
+          );
           const stale = response.generation < next.pendingGeneration;
           return {
             worktrees: {
@@ -384,6 +435,7 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
                 directories: {
                   ...next.directories,
                   [normalizedPath]: {
+                    ...directory,
                     status: "loaded",
                     generation: response.generation,
                     entries: response.entries,
@@ -420,7 +472,7 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
                   ...next.directories,
                   [normalizedPath]: {
                     ...directory,
-                    status: "error",
+                    status: isRefresh ? "error-refresh" : "error-initial",
                     error: (error as Error).message,
                   },
                 },
@@ -546,20 +598,24 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
     async refreshPendingPaths(projectId, worktreeId) {
       const current = getSlice(get().worktrees, worktreeId);
       const targetGeneration = current.pendingGeneration;
-      const targetPaths = current.pendingPaths;
-      if (targetGeneration === 0 || targetPaths.length === 0) {
+      const targetChangedPaths = current.pendingChangedPaths;
+      const targetListingPaths = current.pendingListingPaths;
+      if (
+        targetGeneration === 0 ||
+        (targetChangedPaths.length === 0 && targetListingPaths.length === 0)
+      ) {
         return;
       }
 
       const visiblePaths = getVisiblePaths(
         current,
         (directory, path) =>
-          path === "" || (directory.status === "loaded" && directory.stale),
+          path === "" ||
+          (hasLoadedDirectoryContents(directory) && directory.stale),
       ).filter((path) => {
-        if (path === "") {
-          return targetPaths.includes("");
-        }
-        return shouldInvalidateDirectory(path, targetPaths);
+        return (
+          targetListingPaths.includes(path) || targetChangedPaths.includes(path)
+        );
       });
 
       await Promise.all([
@@ -582,15 +638,17 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
             [worktreeId]: {
               ...next,
               pendingGeneration: 0,
-              pendingPaths: [],
+              pendingChangedPaths: [],
+              pendingListingPaths: [],
             },
           },
         };
       });
     },
     async refreshPaths(projectId, worktreeId, paths) {
-      const normalizedPaths = uniquePaths(paths.map(normalizePath));
-      if (normalizedPaths.length === 0) {
+      const changedPaths = uniquePaths(paths.map(normalizePath));
+      const listingPaths = uniquePaths(changedPaths.map(parentPath));
+      if (changedPaths.length === 0 && listingPaths.length === 0) {
         await get().loadGitStatus(projectId, worktreeId, { force: true });
         return;
       }
@@ -602,7 +660,11 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
             ...state.worktrees,
             [worktreeId]: {
               ...current,
-              directories: markDirectoriesStale(current, normalizedPaths),
+              directories: markDirectoriesStale(
+                current,
+                listingPaths,
+                changedPaths,
+              ),
             },
           },
         };
@@ -612,12 +674,10 @@ export const useWorktreeFileManagerStore = create<WorktreeFileManagerState>(
       const visiblePaths = getVisiblePaths(
         current,
         (directory, path) =>
-          path === "" || (directory.status === "loaded" && directory.stale),
+          path === "" ||
+          (hasLoadedDirectoryContents(directory) && directory.stale),
       ).filter((path) => {
-        if (path === "") {
-          return normalizedPaths.includes("");
-        }
-        return shouldInvalidateDirectory(path, normalizedPaths);
+        return listingPaths.includes(path) || changedPaths.includes(path);
       });
 
       await Promise.all([
@@ -709,21 +769,30 @@ export function initializeWorktreeFileManagerStore(): void {
       useWorktreeFileManagerStore.setState((state) => {
         const worktreeId = data.worktree_id;
         const current = getSlice(state.worktrees, worktreeId);
-        const pendingPaths = mergePendingPaths(
-          current.pendingPaths,
-          data.paths,
+        const pendingChangedPaths = mergePendingPaths(
+          current.pendingChangedPaths,
+          data.changed_paths,
+        );
+        const pendingListingPaths = mergePendingPaths(
+          current.pendingListingPaths,
+          data.listing_paths,
         );
         return {
           worktrees: {
             ...state.worktrees,
             [worktreeId]: {
               ...current,
-              directories: markDirectoriesStale(current, pendingPaths),
+              directories: markDirectoriesStale(
+                current,
+                pendingListingPaths,
+                pendingChangedPaths,
+              ),
               pendingGeneration: Math.max(
                 current.pendingGeneration,
                 Number(data.generation),
               ),
-              pendingPaths,
+              pendingChangedPaths,
+              pendingListingPaths,
             },
           },
         };

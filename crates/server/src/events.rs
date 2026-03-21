@@ -71,7 +71,8 @@ pub enum EventKind {
         project_id: String,
         worktree_id: String,
         generation: u32,
-        paths: Vec<String>,
+        changed_paths: Vec<String>,
+        listing_paths: Vec<String>,
     },
     #[serde(rename = "worktree_git_status_updated")]
     WorktreeGitStatusUpdated {

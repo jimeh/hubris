@@ -49,7 +49,13 @@ type Props = {
 };
 
 type DirectoryState = {
-  status: "idle" | "loading" | "loaded" | "error";
+  status:
+    | "idle"
+    | "loading-initial"
+    | "loading-refresh"
+    | "loaded"
+    | "error-initial"
+    | "error-refresh";
   entries: WorktreeFileEntry[];
   error: string | null;
 };
@@ -59,6 +65,7 @@ type DecorationState = {
 };
 
 const NESTED_LOADING_PLACEHOLDER_DELAY_MS = 175;
+const REFRESH_PULSE_DELAY_MS = 200;
 
 const EMPTY_STATE = {
   directories: {} as Record<string, DirectoryState>,
@@ -70,6 +77,8 @@ const EMPTY_STATE = {
   gitError: null,
   pendingGeneration: 0,
   pendingGitGeneration: 0,
+  pendingChangedPaths: [] as string[],
+  pendingListingPaths: [] as string[],
 };
 
 function buildDecorations(worktreeState: DecorationState): {
@@ -154,21 +163,25 @@ function ExplorerDecoration({
   changeType?: GitChangeType;
   directory?: boolean;
 }) {
-  if (!changeType) {
-    return <span className="h-5 w-5 shrink-0" aria-hidden="true" />;
-  }
-
   if (directory) {
     return (
       <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-        <span
-          className={cn(
-            "h-2 w-2 rounded-full bg-current opacity-65",
-            gitChangeTypeClass(changeType),
-          )}
-        />
+        {changeType ? (
+          <span
+            className={cn(
+              "h-2 w-2 rounded-full bg-current opacity-65",
+              gitChangeTypeClass(changeType),
+            )}
+          />
+        ) : (
+          <span className="h-5 w-5 shrink-0" aria-hidden="true" />
+        )}
       </span>
     );
+  }
+
+  if (!changeType) {
+    return <span className="h-5 w-5 shrink-0" aria-hidden="true" />;
   }
 
   return (
@@ -187,6 +200,26 @@ function rowLabelClass({ changeType }: { changeType?: GitChangeType }): string {
   return changeType
     ? cn("text-[13px] font-medium", gitChangeTypeClass(changeType))
     : "text-[13px] font-medium";
+}
+
+function hasLoadedDirectoryState(directoryState?: DirectoryState): boolean {
+  return Boolean(directoryState && directoryState.status !== "idle");
+}
+
+function isDirectoryInitialLoading(directoryState?: DirectoryState): boolean {
+  return directoryState?.status === "loading-initial";
+}
+
+function isDirectoryRefreshLoading(directoryState?: DirectoryState): boolean {
+  return directoryState?.status === "loading-refresh";
+}
+
+function isDirectoryInitialError(directoryState?: DirectoryState): boolean {
+  return directoryState?.status === "error-initial";
+}
+
+function isDirectoryRefreshError(directoryState?: DirectoryState): boolean {
+  return directoryState?.status === "error-refresh";
 }
 
 function RowContextMenu({
@@ -318,6 +351,63 @@ function DelayedNestedLoadingRow() {
   );
 }
 
+function DelayedRefreshPulse({
+  active,
+  children,
+}: {
+  active: boolean;
+  children: ReactNode;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setVisible(true);
+    }, REFRESH_PULSE_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [active]);
+
+  return (
+    <span
+      className={cn(
+        "flex min-w-0 items-center gap-2",
+        visible && "animate-pulse opacity-70",
+      )}
+      data-testid={visible ? "directory-refresh-pulse" : undefined}
+    >
+      {children}
+    </span>
+  );
+}
+
+function RefreshErrorBanner({
+  error,
+  onRetry,
+}: {
+  error: string | null;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+      <span className="min-w-0 flex-1 truncate">{error}</span>
+      <button
+        type="button"
+        className="shrink-0 font-medium text-foreground underline"
+        onClick={onRetry}
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
 function FileTreeRow({
   worktree,
   entry,
@@ -355,6 +445,7 @@ function FileTreeRow({
   const directoryState = directories[entry.path];
   const isRenaming = renamePath === entry.path;
   const isSelected = selectedPath === entry.path;
+  const refreshing = isDirectoryRefreshLoading(directoryState);
   const changeType =
     entry.kind === "directory"
       ? directoryChanges.get(entry.path)
@@ -441,25 +532,30 @@ function FileTreeRow({
               data-path={entry.path}
               aria-label={`Toggle ${entry.path}`}
             >
-              <ChevronRight
-                className={cn(
-                  "transition-transform duration-150",
-                  expanded && "rotate-90",
-                )}
-              />
-              <FolderIcon name={entry.name} open={expanded} theme={theme} />
-              {renameInput ?? (
-                <span
+              <DelayedRefreshPulse
+                key={refreshing ? "refreshing" : "idle"}
+                active={refreshing}
+              >
+                <ChevronRight
                   className={cn(
-                    "truncate",
-                    rowLabelClass({
-                      changeType,
-                    }),
+                    "h-4 w-4 shrink-0 transition-transform duration-150",
+                    expanded && "rotate-90",
                   )}
-                >
-                  {entry.name}
-                </span>
-              )}
+                />
+                <FolderIcon name={entry.name} open={expanded} theme={theme} />
+                {renameInput ?? (
+                  <span
+                    className={cn(
+                      "truncate",
+                      rowLabelClass({
+                        changeType,
+                      }),
+                    )}
+                  >
+                    {entry.name}
+                  </span>
+                )}
+              </DelayedRefreshPulse>
               <span className="ml-auto">
                 <ExplorerDecoration changeType={changeType} directory />
               </span>
@@ -470,9 +566,9 @@ function FileTreeRow({
               className="ml-[15px] border-l border-sidebar-border/70 pl-[9px]"
               data-testid={`explorer-tree-branch-${entry.path.replaceAll("/", "-")}`}
             >
-              {directoryState?.status === "loading" ? (
+              {isDirectoryInitialLoading(directoryState) ? (
                 <DelayedNestedLoadingRow />
-              ) : directoryState?.status === "error" ? (
+              ) : isDirectoryInitialError(directoryState) ? (
                 <div className="flex items-center gap-2 py-1 text-xs text-destructive">
                   <span className="truncate">{directoryState.error}</span>
                   <button
@@ -483,44 +579,56 @@ function FileTreeRow({
                     Retry
                   </button>
                 </div>
-              ) : directoryState?.entries.length ? (
+              ) : hasLoadedDirectoryState(directoryState) ? (
                 <SidebarMenu className="gap-0.5 py-0.5">
-                  {directoryState.entries.map((child) => (
-                    <FileTreeRow
-                      key={child.path}
-                      worktree={worktree}
-                      entry={child}
-                      depth={depth + 1}
-                      expandedPaths={expandedPaths}
-                      directories={directories}
-                      selectedPath={selectedPath}
-                      renamePath={renamePath}
-                      fileChanges={fileChanges}
-                      directoryChanges={directoryChanges}
-                      theme={theme}
-                      onToggleDirectory={onToggleDirectory}
-                      onSelect={onSelect}
-                      onRenamePathChange={onRenamePathChange}
-                      onRenameSubmit={onRenameSubmit}
-                      onRetryDirectory={onRetryDirectory}
-                    />
-                  ))}
+                  {isDirectoryRefreshError(directoryState) ? (
+                    <div className="flex items-center gap-2 py-1 text-xs text-destructive">
+                      <span className="truncate">{directoryState.error}</span>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-foreground underline"
+                        onClick={() => onRetryDirectory(entry.path)}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : null}
+                  {directoryState.entries.length ? (
+                    directoryState.entries.map((child) => (
+                      <FileTreeRow
+                        key={child.path}
+                        worktree={worktree}
+                        entry={child}
+                        depth={depth + 1}
+                        expandedPaths={expandedPaths}
+                        directories={directories}
+                        selectedPath={selectedPath}
+                        renamePath={renamePath}
+                        fileChanges={fileChanges}
+                        directoryChanges={directoryChanges}
+                        theme={theme}
+                        onToggleDirectory={onToggleDirectory}
+                        onSelect={onSelect}
+                        onRenamePathChange={onRenamePathChange}
+                        onRenameSubmit={onRenameSubmit}
+                        onRetryDirectory={onRetryDirectory}
+                      />
+                    ))
+                  ) : (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        className="h-8 pr-0 text-muted-foreground/80 hover:bg-transparent hover:text-muted-foreground/80"
+                        disabled
+                      >
+                        <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span className="text-[13px] font-medium">
+                          Empty folder
+                        </span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
                 </SidebarMenu>
-              ) : (
-                <SidebarMenu className="gap-0.5 py-0.5">
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      className="h-8 pr-0 text-muted-foreground/80 hover:bg-transparent hover:text-muted-foreground/80"
-                      disabled
-                    >
-                      <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-                      <span className="text-[13px] font-medium">
-                        Empty folder
-                      </span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </SidebarMenu>
-              )}
+              ) : null}
             </div>
           </CollapsibleContent>
         </Collapsible>
@@ -605,7 +713,7 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="flex min-h-full flex-col gap-3 p-3">
-        {rootDirectory?.status === "loading" &&
+        {rootDirectory?.status === "loading-initial" &&
         rootDirectory.entries.length === 0 ? (
           <div
             className="flex flex-col gap-2"
@@ -618,7 +726,7 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
               </div>
             ))}
           </div>
-        ) : rootDirectory?.status === "error" ? (
+        ) : rootDirectory?.status === "error-initial" ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
             <p>{rootDirectory.error}</p>
             <Button
@@ -636,34 +744,48 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
             </Button>
           </div>
         ) : rootDirectory?.entries.length ? (
-          <SidebarMenu className="gap-0.5">
-            {rootDirectory.entries.map((entry) => (
-              <FileTreeRow
-                key={entry.path}
-                worktree={worktree}
-                entry={entry}
-                depth={0}
-                expandedPaths={worktreeState.expandedPaths}
-                directories={
-                  worktreeState.directories as Record<string, DirectoryState>
-                }
-                selectedPath={worktreeState.selectedPath}
-                renamePath={worktreeState.renamePath}
-                fileChanges={fileChanges}
-                directoryChanges={directoryChanges}
-                theme={activeTheme}
-                onToggleDirectory={handleToggleDirectory}
-                onSelect={(path) => setSelectedPath(worktree.id, path)}
-                onRenamePathChange={(path) => setRenamePath(worktree.id, path)}
-                onRenameSubmit={handleRenameSubmit}
-                onRetryDirectory={(path) => {
-                  void loadDirectory(worktree.project_id, worktree.id, path, {
+          <>
+            {isDirectoryRefreshError(rootDirectory) ? (
+              <RefreshErrorBanner
+                error={rootDirectory.error}
+                onRetry={() => {
+                  void loadDirectory(worktree.project_id, worktree.id, "", {
                     force: true,
                   });
                 }}
               />
-            ))}
-          </SidebarMenu>
+            ) : null}
+            <SidebarMenu className="gap-0.5">
+              {rootDirectory.entries.map((entry) => (
+                <FileTreeRow
+                  key={entry.path}
+                  worktree={worktree}
+                  entry={entry}
+                  depth={0}
+                  expandedPaths={worktreeState.expandedPaths}
+                  directories={
+                    worktreeState.directories as Record<string, DirectoryState>
+                  }
+                  selectedPath={worktreeState.selectedPath}
+                  renamePath={worktreeState.renamePath}
+                  fileChanges={fileChanges}
+                  directoryChanges={directoryChanges}
+                  theme={activeTheme}
+                  onToggleDirectory={handleToggleDirectory}
+                  onSelect={(path) => setSelectedPath(worktree.id, path)}
+                  onRenamePathChange={(path) =>
+                    setRenamePath(worktree.id, path)
+                  }
+                  onRenameSubmit={handleRenameSubmit}
+                  onRetryDirectory={(path) => {
+                    void loadDirectory(worktree.project_id, worktree.id, path, {
+                      force: true,
+                    });
+                  }}
+                />
+              ))}
+            </SidebarMenu>
+          </>
         ) : (
           <div className="rounded-xl border border-dashed border-border/70 bg-muted/25 px-3 py-5 text-sm text-muted-foreground">
             No files found.

@@ -170,7 +170,8 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
   );
   const TabContent = tab.Content;
   const allFilesLoading =
-    worktreeState?.directories[""]?.status === "loading" ||
+    worktreeState?.directories[""]?.status === "loading-initial" ||
+    worktreeState?.directories[""]?.status === "loading-refresh" ||
     worktreeState?.gitStatusStatus === "loading";
   const changesLoading = worktreeState?.gitStatusStatus === "loading";
 

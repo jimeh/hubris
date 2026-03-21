@@ -460,6 +460,96 @@ describe("WorktreeAllFilesPanel", () => {
     ).toBeNull();
   });
 
+  it("keeps loaded directory contents visible during refresh and only shows a delayed row pulse", async () => {
+    const refreshListing = createDeferred<{
+      generation: number;
+      path: string;
+      entries: Array<{
+        name: string;
+        path: string;
+        kind: "file" | "directory";
+      }>;
+    }>();
+
+    mockListProjectWorktreeFiles.mockImplementation(
+      async (_projectId: string, _worktreeId: string, path = "") => {
+        if (path === "src") {
+          return {
+            generation: 1,
+            path: "src",
+            entries: [
+              { name: "before.txt", path: "src/before.txt", kind: "file" },
+            ],
+          };
+        }
+        return {
+          generation: 1,
+          path: "",
+          entries: [{ name: "src", path: "src", kind: "directory" }],
+        };
+      },
+    );
+
+    await renderPanel();
+    expect(await screen.findByText("src")).toBeInTheDocument();
+
+    fireEvent.click(getRowButton("src"));
+    expect(await screen.findByText("before.txt")).toBeInTheDocument();
+
+    const { useWorktreeFileManagerStore } =
+      await import("@/lib/stores/worktreeFileManager");
+
+    vi.useFakeTimers();
+    mockListProjectWorktreeFiles.mockImplementationOnce(
+      async () => refreshListing.promise,
+    );
+
+    let refreshPromise!: Promise<void>;
+    await act(async () => {
+      refreshPromise = useWorktreeFileManagerStore
+        .getState()
+        .loadDirectory("p1", "w1", "src", { force: true });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(199);
+    });
+
+    expect(screen.getByText("before.txt")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("nested-directory-loading-placeholder"),
+    ).toBeNull();
+    expect(
+      within(getRowButton("src")).queryByTestId("directory-refresh-pulse"),
+    ).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(
+      within(getRowButton("src")).getByTestId("directory-refresh-pulse"),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      refreshListing.resolve({
+        generation: 2,
+        path: "src",
+        entries: [{ name: "after.txt", path: "src/after.txt", kind: "file" }],
+      });
+      await refreshPromise;
+    });
+
+    vi.useRealTimers();
+
+    expect(await screen.findByText("after.txt")).toBeInTheDocument();
+    expect(screen.queryByText("before.txt")).not.toBeInTheDocument();
+    expect(
+      within(getRowButton("src")).queryByTestId("directory-refresh-pulse"),
+    ).toBeNull();
+  });
+
   it("preloads newly visible descendant directories when a folder opens", async () => {
     mockListProjectWorktreeFiles.mockImplementation(
       async (_projectId: string, _worktreeId: string, path = "") => {

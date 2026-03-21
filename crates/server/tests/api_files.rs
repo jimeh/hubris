@@ -438,12 +438,13 @@ async fn test_worktree_file_watcher_emits_update_event() {
                 project_id: event_project_id,
                 worktree_id: event_worktree_id,
                 generation,
-                paths,
+                changed_paths,
+                listing_paths,
             } = &event.kind
                 && event_project_id == &project_id
                 && event_worktree_id == &worktree_id
             {
-                return (*generation, paths.clone());
+                return (*generation, changed_paths.clone(), listing_paths.clone());
             }
         }
     })
@@ -451,7 +452,8 @@ async fn test_worktree_file_watcher_emits_update_event() {
     .unwrap();
 
     assert!(event.0 >= 2);
-    assert_eq!(event.1, vec!["".to_string(), "watch-me.txt".to_string()]);
+    assert_eq!(event.1, vec!["watch-me.txt".to_string()]);
+    assert_eq!(event.2, vec!["".to_string()]);
 }
 
 #[tokio::test]
@@ -485,12 +487,13 @@ async fn test_worktree_file_watcher_reports_nested_parent_paths() {
                 project_id: event_project_id,
                 worktree_id: event_worktree_id,
                 generation,
-                paths,
+                changed_paths,
+                listing_paths,
             } = &event.kind
                 && event_project_id == &project_id
                 && event_worktree_id == &worktree_id
             {
-                return (*generation, paths.clone());
+                return (*generation, changed_paths.clone(), listing_paths.clone());
             }
         }
     })
@@ -498,13 +501,8 @@ async fn test_worktree_file_watcher_reports_nested_parent_paths() {
     .unwrap();
 
     assert!(event.0 >= 2);
-    assert_eq!(
-        event.1,
-        vec![
-            "src/nested".to_string(),
-            "src/nested/watch-me.txt".to_string(),
-        ]
-    );
+    assert_eq!(event.1, vec!["src/nested/watch-me.txt".to_string()]);
+    assert_eq!(event.2, vec!["src/nested".to_string()]);
 }
 
 #[tokio::test]

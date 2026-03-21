@@ -158,7 +158,8 @@ describe("WorktreeRightSidebar", () => {
           gitError: null,
           pendingGeneration: 0,
           pendingGitGeneration: 0,
-          pendingPaths: [],
+          pendingChangedPaths: [],
+          pendingListingPaths: [],
         },
       },
     });
@@ -311,7 +312,8 @@ describe("WorktreeRightSidebar", () => {
           gitError: null,
           pendingGeneration: 4,
           pendingGitGeneration: 0,
-          pendingPaths: [""],
+          pendingChangedPaths: [""],
+          pendingListingPaths: [""],
         },
       },
     });
