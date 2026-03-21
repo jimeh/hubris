@@ -312,9 +312,10 @@ No periodic reconciliation — drift corrects on reconnect.
   git-only invalidation should not stale file listings.
 - **Prefer `gix` for read-only git operations**:
   repository inspection like status, refs, branch/default-start-point lookup,
-  commit history/details, root resolution, and git/common-dir discovery should
-  stay on `gix`. Keep the git CLI for worktree management (`git worktree ...`)
-  and path-scoped mutation flows where `gix` does not yet provide an equivalent.
+  commit history/details, worktree enumeration, root resolution, and
+  git/common-dir discovery should stay on `gix`. Keep the git CLI for worktree
+  management (`git worktree ...`) and path-scoped mutation flows where `gix`
+  does not yet provide an equivalent.
 - **Sidebar passive loads must not use `refreshVisiblePaths()`**:
   `refreshVisiblePaths()` is the invalidation path and force-refreshes git
   status. The right-sidebar visibility coordinator should use

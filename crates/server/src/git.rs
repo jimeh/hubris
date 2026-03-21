@@ -662,42 +662,50 @@ pub async fn resolve_local_root(path: &Path) -> Result<PathBuf, GitError> {
         })?
 }
 
-pub async fn list_worktrees(local_root: &Path) -> Result<Vec<GitWorktree>, GitError> {
-    let cwd = local_root.to_string_lossy().to_string();
-    let out = run_git(&["-C", &cwd, "worktree", "list", "--porcelain"]).await?;
+fn short_head_name(repo: &gix::Repository) -> Result<Option<String>, GitError> {
+    repo.head_name()
+        .map(|name| name.map(|name| bytes_to_string(name.shorten().as_ref())))
+        .map_err(to_git_error)
+}
+
+fn list_worktrees_gix(local_root: &Path) -> Result<Vec<GitWorktree>, GitError> {
+    let repo = gix::open(local_root).map_err(to_git_error)?;
     let mut worktrees = Vec::new();
 
-    for block in out.split("\n\n") {
-        if block.trim().is_empty() {
-            continue;
-        }
+    let local_path = repo
+        .workdir()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| local_root.to_path_buf());
+    let local_path = std::fs::canonicalize(&local_path).unwrap_or(local_path);
+    worktrees.push(GitWorktree {
+        path: local_path,
+        branch: short_head_name(&repo)?,
+    });
 
-        let mut path: Option<PathBuf> = None;
-        let mut branch: Option<String> = None;
-
-        for line in block.lines() {
-            if let Some(rest) = line.strip_prefix("worktree ") {
-                path = Some(PathBuf::from(rest.trim()));
-            } else if let Some(rest) = line.strip_prefix("branch ") {
-                branch = Some(
-                    rest.trim()
-                        .strip_prefix("refs/heads/")
-                        .unwrap_or(rest.trim())
-                        .to_string(),
-                );
-            }
-        }
-
-        if let Some(path) = path {
-            let canonical = tokio::fs::canonicalize(&path).await.unwrap_or(path);
-            worktrees.push(GitWorktree {
-                path: canonical,
-                branch,
-            });
-        }
+    let mut linked_worktrees = Vec::new();
+    for proxy in repo.worktrees().map_err(to_git_error)? {
+        let base = proxy.base().map_err(to_git_error)?;
+        let path = std::fs::canonicalize(&base).unwrap_or(base);
+        let branch = proxy
+            .into_repo_with_possibly_inaccessible_worktree()
+            .ok()
+            .and_then(|repo| short_head_name(&repo).ok())
+            .flatten();
+        linked_worktrees.push(GitWorktree { path, branch });
     }
+    linked_worktrees.sort_by(|a, b| a.path.cmp(&b.path));
+    worktrees.extend(linked_worktrees);
 
     Ok(worktrees)
+}
+
+pub async fn list_worktrees(local_root: &Path) -> Result<Vec<GitWorktree>, GitError> {
+    let local_root = local_root.to_path_buf();
+    tokio::task::spawn_blocking(move || list_worktrees_gix(&local_root))
+        .await
+        .map_err(|_| GitError {
+            message: "failed to join worktree list task".to_string(),
+        })?
 }
 
 pub async fn create_worktree(
@@ -802,9 +810,7 @@ pub async fn list_branch_start_points(local_root: &Path) -> Result<Vec<GitStartP
 
 fn current_branch_gix(local_root: &Path) -> Result<Option<String>, GitError> {
     let repo = gix::open(local_root).map_err(to_git_error)?;
-    repo.head_name()
-        .map(|name| name.map(|name| bytes_to_string(name.shorten().as_ref())))
-        .map_err(to_git_error)
+    short_head_name(&repo)
 }
 
 pub async fn current_branch(local_root: &Path) -> Result<Option<String>, GitError> {
@@ -1002,5 +1008,40 @@ mod tests {
 
         assert_eq!(paths.len(), 1);
         assert!(paths[0].ends_with(".git"));
+    }
+
+    #[test]
+    fn list_worktrees_reports_detached_linked_branch_as_none() {
+        let repo = tempfile::TempDir::new().unwrap();
+        run_git(repo.path(), &["init", "-q"]);
+        run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+        run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+        std::fs::write(repo.path().join("README.md"), "hello\n").unwrap();
+        run_git(repo.path(), &["add", "README.md"]);
+        run_git(repo.path(), &["commit", "-q", "-m", "init"]);
+        run_git(repo.path(), &["branch", "-M", "main"]);
+
+        let worktree_root = tempfile::TempDir::new().unwrap();
+        let worktree_path = worktree_root.path().join("detached-worktree");
+        let worktree_path_str = worktree_path.to_string_lossy().to_string();
+        run_git(
+            repo.path(),
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "detached-branch",
+                &worktree_path_str,
+            ],
+        );
+        run_git(&worktree_path, &["checkout", "--detach", "HEAD"]);
+        let worktree_path = std::fs::canonicalize(worktree_path).unwrap();
+
+        let worktrees = tokio_test::block_on(list_worktrees(repo.path())).unwrap();
+        let detached = worktrees
+            .iter()
+            .find(|worktree| worktree.path == worktree_path)
+            .unwrap();
+        assert_eq!(detached.branch, None);
     }
 }
