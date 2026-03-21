@@ -1,4 +1,8 @@
 use std::collections::BTreeSet;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::ffi::CString;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -459,16 +463,7 @@ impl WorktreeFileTracker {
         }
 
         let target_path = parent.join(new_name);
-        if tokio::fs::try_exists(&target_path)
-            .await
-            .map_err(map_io_error)?
-        {
-            return Err(WorktreeFileError::Conflict);
-        }
-
-        tokio::fs::rename(&source_path, &target_path)
-            .await
-            .map_err(map_io_error)?;
+        rename_path_noreplace(source_path, target_path.clone()).await?;
 
         self.invalidate_path_local();
 
@@ -695,6 +690,77 @@ fn map_io_error(error: std::io::Error) -> WorktreeFileError {
         std::io::ErrorKind::AlreadyExists => WorktreeFileError::Conflict,
         _ => WorktreeFileError::Internal,
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn rename_path_noreplace(
+    source_path: PathBuf,
+    target_path: PathBuf,
+) -> Result<(), WorktreeFileError> {
+    tokio::task::spawn_blocking(move || rename_path_noreplace_blocking(&source_path, &target_path))
+        .await
+        .map_err(|_| WorktreeFileError::Internal)?
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+async fn rename_path_noreplace(
+    source_path: PathBuf,
+    target_path: PathBuf,
+) -> Result<(), WorktreeFileError> {
+    if tokio::fs::try_exists(&target_path)
+        .await
+        .map_err(map_io_error)?
+    {
+        return Err(WorktreeFileError::Conflict);
+    }
+
+    tokio::fs::rename(source_path, target_path)
+        .await
+        .map_err(map_io_error)
+}
+
+#[cfg(target_os = "linux")]
+fn rename_path_noreplace_blocking(
+    source_path: &Path,
+    target_path: &Path,
+) -> Result<(), WorktreeFileError> {
+    let source = c_string_path(source_path)?;
+    let target = c_string_path(target_path)?;
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            libc::AT_FDCWD,
+            target.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(map_io_error(std::io::Error::last_os_error()))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn rename_path_noreplace_blocking(
+    source_path: &Path,
+    target_path: &Path,
+) -> Result<(), WorktreeFileError> {
+    let source = c_string_path(source_path)?;
+    let target = c_string_path(target_path)?;
+    let result = unsafe { libc::renamex_np(source.as_ptr(), target.as_ptr(), libc::RENAME_EXCL) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(map_io_error(std::io::Error::last_os_error()))
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn c_string_path(path: &Path) -> Result<CString, WorktreeFileError> {
+    CString::new(path.as_os_str().as_bytes()).map_err(|_| WorktreeFileError::InvalidPath)
 }
 
 fn now_ms() -> u64 {

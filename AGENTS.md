@@ -166,6 +166,10 @@ No periodic reconciliation — drift corrects on reconnect.
   into place, and syncs the parent directory to reduce crash-window
   corruption risk. Editors that keep hard file handles may treat the
   file as replaced rather than modified in place.
+- **Worktree rename conflict protection is only atomic on macOS/Linux**:
+  `worktree_files` uses no-replace OS rename calls there to avoid
+  TOCTOU overwrite races. Other targets still fall back to an
+  existence check plus rename.
 - **Settings sync uses SSE generations plus server status**: snapshot
   events now include `settings`, `settings_generation`, and
   `settings_status`; incremental `settings_updated` events carry the

@@ -348,6 +348,8 @@ async fn test_rename_worktree_file_rejects_invalid_requests() {
 
     std::fs::write(repo.path().join("file.txt"), "rename me\n").unwrap();
     std::fs::write(repo.path().join("taken.txt"), "exists\n").unwrap();
+    std::fs::create_dir(repo.path().join("source-dir")).unwrap();
+    std::fs::create_dir(repo.path().join("taken-dir")).unwrap();
 
     let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
     let worktree_id = local_worktree_id(&client, &base, &project_id).await;
@@ -407,6 +409,20 @@ async fn test_rename_worktree_file_rejects_invalid_requests() {
         .await
         .unwrap();
     assert_eq!(conflict.status(), StatusCode::CONFLICT);
+
+    let dir_conflict = client
+        .post(format!(
+            "{}/api/projects/{}/worktrees/{}/files/rename",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "source-dir",
+            "new_name": "taken-dir"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(dir_conflict.status(), StatusCode::CONFLICT);
 }
 
 #[tokio::test]

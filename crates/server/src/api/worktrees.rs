@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use utoipa::{IntoParams, ToSchema};
 
+use crate::api::errors::map_worktree_file_error;
 use crate::api::projects::Project;
 use crate::api::settings::{Settings, WorktreeLocationMode};
 use crate::events::EventKind;
@@ -591,12 +592,13 @@ pub async fn get_project_worktree_commit_details(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let details = git::read_commit_details(&resolved.local_root, &commit_id)
-        .await
-        .map_err(|error| match error {
-            git::GitCommitDetailsError::NotFound => StatusCode::NOT_FOUND,
-            git::GitCommitDetailsError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+    let details =
+        git::read_commit_details(std::path::Path::new(&resolved.worktree.path), &commit_id)
+            .await
+            .map_err(|error| match error {
+                git::GitCommitDetailsError::NotFound => StatusCode::NOT_FOUND,
+                git::GitCommitDetailsError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            })?;
 
     Ok(Json(GitCommitDetailsResponse {
         id: details.id,
@@ -735,7 +737,7 @@ async fn perform_git_path_action(
     state
         .worktree_files
         .invalidate_relative_paths(&resolved, &paths)
-        .map_err(map_worktree_files_error)?;
+        .map_err(map_worktree_file_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -746,18 +748,6 @@ fn map_git_path_action_error(error: git::GitPathActionError) -> StatusCode {
         git::GitPathActionError::NotFound => StatusCode::NOT_FOUND,
         git::GitPathActionError::PermissionDenied => StatusCode::FORBIDDEN,
         git::GitPathActionError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-    }
-}
-
-fn map_worktree_files_error(error: crate::worktree_files::WorktreeFileError) -> StatusCode {
-    match error {
-        crate::worktree_files::WorktreeFileError::InvalidPath
-        | crate::worktree_files::WorktreeFileError::InvalidName => StatusCode::BAD_REQUEST,
-        crate::worktree_files::WorktreeFileError::NotFound
-        | crate::worktree_files::WorktreeFileError::NotDirectory => StatusCode::NOT_FOUND,
-        crate::worktree_files::WorktreeFileError::Conflict => StatusCode::CONFLICT,
-        crate::worktree_files::WorktreeFileError::PermissionDenied => StatusCode::FORBIDDEN,
-        crate::worktree_files::WorktreeFileError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
