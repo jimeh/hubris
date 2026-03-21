@@ -62,6 +62,7 @@ pub enum GitCommitDetailsError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GitPathActionError {
     InvalidPath,
+    Conflict,
     NotFound,
     PermissionDenied,
     Internal,
@@ -420,6 +421,13 @@ fn status_contains_worktree_change(entry: &PorcelainStatusEntry) -> bool {
 
 fn is_tracked_path(entry: &PorcelainStatusEntry) -> bool {
     entry.index_status != '?'
+}
+
+fn is_unmerged_status(entry: &PorcelainStatusEntry) -> bool {
+    matches!(
+        (entry.index_status, entry.worktree_status),
+        ('D', 'D') | ('A', 'U') | ('U', 'D') | ('U', 'A') | ('D', 'U') | ('A', 'A') | ('U', 'U')
+    )
 }
 
 fn normalized_git_action_paths(
@@ -958,6 +966,10 @@ pub async fn discard_worktree_path(
         invalidated_paths.insert(entry.path.clone());
         if let Some(original_path) = entry.original_path.clone() {
             invalidated_paths.insert(original_path.clone());
+        }
+
+        if is_unmerged_status(&entry) {
+            return Err(GitPathActionError::Conflict);
         }
 
         if entry.index_status == '?' && entry.worktree_status == '?' {

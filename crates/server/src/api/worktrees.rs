@@ -763,6 +763,7 @@ async fn perform_git_path_action(
 fn map_git_path_action_error(error: git::GitPathActionError) -> StatusCode {
     match error {
         git::GitPathActionError::InvalidPath => StatusCode::BAD_REQUEST,
+        git::GitPathActionError::Conflict => StatusCode::CONFLICT,
         git::GitPathActionError::NotFound => StatusCode::NOT_FOUND,
         git::GitPathActionError::PermissionDenied => StatusCode::FORBIDDEN,
         git::GitPathActionError::Internal => StatusCode::INTERNAL_SERVER_ERROR,

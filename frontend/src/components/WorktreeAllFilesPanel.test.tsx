@@ -690,6 +690,48 @@ describe("WorktreeAllFilesPanel", () => {
     expect(await screen.findByText("README-renamed.md")).toBeInTheDocument();
   });
 
+  it("submits rename only once when enter is followed by blur", async () => {
+    const user = userEvent.setup();
+    const renameDeferred = createDeferred<{ path: string }>();
+    mockRenameProjectWorktreeFile.mockReturnValueOnce(renameDeferred.promise);
+    mockListProjectWorktreeFiles
+      .mockResolvedValueOnce({
+        generation: 1,
+        path: "",
+        entries: [{ name: "README.md", path: "README.md", kind: "file" }],
+      })
+      .mockResolvedValueOnce({
+        generation: 2,
+        path: "",
+        entries: [
+          {
+            name: "README-renamed.md",
+            path: "README-renamed.md",
+            kind: "file",
+          },
+        ],
+      });
+
+    await renderPanel();
+
+    expect(await screen.findByText("README.md")).toBeInTheDocument();
+    await openRowActionMenu("README.md");
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+
+    const input = await screen.findByDisplayValue("README.md");
+    fireEvent.change(input, { target: { value: "README-renamed.md" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(mockRenameProjectWorktreeFile).toHaveBeenCalledTimes(1);
+    });
+
+    renameDeferred.resolve({ path: "README-renamed.md" });
+
+    expect(await screen.findByText("README-renamed.md")).toBeInTheDocument();
+  });
+
   it("copies relative and absolute paths from the row action menu", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);

@@ -1487,6 +1487,47 @@ async fn test_worktree_git_discard_action_preserves_staged_added_content() {
 }
 
 #[tokio::test]
+async fn test_worktree_git_discard_action_rejects_unmerged_conflicts() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("conflict.txt"), "base\n").unwrap();
+    run_git(repo.path(), &["add", "conflict.txt"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "add conflict file"]);
+
+    run_git(repo.path(), &["checkout", "-q", "-b", "side"]);
+    std::fs::remove_file(repo.path().join("conflict.txt")).unwrap();
+    run_git(repo.path(), &["add", "-A"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "delete on side"]);
+
+    run_git(repo.path(), &["checkout", "-q", "main"]);
+    std::fs::write(repo.path().join("conflict.txt"), "main\n").unwrap();
+    run_git(repo.path(), &["add", "conflict.txt"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "edit on main"]);
+
+    let merge_status = run_git_status(repo.path(), &["merge", "side"]);
+    assert!(!merge_status.success());
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let discard_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "discard",
+        "conflict.txt",
+    )
+    .await;
+    assert_eq!(discard_status, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
 async fn test_worktree_git_actions_reject_invalid_paths() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();

@@ -306,6 +306,15 @@ function RenameInput({
   onSubmit: (entry: WorktreeFileEntry, nextName: string) => Promise<void>;
 }) {
   const [draftName, setDraftName] = useState(initialName);
+  const submittedRef = useRef(false);
+
+  const submitOnce = useCallback(() => {
+    if (submittedRef.current) {
+      return;
+    }
+    submittedRef.current = true;
+    void onSubmit(entry, draftName);
+  }, [draftName, entry, onSubmit]);
 
   return (
     <Input
@@ -313,13 +322,11 @@ function RenameInput({
       value={draftName}
       className="h-7 max-w-[260px]"
       onChange={(event) => setDraftName(event.currentTarget.value)}
-      onBlur={() => {
-        void onSubmit(entry, draftName);
-      }}
+      onBlur={submitOnce}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault();
-          void onSubmit(entry, draftName);
+          submitOnce();
         } else if (event.key === "Escape") {
           event.preventDefault();
           onCancel();
