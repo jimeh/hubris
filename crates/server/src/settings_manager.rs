@@ -17,6 +17,7 @@ use crate::api::settings::{
     TerminalSettingsPatch, WorktreeSettingsPatch,
 };
 use crate::events::{EventBus, EventKind};
+use crate::fs_sync::sync_parent_directory;
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -560,19 +561,6 @@ fn settings_temp_file_prefix(path: &Path) -> String {
 fn cleanup_temp_file_on_error(path: &Path, error: std::io::Error) -> SettingsManagerError {
     let _ = std::fs::remove_file(path);
     SettingsManagerError::Io(error)
-}
-
-async fn sync_parent_directory(path: &Path) -> Result<(), std::io::Error> {
-    let parent = path
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        let dir = std::fs::File::open(parent)?;
-        dir.sync_all()
-    })
-    .await
-    .map_err(|join_error| std::io::Error::other(join_error.to_string()))?
 }
 
 fn next_generation(previous_generation: Option<&str>) -> Result<String, SettingsManagerError> {

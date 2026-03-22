@@ -56,6 +56,7 @@ export default function WorktreeView({ worktree }: Props) {
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(
     null,
   );
+  const [isPendingCloseSaving, setIsPendingCloseSaving] = useState(false);
   const isRightSidebarResizing = useWorktreeRightSidebarWidthStore(
     (state) => state.isResizing,
   );
@@ -176,6 +177,7 @@ export default function WorktreeView({ worktree }: Props) {
       !worktreeTabs.some((tab) => tab.id === pendingCloseTabId)
     ) {
       setPendingCloseTabId(null);
+      setIsPendingCloseSaving(false);
     }
   }, [pendingCloseTabId, worktreeTabs]);
 
@@ -268,8 +270,12 @@ export default function WorktreeView({ worktree }: Props) {
       <AlertDialog
         open={pendingCloseTabId !== null}
         onOpenChange={(open) => {
+          if (!open && isPendingCloseSaving) {
+            return;
+          }
           if (!open) {
             setPendingCloseTabId(null);
+            setIsPendingCloseSaving(false);
           }
         }}
       >
@@ -283,15 +289,19 @@ export default function WorktreeView({ worktree }: Props) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isPendingCloseSaving}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
+              disabled={isPendingCloseSaving}
               className="bg-muted text-foreground hover:bg-muted/80"
               onClick={() => {
-                if (!pendingCloseTabId) {
+                if (!pendingCloseTabId || isPendingCloseSaving) {
                   return;
                 }
 
                 const tabId = pendingCloseTabId;
+                setIsPendingCloseSaving(false);
                 setPendingCloseTabId(null);
                 void close(tabId);
               }}
@@ -299,11 +309,17 @@ export default function WorktreeView({ worktree }: Props) {
               Don&apos;t Save
             </AlertDialogAction>
             <AlertDialogAction
+              disabled={isPendingCloseSaving}
               onClick={(event) => {
-                if (!pendingCloseTabId || pendingCloseTab?.type !== "file") {
+                if (
+                  !pendingCloseTabId ||
+                  pendingCloseTab?.type !== "file" ||
+                  isPendingCloseSaving
+                ) {
                   return;
                 }
                 event.preventDefault();
+                setIsPendingCloseSaving(true);
 
                 void (async () => {
                   try {
@@ -312,10 +328,12 @@ export default function WorktreeView({ worktree }: Props) {
                       worktree.id,
                       pendingCloseTab.id,
                     );
+                    setIsPendingCloseSaving(false);
                     setPendingCloseTabId(null);
                     await close(pendingCloseTab.id);
                   } catch {
                     // Leave dialog open so the user can retry or discard.
+                    setIsPendingCloseSaving(false);
                   }
                 })();
               }}

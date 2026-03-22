@@ -122,6 +122,16 @@ function makeFileTab(
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("WorktreeView", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
@@ -428,7 +438,8 @@ describe("WorktreeView", () => {
 
   it("keeps the save dialog open when saving a dirty file tab fails", async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
-    const saveSpy = vi.fn().mockRejectedValue(new Error("save failed"));
+    const saveAttempt = deferred<void>();
+    const saveSpy = vi.fn().mockReturnValue(saveAttempt.promise);
     const { default: WorktreeView } = await import("./WorktreeView");
     const { useTabStore } = await import("@/lib/stores/tabs");
     const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
@@ -482,15 +493,30 @@ describe("WorktreeView", () => {
         fileTab.id,
       );
     });
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Don't Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await act(async () => {
+      saveAttempt.reject(new Error("save failed"));
+      await Promise.resolve();
+    });
+
     expect(closeSpy).not.toHaveBeenCalled();
-    expect(
-      screen.getByText(`Save changes to ${fileTab.label}?`),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText(`Save changes to ${fileTab.label}?`),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Don't Save" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
   it("closes the dirty file tab after a successful save", async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
-    const saveSpy = vi.fn().mockResolvedValue(undefined);
+    const saveAttempt = deferred<void>();
+    const saveSpy = vi.fn().mockReturnValue(saveAttempt.promise);
     const { default: WorktreeView } = await import("./WorktreeView");
     const { useTabStore } = await import("@/lib/stores/tabs");
     const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
@@ -538,12 +564,106 @@ describe("WorktreeView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(
+        worktree.project_id,
+        worktree.id,
+        fileTab.id,
+      );
+    });
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Don't Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await act(async () => {
+      saveAttempt.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
       expect(closeSpy).toHaveBeenCalledWith(fileTab.id);
     });
     await waitFor(() => {
       expect(
         screen.queryByText(`Save changes to ${fileTab.label}?`),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not allow cancel or discard to race a pending save", async () => {
+    const closeSpy = vi.fn().mockResolvedValue(undefined);
+    const saveAttempt = deferred<void>();
+    const saveSpy = vi.fn().mockReturnValue(saveAttempt.promise);
+    const { default: WorktreeView } = await import("./WorktreeView");
+    const { useTabStore } = await import("@/lib/stores/tabs");
+    const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
+    const worktree = makeWorktree();
+    const fileTab = makeFileTab("file-race", worktree.id);
+
+    useTabStore.setState((state) => ({
+      ...state,
+      tabs: [fileTab],
+      activeTabId: fileTab.id,
+      activeTabByWorktree: { [worktree.id]: fileTab.id },
+      close: closeSpy,
+    }));
+    useFileEditorStore.setState((state) => ({
+      ...state,
+      sessions: {
+        [fileTab.id]: {
+          tabId: fileTab.id,
+          path: fileTab.path,
+          draft: "draft",
+          savedContent: "saved",
+          versionToken: "v1",
+          language: "typescript",
+          readOnly: false,
+          unsupportedReason: null,
+          dirty: true,
+          externalChange: false,
+          loadStatus: "loaded",
+          saveStatus: "idle",
+          error: null,
+        },
+      },
+      save: saveSpy,
+    }));
+
+    render(<WorktreeView worktree={worktree} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: `Close ${fileTab.id}` }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(
+        worktree.project_id,
+        worktree.id,
+        fileTab.id,
+      );
+    });
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    const discardButton = screen.getByRole("button", { name: "Don't Save" });
+
+    expect(cancelButton).toBeDisabled();
+    expect(discardButton).toBeDisabled();
+
+    fireEvent.click(cancelButton);
+    fireEvent.click(discardButton);
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(`Save changes to ${fileTab.label}?`),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      saveAttempt.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+      expect(closeSpy).toHaveBeenCalledWith(fileTab.id);
     });
   });
 

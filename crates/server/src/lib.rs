@@ -1,6 +1,7 @@
 pub mod api;
 mod embedded;
 pub mod events;
+mod fs_sync;
 pub mod git;
 pub mod pty;
 mod settings_manager;

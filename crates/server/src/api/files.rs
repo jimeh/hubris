@@ -15,6 +15,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::errors::map_worktree_file_error;
 use crate::api::worktrees::{ResolvedWorktree, resolve_worktree};
+use crate::fs_sync::sync_parent_directory;
 use crate::state::AppState;
 use crate::tab::GitDiffScope;
 
@@ -739,19 +740,6 @@ fn temp_worktree_file_path(path: &Path) -> PathBuf {
         std::process::id(),
         counter
     ))
-}
-
-async fn sync_parent_directory(path: &Path) -> Result<(), std::io::Error> {
-    let parent = path
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        let dir = std::fs::File::open(parent)?;
-        dir.sync_all()
-    })
-    .await
-    .map_err(|join_error| std::io::Error::other(join_error.to_string()))?
 }
 
 async fn run_git_command(
