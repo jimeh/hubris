@@ -496,6 +496,19 @@ async fn test_create_worktree_with_start_point_succeeds() {
 }
 
 #[tokio::test]
+async fn test_create_worktree_with_slash_branch_succeeds() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let body = create_worktree(&client, &base, &project_id, "feature/foo").await;
+
+    assert_eq!(body["branch"], "feature/foo");
+    assert!(Path::new(body["path"].as_str().unwrap()).exists());
+}
+
+#[tokio::test]
 async fn test_create_worktree_persists_source_ref() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
@@ -1590,6 +1603,35 @@ async fn test_worktree_git_discard_action_removes_requested_empty_directory() {
 
     std::fs::create_dir_all(repo.path().join("docs/drafts")).unwrap();
     std::fs::write(repo.path().join("docs/drafts/extra.md"), "extra\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let discard_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "discard",
+        "docs/drafts",
+    )
+    .await;
+    assert_eq!(discard_status, StatusCode::NO_CONTENT);
+
+    assert!(!repo.path().join("docs/drafts").exists());
+    assert!(repo.path().join("docs").exists());
+}
+
+#[tokio::test]
+async fn test_worktree_git_discard_action_removes_preexisting_empty_directory() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::create_dir_all(repo.path().join("docs/drafts")).unwrap();
 
     let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
     let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]

@@ -318,6 +318,10 @@ No periodic reconciliation — drift corrects on reconnect.
   when deriving a git local root with `git2`, check `workdir()` before the
   shared `commondir()` parent or linked worktrees collapse to the main repo
   root instead of their own checkout path.
+- **`git2` worktree add names must be safe internal IDs**:
+  do not pass raw branch shorthands like `feature/foo` into
+  `repo.worktree(...)`. Use a filesystem-safe name derived from the target
+  path; keep the branch/ref selection separate in the worktree add options.
 - **Prefer `git2` for runtime git operations**:
   repository inspection like status, refs, branch/default-start-point lookup,
   commit history/details, worktree enumeration/lifecycle, root resolution,
@@ -332,6 +336,10 @@ No periodic reconciliation — drift corrects on reconnect.
   copy-harder detection is useful for staged status but too aggressive for the
   commit-details API. Enabling copy detection there can mislabel a simple added
   file as `copied`.
+- **`git2` status omits already-empty untracked directories**:
+  discard flows cannot rely on `repo.statuses(...)` alone for an explicitly
+  requested empty directory. If the path still exists on disk and is a
+  directory, remove it directly before treating the discard as a no-op.
 - **Manual rewrite staging must include both source and destination paths**:
   for plain filesystem renames, `git add -- <old> <new>` is what collapses the
   tracked delete+add into a staged rename. Staging only the destination leaves

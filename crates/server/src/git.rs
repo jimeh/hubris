@@ -596,6 +596,20 @@ fn peel_start_point<'repo>(
     }
 }
 
+fn worktree_name_from_target_path(target_path: &Path) -> Result<String, GitError> {
+    let Some(file_name) = target_path.file_name() else {
+        return Err(GitError {
+            message: format!("invalid worktree target path: {}", target_path.display()),
+        });
+    };
+
+    Ok(format!(
+        "{}-{}",
+        file_name.to_string_lossy(),
+        &worktree_id(target_path)[..8]
+    ))
+}
+
 fn create_worktree_git2(
     local_root: &Path,
     branch: &str,
@@ -604,21 +618,16 @@ fn create_worktree_git2(
 ) -> Result<(), GitError> {
     let repo = open_repo(local_root)?;
     let target_commit = peel_start_point(&repo, start_point)?;
-    let branch = repo
+    let worktree_name = worktree_name_from_target_path(target_path)?;
+    let created_branch = repo
         .branch(branch, &target_commit, false)
         .map_err(to_git_error)?;
-    let reference = branch.into_reference();
+    let reference = created_branch.into_reference();
     let mut options = WorktreeAddOptions::new();
     options.reference(Some(&reference));
 
-    if let Err(err) = repo.worktree(
-        reference.shorthand().unwrap_or_default(),
-        target_path,
-        Some(&options),
-    ) {
-        if let Ok(mut created_branch) =
-            repo.find_branch(reference.shorthand().unwrap_or_default(), BranchType::Local)
-        {
+    if let Err(err) = repo.worktree(&worktree_name, target_path, Some(&options)) {
+        if let Ok(mut created_branch) = repo.find_branch(branch, BranchType::Local) {
             let _ = created_branch.get_mut().delete();
         }
         return Err(to_git_error(err));
@@ -1014,6 +1023,9 @@ fn discard_worktree_path_git2(
         let candidate = worktree_path.join(&relative_path);
         if !candidate.exists() {
             return Err(GitPathActionError::NotFound);
+        }
+        if candidate.is_dir() {
+            remove_untracked_path(&candidate)?;
         }
         return Ok(invalidated_parent_paths(&invalidated_paths));
     }
