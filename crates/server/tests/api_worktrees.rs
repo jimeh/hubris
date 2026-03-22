@@ -38,6 +38,19 @@ fn run_git(repo_path: &Path, args: &[&str]) {
     assert!(status.success(), "git failed: {:?}", args);
 }
 
+fn run_git_output(repo_path: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("-c")
+        .arg("commit.gpgsign=false")
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git failed: {:?}", args);
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
 fn run_git_status(repo_path: &Path, args: &[&str]) -> std::process::ExitStatus {
     Command::new("git")
         .arg("-C")
@@ -377,6 +390,53 @@ async fn test_list_start_points_returns_local_and_remote() {
 }
 
 #[tokio::test]
+async fn test_list_start_points_preserves_lossy_non_utf8_ref_names() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let head_oid = run_git_output(repo.path(), &["rev-parse", "HEAD"]);
+    let weird_ref = b"refs/heads/weird-\xff-branch";
+    let packed_refs = repo.path().join(".git/packed-refs");
+
+    std::fs::write(
+        &packed_refs,
+        [
+            &b"# pack-refs with: peeled fully-peeled sorted\n"[..],
+            head_oid.as_bytes(),
+            b" ",
+            weird_ref,
+            b"\n",
+        ]
+        .concat(),
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join(".git/HEAD"),
+        [&b"ref: "[..], &weird_ref[..], &b"\n"[..]].concat(),
+    )
+    .unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let res = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/start-points",
+            base, project_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+
+    assert_eq!(body["default_start_point"], "weird-\u{fffd}-branch");
+    let start_points = body["start_points"].as_array().unwrap();
+    assert!(start_points.iter().any(|start_point| {
+        start_point["value"] == "weird-\u{fffd}-branch"
+            && start_point["local_ref"] == "weird-\u{fffd}-branch"
+    }));
+}
+
+#[tokio::test]
 async fn test_list_start_points_sorted_by_recent_commit() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
@@ -573,12 +633,15 @@ async fn test_worktree_git_status_reports_staged_unstaged_and_ahead() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.unwrap();
+    let expected_short_id =
+        run_git_output(Path::new(worktree_path), &["rev-parse", "--short", "HEAD"]);
 
     assert_eq!(body["source_ref"], "main");
     assert_eq!(body["ahead_count"], 1);
     assert_eq!(body["comparison_available"], true);
     assert!(body["comparison_error"].is_null());
     assert_eq!(body["ahead_commits"][0]["summary"], "feat: ahead");
+    assert_eq!(body["ahead_commits"][0]["short_id"], expected_short_id);
     assert_eq!(body["staged_files"][0]["path"], "staged.txt");
     assert_eq!(body["staged_files"][0]["change_type"], "added");
     assert_eq!(body["unstaged_files"][0]["path"], "README.md");
@@ -785,7 +848,9 @@ async fn test_worktree_commit_details_returns_metadata_and_changed_files() {
     assert_eq!(res.status(), StatusCode::OK);
 
     let body: Value = res.json().await.unwrap();
+    let expected_short_id = run_git_output(repo.path(), &["rev-parse", "--short", &commit_id]);
     assert_eq!(body["id"], commit_id);
+    assert_eq!(body["short_id"], expected_short_id);
     assert_eq!(body["summary"], "feat: details");
     assert!(body["message"].as_str().unwrap().contains("body line one"));
     assert_eq!(body["author"]["name"], "Author Example");

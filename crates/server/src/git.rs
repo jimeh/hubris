@@ -104,6 +104,10 @@ fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+fn decode_ref_name(bytes: &[u8]) -> String {
+    bytes_to_string(bytes)
+}
+
 fn is_unborn_or_missing_head(error: &git2::Error) -> bool {
     matches!(error.code(), ErrorCode::UnbornBranch | ErrorCode::NotFound)
 }
@@ -230,13 +234,24 @@ fn discover_repo(path: &Path) -> Result<Repository, GitError> {
     Repository::discover(path).map_err(to_git_error)
 }
 
+fn reference_display_name(reference: &Reference<'_>) -> String {
+    decode_ref_name(reference.shorthand_bytes())
+}
+
+fn abbreviate_oid(repo: &Repository, oid: git2::Oid) -> Result<String, GitError> {
+    repo.find_object(oid, None)
+        .and_then(|object| object.short_id())
+        .map(|buf| buf.as_str().unwrap_or_default().to_string())
+        .map_err(to_git_error)
+}
+
 fn short_head_name(repo: &Repository) -> Result<Option<String>, GitError> {
     match repo.head() {
         Ok(head) => {
             if repo.head_detached().map_err(to_git_error)? {
                 return Ok(None);
             }
-            Ok(head.shorthand().map(str::to_string))
+            Ok(Some(reference_display_name(&head)))
         }
         Err(err) if is_unborn_or_missing_head(&err) => Ok(None),
         Err(err) => Err(to_git_error(err)),
@@ -362,11 +377,8 @@ fn read_commit_details_git2(
 ) -> Result<GitCommitDetails, GitCommitDetailsError> {
     let repo = Repository::open(worktree_path).map_err(|_| GitCommitDetailsError::Internal)?;
     let commit = revparse_commit(&repo, commit_id)?;
-    let short_id = repo
-        .find_object(commit.id(), None)
-        .and_then(|object| object.short_id())
-        .map(|buf| buf.as_str().unwrap_or_default().to_string())
-        .map_err(|_| GitCommitDetailsError::Internal)?;
+    let short_id =
+        abbreviate_oid(&repo, commit.id()).map_err(|_| GitCommitDetailsError::Internal)?;
     let summary = commit.summary().unwrap_or_default().trim().to_string();
     let message =
         trim_trailing_newlines(String::from_utf8_lossy(commit.message_raw_bytes()).into_owned());
@@ -437,17 +449,20 @@ fn read_unstaged_files(repo: &Repository) -> Result<Vec<GitFileChange>, GitError
     Ok(collect_diff_changes(&diff))
 }
 
-fn commit_summary(commit: &git2::Commit<'_>) -> GitCommitSummary {
-    GitCommitSummary {
+fn commit_summary(
+    repo: &Repository,
+    commit: &git2::Commit<'_>,
+) -> Result<GitCommitSummary, GitError> {
+    Ok(GitCommitSummary {
         id: commit.id().to_string(),
-        short_id: commit.id().to_string()[..7.min(commit.id().to_string().len())].to_string(),
+        short_id: abbreviate_oid(repo, commit.id())?,
         summary: commit
             .summary()
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .unwrap_or("(no commit message)")
             .to_string(),
-    }
+    })
 }
 
 fn read_ahead_commits(
@@ -481,7 +496,7 @@ fn read_ahead_commits(
     for oid in walk.take(100) {
         let oid = oid.map_err(to_git_error)?;
         let commit = repo.find_commit(oid).map_err(to_git_error)?;
-        ahead_commits.push(commit_summary(&commit));
+        ahead_commits.push(commit_summary(repo, &commit)?);
     }
 
     Ok((ahead_count, ahead_commits, true, None))
@@ -644,7 +659,7 @@ fn commit_timestamp_for_reference(
 ) -> Result<(String, String, i64), GitError> {
     let commit = reference.peel_to_commit().map_err(to_git_error)?;
     Ok((
-        reference.shorthand().unwrap_or_default().to_string(),
+        reference_display_name(reference),
         commit.id().to_string(),
         commit.time().seconds(),
     ))
@@ -659,13 +674,10 @@ fn list_branch_start_points_git2(local_root: &Path) -> Result<Vec<GitStartPoint>
         let branches = repo.branches(Some(branch_type)).map_err(to_git_error)?;
         for branch in branches {
             let (branch, branch_kind) = branch.map_err(to_git_error)?;
-            let name = branch
-                .name()
-                .map_err(to_git_error)?
-                .unwrap_or_default()
-                .to_string();
+            let name = reference_display_name(branch.get());
             if name.is_empty()
-                || matches!(branch_kind, BranchType::Remote) && name.ends_with("/HEAD")
+                || matches!(branch_kind, BranchType::Remote)
+                    && branch.get().shorthand_bytes().ends_with(b"/HEAD")
                 || !seen.insert(name.clone())
             {
                 continue;
@@ -1079,6 +1091,14 @@ mod tests {
     fn test_worktree_id_is_stable() {
         let path = Path::new("/tmp/repo");
         assert_eq!(worktree_id(path), worktree_id(path));
+    }
+
+    #[test]
+    fn decode_ref_name_lossily_decodes_non_utf8_bytes() {
+        assert_eq!(
+            decode_ref_name(b"weird-\xff-branch"),
+            "weird-\u{fffd}-branch"
+        );
     }
 
     #[test]
