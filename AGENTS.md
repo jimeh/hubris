@@ -324,6 +324,13 @@ No periodic reconciliation — drift corrects on reconnect.
   git/common-dir discovery should stay on `gix`. Keep the git CLI for worktree
   management (`git worktree ...`) and path-scoped mutation flows where `gix`
   does not yet provide an equivalent.
+- **Staged git status needs a CLI fallback when `gix` tree-index reads misbehave**:
+  on some real repos `tree_index_status(None, ...)` can return no staged
+  entries, and some `gix` status iterator paths can even panic internally.
+  Keep the rewrite-aware `gix` staged read as the primary path, but fall back
+  to `git diff --cached --name-status -z --find-renames
+  --find-copies-harder` for staged sidebar/API data when the `gix` result is
+  empty, errors, or panics.
 - **Staged copy detection may need action-time fallback context**:
   `gix` can miss some staged copy rewrites after a path-scoped `git add`,
   especially when the copy is the only staged change. Preserve any

@@ -586,6 +586,147 @@ async fn test_worktree_git_status_reports_staged_unstaged_and_ahead() {
 }
 
 #[tokio::test]
+async fn test_worktree_git_status_reports_staged_files_in_mixed_nested_tree() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    for path in [
+        "tmp2/bar/baz/baz copy/baz/baz copy/baz.txt",
+        "tmp2/bar/baz/baz copy/baz/baz copy/fox.txt",
+        "tmp2/bar/baz/baz copy/fox.txt",
+    ] {
+        let full_path = repo.path().join(path);
+        std::fs::create_dir_all(full_path.parent().unwrap()).unwrap();
+        std::fs::write(&full_path, "").unwrap();
+    }
+    run_git(
+        repo.path(),
+        &[
+            "add",
+            "--",
+            "tmp2/bar/baz/baz copy/baz/baz copy/baz.txt",
+            "tmp2/bar/baz/baz copy/baz/baz copy/fox.txt",
+            "tmp2/bar/baz/baz copy/fox.txt",
+        ],
+    );
+
+    for path in [
+        "tmp2/bar.txt",
+        "tmp2/bar/bar.txt",
+        "tmp2/bar/baz/baz copy/baz.txt",
+        "tmp2/bar/baz/baz copy/baz/baz.txt",
+        "tmp2/bar/baz/baz copy/baz/fox.txt",
+        "tmp2/bar/baz/baz.txt",
+        "tmp2/bar/baz/fox.txt",
+        "tmp2/foo.txt",
+    ] {
+        let full_path = repo.path().join(path);
+        std::fs::create_dir_all(full_path.parent().unwrap()).unwrap();
+        std::fs::write(full_path, "").unwrap();
+    }
+    std::fs::write(repo.path().join("README.md"), "hello\nunstaged\n").unwrap();
+
+    let status = get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    let staged_files = status["staged_files"].as_array().unwrap();
+    let unstaged_files = status["unstaged_files"].as_array().unwrap();
+
+    assert!(
+        !staged_files.is_empty(),
+        "expected staged files in mixed nested tree, got status: {status:#}"
+    );
+    assert!(
+        !unstaged_files.is_empty(),
+        "expected unstaged files in mixed nested tree, got status: {status:#}"
+    );
+    assert!(staged_files.iter().any(|file| {
+        file["path"] == "tmp2/bar/baz/baz copy/baz/baz copy/baz.txt"
+            && file["change_type"] == "added"
+    }));
+    assert!(
+        unstaged_files
+            .iter()
+            .any(|file| file["path"] == "tmp2/bar/baz/baz.txt")
+    );
+}
+
+#[tokio::test]
+async fn test_worktree_git_status_reports_staged_files_with_tmp_ignore_prefix() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join(".gitignore"), "/tmp/\n").unwrap();
+    run_git(repo.path(), &["add", ".gitignore"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "add tmp ignore"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    for path in [
+        "tmp2/bar/baz/baz copy/baz/baz copy/baz.txt",
+        "tmp2/bar/baz/baz copy/baz/baz copy/fox.txt",
+        "tmp2/bar/baz/baz copy/fox.txt",
+    ] {
+        let full_path = repo.path().join(path);
+        std::fs::create_dir_all(full_path.parent().unwrap()).unwrap();
+        std::fs::write(&full_path, "").unwrap();
+    }
+    run_git(
+        repo.path(),
+        &[
+            "add",
+            "--",
+            "tmp2/bar/baz/baz copy/baz/baz copy/baz.txt",
+            "tmp2/bar/baz/baz copy/baz/baz copy/fox.txt",
+            "tmp2/bar/baz/baz copy/fox.txt",
+        ],
+    );
+
+    for path in [
+        "tmp2/bar.txt",
+        "tmp2/bar/bar.txt",
+        "tmp2/bar/baz/baz copy/baz.txt",
+        "tmp2/bar/baz/baz copy/baz/baz.txt",
+        "tmp2/bar/baz/baz copy/baz/fox.txt",
+        "tmp2/bar/baz/baz.txt",
+        "tmp2/bar/baz/fox.txt",
+        "tmp2/foo.txt",
+    ] {
+        let full_path = repo.path().join(path);
+        std::fs::create_dir_all(full_path.parent().unwrap()).unwrap();
+        std::fs::write(full_path, "").unwrap();
+    }
+    std::fs::write(repo.path().join("README.md"), "hello\nunstaged\n").unwrap();
+
+    let status = get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    let staged_files = status["staged_files"].as_array().unwrap();
+    let unstaged_files = status["unstaged_files"].as_array().unwrap();
+
+    assert!(
+        !staged_files.is_empty(),
+        "expected staged files with /tmp/ ignore prefix, got status: {status:#}"
+    );
+    assert!(
+        !unstaged_files.is_empty(),
+        "expected unstaged files with /tmp/ ignore prefix, got status: {status:#}"
+    );
+    assert!(staged_files.iter().any(|file| {
+        file["path"] == "tmp2/bar/baz/baz copy/baz/baz copy/baz.txt"
+            && file["change_type"] == "added"
+    }));
+}
+
+#[tokio::test]
 async fn test_worktree_commit_details_returns_metadata_and_changed_files() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();

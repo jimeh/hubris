@@ -589,25 +589,133 @@ fn map_tree_index_change(
     })
 }
 
-fn read_staged_files(repo: &gix::Repository) -> Result<Vec<GitFileChange>, GitError> {
-    let head_tree_id = repo.head_tree_id_or_empty().map_err(to_git_error)?.detach();
-    let index = repo.index_or_empty().map_err(to_git_error)?;
-    let mut staged_files = Vec::new();
-    repo.tree_index_status(
-        &head_tree_id,
-        &index,
-        None,
-        gix::status::tree_index::TrackRenames::Given(rewrite_tracking()),
-        |change, tree_index, _| {
-            if let Some(change) = map_tree_index_change(change, tree_index) {
-                staged_files.push(change);
-            }
-            Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Continue(()))
-        },
-    )
-    .map_err(to_git_error)?;
+fn parse_staged_name_status(bytes: &[u8]) -> Vec<GitFileChange> {
+    let mut changes = Vec::new();
+    let mut tokens = split_nul_tokens(bytes).into_iter();
+
+    while let Some(status_token) = tokens.next() {
+        let Some(status) = status_token.chars().next() else {
+            continue;
+        };
+
+        let change_type = match status {
+            'A' => GitFileChangeType::Added,
+            'M' => GitFileChangeType::Modified,
+            'D' => GitFileChangeType::Deleted,
+            'T' => GitFileChangeType::Typechange,
+            'U' => GitFileChangeType::Conflict,
+            'R' => GitFileChangeType::Renamed,
+            'C' => GitFileChangeType::Copied,
+            _ => continue,
+        };
+
+        let (path, original_path) = if matches!(status, 'R' | 'C') {
+            let Some(original_path) = tokens.next() else {
+                break;
+            };
+            let Some(path) = tokens.next() else {
+                break;
+            };
+            (path, Some(original_path))
+        } else {
+            let Some(path) = tokens.next() else {
+                break;
+            };
+            (path, None)
+        };
+
+        changes.push(GitFileChange {
+            path,
+            original_path,
+            change_type,
+        });
+    }
+
+    changes
+}
+
+fn read_staged_files_from_cli(worktree_path: &Path) -> Result<Vec<GitFileChange>, GitError> {
+    let cwd = worktree_path.to_string_lossy().to_string();
+    let output = std::process::Command::new("git")
+        .args([
+            "-C",
+            &cwd,
+            "diff",
+            "--cached",
+            "--name-status",
+            "-z",
+            "--find-renames",
+            "--find-copies-harder",
+        ])
+        .output()
+        .map_err(|e| GitError {
+            message: format!("failed to run git: {e}"),
+        })?;
+
+    if !output.status.success() {
+        let stderr = trim_output(&output.stderr);
+        let stdout = trim_output(&output.stdout);
+        return Err(GitError {
+            message: if stderr.is_empty() {
+                if stdout.is_empty() {
+                    "git command failed".to_string()
+                } else {
+                    stdout
+                }
+            } else {
+                stderr
+            },
+        });
+    }
+
+    let mut staged_files = parse_staged_name_status(&output.stdout);
     staged_files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(staged_files)
+}
+
+fn read_staged_files(
+    repo: &gix::Repository,
+    worktree_path: &Path,
+) -> Result<Vec<GitFileChange>, GitError> {
+    let head_tree_id = repo.head_tree_id_or_empty().map_err(to_git_error)?.detach();
+    let index = repo.index_or_empty().map_err(to_git_error)?;
+    let staged_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut staged_files = Vec::new();
+        repo.tree_index_status(
+            &head_tree_id,
+            &index,
+            None,
+            gix::status::tree_index::TrackRenames::Given(rewrite_tracking()),
+            |change, tree_index, _| {
+                if let Some(change) = map_tree_index_change(change, tree_index) {
+                    staged_files.push(change);
+                }
+                Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Continue(()))
+            },
+        )
+        .map_err(to_git_error)?;
+        staged_files.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok::<_, GitError>(staged_files)
+    }));
+
+    match staged_result {
+        Ok(Ok(files)) if !files.is_empty() => Ok(files),
+        Ok(Ok(_)) => read_staged_files_from_cli(worktree_path),
+        Ok(Err(error)) => {
+            tracing::warn!(
+                "gix tree_index_status staged read failed, falling back to \
+                 git diff: {error}"
+            );
+            read_staged_files_from_cli(worktree_path)
+        }
+        Err(_) => {
+            tracing::warn!(
+                "gix tree_index_status panicked during staged read, falling \
+                 back to git diff"
+            );
+            read_staged_files_from_cli(worktree_path)
+        }
+    }
 }
 
 fn commit_summary(commit: &gix::Commit<'_>) -> Result<GitCommitSummary, GitError> {
@@ -1043,10 +1151,7 @@ pub fn read_worktree_status(
     }
 
     unstaged_files.sort_by(|a, b| a.path.cmp(&b.path));
-    // Keep staged reads on the dedicated tree-vs-index path so rewrite-aware
-    // rename/copy detection stays isolated from unstaged index-vs-worktree
-    // status.
-    let staged_files = read_staged_files(&repo)?;
+    let staged_files = read_staged_files(&repo, worktree_path)?;
 
     let (ahead_count, ahead_commits, comparison_available, comparison_error) =
         read_ahead_commits(&repo, source_ref)?;
@@ -1153,5 +1258,29 @@ mod tests {
 
         let resolved = resolve_local_root_gix(&worktree_path).unwrap();
         assert_eq!(resolved, std::fs::canonicalize(&worktree_path).unwrap());
+    }
+
+    #[test]
+    fn parse_staged_name_status_maps_rewrites_for_cli_fallback() {
+        let changes = parse_staged_name_status(
+            b"R100\0rename-source.txt\0rename-target.txt\0C100\0copy-source.txt\0copied-target.txt\0A\0added.txt\0",
+        );
+
+        assert_eq!(changes.len(), 3);
+
+        assert_eq!(changes[0].path, "rename-target.txt");
+        assert_eq!(
+            changes[0].original_path.as_deref(),
+            Some("rename-source.txt")
+        );
+        assert!(matches!(changes[0].change_type, GitFileChangeType::Renamed));
+
+        assert_eq!(changes[1].path, "copied-target.txt");
+        assert_eq!(changes[1].original_path.as_deref(), Some("copy-source.txt"));
+        assert!(matches!(changes[1].change_type, GitFileChangeType::Copied));
+
+        assert_eq!(changes[2].path, "added.txt");
+        assert_eq!(changes[2].original_path, None);
+        assert!(matches!(changes[2].change_type, GitFileChangeType::Added));
     }
 }
