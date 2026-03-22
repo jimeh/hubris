@@ -32,6 +32,7 @@ type SortableTabStripProps = {
   onClose: (tabId: string) => void;
   onReorder: (orderedIds: string[]) => Promise<void>;
   dirtyTabIds?: string[];
+  lockedTabIds?: string[];
 };
 
 export default function SortableTabStrip({
@@ -45,11 +46,13 @@ export default function SortableTabStrip({
   onClose,
   onReorder,
   dirtyTabIds = [],
+  lockedTabIds = [],
 }: SortableTabStripProps) {
   const [dragging, setDragging] = useState(false);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeDragWidth, setActiveDragWidth] = useState<number | null>(null);
   const dirtyTabIdSet = useMemo(() => new Set(dirtyTabIds), [dirtyTabIds]);
+  const lockedTabIdSet = useMemo(() => new Set(lockedTabIds), [lockedTabIds]);
   const theme = useThemeSettings((state) => state.activeTheme);
   const gitStatus = useWorktreeFileManagerStore(
     (state) => state.worktrees[worktreeId]?.gitStatus ?? null,
@@ -137,6 +140,7 @@ export default function SortableTabStrip({
               isActive={tab.id === activeTabId}
               preview={tab.preview}
               dirty={dirtyTabIdSet.has(tab.id)}
+              locked={lockedTabIdSet.has(tab.id)}
               dragging={dragging}
               onActivateTab={onActivate}
               onPinTab={onPin}
@@ -165,6 +169,7 @@ export default function SortableTabStrip({
             isActive={activeDragTab.id === activeTabId}
             preview={activeDragTab.preview}
             dirty={dirtyTabIdSet.has(activeDragTab.id)}
+            locked={lockedTabIdSet.has(activeDragTab.id)}
             isOverlay
             width={activeDragWidth}
           />

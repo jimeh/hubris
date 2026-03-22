@@ -49,4 +49,20 @@ describe("SortableTabView", () => {
       "src/lib.rs (Index) M",
     );
   });
+
+  it("renders a lock icon immediately before close when locked", () => {
+    render(
+      <SortableTabView
+        tabId="d1"
+        label="lib.rs"
+        isActive={false}
+        locked
+        onCloseTab={() => {}}
+      />,
+    );
+
+    const lockIcon = screen.getByTestId("tab-lock-icon");
+    const closeButton = screen.getByRole("button", { name: "Close lib.rs" });
+    expect(lockIcon.nextElementSibling).toBe(closeButton);
+  });
 });

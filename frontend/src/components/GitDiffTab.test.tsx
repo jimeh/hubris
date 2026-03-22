@@ -1,35 +1,68 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { GitDiffSession } from "@/lib/stores/gitDiffTabs";
 import type { GitDiffTab as GitDiffTabType } from "@/lib/types";
 
-const getProjectWorktreeGitDiff = vi.fn();
-const getGitDiffModelPaths = vi.fn();
-const applyMonacoTheme = vi.fn();
+const ensureLoaded = vi.fn();
+const updateDraft = vi.fn();
+const save = vi.fn();
+const reload = vi.fn();
+const clearExternalChange = vi.fn();
+const pin = vi.fn();
+
+const editableSession: GitDiffSession = {
+  tabId: "diff-1",
+  path: "README.md",
+  originalPath: null,
+  scope: "unstaged" as const,
+  originalContent: "hello\n",
+  draft: "hello world\n",
+  savedContent: "hello\n",
+  modifiedVersionToken: "v1",
+  language: "markdown",
+  readOnly: false,
+  unsupportedReason: null,
+  dirty: true,
+  externalChange: false,
+  loadStatus: "loaded" as const,
+  saveStatus: "idle" as const,
+  error: null,
+};
+
+const sessionState: { session: GitDiffSession } = {
+  session: editableSession,
+};
 
 vi.mock("@monaco-editor/react", () => ({
-  DiffEditor: ({
-    originalModelPath,
-    modifiedModelPath,
-  }: {
-    originalModelPath: string;
-    modifiedModelPath: string;
-  }) => (
-    <div
-      data-testid="diff-editor"
-      data-modified-model-path={modifiedModelPath}
-      data-original-model-path={originalModelPath}
-    />
-  ),
-}));
-
-vi.mock("@/lib/api", () => ({
-  getProjectWorktreeGitDiff,
+  DiffEditor: () => <div data-testid="diff-editor" />,
 }));
 
 vi.mock("@/lib/monaco", () => ({
-  applyMonacoTheme,
-  getGitDiffModelPaths,
+  applyMonacoTheme: vi.fn(),
+  getGitDiffModelPaths: () => ({
+    original: "inmemory://orig",
+    modified: "inmemory://mod",
+  }),
+}));
+
+vi.mock("@/lib/stores/gitDiffTabs", () => ({
+  useGitDiffStore: (selector: (state: unknown) => unknown) =>
+    selector({
+      sessions: { "diff-1": sessionState.session },
+      ensureLoaded,
+      updateDraft,
+      save,
+      reload,
+      clearExternalChange,
+    }),
+}));
+
+vi.mock("@/lib/stores/tabs", () => ({
+  useTabStore: (selector: (state: unknown) => unknown) =>
+    selector({
+      pin,
+    }),
 }));
 
 vi.mock("@/lib/stores/settings", () => ({
@@ -39,7 +72,7 @@ vi.mock("@/lib/stores/settings", () => ({
 }));
 
 vi.mock("@/lib/stores/terminal", () => ({
-  useTerminalSettings: (selector: (store: unknown) => unknown) =>
+  useTerminalSettings: (selector: (state: unknown) => unknown) =>
     selector({
       fontFamily: "Iosevka",
       settings: { fontSize: 14 },
@@ -66,58 +99,37 @@ function makeTab(overrides: Partial<GitDiffTabType> = {}): GitDiffTabType {
 describe("GitDiffTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getProjectWorktreeGitDiff.mockResolvedValue({
-      path: "README.md",
-      scope: "unstaged",
-      original_path: null,
-      left_label: "Index",
-      right_label: "Working Tree",
-      left_content: "hello\n",
-      right_content: "hello world\n",
-      language: "markdown",
-      read_only: true,
-      unsupported_reason: null,
-    });
-    getGitDiffModelPaths.mockReturnValue({
-      original: "inmemory://orig",
-      modified: "inmemory://mod",
-    });
+    sessionState.session = editableSession;
   });
 
-  it("keeps model path memoization stable when unrelated props change", async () => {
+  it("shows a save footer for editable unstaged diffs", async () => {
     const { default: GitDiffTab } = await import("./GitDiffTab");
-    const tab = makeTab();
-    const { rerender } = render(
-      <GitDiffTab projectId="p1" worktreeId="w1" tab={tab} />,
+
+    render(
+      <GitDiffTab projectId="p1" worktreeId="w1" tab={makeTab()} visible />,
     );
 
-    await waitFor(() => {
-      expect(getProjectWorktreeGitDiff).toHaveBeenCalledTimes(1);
-    });
-    await waitFor(() => {
-      expect(getGitDiffModelPaths).toHaveBeenCalledTimes(1);
-    });
-
-    rerender(<GitDiffTab projectId="p2" worktreeId="w1" tab={{ ...tab }} />);
-
-    await waitFor(() => {
-      expect(getProjectWorktreeGitDiff).toHaveBeenCalledTimes(2);
-    });
-    expect(getGitDiffModelPaths).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(save).toHaveBeenCalledWith("p1", "w1", "diff-1");
   });
 
   it("shows backend denied-path messages verbatim", async () => {
     const { default: GitDiffTab } = await import("./GitDiffTab");
-    getProjectWorktreeGitDiff.mockRejectedValue(
-      new Error(
+    sessionState.session = {
+      ...editableSession,
+      loadStatus: "error",
+      error:
         "This path resolves outside the allowed roots. Only files inside this worktree or symlinks into the repository root can be opened.",
-      ),
+    };
+
+    render(
+      <GitDiffTab projectId="p1" worktreeId="w1" tab={makeTab()} visible />,
     );
 
-    render(<GitDiffTab projectId="p1" worktreeId="w1" tab={makeTab()} />);
-
     expect(
-      await screen.findByText(/resolves outside the allowed roots/i),
+      screen.getByText(/resolves outside the allowed roots/i),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 });

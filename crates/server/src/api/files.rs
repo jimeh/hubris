@@ -157,6 +157,8 @@ pub struct WorktreeGitDiffResponse {
     pub language: String,
     pub read_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_version_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub unsupported_reason: Option<String>,
 }
 
@@ -171,6 +173,11 @@ struct LoadedTextFile {
 enum DiffSideContent {
     Text(String),
     Unsupported(String),
+}
+
+struct OptionalWorktreeDiffSide {
+    content: DiffSideContent,
+    version_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -500,16 +507,20 @@ pub async fn get_project_worktree_git_diff(
             .await?
         }
     };
-    let right_content = match params.scope {
-        GitDiffScope::Staged => {
+    let (right_content, modified_version_token) = match params.scope {
+        GitDiffScope::Staged => (
             load_git_diff_side(
                 &resolved.worktree.path,
                 GitDiffBlobSource::Index,
                 &right_path,
             )
-            .await?
+            .await?,
+            None,
+        ),
+        GitDiffScope::Unstaged => {
+            let side = load_optional_worktree_diff_side(&policy, &right_path).await?;
+            (side.content, side.version_token)
         }
-        GitDiffScope::Unstaged => load_optional_worktree_diff_side(&policy, &right_path).await?,
     };
 
     let unsupported_reason = match (&left_content, &right_content) {
@@ -517,6 +528,9 @@ pub async fn get_project_worktree_git_diff(
         (_, DiffSideContent::Unsupported(reason)) => Some(reason.clone()),
         _ => None,
     };
+    let editable = matches!(params.scope, GitDiffScope::Unstaged)
+        && unsupported_reason.is_none()
+        && modified_version_token.is_some();
 
     Ok(Json(WorktreeGitDiffResponse {
         path,
@@ -539,7 +553,8 @@ pub async fn get_project_worktree_git_diff(
             DiffSideContent::Unsupported(_) => String::new(),
         },
         language,
-        read_only: true,
+        read_only: !editable,
+        modified_version_token: editable.then_some(modified_version_token).flatten(),
         unsupported_reason,
     }))
 }
@@ -824,12 +839,15 @@ async fn load_git_diff_side(
 async fn load_optional_worktree_diff_side(
     policy: &WorktreePathPolicy,
     path: &str,
-) -> Result<DiffSideContent, FileApiError> {
+) -> Result<OptionalWorktreeDiffSide, FileApiError> {
     let path = normalize_relative_path(path)?;
     let canonical_candidate = match policy.resolve_optional(&path).await {
         Ok(Some(canonical_candidate)) => canonical_candidate,
         Ok(None) => {
-            return Ok(DiffSideContent::Text(String::new()));
+            return Ok(OptionalWorktreeDiffSide {
+                content: DiffSideContent::Text(String::new()),
+                version_token: None,
+            });
         }
         Err(error) => return Err(map_path_policy_error(error)),
     };
@@ -841,24 +859,37 @@ async fn load_optional_worktree_diff_side(
         return Err(FileApiError::new(StatusCode::NOT_FOUND, "Diff not found."));
     }
     if metadata.len() > MAX_TEXT_FILE_BYTES {
-        return Ok(DiffSideContent::Unsupported(
-            "Diffs larger than 1 MiB are read-only.".to_string(),
-        ));
+        return Ok(OptionalWorktreeDiffSide {
+            content: DiffSideContent::Unsupported(
+                "Diffs larger than 1 MiB are read-only.".to_string(),
+            ),
+            version_token: None,
+        });
     }
 
     let bytes = match fs::read(&canonical_candidate).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(DiffSideContent::Text(String::new()));
+            return Ok(OptionalWorktreeDiffSide {
+                content: DiffSideContent::Text(String::new()),
+                version_token: None,
+            });
         }
         Err(error) => return Err(map_io_file_error(error)),
     };
 
     match String::from_utf8(bytes) {
-        Ok(content) => Ok(DiffSideContent::Text(content)),
-        Err(_) => Ok(DiffSideContent::Unsupported(
-            "Binary diffs are not supported.".to_string(),
-        )),
+        Ok(content) => {
+            let next_version_token = version_token(content.as_bytes(), &metadata);
+            Ok(OptionalWorktreeDiffSide {
+                content: DiffSideContent::Text(content),
+                version_token: Some(next_version_token),
+            })
+        }
+        Err(_) => Ok(OptionalWorktreeDiffSide {
+            content: DiffSideContent::Unsupported("Binary diffs are not supported.".to_string()),
+            version_token: None,
+        }),
     }
 }
 

@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
-import type { FileTab, TerminalTab, Worktree } from "@/lib/types";
+import type { FileTab, GitDiffTab, TerminalTab, Worktree } from "@/lib/types";
 
 const terminalRenderSpy = vi.fn<(tabId: string) => void>();
 
@@ -122,6 +122,27 @@ function makeFileTab(
   };
 }
 
+function makeGitDiffTab(
+  id: string,
+  worktreeId: string,
+  overrides: Partial<GitDiffTab> = {},
+): GitDiffTab {
+  const path = overrides.path ?? "src/file.ts";
+  return {
+    id,
+    label: path.split("/").filter(Boolean).at(-1) ?? path,
+    position: overrides.position ?? 1,
+    worktree_id: worktreeId,
+    session_id: overrides.session_id ?? "default",
+    type: "git_diff",
+    created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? false,
+    path,
+    scope: overrides.scope ?? "unstaged",
+    original_path: overrides.original_path ?? null,
+  };
+}
+
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -148,10 +169,13 @@ describe("WorktreeView", () => {
     } = await import("@/lib/stores/worktreeRightSidebar");
     const { resetFileEditorStoreForTests } =
       await import("@/lib/stores/fileEditorTabs");
+    const { resetGitDiffStoreForTests } =
+      await import("@/lib/stores/gitDiffTabs");
     const { resetWorktreeRightSidebarWidthStoreForTests } =
       await import("@/lib/stores/worktreeRightSidebarWidth");
     resetTabStoreForTests();
     resetFileEditorStoreForTests();
+    resetGitDiffStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     resetWorktreeRightSidebarWidthStoreForTests();
     initializeWorktreeRightSidebarStore();
@@ -511,6 +535,79 @@ describe("WorktreeView", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Don't Save" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
+  it("closes the dirty git diff tab after a successful save", async () => {
+    const closeSpy = vi.fn().mockResolvedValue(undefined);
+    const saveAttempt = deferred<void>();
+    const saveSpy = vi.fn().mockReturnValue(saveAttempt.promise);
+    const { default: WorktreeView } = await import("./WorktreeView");
+    const { useTabStore } = await import("@/lib/stores/tabs");
+    const { useGitDiffStore } = await import("@/lib/stores/gitDiffTabs");
+    const worktree = makeWorktree();
+    const diffTab = makeGitDiffTab("diff-1", worktree.id, {
+      path: "README.md",
+    });
+
+    useTabStore.setState((state) => ({
+      ...state,
+      tabs: [diffTab],
+      activeTabId: diffTab.id,
+      activeTabByWorktree: { [worktree.id]: diffTab.id },
+      close: closeSpy,
+    }));
+    useGitDiffStore.setState((state) => ({
+      ...state,
+      sessions: {
+        [diffTab.id]: {
+          tabId: diffTab.id,
+          path: diffTab.path,
+          originalPath: null,
+          scope: "unstaged",
+          originalContent: "hello\n",
+          draft: "hello world\n",
+          savedContent: "hello\n",
+          modifiedVersionToken: "v1",
+          language: "markdown",
+          readOnly: false,
+          unsupportedReason: null,
+          dirty: true,
+          externalChange: false,
+          loadStatus: "loaded",
+          saveStatus: "idle",
+          error: null,
+        },
+      },
+      save: saveSpy,
+    }));
+
+    render(<WorktreeView worktree={worktree} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: `Close ${diffTab.id}` }),
+    );
+    expect(
+      await screen.findByText(`Save changes to ${diffTab.label}?`),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(
+        worktree.project_id,
+        worktree.id,
+        diffTab.id,
+      );
+    });
+
+    await act(async () => {
+      saveAttempt.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(closeSpy).toHaveBeenCalledWith(diffTab.id);
+    });
   });
 
   it("closes the dirty file tab after a successful save", async () => {

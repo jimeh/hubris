@@ -2430,6 +2430,9 @@
           "left_label": {
             "type": "string"
           },
+          "modified_version_token": {
+            "type": ["string", "null"]
+          },
           "original_path": {
             "type": ["string", "null"]
           },
