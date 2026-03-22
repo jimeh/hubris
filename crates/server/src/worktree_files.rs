@@ -125,24 +125,24 @@ impl WorktreeFilesService {
         tracker.read_git_status().await
     }
 
-    pub fn invalidate_relative_paths(
+    pub async fn invalidate_relative_paths(
         &self,
         resolved: &ResolvedWorktree,
         paths: &[String],
     ) -> Result<(), WorktreeFileError> {
         self.start_cleanup_loop();
-        let tracker = self.ensure_tracker(resolved)?;
+        let tracker = self.ensure_tracker_async(resolved).await?;
         tracker.invalidate_relative_paths(&self.events, paths)
     }
 
-    pub fn record_git_rewrite_hint(
+    pub async fn record_git_rewrite_hint(
         &self,
         resolved: &ResolvedWorktree,
         path: &str,
         original_path: &str,
     ) -> Result<(), WorktreeFileError> {
         self.start_cleanup_loop();
-        let tracker = self.ensure_tracker(resolved)?;
+        let tracker = self.ensure_tracker_async(resolved).await?;
         tracker.record_git_rewrite_hint(path, original_path)
     }
 
@@ -178,31 +178,6 @@ impl WorktreeFilesService {
         });
     }
 
-    fn ensure_tracker(
-        &self,
-        resolved: &ResolvedWorktree,
-    ) -> Result<Arc<WorktreeFileTracker>, WorktreeFileError> {
-        if let Some(existing) = self.trackers.get(&resolved.worktree.id) {
-            let tracker = existing.clone();
-            tracker.touch();
-            return Ok(tracker);
-        }
-
-        let tracker = WorktreeFileTracker::new(resolved, Arc::clone(&self.events))?;
-
-        match self.trackers.entry(resolved.worktree.id.clone()) {
-            dashmap::mapref::entry::Entry::Occupied(existing) => {
-                let tracker = existing.get().clone();
-                tracker.touch();
-                Ok(tracker)
-            }
-            dashmap::mapref::entry::Entry::Vacant(entry) => {
-                entry.insert(Arc::clone(&tracker));
-                Ok(tracker)
-            }
-        }
-    }
-
     async fn ensure_tracker_async(
         &self,
         resolved: &ResolvedWorktree,
@@ -230,35 +205,6 @@ impl WorktreeFilesService {
 }
 
 impl WorktreeFileTracker {
-    fn new(
-        resolved: &ResolvedWorktree,
-        events: Arc<EventBus>,
-    ) -> Result<Arc<Self>, WorktreeFileError> {
-        let root_path = std::fs::canonicalize(&resolved.worktree.path).map_err(map_io_error)?;
-        let repo_root = std::fs::canonicalize(&resolved.local_root).map_err(map_io_error)?;
-        if !root_path.is_dir() {
-            return Err(WorktreeFileError::NotDirectory);
-        }
-
-        let tracker = Arc::new(Self {
-            project_id: resolved.project_id.clone(),
-            worktree_id: resolved.worktree.id.clone(),
-            path_policy: WorktreePathPolicy::new(root_path.clone(), repo_root),
-            root_path,
-            source_ref: resolved.worktree.source_ref.clone(),
-            file_generation: AtomicU64::new(1),
-            git_generation: AtomicU64::new(1),
-            last_access_ms: AtomicU64::new(now_ms()),
-            directory_cache: DashMap::new(),
-            git_cache: std::sync::Mutex::new(None),
-            git_rewrite_hints: std::sync::Mutex::new(HashMap::new()),
-            watchers: std::sync::Mutex::new(Vec::new()),
-        });
-
-        tracker.install_watcher(events)?;
-        Ok(tracker)
-    }
-
     async fn new_async(
         resolved: &ResolvedWorktree,
         events: Arc<EventBus>,
@@ -269,7 +215,11 @@ impl WorktreeFileTracker {
         let repo_root = tokio::fs::canonicalize(&resolved.local_root)
             .await
             .map_err(map_io_error)?;
-        if !root_path.is_dir() {
+        if !tokio::fs::metadata(&root_path)
+            .await
+            .map_err(map_io_error)?
+            .is_dir()
+        {
             return Err(WorktreeFileError::NotDirectory);
         }
 
@@ -571,7 +521,7 @@ impl WorktreeFileTracker {
             return Err(WorktreeFileError::InvalidPath);
         }
         let new_name = validate_new_name(new_name)?;
-        let source_path = resolve_existing_path(&self.root_path, &relative_path)?;
+        let source_path = resolve_existing_path(&self.root_path, &relative_path).await?;
         let parent = source_path
             .parent()
             .ok_or(WorktreeFileError::InvalidPath)?
@@ -772,13 +722,18 @@ fn validate_new_name(raw: &str) -> Result<&str, WorktreeFileError> {
     Ok(trimmed)
 }
 
-fn resolve_existing_path(root: &Path, relative_path: &str) -> Result<PathBuf, WorktreeFileError> {
+async fn resolve_existing_path(
+    root: &Path,
+    relative_path: &str,
+) -> Result<PathBuf, WorktreeFileError> {
     let candidate = if relative_path.is_empty() {
         root.to_path_buf()
     } else {
         root.join(relative_path)
     };
-    let canonical = std::fs::canonicalize(candidate).map_err(map_io_error)?;
+    let canonical = tokio::fs::canonicalize(candidate)
+        .await
+        .map_err(map_io_error)?;
     if !canonical.starts_with(root) {
         return Err(WorktreeFileError::InvalidPath);
     }

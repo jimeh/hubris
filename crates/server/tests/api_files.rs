@@ -128,6 +128,9 @@ async fn test_list_files_explicit_path() {
     let git_dir = tmp.path().join("myrepo");
     std::fs::create_dir(&git_dir).unwrap();
     std::fs::create_dir(git_dir.join(".git")).unwrap();
+    let linked_git_dir = tmp.path().join("linkedrepo");
+    std::fs::create_dir(&linked_git_dir).unwrap();
+    std::fs::write(linked_git_dir.join(".git"), "gitdir: /tmp/elsewhere\n").unwrap();
     // Hidden dir (should be excluded by default)
     std::fs::create_dir(tmp.path().join(".hidden")).unwrap();
     // Regular file (should be excluded)
@@ -143,8 +146,8 @@ async fn test_list_files_explicit_path() {
     let body: Value = res.json().await.unwrap();
     let entries = body["entries"].as_array().unwrap();
 
-    // Should have mydir and myrepo only
-    assert_eq!(entries.len(), 2);
+    // Should have mydir, myrepo, and linkedrepo only
+    assert_eq!(entries.len(), 3);
 
     let names: Vec<&str> = entries
         .iter()
@@ -152,10 +155,14 @@ async fn test_list_files_explicit_path() {
         .collect();
     assert!(names.contains(&"mydir"));
     assert!(names.contains(&"myrepo"));
+    assert!(names.contains(&"linkedrepo"));
 
     // myrepo should be detected as git repo
     let myrepo = entries.iter().find(|e| e["name"] == "myrepo").unwrap();
     assert_eq!(myrepo["is_git_repo"], true);
+
+    let linkedrepo = entries.iter().find(|e| e["name"] == "linkedrepo").unwrap();
+    assert_eq!(linkedrepo["is_git_repo"], true);
 
     let mydir = entries.iter().find(|e| e["name"] == "mydir").unwrap();
     assert_eq!(mydir["is_git_repo"], false);

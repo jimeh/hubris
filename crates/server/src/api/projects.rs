@@ -108,7 +108,10 @@ pub async fn add_project(
     Json(req): Json<AddProjectRequest>,
 ) -> Result<(StatusCode, Json<Project>), StatusCode> {
     let input_path = PathBuf::from(&req.path);
-    if !input_path.is_dir() {
+    let input_metadata = tokio::fs::metadata(&input_path)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    if !input_metadata.is_dir() {
         return Err(StatusCode::BAD_REQUEST);
     }
 

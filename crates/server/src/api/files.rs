@@ -258,10 +258,11 @@ pub async fn list_files(
         }
 
         let git_path = entry.path().join(".git");
-        entries.push(DirEntry {
-            name,
-            is_git_repo: git_path.is_dir() || git_path.is_file(),
-        });
+        let is_git_repo = match tokio::fs::metadata(&git_path).await {
+            Ok(metadata) => metadata.is_dir() || metadata.is_file(),
+            Err(_) => false,
+        };
+        entries.push(DirEntry { name, is_git_repo });
     }
 
     entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -435,6 +436,7 @@ pub async fn put_project_worktree_file_content(
     state
         .worktree_files
         .invalidate_relative_paths(&resolved, std::slice::from_ref(&path))
+        .await
         .map_err(map_worktree_file_error)
         .map_err(map_status_to_file_error)?;
 

@@ -756,12 +756,14 @@ async fn perform_git_path_action(
         state
             .worktree_files
             .record_git_rewrite_hint(&resolved, path, original_path)
+            .await
             .map_err(map_worktree_file_error)?;
     }
 
     state
         .worktree_files
         .invalidate_relative_paths(&resolved, &paths)
+        .await
         .map_err(map_worktree_file_error)?;
 
     Ok(StatusCode::NO_CONTENT)
