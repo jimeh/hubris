@@ -110,38 +110,52 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
         worktreeId,
         tab.path,
       );
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [tab.id]: {
-            ...(state.sessions[tab.id] ?? createSession(tab)),
-            path: tab.path,
-            draft: response.content,
-            savedContent: response.content,
-            versionToken: response.version_token,
-            language: response.language,
-            readOnly: response.read_only,
-            unsupportedReason: response.unsupported_reason ?? null,
-            dirty: false,
-            externalChange: false,
-            loadStatus: "loaded",
-            saveStatus: "idle",
-            error: null,
+      set((state) => {
+        const current = state.sessions[tab.id];
+        if (!current) {
+          return state;
+        }
+
+        return {
+          sessions: {
+            ...state.sessions,
+            [tab.id]: {
+              ...current,
+              path: tab.path,
+              draft: response.content,
+              savedContent: response.content,
+              versionToken: response.version_token,
+              language: response.language,
+              readOnly: response.read_only,
+              unsupportedReason: response.unsupported_reason ?? null,
+              dirty: false,
+              externalChange: false,
+              loadStatus: "loaded",
+              saveStatus: "idle",
+              error: null,
+            },
           },
-        },
-      }));
+        };
+      });
     } catch (error) {
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [tab.id]: {
-            ...(state.sessions[tab.id] ?? createSession(tab)),
-            loadStatus: "error",
-            error:
-              error instanceof Error ? error.message : "Failed to load file",
+      set((state) => {
+        const current = state.sessions[tab.id];
+        if (!current) {
+          return state;
+        }
+
+        return {
+          sessions: {
+            ...state.sessions,
+            [tab.id]: {
+              ...current,
+              loadStatus: "error",
+              error:
+                error instanceof Error ? error.message : "Failed to load file",
+            },
           },
-        },
-      }));
+        };
+      });
     }
   },
   updateDraft(tabId, draft) {

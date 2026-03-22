@@ -161,6 +161,78 @@ describe("fileEditorTabs store", () => {
     expect(useFileEditorStore.getState().sessions["file-1"]).toBeUndefined();
   });
 
+  it("does not recreate a discarded session when ensureLoaded succeeds later", async () => {
+    const { useFileEditorStore } = await getStore();
+    const loadRequest = deferred<{
+      content: string;
+      version_token: string;
+      language: string;
+      read_only: boolean;
+      unsupported_reason: string | null;
+    }>();
+    mockGetProjectWorktreeFileContent.mockImplementation(
+      () => loadRequest.promise,
+    );
+
+    const tab = {
+      id: "file-1",
+      label: "main.ts",
+      position: 1,
+      worktree_id: "w1",
+      session_id: "default",
+      type: "file" as const,
+      created_at: 0,
+      preview: false,
+      path: "src/main.ts",
+    };
+
+    const ensurePromise = useFileEditorStore
+      .getState()
+      .ensureLoaded("p1", "w1", tab);
+
+    useFileEditorStore.getState().discardSession("file-1");
+    loadRequest.resolve({
+      content: "hello\n",
+      version_token: "v1",
+      language: "typescript",
+      read_only: false,
+      unsupported_reason: null,
+    });
+    await ensurePromise;
+
+    expect(useFileEditorStore.getState().sessions["file-1"]).toBeUndefined();
+  });
+
+  it("does not recreate a discarded session when ensureLoaded fails later", async () => {
+    const { useFileEditorStore } = await getStore();
+    const loadRequest = deferred<never>();
+    mockGetProjectWorktreeFileContent.mockImplementation(
+      () => loadRequest.promise,
+    );
+
+    const tab = {
+      id: "file-1",
+      label: "main.ts",
+      position: 1,
+      worktree_id: "w1",
+      session_id: "default",
+      type: "file" as const,
+      created_at: 0,
+      preview: false,
+      path: "src/main.ts",
+    };
+
+    const ensurePromise = useFileEditorStore
+      .getState()
+      .ensureLoaded("p1", "w1", tab);
+
+    useFileEditorStore.getState().discardSession("file-1");
+    loadRequest.reject(new Error("boom"));
+    await ensurePromise;
+
+    expect(useFileEditorStore.getState().sessions["file-1"]).toBeUndefined();
+  });
+
   it("marks external changes on save conflict without dropping the latest draft", async () => {
     const { useFileEditorStore } = await getStore();
     mockSaveProjectWorktreeFileContent.mockRejectedValue(
