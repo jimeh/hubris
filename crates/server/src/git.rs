@@ -1,9 +1,15 @@
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::api::worktrees::{GitCommitPerson, GitCommitSummary, GitFileChange, GitFileChangeType};
-use tokio::process::Command;
+use git2::build::CheckoutBuilder;
+use git2::{
+    BranchType, Delta, DiffDelta, DiffFindOptions, DiffOptions, ErrorCode, FileMode,
+    IndexAddOption, Reference, Repository, Sort, Status, StatusEntry, Time, WorktreeAddOptions,
+    WorktreeLockStatus, WorktreePruneOptions,
+};
 use uuid::Uuid;
+
+use crate::api::worktrees::{GitCommitPerson, GitCommitSummary, GitFileChange, GitFileChangeType};
 
 const WORKTREE_NAMESPACE: Uuid = Uuid::from_u128(0x2b8b1f5e_84f8_4d8d_9ad8_9f6df2a93f3b);
 
@@ -76,27 +82,76 @@ impl std::fmt::Display for GitError {
 
 impl std::error::Error for GitError {}
 
-fn trim_output(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).trim().to_string()
-}
-
 fn to_git_error(error: impl std::fmt::Display) -> GitError {
     GitError {
         message: error.to_string(),
     }
 }
 
+fn canonicalize_or(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn trim_trailing_newlines(value: String) -> String {
+    value.trim_end_matches(['\n', '\r']).to_string()
+}
+
 fn bytes_to_string(value: &[u8]) -> String {
     String::from_utf8_lossy(value).into_owned()
 }
 
-fn rewrite_tracking() -> gix::diff::Rewrites {
-    gix::diff::Rewrites {
-        copies: Some(gix::diff::rewrites::Copies {
-            source: gix::diff::rewrites::CopySource::FromSetOfModifiedFilesAndAllSources,
-            ..Default::default()
-        }),
-        ..Default::default()
+fn path_to_string(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+fn is_unborn_or_missing_head(error: &git2::Error) -> bool {
+    matches!(error.code(), ErrorCode::UnbornBranch | ErrorCode::NotFound)
+}
+
+fn format_git_offset(time: Time) -> String {
+    let offset = time.offset_minutes();
+    let sign = if offset < 0 { '-' } else { '+' };
+    let offset = offset.abs();
+    let hours = offset / 60;
+    let minutes = offset % 60;
+    format!("{sign}{hours:02}:{minutes:02}")
+}
+
+#[cfg(not(windows))]
+fn format_git_signature_date(time: Time) -> String {
+    let adjusted = time
+        .seconds()
+        .saturating_add(i64::from(time.offset_minutes()) * 60);
+    let mut tm = std::mem::MaybeUninit::<libc::tm>::zeroed();
+    let seconds = adjusted as libc::time_t;
+    let result = unsafe { libc::gmtime_r(&seconds, tm.as_mut_ptr()) };
+    if result.is_null() {
+        return format!("{} {}", time.seconds(), format_git_offset(time));
+    }
+
+    let tm = unsafe { tm.assume_init() };
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}{}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec,
+        format_git_offset(time),
+    )
+}
+
+#[cfg(windows)]
+fn format_git_signature_date(time: Time) -> String {
+    format!("{} {}", time.seconds(), format_git_offset(time))
+}
+
+fn map_commit_person(signature: git2::Signature<'_>) -> GitCommitPerson {
+    GitCommitPerson {
+        name: bytes_to_string(signature.name_bytes()),
+        email: bytes_to_string(signature.email_bytes()),
+        date: format_git_signature_date(signature.when()),
     }
 }
 
@@ -115,319 +170,6 @@ fn normalize_relative_git_path(raw: &str) -> Result<String, GitPathActionError> 
     }
 
     Ok(parts.join("/"))
-}
-
-fn map_git_path_error(error: GitError) -> GitPathActionError {
-    let message = error.message.to_lowercase();
-    if message.contains("permission denied") {
-        GitPathActionError::PermissionDenied
-    } else if message.contains("did not match any file")
-        || message.contains("pathspec")
-        || message.contains("no such file")
-    {
-        GitPathActionError::NotFound
-    } else {
-        GitPathActionError::Internal
-    }
-}
-
-async fn run_git_in_worktree(
-    worktree_path: &Path,
-    args: &[&str],
-) -> Result<String, GitPathActionError> {
-    let cwd = worktree_path.to_string_lossy().to_string();
-    let mut argv = vec!["-C", &cwd];
-    argv.extend_from_slice(args);
-    run_git(&argv).await.map_err(map_git_path_error)
-}
-
-fn split_nul_tokens(bytes: &[u8]) -> Vec<String> {
-    bytes
-        .split(|byte| *byte == 0)
-        .filter(|token| !token.is_empty())
-        .map(bytes_to_string)
-        .collect()
-}
-
-fn trim_trailing_newlines(value: String) -> String {
-    value.trim_end_matches(['\n', '\r']).to_string()
-}
-
-fn format_git_signature_date(time: gix::date::Time) -> String {
-    time.format(gix::date::time::format::ISO8601_STRICT)
-        .unwrap_or_else(|_| time.format_or_unix(gix::date::time::format::RAW))
-}
-
-fn map_commit_person(signature: gix::actor::SignatureRef<'_>) -> GitCommitPerson {
-    GitCommitPerson {
-        name: bytes_to_string(signature.name.as_ref()),
-        email: bytes_to_string(signature.email.as_ref()),
-        date: signature
-            .time()
-            .map(format_git_signature_date)
-            .unwrap_or_else(|_| signature.time.trim().to_string()),
-    }
-}
-
-fn non_empty_string(value: &[u8]) -> Option<String> {
-    let value = bytes_to_string(value);
-    (!value.is_empty()).then_some(value)
-}
-
-fn map_commit_tree_change(
-    change: gix::object::tree::diff::ChangeDetached,
-) -> Option<GitFileChange> {
-    use gix::object::tree::diff::ChangeDetached;
-
-    let (path, original_path, change_type) = match change {
-        ChangeDetached::Addition {
-            location,
-            entry_mode,
-            ..
-        } => {
-            if entry_mode.is_tree() {
-                return None;
-            }
-            (
-                bytes_to_string(location.as_ref()),
-                None,
-                GitFileChangeType::Added,
-            )
-        }
-        ChangeDetached::Deletion {
-            location,
-            entry_mode,
-            ..
-        } => {
-            if entry_mode.is_tree() {
-                return None;
-            }
-            (
-                bytes_to_string(location.as_ref()),
-                None,
-                GitFileChangeType::Deleted,
-            )
-        }
-        ChangeDetached::Modification {
-            location,
-            previous_entry_mode,
-            entry_mode,
-            ..
-        } => {
-            if previous_entry_mode.is_tree() || entry_mode.is_tree() {
-                return None;
-            }
-            let change_type = if previous_entry_mode != entry_mode {
-                GitFileChangeType::Typechange
-            } else {
-                GitFileChangeType::Modified
-            };
-            (bytes_to_string(location.as_ref()), None, change_type)
-        }
-        ChangeDetached::Rewrite {
-            source_location,
-            location,
-            source_entry_mode,
-            entry_mode,
-            copy,
-            ..
-        } => {
-            if source_entry_mode.is_tree() || entry_mode.is_tree() {
-                return None;
-            }
-            let change_type = if copy {
-                GitFileChangeType::Copied
-            } else {
-                GitFileChangeType::Renamed
-            };
-            (
-                bytes_to_string(location.as_ref()),
-                non_empty_string(source_location.as_ref()),
-                change_type,
-            )
-        }
-    };
-
-    Some(GitFileChange {
-        path,
-        original_path,
-        change_type,
-    })
-}
-
-fn read_commit_details_gix(
-    worktree_path: &Path,
-    commit_id: &str,
-) -> Result<GitCommitDetails, GitCommitDetailsError> {
-    let repo = gix::open(worktree_path).map_err(|_| GitCommitDetailsError::Internal)?;
-    let commit_id = repo
-        .rev_parse_single(commit_id)
-        .map_err(|_| GitCommitDetailsError::NotFound)?
-        .detach();
-    let commit = repo
-        .find_commit(commit_id)
-        .map_err(|_| GitCommitDetailsError::NotFound)?;
-    let short_id = commit
-        .short_id()
-        .map_err(|_| GitCommitDetailsError::Internal)?
-        .to_string();
-    let summary = String::from_utf8_lossy(commit.message_raw_sloppy().as_ref())
-        .lines()
-        .next()
-        .map(str::trim)
-        .unwrap_or_default()
-        .to_string();
-    let message = trim_trailing_newlines(bytes_to_string(
-        commit
-            .message_raw()
-            .map_err(|_| GitCommitDetailsError::Internal)?
-            .as_ref(),
-    ));
-    let author = map_commit_person(
-        commit
-            .author()
-            .map_err(|_| GitCommitDetailsError::Internal)?,
-    );
-    let committer = map_commit_person(
-        commit
-            .committer()
-            .map_err(|_| GitCommitDetailsError::Internal)?,
-    );
-    let old_tree = match commit.parent_ids().next() {
-        Some(parent_id) => Some(
-            repo.find_commit(parent_id.detach())
-                .map_err(|_| GitCommitDetailsError::Internal)?
-                .tree()
-                .map_err(|_| GitCommitDetailsError::Internal)?,
-        ),
-        None => None,
-    };
-    let new_tree = commit.tree().map_err(|_| GitCommitDetailsError::Internal)?;
-    let mut diff_options = gix::diff::Options::default();
-    diff_options.track_path();
-    diff_options.track_rewrites(Some(rewrite_tracking()));
-    let mut files = repo
-        .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(diff_options))
-        .map_err(|_| GitCommitDetailsError::Internal)?
-        .into_iter()
-        .filter_map(map_commit_tree_change)
-        .collect::<Vec<_>>();
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-
-    Ok(GitCommitDetails {
-        id: commit_id.to_string(),
-        short_id,
-        summary,
-        message,
-        author,
-        committer,
-        files,
-    })
-}
-
-pub async fn read_commit_details(
-    worktree_path: &Path,
-    commit_id: &str,
-) -> Result<GitCommitDetails, GitCommitDetailsError> {
-    let worktree_path = worktree_path.to_path_buf();
-    let commit_id = commit_id.to_string();
-    tokio::task::spawn_blocking(move || read_commit_details_gix(&worktree_path, &commit_id))
-        .await
-        .map_err(|_| GitCommitDetailsError::Internal)?
-}
-
-#[derive(Debug)]
-struct PorcelainStatusEntry {
-    index_status: char,
-    worktree_status: char,
-    path: String,
-    original_path: Option<String>,
-}
-
-fn parse_porcelain_status(bytes: &[u8]) -> Vec<PorcelainStatusEntry> {
-    let mut entries = Vec::new();
-    let mut tokens = split_nul_tokens(bytes).into_iter();
-
-    while let Some(token) = tokens.next() {
-        if token.len() < 4 {
-            continue;
-        }
-
-        let mut chars = token.chars();
-        let Some(index_status) = chars.next() else {
-            continue;
-        };
-        let Some(worktree_status) = chars.next() else {
-            continue;
-        };
-        if chars.next() != Some(' ') {
-            continue;
-        }
-
-        let path = chars.collect::<String>();
-        let original_path =
-            if matches!(index_status, 'R' | 'C') || matches!(worktree_status, 'R' | 'C') {
-                tokens.next()
-            } else {
-                None
-            };
-
-        entries.push(PorcelainStatusEntry {
-            index_status,
-            worktree_status,
-            path,
-            original_path,
-        });
-    }
-
-    entries
-}
-
-async fn read_porcelain_status(
-    worktree_path: &Path,
-    relative_path: &str,
-) -> Result<Vec<PorcelainStatusEntry>, GitPathActionError> {
-    let cwd = worktree_path.to_string_lossy().to_string();
-    let output = Command::new("git")
-        .args([
-            "-C",
-            &cwd,
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=all",
-            "--find-renames",
-            "--",
-            relative_path,
-        ])
-        .output()
-        .await
-        .map_err(|_| GitPathActionError::Internal)?;
-
-    if !output.status.success() {
-        let stderr = trim_output(&output.stderr);
-        let stdout = trim_output(&output.stdout);
-        return Err(map_git_path_error(GitError {
-            message: if stderr.is_empty() { stdout } else { stderr },
-        }));
-    }
-
-    Ok(parse_porcelain_status(&output.stdout))
-}
-
-fn status_contains_worktree_change(entry: &PorcelainStatusEntry) -> bool {
-    entry.worktree_status != ' '
-}
-
-fn is_tracked_path(entry: &PorcelainStatusEntry) -> bool {
-    entry.index_status != '?'
-}
-
-fn is_unmerged_status(entry: &PorcelainStatusEntry) -> bool {
-    matches!(
-        (entry.index_status, entry.worktree_status),
-        ('D', 'D') | ('A', 'U') | ('U', 'D') | ('U', 'A') | ('D', 'U') | ('A', 'A') | ('U', 'U')
-    )
 }
 
 fn normalized_git_action_paths(
@@ -452,6 +194,699 @@ fn invalidated_parent_paths(paths: &BTreeSet<String>) -> Vec<String> {
         }
     }
     invalidated.into_iter().collect()
+}
+
+fn map_git_path_error(error: GitError) -> GitPathActionError {
+    let message = error.message.to_lowercase();
+    if message.contains("permission denied") {
+        GitPathActionError::PermissionDenied
+    } else if message.contains("did not match any file")
+        || message.contains("pathspec")
+        || message.contains("no such file")
+    {
+        GitPathActionError::NotFound
+    } else if message.contains("conflict") || message.contains("unmerged") {
+        GitPathActionError::Conflict
+    } else {
+        GitPathActionError::Internal
+    }
+}
+
+fn map_git2_path_error(error: git2::Error) -> GitPathActionError {
+    match error.code() {
+        ErrorCode::NotFound | ErrorCode::InvalidSpec => GitPathActionError::NotFound,
+        ErrorCode::Unmerged | ErrorCode::Conflict | ErrorCode::MergeConflict => {
+            GitPathActionError::Conflict
+        }
+        _ => map_git_path_error(to_git_error(error)),
+    }
+}
+
+fn open_repo(path: &Path) -> Result<Repository, GitError> {
+    Repository::open(path).map_err(to_git_error)
+}
+
+fn discover_repo(path: &Path) -> Result<Repository, GitError> {
+    Repository::discover(path).map_err(to_git_error)
+}
+
+fn short_head_name(repo: &Repository) -> Result<Option<String>, GitError> {
+    match repo.head() {
+        Ok(head) => {
+            if repo.head_detached().map_err(to_git_error)? {
+                return Ok(None);
+            }
+            Ok(head.shorthand().map(str::to_string))
+        }
+        Err(err) if is_unborn_or_missing_head(&err) => Ok(None),
+        Err(err) => Err(to_git_error(err)),
+    }
+}
+
+fn head_tree(repo: &Repository) -> Result<Option<git2::Tree<'_>>, GitError> {
+    match repo.head() {
+        Ok(head) => head.peel_to_tree().map(Some).map_err(to_git_error),
+        Err(err) if is_unborn_or_missing_head(&err) => Ok(None),
+        Err(err) => Err(to_git_error(err)),
+    }
+}
+
+fn revparse_commit<'repo>(
+    repo: &'repo Repository,
+    spec: &str,
+) -> Result<git2::Commit<'repo>, GitCommitDetailsError> {
+    repo.revparse_single(spec)
+        .and_then(|object| object.peel_to_commit())
+        .map_err(|err| match err.code() {
+            ErrorCode::NotFound | ErrorCode::InvalidSpec => GitCommitDetailsError::NotFound,
+            _ => GitCommitDetailsError::Internal,
+        })
+}
+
+fn diff_options(include_untracked: bool, include_unmodified: bool) -> DiffOptions {
+    let mut options = DiffOptions::new();
+    options.include_typechange(true);
+    if include_untracked {
+        options.include_untracked(true).recurse_untracked_dirs(true);
+    }
+    if include_unmodified {
+        options.include_unmodified(true);
+    }
+    options
+}
+
+fn diff_find_options(include_untracked: bool, copies_from_unmodified: bool) -> DiffFindOptions {
+    let mut options = DiffFindOptions::new();
+    options
+        .renames(true)
+        .renames_from_rewrites(true)
+        .copies(true)
+        .remove_unmodified(true);
+    if include_untracked {
+        options.for_untracked(true);
+    }
+    if copies_from_unmodified {
+        options.copies_from_unmodified(true);
+    }
+    options
+}
+
+fn rename_only_diff_find_options() -> DiffFindOptions {
+    let mut options = DiffFindOptions::new();
+    options.renames(true).renames_from_rewrites(true);
+    options
+}
+
+fn diff_file_is_tree(file: &git2::DiffFile<'_>) -> bool {
+    file.exists() && file.mode() == FileMode::Tree
+}
+
+fn diff_path(path: Option<&Path>) -> Option<String> {
+    path.map(path_to_string)
+}
+
+fn diff_change_type(
+    delta: Delta,
+    old_file: &git2::DiffFile<'_>,
+    new_file: &git2::DiffFile<'_>,
+) -> Option<GitFileChangeType> {
+    if diff_file_is_tree(old_file) || diff_file_is_tree(new_file) {
+        return None;
+    }
+
+    Some(match delta {
+        Delta::Added => GitFileChangeType::Added,
+        Delta::Deleted => GitFileChangeType::Deleted,
+        Delta::Modified | Delta::Unreadable => GitFileChangeType::Modified,
+        Delta::Renamed => GitFileChangeType::Renamed,
+        Delta::Copied => GitFileChangeType::Copied,
+        Delta::Untracked => GitFileChangeType::Untracked,
+        Delta::Typechange => GitFileChangeType::Typechange,
+        Delta::Conflicted => GitFileChangeType::Conflict,
+        Delta::Ignored | Delta::Unmodified => return None,
+    })
+}
+
+fn map_diff_delta(delta: DiffDelta<'_>) -> Option<GitFileChange> {
+    let old_file = delta.old_file();
+    let new_file = delta.new_file();
+    let change_type = diff_change_type(delta.status(), &old_file, &new_file)?;
+
+    let (path, original_path) = match delta.status() {
+        Delta::Added | Delta::Untracked => (diff_path(new_file.path())?, None),
+        Delta::Deleted => (diff_path(old_file.path())?, None),
+        Delta::Modified | Delta::Typechange | Delta::Unreadable | Delta::Conflicted => (
+            diff_path(new_file.path()).or_else(|| diff_path(old_file.path()))?,
+            None,
+        ),
+        Delta::Renamed | Delta::Copied => (diff_path(new_file.path())?, diff_path(old_file.path())),
+        Delta::Ignored | Delta::Unmodified => return None,
+    };
+
+    Some(GitFileChange {
+        path,
+        original_path,
+        change_type,
+    })
+}
+
+fn collect_diff_changes(diff: &git2::Diff<'_>) -> Vec<GitFileChange> {
+    let mut changes = diff.deltas().filter_map(map_diff_delta).collect::<Vec<_>>();
+    changes.sort_by(|a, b| a.path.cmp(&b.path));
+    changes
+}
+
+fn read_commit_details_git2(
+    worktree_path: &Path,
+    commit_id: &str,
+) -> Result<GitCommitDetails, GitCommitDetailsError> {
+    let repo = Repository::open(worktree_path).map_err(|_| GitCommitDetailsError::Internal)?;
+    let commit = revparse_commit(&repo, commit_id)?;
+    let short_id = repo
+        .find_object(commit.id(), None)
+        .and_then(|object| object.short_id())
+        .map(|buf| buf.as_str().unwrap_or_default().to_string())
+        .map_err(|_| GitCommitDetailsError::Internal)?;
+    let summary = commit.summary().unwrap_or_default().trim().to_string();
+    let message =
+        trim_trailing_newlines(String::from_utf8_lossy(commit.message_raw_bytes()).into_owned());
+    let author = map_commit_person(commit.author());
+    let committer = map_commit_person(commit.committer());
+    let old_tree = if commit.parent_count() > 0 {
+        let parent = commit
+            .parent(0)
+            .map_err(|_| GitCommitDetailsError::Internal)?;
+        Some(parent.tree().map_err(|_| GitCommitDetailsError::Internal)?)
+    } else {
+        None
+    };
+    let new_tree = commit.tree().map_err(|_| GitCommitDetailsError::Internal)?;
+    let mut options = diff_options(false, false);
+    let mut diff = repo
+        .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut options))
+        .map_err(|_| GitCommitDetailsError::Internal)?;
+    let mut find_options = rename_only_diff_find_options();
+    diff.find_similar(Some(&mut find_options))
+        .map_err(|_| GitCommitDetailsError::Internal)?;
+    let files = collect_diff_changes(&diff);
+
+    Ok(GitCommitDetails {
+        id: commit.id().to_string(),
+        short_id,
+        summary,
+        message,
+        author,
+        committer,
+        files,
+    })
+}
+
+pub async fn read_commit_details(
+    worktree_path: &Path,
+    commit_id: &str,
+) -> Result<GitCommitDetails, GitCommitDetailsError> {
+    let worktree_path = worktree_path.to_path_buf();
+    let commit_id = commit_id.to_string();
+    tokio::task::spawn_blocking(move || read_commit_details_git2(&worktree_path, &commit_id))
+        .await
+        .map_err(|_| GitCommitDetailsError::Internal)?
+}
+
+fn read_staged_files(repo: &Repository) -> Result<Vec<GitFileChange>, GitError> {
+    let index = repo.index().map_err(to_git_error)?;
+    let old_tree = head_tree(repo)?;
+    let mut options = diff_options(false, true);
+    let mut diff = repo
+        .diff_tree_to_index(old_tree.as_ref(), Some(&index), Some(&mut options))
+        .map_err(to_git_error)?;
+    let mut find_options = diff_find_options(false, true);
+    diff.find_similar(Some(&mut find_options))
+        .map_err(to_git_error)?;
+    Ok(collect_diff_changes(&diff))
+}
+
+fn read_unstaged_files(repo: &Repository) -> Result<Vec<GitFileChange>, GitError> {
+    let index = repo.index().map_err(to_git_error)?;
+    let mut options = diff_options(true, false);
+    let mut diff = repo
+        .diff_index_to_workdir(Some(&index), Some(&mut options))
+        .map_err(to_git_error)?;
+    let mut find_options = diff_find_options(true, false);
+    diff.find_similar(Some(&mut find_options))
+        .map_err(to_git_error)?;
+    Ok(collect_diff_changes(&diff))
+}
+
+fn commit_summary(commit: &git2::Commit<'_>) -> GitCommitSummary {
+    GitCommitSummary {
+        id: commit.id().to_string(),
+        short_id: commit.id().to_string()[..7.min(commit.id().to_string().len())].to_string(),
+        summary: commit
+            .summary()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .unwrap_or("(no commit message)")
+            .to_string(),
+    }
+}
+
+fn read_ahead_commits(
+    repo: &Repository,
+    source_ref: Option<&str>,
+) -> Result<(usize, Vec<GitCommitSummary>, bool, Option<String>), GitError> {
+    let Some(source_ref) = source_ref else {
+        return Ok((0, Vec::new(), false, None));
+    };
+
+    let head = repo.head().map_err(to_git_error)?;
+    let head_oid = head.target().ok_or_else(|| GitError {
+        message: "HEAD does not point to a commit".to_string(),
+    })?;
+    let source_oid = match repo.revparse_single(source_ref) {
+        Ok(object) => object.id(),
+        Err(err) => {
+            return Ok((0, Vec::new(), true, Some(err.to_string())));
+        }
+    };
+
+    let (ahead_count, _) = repo
+        .graph_ahead_behind(head_oid, source_oid)
+        .map_err(to_git_error)?;
+    let mut walk = repo.revwalk().map_err(to_git_error)?;
+    walk.set_sorting(Sort::TIME).map_err(to_git_error)?;
+    walk.push(head_oid).map_err(to_git_error)?;
+    walk.hide(source_oid).map_err(to_git_error)?;
+
+    let mut ahead_commits = Vec::new();
+    for oid in walk.take(100) {
+        let oid = oid.map_err(to_git_error)?;
+        let commit = repo.find_commit(oid).map_err(to_git_error)?;
+        ahead_commits.push(commit_summary(&commit));
+    }
+
+    Ok((ahead_count, ahead_commits, true, None))
+}
+
+pub fn worktree_id(path: &Path) -> String {
+    Uuid::new_v5(&WORKTREE_NAMESPACE, path.to_string_lossy().as_bytes()).to_string()
+}
+
+pub fn resolve_git_metadata_watch_paths(worktree_path: &Path) -> Result<Vec<PathBuf>, GitError> {
+    let repo = discover_repo(worktree_path)?;
+    let mut paths = BTreeSet::new();
+    for path in [repo.path().to_path_buf(), repo.commondir().to_path_buf()] {
+        paths.insert(canonicalize_or(&path));
+    }
+    Ok(paths.into_iter().collect())
+}
+
+fn resolve_local_root_git2(path: &Path) -> Result<PathBuf, GitError> {
+    let repo = discover_repo(path)?;
+    if let Some(workdir) = repo.workdir() {
+        return Ok(canonicalize_or(workdir));
+    }
+
+    let common_dir = repo.commondir();
+    if common_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name == ".git")
+        && let Some(parent) = common_dir.parent()
+    {
+        return Ok(canonicalize_or(parent));
+    }
+
+    Ok(canonicalize_or(repo.path()))
+}
+
+pub async fn resolve_local_root(path: &Path) -> Result<PathBuf, GitError> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || resolve_local_root_git2(&path))
+        .await
+        .map_err(|_| GitError {
+            message: "failed to join git root task".to_string(),
+        })?
+}
+
+fn list_worktrees_git2(local_root: &Path) -> Result<Vec<GitWorktree>, GitError> {
+    let repo = open_repo(local_root)?;
+    let local_path = repo
+        .workdir()
+        .map(canonicalize_or)
+        .unwrap_or_else(|| local_root.to_path_buf());
+    let mut worktrees = vec![GitWorktree {
+        path: local_path,
+        branch: short_head_name(&repo)?,
+    }];
+
+    let mut linked = Vec::new();
+    let names = repo.worktrees().map_err(to_git_error)?;
+    for name in names.iter().flatten() {
+        let worktree = repo.find_worktree(name).map_err(to_git_error)?;
+        let path = canonicalize_or(worktree.path());
+        let branch = Repository::open_from_worktree(&worktree)
+            .ok()
+            .and_then(|repo| short_head_name(&repo).ok())
+            .flatten();
+        linked.push(GitWorktree { path, branch });
+    }
+
+    linked.sort_by(|a, b| a.path.cmp(&b.path));
+    worktrees.extend(linked);
+    Ok(worktrees)
+}
+
+pub async fn list_worktrees(local_root: &Path) -> Result<Vec<GitWorktree>, GitError> {
+    let local_root = local_root.to_path_buf();
+    tokio::task::spawn_blocking(move || list_worktrees_git2(&local_root))
+        .await
+        .map_err(|_| GitError {
+            message: "failed to join worktree list task".to_string(),
+        })?
+}
+
+fn peel_start_point<'repo>(
+    repo: &'repo Repository,
+    start_point: Option<&str>,
+) -> Result<git2::Commit<'repo>, GitError> {
+    match start_point {
+        Some(start_point) => repo
+            .revparse_single(start_point)
+            .and_then(|object| object.peel_to_commit())
+            .map_err(to_git_error),
+        None => repo
+            .head()
+            .and_then(|head| head.peel_to_commit())
+            .map_err(to_git_error),
+    }
+}
+
+fn create_worktree_git2(
+    local_root: &Path,
+    branch: &str,
+    target_path: &Path,
+    start_point: Option<&str>,
+) -> Result<(), GitError> {
+    let repo = open_repo(local_root)?;
+    let target_commit = peel_start_point(&repo, start_point)?;
+    let branch = repo
+        .branch(branch, &target_commit, false)
+        .map_err(to_git_error)?;
+    let reference = branch.into_reference();
+    let mut options = WorktreeAddOptions::new();
+    options.reference(Some(&reference));
+
+    if let Err(err) = repo.worktree(
+        reference.shorthand().unwrap_or_default(),
+        target_path,
+        Some(&options),
+    ) {
+        if let Ok(mut created_branch) =
+            repo.find_branch(reference.shorthand().unwrap_or_default(), BranchType::Local)
+        {
+            let _ = created_branch.get_mut().delete();
+        }
+        return Err(to_git_error(err));
+    }
+
+    Ok(())
+}
+
+pub async fn create_worktree(
+    local_root: &Path,
+    branch: &str,
+    target_path: &Path,
+    start_point: Option<&str>,
+) -> Result<(), GitError> {
+    if let Some(parent) = target_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| GitError {
+                message: format!("failed to create parent directories: {e}"),
+            })?;
+    }
+
+    let local_root = local_root.to_path_buf();
+    let branch = branch.to_string();
+    let target_path = target_path.to_path_buf();
+    let start_point = start_point.map(str::to_string);
+    tokio::task::spawn_blocking(move || {
+        create_worktree_git2(&local_root, &branch, &target_path, start_point.as_deref())
+    })
+    .await
+    .map_err(|_| GitError {
+        message: "failed to join create worktree task".to_string(),
+    })?
+}
+
+fn commit_timestamp_for_reference(
+    reference: &Reference<'_>,
+) -> Result<(String, String, i64), GitError> {
+    let commit = reference.peel_to_commit().map_err(to_git_error)?;
+    Ok((
+        reference.shorthand().unwrap_or_default().to_string(),
+        commit.id().to_string(),
+        commit.time().seconds(),
+    ))
+}
+
+fn list_branch_start_points_git2(local_root: &Path) -> Result<Vec<GitStartPoint>, GitError> {
+    let repo = open_repo(local_root)?;
+    let mut seen = HashSet::new();
+    let mut start_points = Vec::new();
+
+    for branch_type in [BranchType::Local, BranchType::Remote] {
+        let branches = repo.branches(Some(branch_type)).map_err(to_git_error)?;
+        for branch in branches {
+            let (branch, branch_kind) = branch.map_err(to_git_error)?;
+            let name = branch
+                .name()
+                .map_err(to_git_error)?
+                .unwrap_or_default()
+                .to_string();
+            if name.is_empty()
+                || matches!(branch_kind, BranchType::Remote) && name.ends_with("/HEAD")
+                || !seen.insert(name.clone())
+            {
+                continue;
+            }
+
+            let (name, sha, commit_timestamp) = commit_timestamp_for_reference(branch.get())?;
+            start_points.push(GitStartPoint {
+                name,
+                kind: match branch_kind {
+                    BranchType::Local => GitStartPointKind::Local,
+                    BranchType::Remote => GitStartPointKind::Remote,
+                },
+                sha,
+                commit_timestamp,
+            });
+        }
+    }
+
+    start_points.sort_by(|a, b| {
+        b.commit_timestamp
+            .cmp(&a.commit_timestamp)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.kind.cmp(&b.kind))
+    });
+    Ok(start_points)
+}
+
+pub async fn list_branch_start_points(local_root: &Path) -> Result<Vec<GitStartPoint>, GitError> {
+    let local_root = local_root.to_path_buf();
+    tokio::task::spawn_blocking(move || list_branch_start_points_git2(&local_root))
+        .await
+        .map_err(|_| GitError {
+            message: "failed to join branch start points task".to_string(),
+        })?
+}
+
+fn current_branch_git2(local_root: &Path) -> Result<Option<String>, GitError> {
+    let repo = open_repo(local_root)?;
+    short_head_name(&repo)
+}
+
+pub async fn current_branch(local_root: &Path) -> Result<Option<String>, GitError> {
+    let local_root = local_root.to_path_buf();
+    tokio::task::spawn_blocking(move || current_branch_git2(&local_root))
+        .await
+        .map_err(|_| GitError {
+            message: "failed to join current branch task".to_string(),
+        })?
+}
+
+fn find_worktree_by_path(
+    repo: &Repository,
+    worktree_path: &Path,
+) -> Result<git2::Worktree, GitError> {
+    let target = canonicalize_or(worktree_path);
+    let names = repo.worktrees().map_err(to_git_error)?;
+    for name in names.iter().flatten() {
+        let worktree = repo.find_worktree(name).map_err(to_git_error)?;
+        if canonicalize_or(worktree.path()) == target {
+            return Ok(worktree);
+        }
+    }
+
+    Err(GitError {
+        message: "worktree not found".to_string(),
+    })
+}
+
+fn remove_worktree_git2(
+    local_root: &Path,
+    worktree_path: &Path,
+    force: bool,
+) -> Result<(), GitError> {
+    let repo = open_repo(local_root)?;
+    if !force {
+        let status = read_worktree_status(worktree_path, None)?;
+        if !status.unstaged_files.is_empty() || !status.staged_files.is_empty() {
+            return Err(GitError {
+                message: "worktree has uncommitted changes".to_string(),
+            });
+        }
+    }
+    let worktree = find_worktree_by_path(&repo, worktree_path)?;
+    if !force
+        && !matches!(
+            worktree.is_locked().map_err(to_git_error)?,
+            WorktreeLockStatus::Unlocked
+        )
+    {
+        return Err(GitError {
+            message: "worktree is locked".to_string(),
+        });
+    }
+    let mut options = WorktreePruneOptions::new();
+    options.valid(true).working_tree(true);
+    if force {
+        options.locked(true);
+    }
+    worktree.prune(Some(&mut options)).map_err(to_git_error)
+}
+
+pub async fn remove_worktree(
+    local_root: &Path,
+    worktree_path: &Path,
+    force: bool,
+) -> Result<(), GitError> {
+    let local_root = local_root.to_path_buf();
+    let worktree_path = worktree_path.to_path_buf();
+    tokio::task::spawn_blocking(move || remove_worktree_git2(&local_root, &worktree_path, force))
+        .await
+        .map_err(|_| GitError {
+            message: "failed to join remove worktree task".to_string(),
+        })?
+}
+
+fn stage_worktree_path_git2(
+    worktree_path: &Path,
+    relative_path: &str,
+    original_path: Option<&str>,
+) -> Result<Vec<String>, GitPathActionError> {
+    let repo = open_repo(worktree_path).map_err(map_git_path_error)?;
+    let paths = normalized_git_action_paths(relative_path, original_path)?;
+    let path_vec: Vec<String> = paths.iter().cloned().collect();
+    let mut index = repo.index().map_err(map_git2_path_error)?;
+    index
+        .add_all(
+            path_vec.iter().map(String::as_str),
+            IndexAddOption::DEFAULT | IndexAddOption::CHECK_PATHSPEC,
+            None,
+        )
+        .map_err(map_git2_path_error)?;
+    index.write().map_err(map_git2_path_error)?;
+    Ok(invalidated_parent_paths(&paths))
+}
+
+pub async fn stage_worktree_path(
+    worktree_path: &Path,
+    relative_path: &str,
+    original_path: Option<&str>,
+) -> Result<Vec<String>, GitPathActionError> {
+    let worktree_path = worktree_path.to_path_buf();
+    let relative_path = relative_path.to_string();
+    let original_path = original_path.map(str::to_string);
+    tokio::task::spawn_blocking(move || {
+        stage_worktree_path_git2(&worktree_path, &relative_path, original_path.as_deref())
+    })
+    .await
+    .map_err(|_| GitPathActionError::Internal)?
+}
+
+fn unstage_worktree_path_git2(
+    worktree_path: &Path,
+    relative_path: &str,
+    original_path: Option<&str>,
+) -> Result<Vec<String>, GitPathActionError> {
+    let repo = open_repo(worktree_path).map_err(map_git_path_error)?;
+    let paths = normalized_git_action_paths(relative_path, original_path)?;
+    let path_vec: Vec<String> = paths.iter().cloned().collect();
+    let head = match repo.head() {
+        Ok(head) => Some(
+            head.peel_to_commit()
+                .and_then(|commit| repo.find_object(commit.id(), None))
+                .map_err(map_git2_path_error)?,
+        ),
+        Err(err) if is_unborn_or_missing_head(&err) => None,
+        Err(err) => return Err(map_git2_path_error(err)),
+    };
+    repo.reset_default(head.as_ref(), path_vec.iter().map(String::as_str))
+        .map_err(map_git2_path_error)?;
+    Ok(invalidated_parent_paths(&paths))
+}
+
+pub async fn unstage_worktree_path(
+    worktree_path: &Path,
+    relative_path: &str,
+    original_path: Option<&str>,
+) -> Result<Vec<String>, GitPathActionError> {
+    let worktree_path = worktree_path.to_path_buf();
+    let relative_path = relative_path.to_string();
+    let original_path = original_path.map(str::to_string);
+    tokio::task::spawn_blocking(move || {
+        unstage_worktree_path_git2(&worktree_path, &relative_path, original_path.as_deref())
+    })
+    .await
+    .map_err(|_| GitPathActionError::Internal)?
+}
+
+fn status_entry_old_new_paths(entry: &StatusEntry<'_>) -> (Option<String>, Option<String>) {
+    if let Some(delta) = entry.index_to_workdir() {
+        return (
+            diff_path(delta.old_file().path()),
+            diff_path(delta.new_file().path()),
+        );
+    }
+    let path = entry.path().map(str::to_string);
+    (path.clone(), path)
+}
+
+fn remove_untracked_path(path: &Path) -> Result<(), GitPathActionError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.is_dir() {
+                std::fs::remove_dir_all(path).map_err(|error| match error.kind() {
+                    std::io::ErrorKind::NotFound => GitPathActionError::NotFound,
+                    std::io::ErrorKind::PermissionDenied => GitPathActionError::PermissionDenied,
+                    _ => GitPathActionError::Internal,
+                })
+            } else {
+                std::fs::remove_file(path).map_err(|error| match error.kind() {
+                    std::io::ErrorKind::NotFound => GitPathActionError::NotFound,
+                    std::io::ErrorKind::PermissionDenied => GitPathActionError::PermissionDenied,
+                    _ => GitPathActionError::Internal,
+                })
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            Err(GitPathActionError::PermissionDenied)
+        }
+        Err(_) => Err(GitPathActionError::Internal),
+    }
 }
 
 fn prune_empty_parent_dirs(
@@ -500,605 +935,66 @@ fn prune_empty_parent_dirs(
     Ok(())
 }
 
-fn map_index_worktree_change(item: &gix::status::index_worktree::Item) -> Option<GitFileChange> {
-    use gix::status::index_worktree::{Item, iter::Summary};
-
-    let change_type = match item.summary()? {
-        Summary::Added | Summary::IntentToAdd => GitFileChangeType::Untracked,
-        Summary::Copied => GitFileChangeType::Copied,
-        Summary::Renamed => GitFileChangeType::Renamed,
-        Summary::Conflict => GitFileChangeType::Conflict,
-        Summary::Modified => GitFileChangeType::Modified,
-        Summary::Removed => GitFileChangeType::Deleted,
-        Summary::TypeChange => GitFileChangeType::Typechange,
-    };
-
-    let (path, original_path) = match item {
-        Item::Modification { rela_path, .. } => (bytes_to_string(rela_path), None),
-        Item::DirectoryContents { entry, .. } => (bytes_to_string(&entry.rela_path), None),
-        Item::Rewrite {
-            source,
-            dirwalk_entry,
-            ..
-        } => (
-            bytes_to_string(&dirwalk_entry.rela_path),
-            Some(bytes_to_string(source.rela_path())),
-        ),
-    };
-
-    Some(GitFileChange {
-        path,
-        original_path,
-        change_type,
-    })
-}
-
-fn map_tree_index_change(
-    change: gix::diff::index::ChangeRef<'_, '_>,
-    tree_index: &gix::index::State,
-) -> Option<GitFileChange> {
-    use gix::diff::index::ChangeRef;
-
-    let (path, original_path, change_type) = match change {
-        ChangeRef::Addition { location, .. } => (
-            bytes_to_string(location.as_ref()),
-            None,
-            GitFileChangeType::Added,
-        ),
-        ChangeRef::Deletion { location, .. } => (
-            bytes_to_string(location.as_ref()),
-            None,
-            GitFileChangeType::Deleted,
-        ),
-        ChangeRef::Modification {
-            location,
-            previous_entry_mode,
-            entry_mode,
-            ..
-        } => {
-            let change_type = if previous_entry_mode != entry_mode {
-                GitFileChangeType::Typechange
-            } else {
-                GitFileChangeType::Modified
-            };
-            (bytes_to_string(location.as_ref()), None, change_type)
-        }
-        ChangeRef::Rewrite {
-            source_index,
-            location,
-            copy,
-            ..
-        } => (
-            bytes_to_string(location.as_ref()),
-            tree_index
-                .entries()
-                .get(source_index)
-                .map(|entry| bytes_to_string(entry.path(tree_index).as_ref())),
-            if copy {
-                GitFileChangeType::Copied
-            } else {
-                GitFileChangeType::Renamed
-            },
-        ),
-    };
-
-    Some(GitFileChange {
-        path,
-        original_path,
-        change_type,
-    })
-}
-
-fn parse_staged_name_status(bytes: &[u8]) -> Vec<GitFileChange> {
-    let mut changes = Vec::new();
-    let mut tokens = split_nul_tokens(bytes).into_iter();
-
-    while let Some(status_token) = tokens.next() {
-        let Some(status) = status_token.chars().next() else {
-            continue;
-        };
-
-        let change_type = match status {
-            'A' => GitFileChangeType::Added,
-            'M' => GitFileChangeType::Modified,
-            'D' => GitFileChangeType::Deleted,
-            'T' => GitFileChangeType::Typechange,
-            'U' => GitFileChangeType::Conflict,
-            'R' => GitFileChangeType::Renamed,
-            'C' => GitFileChangeType::Copied,
-            _ => continue,
-        };
-
-        let (path, original_path) = if matches!(status, 'R' | 'C') {
-            let Some(original_path) = tokens.next() else {
-                break;
-            };
-            let Some(path) = tokens.next() else {
-                break;
-            };
-            (path, Some(original_path))
-        } else {
-            let Some(path) = tokens.next() else {
-                break;
-            };
-            (path, None)
-        };
-
-        changes.push(GitFileChange {
-            path,
-            original_path,
-            change_type,
-        });
-    }
-
-    changes
-}
-
-fn read_staged_files_from_cli(worktree_path: &Path) -> Result<Vec<GitFileChange>, GitError> {
-    let cwd = worktree_path.to_string_lossy().to_string();
-    let output = std::process::Command::new("git")
-        .args([
-            "-C",
-            &cwd,
-            "diff",
-            "--cached",
-            "--name-status",
-            "-z",
-            "--find-renames",
-            "--find-copies-harder",
-        ])
-        .output()
-        .map_err(|e| GitError {
-            message: format!("failed to run git: {e}"),
-        })?;
-
-    if !output.status.success() {
-        let stderr = trim_output(&output.stderr);
-        let stdout = trim_output(&output.stdout);
-        return Err(GitError {
-            message: if stderr.is_empty() {
-                if stdout.is_empty() {
-                    "git command failed".to_string()
-                } else {
-                    stdout
-                }
-            } else {
-                stderr
-            },
-        });
-    }
-
-    let mut staged_files = parse_staged_name_status(&output.stdout);
-    staged_files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(staged_files)
-}
-
-fn read_staged_files(
-    repo: &gix::Repository,
-    worktree_path: &Path,
-) -> Result<Vec<GitFileChange>, GitError> {
-    let head_tree_id = repo.head_tree_id_or_empty().map_err(to_git_error)?.detach();
-    let index = repo.index_or_empty().map_err(to_git_error)?;
-    let staged_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut staged_files = Vec::new();
-        repo.tree_index_status(
-            &head_tree_id,
-            &index,
-            None,
-            gix::status::tree_index::TrackRenames::Given(rewrite_tracking()),
-            |change, tree_index, _| {
-                if let Some(change) = map_tree_index_change(change, tree_index) {
-                    staged_files.push(change);
-                }
-                Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Continue(()))
-            },
-        )
-        .map_err(to_git_error)?;
-        staged_files.sort_by(|a, b| a.path.cmp(&b.path));
-        Ok::<_, GitError>(staged_files)
-    }));
-
-    match staged_result {
-        Ok(Ok(files)) if !files.is_empty() => Ok(files),
-        Ok(Ok(_)) => read_staged_files_from_cli(worktree_path),
-        Ok(Err(error)) => {
-            tracing::warn!(
-                "gix tree_index_status staged read failed, falling back to \
-                 git diff: {error}"
-            );
-            read_staged_files_from_cli(worktree_path)
-        }
-        Err(_) => {
-            tracing::warn!(
-                "gix tree_index_status panicked during staged read, falling \
-                 back to git diff"
-            );
-            read_staged_files_from_cli(worktree_path)
-        }
-    }
-}
-
-fn commit_summary(commit: &gix::Commit<'_>) -> Result<GitCommitSummary, GitError> {
-    let id = commit.id.to_string();
-    let short_id = commit.short_id().map_err(to_git_error)?.to_string();
-    let summary = String::from_utf8_lossy(commit.message_raw_sloppy().as_ref())
-        .lines()
-        .next()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .unwrap_or("(no commit message)")
-        .to_string();
-
-    Ok(GitCommitSummary {
-        id,
-        short_id,
-        summary,
-    })
-}
-
-fn read_ahead_commits(
-    repo: &gix::Repository,
-    source_ref: Option<&str>,
-) -> Result<(usize, Vec<GitCommitSummary>, bool, Option<String>), GitError> {
-    let Some(source_ref) = source_ref else {
-        return Ok((0, Vec::new(), false, None));
-    };
-
-    let head_id = repo.head_id().map_err(to_git_error)?;
-    let source_id = match repo.rev_parse_single(source_ref) {
-        Ok(spec) => spec.detach(),
-        Err(err) => {
-            return Ok((0, Vec::new(), true, Some(err.to_string())));
-        }
-    };
-
-    let mut walk = repo
-        .rev_walk([head_id.detach()])
-        .with_hidden([source_id])
-        .sorting(gix::revision::walk::Sorting::ByCommitTime(
-            gix::traverse::commit::simple::CommitTimeOrder::NewestFirst,
-        ))
-        .all()
-        .map_err(to_git_error)?;
-
-    let mut ahead_count = 0;
-    let mut ahead_commits = Vec::new();
-
-    for info in &mut walk {
-        let info = info.map_err(to_git_error)?;
-        ahead_count += 1;
-        if ahead_commits.len() >= 100 {
-            continue;
-        }
-
-        let commit = repo.find_commit(info.id).map_err(to_git_error)?;
-        ahead_commits.push(commit_summary(&commit)?);
-    }
-
-    Ok((ahead_count, ahead_commits, true, None))
-}
-
-async fn run_git(args: &[&str]) -> Result<String, GitError> {
-    let output = Command::new("git")
-        .args(args)
-        .output()
-        .await
-        .map_err(|e| GitError {
-            message: format!("failed to run git: {e}"),
-        })?;
-
-    if output.status.success() {
-        Ok(trim_output(&output.stdout))
-    } else {
-        let stderr = trim_output(&output.stderr);
-        let stdout = trim_output(&output.stdout);
-        Err(GitError {
-            message: if stderr.is_empty() {
-                if stdout.is_empty() {
-                    "git command failed".to_string()
-                } else {
-                    stdout
-                }
-            } else {
-                stderr
-            },
-        })
-    }
-}
-
-pub fn worktree_id(path: &Path) -> String {
-    Uuid::new_v5(&WORKTREE_NAMESPACE, path.to_string_lossy().as_bytes()).to_string()
-}
-
-pub fn resolve_git_metadata_watch_paths(worktree_path: &Path) -> Result<Vec<PathBuf>, GitError> {
-    let repo = gix::open(worktree_path).map_err(to_git_error)?;
-    let mut paths = BTreeSet::new();
-    for path in [
-        repo.git_dir().to_path_buf(),
-        repo.common_dir().to_path_buf(),
-    ] {
-        let canonical = std::fs::canonicalize(&path).unwrap_or(path);
-        paths.insert(canonical);
-    }
-
-    Ok(paths.into_iter().collect())
-}
-
-fn resolve_local_root_gix(path: &Path) -> Result<PathBuf, GitError> {
-    let repo = gix::open(path).map_err(to_git_error)?;
-    if let Some(workdir) = repo.workdir() {
-        return std::fs::canonicalize(workdir).map_err(|e| GitError {
-            message: format!("failed to canonicalize git top-level: {e}"),
-        });
-    }
-
-    let common_dir = repo.common_dir();
-    if common_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name == ".git")
-        && let Some(parent) = common_dir.parent()
-    {
-        return std::fs::canonicalize(parent).map_err(|e| GitError {
-            message: format!("failed to canonicalize git root: {e}"),
-        });
-    }
-
-    std::fs::canonicalize(repo.git_dir()).map_err(|e| GitError {
-        message: format!("failed to canonicalize git dir: {e}"),
-    })
-}
-
-pub async fn resolve_local_root(path: &Path) -> Result<PathBuf, GitError> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || resolve_local_root_gix(&path))
-        .await
-        .map_err(|_| GitError {
-            message: "failed to join git root task".to_string(),
-        })?
-}
-
-fn short_head_name(repo: &gix::Repository) -> Result<Option<String>, GitError> {
-    repo.head_name()
-        .map(|name| name.map(|name| bytes_to_string(name.shorten().as_ref())))
-        .map_err(to_git_error)
-}
-
-fn list_worktrees_gix(local_root: &Path) -> Result<Vec<GitWorktree>, GitError> {
-    let repo = gix::open(local_root).map_err(to_git_error)?;
-    let mut worktrees = Vec::new();
-
-    let local_path = repo
-        .workdir()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| local_root.to_path_buf());
-    let local_path = std::fs::canonicalize(&local_path).unwrap_or(local_path);
-    worktrees.push(GitWorktree {
-        path: local_path,
-        branch: short_head_name(&repo)?,
-    });
-
-    let mut linked_worktrees = Vec::new();
-    for proxy in repo.worktrees().map_err(to_git_error)? {
-        let base = proxy.base().map_err(to_git_error)?;
-        let path = std::fs::canonicalize(&base).unwrap_or(base);
-        let branch = proxy
-            .into_repo_with_possibly_inaccessible_worktree()
-            .ok()
-            .and_then(|repo| short_head_name(&repo).ok())
-            .flatten();
-        linked_worktrees.push(GitWorktree { path, branch });
-    }
-    linked_worktrees.sort_by(|a, b| a.path.cmp(&b.path));
-    worktrees.extend(linked_worktrees);
-
-    Ok(worktrees)
-}
-
-pub async fn list_worktrees(local_root: &Path) -> Result<Vec<GitWorktree>, GitError> {
-    let local_root = local_root.to_path_buf();
-    tokio::task::spawn_blocking(move || list_worktrees_gix(&local_root))
-        .await
-        .map_err(|_| GitError {
-            message: "failed to join worktree list task".to_string(),
-        })?
-}
-
-pub async fn create_worktree(
-    local_root: &Path,
-    branch: &str,
-    target_path: &Path,
-    start_point: Option<&str>,
-) -> Result<(), GitError> {
-    if let Some(parent) = target_path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| GitError {
-                message: format!("failed to create parent directories: {e}"),
-            })?;
-    }
-
-    let cwd = local_root.to_string_lossy().to_string();
-    let target = target_path.to_string_lossy().to_string();
-
-    let mut args = vec![
-        "-C".to_string(),
-        cwd,
-        "worktree".to_string(),
-        "add".to_string(),
-        "-b".to_string(),
-        branch.to_string(),
-        target,
-    ];
-    if let Some(start_point) = start_point {
-        args.push(start_point.to_string());
-    }
-
-    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run_git(&arg_refs).await.map(|_| ())
-}
-
-fn commit_timestamp_for_reference(
-    repo: &gix::Repository,
-    reference: &mut gix::Reference<'_>,
-) -> Result<i64, GitError> {
-    let commit_id = reference.peel_to_id().map_err(to_git_error)?.detach();
-    let commit = repo.find_commit(commit_id).map_err(to_git_error)?;
-    Ok(commit.time().map_err(to_git_error)?.seconds)
-}
-
-fn list_branch_start_points_gix(local_root: &Path) -> Result<Vec<GitStartPoint>, GitError> {
-    let repo = gix::open(local_root).map_err(to_git_error)?;
-    let references = repo.references().map_err(to_git_error)?;
-    let mut seen = HashSet::new();
-    let mut start_points = Vec::new();
-
-    for item in references.local_branches().map_err(to_git_error)? {
-        let mut reference = item.map_err(to_git_error)?;
-        let name = bytes_to_string(reference.name().shorten().as_ref());
-        if name.is_empty() || !seen.insert(name.clone()) {
-            continue;
-        }
-        let commit_timestamp = commit_timestamp_for_reference(&repo, &mut reference)?;
-        let sha = reference.peel_to_id().map_err(to_git_error)?.to_string();
-        start_points.push(GitStartPoint {
-            name,
-            kind: GitStartPointKind::Local,
-            sha,
-            commit_timestamp,
-        });
-    }
-
-    for item in references.remote_branches().map_err(to_git_error)? {
-        let mut reference = item.map_err(to_git_error)?;
-        let name = bytes_to_string(reference.name().shorten().as_ref());
-        if name.is_empty() || name.ends_with("/HEAD") || !seen.insert(name.clone()) {
-            continue;
-        }
-        let commit_timestamp = commit_timestamp_for_reference(&repo, &mut reference)?;
-        let sha = reference.peel_to_id().map_err(to_git_error)?.to_string();
-        start_points.push(GitStartPoint {
-            name,
-            kind: GitStartPointKind::Remote,
-            sha,
-            commit_timestamp,
-        });
-    }
-
-    start_points.sort_by(|a, b| {
-        b.commit_timestamp
-            .cmp(&a.commit_timestamp)
-            .then_with(|| a.name.cmp(&b.name))
-            .then_with(|| a.kind.cmp(&b.kind))
-    });
-
-    Ok(start_points)
-}
-
-pub async fn list_branch_start_points(local_root: &Path) -> Result<Vec<GitStartPoint>, GitError> {
-    let local_root = local_root.to_path_buf();
-    tokio::task::spawn_blocking(move || list_branch_start_points_gix(&local_root))
-        .await
-        .map_err(|_| GitError {
-            message: "failed to join branch start points task".to_string(),
-        })?
-}
-
-fn current_branch_gix(local_root: &Path) -> Result<Option<String>, GitError> {
-    let repo = gix::open(local_root).map_err(to_git_error)?;
-    short_head_name(&repo)
-}
-
-pub async fn current_branch(local_root: &Path) -> Result<Option<String>, GitError> {
-    let local_root = local_root.to_path_buf();
-    tokio::task::spawn_blocking(move || current_branch_gix(&local_root))
-        .await
-        .map_err(|_| GitError {
-            message: "failed to join current branch task".to_string(),
-        })?
-}
-
-pub async fn remove_worktree(
-    local_root: &Path,
-    worktree_path: &Path,
-    force: bool,
-) -> Result<(), GitError> {
-    let cwd = local_root.to_string_lossy().to_string();
-    let target = worktree_path.to_string_lossy().to_string();
-    let mut args = vec!["-C", &cwd, "worktree", "remove"];
-    if force {
-        args.push("--force");
-    }
-    args.push(&target);
-    run_git(&args).await.map(|_| ())
-}
-
-pub async fn stage_worktree_path(
-    worktree_path: &Path,
-    relative_path: &str,
-    original_path: Option<&str>,
-) -> Result<Vec<String>, GitPathActionError> {
-    let paths = normalized_git_action_paths(relative_path, original_path)?;
-    let path_vec: Vec<String> = paths.iter().cloned().collect();
-    let mut args = vec!["add", "--"];
-    args.extend(path_vec.iter().map(String::as_str));
-    run_git_in_worktree(worktree_path, &args).await?;
-    Ok(invalidated_parent_paths(&paths))
-}
-
-pub async fn unstage_worktree_path(
-    worktree_path: &Path,
-    relative_path: &str,
-    original_path: Option<&str>,
-) -> Result<Vec<String>, GitPathActionError> {
-    let paths = normalized_git_action_paths(relative_path, original_path)?;
-    let path_vec: Vec<String> = paths.iter().cloned().collect();
-    let mut args = vec!["restore", "--staged", "--"];
-    args.extend(path_vec.iter().map(String::as_str));
-    run_git_in_worktree(worktree_path, &args).await?;
-    Ok(invalidated_parent_paths(&paths))
-}
-
-pub async fn discard_worktree_path(
+fn discard_worktree_path_git2(
     worktree_path: &Path,
     relative_path: &str,
 ) -> Result<Vec<String>, GitPathActionError> {
+    let repo = open_repo(worktree_path).map_err(map_git_path_error)?;
     let relative_path = normalize_relative_git_path(relative_path)?;
-    let statuses = read_porcelain_status(worktree_path, &relative_path).await?;
+    let mut status_options = git2::StatusOptions::new();
+    status_options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .renames_index_to_workdir(true)
+        .renames_from_rewrites(true)
+        .pathspec(&relative_path);
+    let statuses = repo
+        .statuses(Some(&mut status_options))
+        .map_err(map_git2_path_error)?;
 
     let mut restore_paths = BTreeSet::new();
     let mut clean_paths = BTreeSet::new();
     let mut invalidated_paths = BTreeSet::from([relative_path.clone()]);
 
-    for entry in statuses {
-        invalidated_paths.insert(entry.path.clone());
-        if let Some(original_path) = entry.original_path.clone() {
-            invalidated_paths.insert(original_path.clone());
-        }
-
-        if is_unmerged_status(&entry) {
+    for entry in &statuses {
+        let status = entry.status();
+        if status.contains(Status::CONFLICTED) {
             return Err(GitPathActionError::Conflict);
         }
 
-        if entry.index_status == '?' && entry.worktree_status == '?' {
-            clean_paths.insert(entry.path);
-            continue;
+        let (old_path, new_path) = status_entry_old_new_paths(&entry);
+        if let Some(old_path) = old_path.as_ref() {
+            invalidated_paths.insert(old_path.clone());
+        }
+        if let Some(new_path) = new_path.clone() {
+            invalidated_paths.insert(new_path);
         }
 
-        if !status_contains_worktree_change(&entry) {
-            continue;
-        }
-
-        if matches!(entry.worktree_status, 'R' | 'C') {
-            if let Some(original_path) = entry.original_path {
-                restore_paths.insert(original_path);
+        if status.contains(Status::WT_RENAMED) {
+            if let Some(old_path) = old_path {
+                restore_paths.insert(old_path);
             }
-            clean_paths.insert(entry.path);
+            if let Some(new_path) = new_path {
+                clean_paths.insert(new_path);
+            }
             continue;
         }
 
-        if is_tracked_path(&entry) {
-            restore_paths.insert(entry.path);
+        if status.contains(Status::WT_NEW) {
+            if let Some(new_path) = new_path.or(old_path) {
+                clean_paths.insert(new_path);
+            }
+            continue;
+        }
+
+        if status.intersects(
+            Status::WT_MODIFIED
+                | Status::WT_DELETED
+                | Status::WT_TYPECHANGE
+                | Status::WT_UNREADABLE,
+        ) && let Some(path) = new_path.or(old_path)
+        {
+            restore_paths.insert(path);
         }
     }
 
@@ -1111,48 +1007,44 @@ pub async fn discard_worktree_path(
     }
 
     if !restore_paths.is_empty() {
-        let restore_vec: Vec<String> = restore_paths.into_iter().collect();
-        let mut restore_args = vec!["restore", "--worktree", "--"];
-        restore_args.extend(restore_vec.iter().map(String::as_str));
-        run_git_in_worktree(worktree_path, &restore_args).await?;
+        let mut checkout = CheckoutBuilder::new();
+        checkout.force().disable_pathspec_match(true);
+        for path in &restore_paths {
+            checkout.path(path);
+        }
+        repo.checkout_index(None, Some(&mut checkout))
+            .map_err(map_git2_path_error)?;
     }
 
     if !clean_paths.is_empty() {
-        let clean_vec: Vec<String> = clean_paths.into_iter().collect();
-        let mut clean_args = vec!["clean", "-fd", "--"];
-        clean_args.extend(clean_vec.iter().map(String::as_str));
-        run_git_in_worktree(worktree_path, &clean_args).await?;
-        prune_empty_parent_dirs(worktree_path, &relative_path, &clean_vec)?;
+        let cleaned_paths = clean_paths.iter().cloned().collect::<Vec<_>>();
+        for path in &cleaned_paths {
+            remove_untracked_path(&worktree_path.join(path))?;
+        }
+        prune_empty_parent_dirs(worktree_path, &relative_path, &cleaned_paths)?;
     }
 
     Ok(invalidated_parent_paths(&invalidated_paths))
+}
+
+pub async fn discard_worktree_path(
+    worktree_path: &Path,
+    relative_path: &str,
+) -> Result<Vec<String>, GitPathActionError> {
+    let worktree_path = worktree_path.to_path_buf();
+    let relative_path = relative_path.to_string();
+    tokio::task::spawn_blocking(move || discard_worktree_path_git2(&worktree_path, &relative_path))
+        .await
+        .map_err(|_| GitPathActionError::Internal)?
 }
 
 pub fn read_worktree_status(
     worktree_path: &Path,
     source_ref: Option<&str>,
 ) -> Result<WorktreeGitStatus, GitError> {
-    let repo = gix::open(worktree_path).map_err(to_git_error)?;
-    let mut status = repo
-        .status(gix::progress::Discard)
-        .map_err(to_git_error)?
-        .untracked_files(gix::status::UntrackedFiles::Files)
-        .index_worktree_rewrites(Some(rewrite_tracking()))
-        .into_index_worktree_iter(Vec::<gix::bstr::BString>::new())
-        .map_err(to_git_error)?;
-
-    let mut unstaged_files = Vec::new();
-
-    for item in &mut status {
-        let change = item.map_err(to_git_error)?;
-        if let Some(change) = map_index_worktree_change(&change) {
-            unstaged_files.push(change);
-        }
-    }
-
-    unstaged_files.sort_by(|a, b| a.path.cmp(&b.path));
-    let staged_files = read_staged_files(&repo, worktree_path)?;
-
+    let repo = open_repo(worktree_path)?;
+    let unstaged_files = read_unstaged_files(&repo)?;
+    let staged_files = read_staged_files(&repo)?;
     let (ahead_count, ahead_commits, comparison_available, comparison_error) =
         read_ahead_commits(&repo, source_ref)?;
 
@@ -1256,31 +1148,7 @@ mod tests {
             &["worktree", "add", "-b", "feature", &worktree_path_str],
         );
 
-        let resolved = resolve_local_root_gix(&worktree_path).unwrap();
+        let resolved = resolve_local_root_git2(&worktree_path).unwrap();
         assert_eq!(resolved, std::fs::canonicalize(&worktree_path).unwrap());
-    }
-
-    #[test]
-    fn parse_staged_name_status_maps_rewrites_for_cli_fallback() {
-        let changes = parse_staged_name_status(
-            b"R100\0rename-source.txt\0rename-target.txt\0C100\0copy-source.txt\0copied-target.txt\0A\0added.txt\0",
-        );
-
-        assert_eq!(changes.len(), 3);
-
-        assert_eq!(changes[0].path, "rename-target.txt");
-        assert_eq!(
-            changes[0].original_path.as_deref(),
-            Some("rename-source.txt")
-        );
-        assert!(matches!(changes[0].change_type, GitFileChangeType::Renamed));
-
-        assert_eq!(changes[1].path, "copied-target.txt");
-        assert_eq!(changes[1].original_path.as_deref(), Some("copy-source.txt"));
-        assert!(matches!(changes[1].change_type, GitFileChangeType::Copied));
-
-        assert_eq!(changes[2].path, "added.txt");
-        assert_eq!(changes[2].original_path, None);
-        assert!(matches!(changes[2].change_type, GitFileChangeType::Added));
     }
 }
