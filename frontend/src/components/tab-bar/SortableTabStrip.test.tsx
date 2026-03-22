@@ -43,20 +43,66 @@ vi.mock("@dnd-kit/sortable", () => ({
   },
 }));
 
+vi.mock("@/lib/stores/theme", () => ({
+  useThemeSettings: (selector: (state: { activeTheme: null }) => unknown) =>
+    selector({ activeTheme: null }),
+}));
+
+vi.mock("@/lib/stores/worktreeFileManager", () => ({
+  useWorktreeFileManagerStore: (
+    selector: (state: { worktrees: Record<string, { gitStatus: null }> }) => unknown,
+  ) => selector({ worktrees: { w1: { gitStatus: null } } }),
+}));
+
+const presentTabMock = vi.fn((tab: TerminalTab) => ({
+  label: `${tab.label}!`,
+  title: `${tab.label} title`,
+  iconKind: "terminal" as const,
+  iconPath: undefined,
+  iconId: undefined,
+  toneClass: "text-amber-500",
+}));
+
+vi.mock("@/lib/tabPresentation", () => ({
+  presentTab: (tab: TerminalTab) => presentTabMock(tab),
+}));
+
 vi.mock("./SortableTab", () => ({
-  default: ({ label }: { label: string }) => <div>{label}</div>,
+  default: ({
+    label,
+    title,
+    iconKind,
+    toneClass,
+  }: {
+    label: string;
+    title?: string;
+    iconKind?: string;
+    toneClass?: string;
+  }) => <div>{`${label}:${title ?? ""}:${iconKind ?? ""}:${toneClass ?? ""}`}</div>,
 }));
 
 vi.mock("./SortableTabView", () => ({
   default: ({
     label,
+    title,
+    iconKind,
+    toneClass,
     isOverlay,
     width,
   }: {
     label: string;
+    title?: string;
+    iconKind?: string;
+    toneClass?: string;
     isOverlay?: boolean;
     width?: number | null;
-  }) => <div>{`overlay:${label}:${String(isOverlay)}:${width ?? "null"}`}</div>,
+  }) => (
+    <div>
+      {`overlay:${label}:${title ?? ""}:${iconKind ?? ""}:${toneClass ?? ""}:${String(
+        isOverlay,
+      )}:${width ?? "null"}`}
+    </div>
+  ),
 }));
 
 function makeTab(id: string, position: number): TerminalTab {
@@ -75,6 +121,7 @@ function makeTab(id: string, position: number): TerminalTab {
 describe("SortableTabStrip", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    presentTabMock.mockClear();
     capturedDndHandlers.onDragStart = undefined;
     capturedDndHandlers.onDragEnd = undefined;
     capturedDndHandlers.onDragCancel = undefined;
@@ -83,6 +130,7 @@ describe("SortableTabStrip", () => {
   it("shows the drag overlay on drag start", () => {
     render(
       <SortableTabStrip
+        worktreeId="w1"
         tabs={[makeTab("a", 1), makeTab("b", 2)]}
         activeTabId="a"
         tabListRef={createRef<HTMLDivElement>()}
@@ -107,7 +155,9 @@ describe("SortableTabStrip", () => {
       "data-tab-dragging",
       "true",
     );
-    expect(screen.getByText("overlay:Tab B:true:321")).toBeInTheDocument();
+    expect(
+      screen.getByText("overlay:Tab B!:Tab B title:terminal:text-amber-500:true:321"),
+    ).toBeInTheDocument();
   });
 
   it("reorders tabs on drag end and clears the overlay", () => {
@@ -115,6 +165,7 @@ describe("SortableTabStrip", () => {
 
     render(
       <SortableTabStrip
+        worktreeId="w1"
         tabs={[makeTab("a", 1), makeTab("b", 2)]}
         activeTabId="a"
         tabListRef={createRef<HTMLDivElement>()}
@@ -144,13 +195,16 @@ describe("SortableTabStrip", () => {
 
     expect(onReorder).toHaveBeenCalledWith(["b", "a"]);
     expect(
-      screen.queryByText("overlay:Tab B:true:321"),
+      screen.queryByText(
+        "overlay:Tab B!:Tab B title:terminal:text-amber-500:true:321",
+      ),
     ).not.toBeInTheDocument();
   });
 
   it("clears the overlay on drag cancel", () => {
     render(
       <SortableTabStrip
+        worktreeId="w1"
         tabs={[makeTab("a", 1), makeTab("b", 2)]}
         activeTabId="a"
         tabListRef={createRef<HTMLDivElement>()}
@@ -180,7 +234,9 @@ describe("SortableTabStrip", () => {
       "true",
     );
     expect(
-      screen.queryByText("overlay:Tab B:true:321"),
+      screen.queryByText(
+        "overlay:Tab B!:Tab B title:terminal:text-amber-500:true:321",
+      ),
     ).not.toBeInTheDocument();
   });
 });

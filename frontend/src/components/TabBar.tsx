@@ -117,6 +117,7 @@ export default function TabBar({
         ) : null}
 
         <SortableTabStrip
+          worktreeId={worktreeId}
           tabs={tabs}
           dirtyTabIds={dirtyTabIds}
           activeTabId={activeTabId}

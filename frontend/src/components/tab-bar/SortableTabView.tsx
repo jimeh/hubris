@@ -5,7 +5,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { X } from "lucide-react";
+import { Terminal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TabViewProps } from "./types";
 
@@ -14,6 +14,11 @@ const SortableTabView = memo(
     {
       tabId,
       label,
+      title,
+      iconKind,
+      iconPath,
+      iconId,
+      toneClass,
       isActive,
       preview = false,
       dirty = false,
@@ -69,6 +74,7 @@ const SortableTabView = memo(
       <div
         ref={ref}
         style={mergedStyle}
+        title={title}
         className={cn(
           "inline-flex cursor-default select-none items-center gap-1.5 whitespace-nowrap py-2 pl-3 pr-2.5 text-sm transition-colors",
           isActive
@@ -89,17 +95,34 @@ const SortableTabView = memo(
         onDoubleClick={handleDoubleClick}
         onKeyDown={handleKeyDown}
       >
+        {iconKind === "terminal" ? (
+          <Terminal
+            className="h-4 w-4 shrink-0 text-muted-foreground"
+            data-testid="tab-terminal-icon"
+            aria-hidden="true"
+          />
+        ) : iconKind === "material" && iconPath ? (
+          <img
+            src={iconPath}
+            alt=""
+            className="hubris-explorer-icon h-4 w-4 shrink-0 object-contain"
+            data-testid="tab-file-icon"
+            data-icon-id={iconId}
+            aria-hidden="true"
+            draggable={false}
+          />
+        ) : null}
         {dirty ? (
           <span
             className="h-2 w-2 shrink-0 rounded-full bg-sky-400"
             aria-hidden="true"
           />
         ) : null}
-        <span className={preview ? "italic" : undefined}>{label}</span>
+        <span className={cn(preview && "italic", toneClass)}>{label}</span>
         {isOverlay || !onCloseTab ? null : (
           <button
             type="button"
-            aria-label={`Close ${label}`}
+            aria-label={`Close ${title ?? label}`}
             className="rounded-sm opacity-60 hover:opacity-100"
             tabIndex={-1}
             onPointerDown={(event) => event.stopPropagation()}

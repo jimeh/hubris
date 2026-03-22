@@ -14,11 +14,15 @@ import {
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useMemo, useState, type RefObject, type UIEventHandler } from "react";
+import { useThemeSettings } from "@/lib/stores/theme";
+import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
+import { presentTab } from "@/lib/tabPresentation";
 import type { Tab } from "@/lib/types";
 import SortableTab from "./SortableTab";
 import SortableTabView from "./SortableTabView";
 
 type SortableTabStripProps = {
+  worktreeId: string;
   tabs: Tab[];
   activeTabId: string | null;
   tabListRef: RefObject<HTMLDivElement | null>;
@@ -31,6 +35,7 @@ type SortableTabStripProps = {
 };
 
 export default function SortableTabStrip({
+  worktreeId,
   tabs,
   activeTabId,
   tabListRef,
@@ -45,7 +50,18 @@ export default function SortableTabStrip({
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeDragWidth, setActiveDragWidth] = useState<number | null>(null);
   const dirtyTabIdSet = useMemo(() => new Set(dirtyTabIds), [dirtyTabIds]);
+  const theme = useThemeSettings((state) => state.activeTheme);
+  const gitStatus = useWorktreeFileManagerStore(
+    (state) => state.worktrees[worktreeId]?.gitStatus ?? null,
+  );
   const sortableItems = useMemo(() => tabs.map((tab) => tab.id), [tabs]);
+  const tabPresentations = useMemo(
+    () =>
+      Object.fromEntries(
+        tabs.map((tab) => [tab.id, presentTab(tab, theme, gitStatus)]),
+      ),
+    [gitStatus, tabs, theme],
+  );
   const activeDragTab = useMemo(
     () => tabs.find((tab) => tab.id === activeDragId) ?? null,
     [activeDragId, tabs],
@@ -110,7 +126,12 @@ export default function SortableTabStrip({
             <SortableTab
               key={tab.id}
               tabId={tab.id}
-              label={tab.label}
+              label={tabPresentations[tab.id]?.label ?? tab.label}
+              title={tabPresentations[tab.id]?.title ?? tab.label}
+              iconKind={tabPresentations[tab.id]?.iconKind}
+              iconPath={tabPresentations[tab.id]?.iconPath}
+              iconId={tabPresentations[tab.id]?.iconId}
+              toneClass={tabPresentations[tab.id]?.toneClass}
               isActive={tab.id === activeTabId}
               preview={tab.preview}
               dirty={dirtyTabIdSet.has(tab.id)}
@@ -127,7 +148,12 @@ export default function SortableTabStrip({
         {activeDragTab ? (
           <SortableTabView
             tabId={activeDragTab.id}
-            label={activeDragTab.label}
+            label={tabPresentations[activeDragTab.id]?.label ?? activeDragTab.label}
+            title={tabPresentations[activeDragTab.id]?.title ?? activeDragTab.label}
+            iconKind={tabPresentations[activeDragTab.id]?.iconKind}
+            iconPath={tabPresentations[activeDragTab.id]?.iconPath}
+            iconId={tabPresentations[activeDragTab.id]?.iconId}
+            toneClass={tabPresentations[activeDragTab.id]?.toneClass}
             isActive={activeDragTab.id === activeTabId}
             preview={activeDragTab.preview}
             dirty={dirtyTabIdSet.has(activeDragTab.id)}

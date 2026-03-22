@@ -3,6 +3,11 @@ import type { ComponentPropsWithoutRef } from "react";
 export type TabViewProps = {
   tabId: string;
   label: string;
+  title?: string;
+  iconKind?: "terminal" | "material";
+  iconPath?: string;
+  iconId?: string;
+  toneClass?: string;
   isActive: boolean;
   preview?: boolean;
   dirty?: boolean;
