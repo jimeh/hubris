@@ -1,14 +1,15 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use tokio::fs::OpenOptions;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::fs::{self, OpenOptions};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use utoipa::{IntoParams, ToSchema};
 
@@ -18,6 +19,7 @@ use crate::state::AppState;
 use crate::tab::GitDiffScope;
 
 const MAX_TEXT_FILE_BYTES: u64 = 1024 * 1024;
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -337,7 +339,6 @@ pub async fn put_project_worktree_file_content(
     let (path, absolute_path) = resolve_existing_file_path(&resolved, &request.path).await?;
     let mut file = OpenOptions::new()
         .read(true)
-        .write(true)
         .open(&absolute_path)
         .await
         .map_err(map_io_status)?;
@@ -370,20 +371,19 @@ pub async fn put_project_worktree_file_content(
         }));
     }
 
-    file.set_len(0).await.map_err(map_io_status)?;
-    file.rewind().await.map_err(map_io_status)?;
-    file.write_all(request.content.as_bytes())
-        .await
-        .map_err(map_io_status)?;
-    file.flush().await.map_err(map_io_status)?;
-    file.sync_all().await.map_err(map_io_status)?;
+    let next_metadata = write_worktree_file_atomically(
+        &absolute_path,
+        &metadata,
+        &current_token,
+        request.content.as_bytes(),
+    )
+    .await?;
 
     state
         .worktree_files
         .invalidate_relative_paths(&resolved, std::slice::from_ref(&path))
         .map_err(map_worktree_file_error)?;
 
-    let next_metadata = file.metadata().await.map_err(map_io_status)?;
     Ok(Json(WriteWorktreeFileContentResponse {
         path,
         version_token: version_token(request.content.as_bytes(), &next_metadata),
@@ -423,29 +423,24 @@ pub async fn get_project_worktree_git_diff(
         .map(normalize_relative_path)
         .transpose()?;
     let language = infer_language(&path);
-    let left_path = match params.scope {
-        GitDiffScope::Staged => original_path.clone().unwrap_or_else(|| path.clone()),
-        GitDiffScope::Unstaged => original_path.clone().unwrap_or_else(|| path.clone()),
-    };
+    let left_path = original_path.clone().unwrap_or_else(|| path.clone());
     let right_path = path.clone();
 
-    let left_bytes = match params.scope {
+    let left_content = match params.scope {
         GitDiffScope::Staged => {
-            git_show_blob(&resolved.worktree.path, &format!("HEAD:./{}", left_path)).await?
+            load_git_diff_side(&resolved.worktree.path, &format!("HEAD:./{}", left_path)).await?
         }
         GitDiffScope::Unstaged => {
-            git_show_blob(&resolved.worktree.path, &format!(":./{}", left_path)).await?
+            load_git_diff_side(&resolved.worktree.path, &format!(":./{}", left_path)).await?
         }
     };
-    let right_bytes = match params.scope {
+    let right_content = match params.scope {
         GitDiffScope::Staged => {
-            git_show_blob(&resolved.worktree.path, &format!(":./{}", right_path)).await?
+            load_git_diff_side(&resolved.worktree.path, &format!(":./{}", right_path)).await?
         }
-        GitDiffScope::Unstaged => read_optional_worktree_file(&resolved, &right_path).await?,
+        GitDiffScope::Unstaged => load_optional_worktree_diff_side(&resolved, &right_path).await?,
     };
 
-    let left_content = diff_side_content(left_bytes)?;
-    let right_content = diff_side_content(right_bytes)?;
     let unsupported_reason = match (&left_content, &right_content) {
         (DiffSideContent::Unsupported(reason), _) => Some(reason.clone()),
         (_, DiffSideContent::Unsupported(reason)) => Some(reason.clone()),
@@ -627,7 +622,7 @@ fn version_token(bytes: &[u8], metadata: &std::fs::Metadata) -> String {
 }
 
 async fn load_text_file(path: &Path, relative_path: &str) -> Result<LoadedTextFile, StatusCode> {
-    let metadata = tokio::fs::metadata(path).await.map_err(map_io_status)?;
+    let metadata = fs::metadata(path).await.map_err(map_io_status)?;
     if !metadata.is_file() {
         return Err(StatusCode::NOT_FOUND);
     }
@@ -642,7 +637,7 @@ async fn load_text_file(path: &Path, relative_path: &str) -> Result<LoadedTextFi
         });
     }
 
-    let bytes = tokio::fs::read(path).await.map_err(map_io_status)?;
+    let bytes = fs::read(path).await.map_err(map_io_status)?;
     let content = match String::from_utf8(bytes.clone()) {
         Ok(content) => content,
         Err(_) => {
@@ -665,67 +660,210 @@ async fn load_text_file(path: &Path, relative_path: &str) -> Result<LoadedTextFi
     })
 }
 
-async fn git_show_blob(worktree_path: &str, spec: &str) -> Result<Option<Vec<u8>>, StatusCode> {
+async fn write_worktree_file_atomically(
+    path: &Path,
+    original_metadata: &std::fs::Metadata,
+    original_token: &str,
+    contents: &[u8],
+) -> Result<std::fs::Metadata, StatusCode> {
+    let temp_path = temp_worktree_file_path(path);
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temp_path)
+        .await
+        .map_err(map_io_status)?;
+
+    if let Err(error) = fs::set_permissions(&temp_path, original_metadata.permissions()).await {
+        let _ = fs::remove_file(&temp_path).await;
+        return Err(map_io_status(error));
+    }
+    if let Err(error) = file.write_all(contents).await {
+        let _ = fs::remove_file(&temp_path).await;
+        return Err(map_io_status(error));
+    }
+    if let Err(error) = file.flush().await {
+        let _ = fs::remove_file(&temp_path).await;
+        return Err(map_io_status(error));
+    }
+    if let Err(error) = file.sync_all().await {
+        let _ = fs::remove_file(&temp_path).await;
+        return Err(map_io_status(error));
+    }
+    drop(file);
+
+    let current_metadata = match fs::metadata(path).await {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            let _ = fs::remove_file(&temp_path).await;
+            return Err(map_io_status(error));
+        }
+    };
+    if !current_metadata.is_file() || current_metadata.len() > MAX_TEXT_FILE_BYTES {
+        let _ = fs::remove_file(&temp_path).await;
+        return Err(StatusCode::CONFLICT);
+    }
+
+    let current_bytes = match fs::read(path).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let _ = fs::remove_file(&temp_path).await;
+            return Err(map_io_status(error));
+        }
+    };
+    if version_token(&current_bytes, &current_metadata) != original_token {
+        let _ = fs::remove_file(&temp_path).await;
+        return Err(StatusCode::CONFLICT);
+    }
+
+    if let Err(error) = fs::rename(&temp_path, path).await {
+        let _ = fs::remove_file(&temp_path).await;
+        return Err(map_io_status(error));
+    }
+    if let Err(error) = sync_parent_directory(path).await {
+        return Err(map_io_status(error));
+    }
+
+    fs::metadata(path).await.map_err(map_io_status)
+}
+
+fn temp_worktree_file_path(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("file");
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    parent.join(format!(
+        "{file_name}.tmp.{}.{}",
+        std::process::id(),
+        counter
+    ))
+}
+
+async fn sync_parent_directory(path: &Path) -> Result<(), std::io::Error> {
+    let parent = path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let dir = std::fs::File::open(parent)?;
+        dir.sync_all()
+    })
+    .await
+    .map_err(|join_error| std::io::Error::other(join_error.to_string()))?
+}
+
+async fn run_git_command(
+    worktree_path: &str,
+    args: &[&str],
+) -> Result<std::process::Output, StatusCode> {
     let output = Command::new("git")
-        .args(["-C", worktree_path, "show", spec])
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(args)
         .output()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(output)
+}
 
+fn is_missing_git_blob_error(stderr: &str) -> bool {
+    stderr.contains("does not exist")
+        || stderr.contains("exists on disk, but not in")
+        || stderr.contains("not a valid object name")
+        || stderr.contains("invalid object name")
+}
+
+async fn git_blob_size(worktree_path: &str, spec: &str) -> Result<Option<u64>, StatusCode> {
+    let output = run_git_command(worktree_path, &["cat-file", "-s", spec]).await?;
     if output.status.success() {
-        return Ok(Some(output.stdout));
+        let size = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        return Ok(Some(size));
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-    if stderr.contains("does not exist")
-        || stderr.contains("exists on disk, but not in")
-        || stderr.contains("path '")
-        || stderr.contains("bad revision")
-        || stderr.contains("invalid object name")
-        || stderr.contains("ambiguous argument")
-        || stderr.contains("unknown revision")
-    {
+    if is_missing_git_blob_error(&stderr) {
         return Ok(None);
     }
 
     Err(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-async fn read_optional_worktree_file(
+async fn load_git_diff_side(
+    worktree_path: &str,
+    spec: &str,
+) -> Result<DiffSideContent, StatusCode> {
+    let Some(size) = git_blob_size(worktree_path, spec).await? else {
+        return Ok(DiffSideContent::Text(String::new()));
+    };
+    if size > MAX_TEXT_FILE_BYTES {
+        return Ok(DiffSideContent::Unsupported(
+            "Diffs larger than 1 MiB are read-only.".to_string(),
+        ));
+    }
+
+    let output = run_git_command(worktree_path, &["show", spec]).await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+        if is_missing_git_blob_error(&stderr) {
+            return Ok(DiffSideContent::Text(String::new()));
+        }
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    match String::from_utf8(output.stdout) {
+        Ok(content) => Ok(DiffSideContent::Text(content)),
+        Err(_) => Ok(DiffSideContent::Unsupported(
+            "Binary diffs are not supported.".to_string(),
+        )),
+    }
+}
+
+async fn load_optional_worktree_diff_side(
     resolved: &ResolvedWorktree,
     path: &str,
-) -> Result<Option<Vec<u8>>, StatusCode> {
+) -> Result<DiffSideContent, StatusCode> {
     let path = normalize_relative_path(path)?;
-    let root = tokio::fs::canonicalize(&resolved.worktree.path)
+    let root = fs::canonicalize(&resolved.worktree.path)
         .await
         .map_err(map_io_status)?;
     let candidate = root.join(&path);
-    let canonical_candidate = match tokio::fs::canonicalize(&candidate).await {
+    let canonical_candidate = match fs::canonicalize(&candidate).await {
         Ok(canonical_candidate) => canonical_candidate,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(DiffSideContent::Text(String::new()));
+        }
         Err(error) => return Err(map_io_status(error)),
     };
     if !canonical_candidate.starts_with(&root) {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    match tokio::fs::read(canonical_candidate).await {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(map_io_status(error)),
+    let metadata = fs::metadata(&canonical_candidate)
+        .await
+        .map_err(map_io_status)?;
+    if !metadata.is_file() {
+        return Err(StatusCode::NOT_FOUND);
     }
-}
-
-fn diff_side_content(bytes: Option<Vec<u8>>) -> Result<DiffSideContent, StatusCode> {
-    let Some(bytes) = bytes else {
-        return Ok(DiffSideContent::Text(String::new()));
-    };
-
-    if bytes.len() as u64 > MAX_TEXT_FILE_BYTES {
+    if metadata.len() > MAX_TEXT_FILE_BYTES {
         return Ok(DiffSideContent::Unsupported(
             "Diffs larger than 1 MiB are read-only.".to_string(),
         ));
     }
+
+    let bytes = match fs::read(&canonical_candidate).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(DiffSideContent::Text(String::new()));
+        }
+        Err(error) => return Err(map_io_status(error)),
+    };
 
     match String::from_utf8(bytes) {
         Ok(content) => Ok(DiffSideContent::Text(content)),

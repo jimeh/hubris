@@ -106,7 +106,9 @@ export default function WorktreeView({ worktree }: Props) {
   );
   const handleCloseTab = useCallback(
     (tabId: string) => {
-      const tab = worktreeTabs.find((candidate) => candidate.id === tabId);
+      const tab = useTabStore
+        .getState()
+        .tabs.find((candidate) => candidate.id === tabId);
       const isDirty = useFileEditorStore.getState().sessions[tabId]?.dirty;
       if (tab?.type === "file" && isDirty) {
         setPendingCloseTabId(tabId);
@@ -115,7 +117,7 @@ export default function WorktreeView({ worktree }: Props) {
 
       void close(tabId);
     },
-    [close, worktreeTabs],
+    [close],
   );
   const handleAddTab = useCallback(() => {
     void addTerminal(worktree.id);

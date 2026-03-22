@@ -104,15 +104,18 @@ export function getFileModelPath(worktreeId: string, tab: FileTab): string {
 
 export function getGitDiffModelPaths(
   worktreeId: string,
-  tab: GitDiffTab,
+  tabId: string,
+  path: string,
+  scope: GitDiffTab["scope"],
+  originalPath?: string | null,
 ): { original: string; modified: string } {
-  const base = `hubris-diff:///${worktreeId}/${tab.id}`;
+  const base = `hubris-diff:///${worktreeId}/${tabId}`;
   const query = new URLSearchParams({
-    path: tab.path,
-    scope: tab.scope,
+    path,
+    scope,
   });
-  if (tab.original_path) {
-    query.set("originalPath", tab.original_path);
+  if (originalPath) {
+    query.set("originalPath", originalPath);
   }
 
   return {
@@ -137,7 +140,13 @@ export function scheduleDisposeTabModels(tab: Tab): void {
           disposeModel(getFileModelPath(tab.worktree_id, tab));
         }
       : () => {
-          const modelPaths = getGitDiffModelPaths(tab.worktree_id, tab);
+          const modelPaths = getGitDiffModelPaths(
+            tab.worktree_id,
+            tab.id,
+            tab.path,
+            tab.scope,
+            tab.original_path,
+          );
           disposeModel(modelPaths.original);
           disposeModel(modelPaths.modified);
         };

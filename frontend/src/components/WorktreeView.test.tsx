@@ -546,4 +546,61 @@ describe("WorktreeView", () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  it("uses the current tab store snapshot when deciding whether close needs confirmation", async () => {
+    const closeSpy = vi.fn().mockResolvedValue(undefined);
+    const { default: WorktreeView } = await import("./WorktreeView");
+    const { useTabStore } = await import("@/lib/stores/tabs");
+    const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
+    const worktree = makeWorktree();
+    const fileTab = makeFileTab("shared-id", worktree.id);
+
+    useTabStore.setState((state) => ({
+      ...state,
+      tabs: [fileTab],
+      activeTabId: fileTab.id,
+      activeTabByWorktree: { [worktree.id]: fileTab.id },
+      close: closeSpy,
+    }));
+    useFileEditorStore.setState((state) => ({
+      ...state,
+      sessions: {
+        [fileTab.id]: {
+          tabId: fileTab.id,
+          path: fileTab.path,
+          draft: "draft",
+          savedContent: "saved",
+          versionToken: "v1",
+          language: "typescript",
+          readOnly: false,
+          unsupportedReason: null,
+          dirty: true,
+          externalChange: false,
+          loadStatus: "loaded",
+          saveStatus: "idle",
+          error: null,
+        },
+      },
+    }));
+
+    render(<WorktreeView worktree={worktree} />);
+
+    act(() => {
+      useTabStore.setState((state) => ({
+        ...state,
+        tabs: [makeTab(fileTab.id, worktree.id, { position: 1 })],
+      }));
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: `Close ${fileTab.id}` }),
+    );
+
+    await waitFor(() => {
+      expect(closeSpy).toHaveBeenCalledWith(fileTab.id);
+    });
+    expect(
+      screen.queryByText(`Save changes to ${fileTab.label}?`),
+    ).not.toBeInTheDocument();
+  });
 });
