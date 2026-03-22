@@ -10,12 +10,12 @@ use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::errors::map_worktree_file_error;
 use crate::api::worktrees::{ResolvedWorktree, resolve_worktree};
 use crate::fs_sync::sync_parent_directory;
+use crate::git::{GitDiffBlobContent, GitDiffBlobSource};
 use crate::state::AppState;
 use crate::tab::GitDiffScope;
 
@@ -429,15 +429,25 @@ pub async fn get_project_worktree_git_diff(
 
     let left_content = match params.scope {
         GitDiffScope::Staged => {
-            load_git_diff_side(&resolved.worktree.path, &format!("HEAD:./{}", left_path)).await?
+            load_git_diff_side(&resolved.worktree.path, GitDiffBlobSource::Head, &left_path).await?
         }
         GitDiffScope::Unstaged => {
-            load_git_diff_side(&resolved.worktree.path, &format!(":./{}", left_path)).await?
+            load_git_diff_side(
+                &resolved.worktree.path,
+                GitDiffBlobSource::Index,
+                &left_path,
+            )
+            .await?
         }
     };
     let right_content = match params.scope {
         GitDiffScope::Staged => {
-            load_git_diff_side(&resolved.worktree.path, &format!(":./{}", right_path)).await?
+            load_git_diff_side(
+                &resolved.worktree.path,
+                GitDiffBlobSource::Index,
+                &right_path,
+            )
+            .await?
         }
         GitDiffScope::Unstaged => load_optional_worktree_diff_side(&resolved, &right_path).await?,
     };
@@ -742,74 +752,18 @@ fn temp_worktree_file_path(path: &Path) -> PathBuf {
     ))
 }
 
-async fn run_git_command(
-    worktree_path: &str,
-    args: &[&str],
-) -> Result<std::process::Output, StatusCode> {
-    let output = Command::new("git")
-        .env("LC_ALL", "C")
-        .env("LANG", "C")
-        .arg("-C")
-        .arg(worktree_path)
-        .args(args)
-        .output()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(output)
-}
-
-fn is_missing_git_blob_error(stderr: &str) -> bool {
-    stderr.contains("does not exist")
-        || stderr.contains("exists on disk, but not in")
-        || stderr.contains("not a valid object name")
-        || stderr.contains("invalid object name")
-}
-
-async fn git_blob_size(worktree_path: &str, spec: &str) -> Result<Option<u64>, StatusCode> {
-    let output = run_git_command(worktree_path, &["cat-file", "-s", spec]).await?;
-    if output.status.success() {
-        let size = String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .parse::<u64>()
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        return Ok(Some(size));
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-    if is_missing_git_blob_error(&stderr) {
-        return Ok(None);
-    }
-
-    Err(StatusCode::INTERNAL_SERVER_ERROR)
-}
-
 async fn load_git_diff_side(
     worktree_path: &str,
-    spec: &str,
+    source: GitDiffBlobSource,
+    path: &str,
 ) -> Result<DiffSideContent, StatusCode> {
-    let Some(size) = git_blob_size(worktree_path, spec).await? else {
-        return Ok(DiffSideContent::Text(String::new()));
-    };
-    if size > MAX_TEXT_FILE_BYTES {
-        return Ok(DiffSideContent::Unsupported(
-            "Diffs larger than 1 MiB are read-only.".to_string(),
-        ));
-    }
-
-    let output = run_git_command(worktree_path, &["show", spec]).await?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-        if is_missing_git_blob_error(&stderr) {
-            return Ok(DiffSideContent::Text(String::new()));
-        }
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
-
-    match String::from_utf8(output.stdout) {
-        Ok(content) => Ok(DiffSideContent::Text(content)),
-        Err(_) => Ok(DiffSideContent::Unsupported(
-            "Binary diffs are not supported.".to_string(),
-        )),
+    match crate::git::read_diff_blob(Path::new(worktree_path), source, path, MAX_TEXT_FILE_BYTES)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        GitDiffBlobContent::Missing => Ok(DiffSideContent::Text(String::new())),
+        GitDiffBlobContent::Text(content) => Ok(DiffSideContent::Text(content)),
+        GitDiffBlobContent::Unsupported(reason) => Ok(DiffSideContent::Unsupported(reason)),
     }
 }
 

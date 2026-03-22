@@ -50,6 +50,14 @@ fn init_git_repo() -> tempfile::TempDir {
     repo
 }
 
+fn init_empty_git_repo() -> tempfile::TempDir {
+    let repo = tempfile::TempDir::new().unwrap();
+    run_git(repo.path(), &["init", "-q"]);
+    run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+    run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+    repo
+}
+
 async fn create_project(client: &reqwest::Client, base: &str, path: &str) -> String {
     let res = client
         .post(format!("{}/api/projects", base))
@@ -457,6 +465,120 @@ async fn test_staged_git_diff_for_new_file_returns_empty_left_side() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("new.txt"), "new file\n").unwrap();
+    run_git(repo.path(), &["add", "new.txt"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=new.txt&scope=staged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "");
+    assert_eq!(body["right_content"], "new file\n");
+    assert!(body["unsupported_reason"].is_null());
+}
+
+#[tokio::test]
+async fn test_staged_git_diff_for_binary_index_blob_is_unsupported() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("binary.bin"), [0_u8, 159, 146, 150]).unwrap();
+    run_git(repo.path(), &["add", "binary.bin"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=binary.bin&scope=staged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(
+        body["unsupported_reason"],
+        "Binary diffs are not supported."
+    );
+    assert_eq!(body["left_content"], "");
+    assert_eq!(body["right_content"], "");
+}
+
+#[tokio::test]
+async fn test_unstaged_git_diff_for_binary_index_blob_is_unsupported() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("README.md"), [0_u8, 159, 146, 150]).unwrap();
+    run_git(repo.path(), &["add", "README.md"]);
+    std::fs::write(repo.path().join("README.md"), "worktree\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=unstaged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(
+        body["unsupported_reason"],
+        "Binary diffs are not supported."
+    );
+    assert_eq!(body["left_content"], "");
+    assert_eq!(body["right_content"], "worktree\n");
+}
+
+#[tokio::test]
+async fn test_staged_git_diff_uses_original_path_for_left_side() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("renamed.md"), "updated\n").unwrap();
+    run_git(repo.path(), &["add", "renamed.md"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=renamed.md&scope=staged&original_path=README.md",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "hello\n");
+    assert_eq!(body["right_content"], "updated\n");
+}
+
+#[tokio::test]
+async fn test_staged_git_diff_in_unborn_repo_returns_empty_head_side() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_empty_git_repo();
 
     std::fs::write(repo.path().join("new.txt"), "new file\n").unwrap();
     run_git(repo.path(), &["add", "new.txt"]);
