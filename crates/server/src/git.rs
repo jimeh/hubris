@@ -378,6 +378,21 @@ pub enum GitDiffBlobContent {
     Unsupported(String),
 }
 
+fn format_diff_size_limit(max_bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
+
+    if max_bytes.is_multiple_of(MIB) {
+        format!("{} MiB", max_bytes / MIB)
+    } else if max_bytes.is_multiple_of(KIB) {
+        format!("{} KiB", max_bytes / KIB)
+    } else if max_bytes == 1 {
+        "1 byte".to_string()
+    } else {
+        format!("{max_bytes} bytes")
+    }
+}
+
 fn load_head_blob<'repo>(
     repo: &'repo Repository,
     relative_path: &str,
@@ -430,9 +445,10 @@ fn read_diff_blob_git2(
         return Ok(GitDiffBlobContent::Missing);
     };
     if blob.size() as u64 > max_bytes {
-        return Ok(GitDiffBlobContent::Unsupported(
-            "Diffs larger than 1 MiB are read-only.".to_string(),
-        ));
+        return Ok(GitDiffBlobContent::Unsupported(format!(
+            "Diffs larger than {} are read-only.",
+            format_diff_size_limit(max_bytes)
+        )));
     }
 
     match std::str::from_utf8(blob.content()) {
@@ -1369,6 +1385,13 @@ mod tests {
             decode_ref_name(b"weird-\xff-branch"),
             "weird-\u{fffd}-branch"
         );
+    }
+
+    #[test]
+    fn format_diff_size_limit_uses_human_readable_units() {
+        assert_eq!(format_diff_size_limit(1024), "1 KiB");
+        assert_eq!(format_diff_size_limit(2 * 1024 * 1024), "2 MiB");
+        assert_eq!(format_diff_size_limit(123), "123 bytes");
     }
 
     #[test]

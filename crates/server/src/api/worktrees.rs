@@ -384,7 +384,10 @@ pub fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) {
             {
                 runtime.notify_close();
             }
-            state.events.emit(EventKind::TabClosed { tab_id });
+            state.events.emit(EventKind::TabClosed {
+                session_id: tab.session_id().to_string(),
+                tab_id,
+            });
         }
     }
 }

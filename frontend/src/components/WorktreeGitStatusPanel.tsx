@@ -330,9 +330,22 @@ const ChangeRowFrame = forwardRef<
     primary: ReactNode;
     actions?: ReactNode;
     badge?: ReactNode;
+    interactive?: boolean;
+    onActivate?: () => void;
   }
 >(function ChangeRowFrame(
-  { primary, actions, badge, className, ...props },
+  {
+    primary,
+    actions,
+    badge,
+    className,
+    interactive = false,
+    onActivate,
+    onKeyDown,
+    role,
+    tabIndex,
+    ...props
+  },
   ref,
 ) {
   return (
@@ -344,6 +357,20 @@ const ChangeRowFrame = forwardRef<
         "focus-within:bg-sidebar-accent/60 focus-within:text-sidebar-accent-foreground",
         className,
       )}
+      role={interactive ? "button" : role}
+      tabIndex={interactive ? 0 : tabIndex}
+      onKeyDown={(event) => {
+        onKeyDown?.(event);
+        if (event.defaultPrevented || !interactive || !onActivate) {
+          return;
+        }
+        if (event.key === "Enter") {
+          onActivate();
+        } else if (event.key === " ") {
+          event.preventDefault();
+          onActivate();
+        }
+      }}
       {...props}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">{primary}</div>
@@ -449,6 +476,15 @@ function FilePathRow({
       >
         <ChangeRowFrame
           className="cursor-pointer"
+          interactive
+          onActivate={() =>
+            onOpenDiff(
+              change.path,
+              section,
+              change.original_path ?? undefined,
+              true,
+            )
+          }
           primary={
             <>
               <FileIcon path={change.path} theme={theme} />
@@ -556,6 +592,15 @@ function TreeFileNode({
       >
         <ChangeRowFrame
           className="cursor-pointer"
+          interactive
+          onActivate={() =>
+            onOpenDiff(
+              node.path,
+              section,
+              node.change.original_path ?? undefined,
+              true,
+            )
+          }
           primary={
             <>
               <span aria-hidden="true" className="h-4 w-4 shrink-0" />

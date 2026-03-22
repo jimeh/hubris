@@ -393,6 +393,104 @@ async fn test_reorder_tabs() {
 }
 
 #[tokio::test]
+async fn test_reorder_tabs_emits_session_scoped_event() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let t1 = create_tab(&client, &base, &worktree_id).await;
+    let t2 = create_tab(&client, &base, &worktree_id).await;
+    let id1 = t1["id"].as_str().unwrap();
+    let id2 = t2["id"].as_str().unwrap();
+    let mut rx = state.events.subscribe();
+
+    let res = client
+        .put(format!("{}/api/tabs/reorder", base))
+        .json(&serde_json::json!({
+            "worktree_id": worktree_id,
+            "tab_ids": [id2, id1]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let event = tokio::time::timeout(Duration::from_secs(3), async move {
+        loop {
+            let event = rx.recv().await.unwrap();
+            if let EventKind::TabsReordered {
+                session_id,
+                worktree_id: reordered_worktree_id,
+                tabs,
+            } = &event.kind
+            {
+                break (
+                    session_id.clone(),
+                    reordered_worktree_id.clone(),
+                    tabs.iter()
+                        .map(|tab| tab.id().to_string())
+                        .collect::<Vec<_>>(),
+                );
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(event.0, "default");
+    assert_eq!(event.1, worktree_id);
+    assert_eq!(event.2, vec![id2.to_string(), id1.to_string()]);
+}
+
+#[tokio::test]
+async fn test_reorder_tabs_rejects_mixed_sessions() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+
+    state.tabs.insert(
+        "tab-a".into(),
+        hubris_server::tab::TabInfo::Terminal {
+            id: "tab-a".into(),
+            session_id: "session-a".into(),
+            worktree_id: "w1".into(),
+            label: "Terminal 1".into(),
+            position: 1.0,
+            created_at: 0,
+            preview: false,
+        },
+    );
+    state.tabs.insert(
+        "tab-b".into(),
+        hubris_server::tab::TabInfo::Terminal {
+            id: "tab-b".into(),
+            session_id: "session-b".into(),
+            worktree_id: "w1".into(),
+            label: "Terminal 2".into(),
+            position: 2.0,
+            created_at: 0,
+            preview: false,
+        },
+    );
+
+    let res = client
+        .put(format!("{}/api/tabs/reorder", base))
+        .json(&serde_json::json!({
+            "worktree_id": "w1",
+            "tab_ids": ["tab-b", "tab-a"]
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_reorder_tabs_wrong_ids() {
     let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
@@ -487,12 +585,16 @@ async fn test_immediately_exiting_terminal_emits_created_then_closed() {
         while sequence.len() < 2 {
             let event = rx.recv().await.unwrap();
             match &event.kind {
-                EventKind::TabCreated(info) if info.id() == tab_id => {
+                EventKind::TabCreated {
+                    session_id,
+                    tab: info,
+                } if info.id() == tab_id && session_id == "default" => {
                     sequence.push("created");
                 }
                 EventKind::TabClosed {
+                    session_id,
                     tab_id: closed_tab_id,
-                } if *closed_tab_id == tab_id => {
+                } if *closed_tab_id == tab_id && session_id == "default" => {
                     sequence.push("closed");
                 }
                 _ => {}

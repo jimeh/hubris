@@ -291,17 +291,26 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
         };
       });
     } catch (error) {
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [tabId]: {
-            ...state.sessions[tabId],
-            loadStatus: "error",
-            error:
-              error instanceof Error ? error.message : "Failed to reload file",
+      set((state) => {
+        const current = state.sessions[tabId];
+        if (!current) {
+          return state;
+        }
+
+        return {
+          sessions: {
+            ...state.sessions,
+            [tabId]: {
+              ...current,
+              loadStatus: "error",
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to reload file",
+            },
           },
-        },
-      }));
+        };
+      });
     }
   },
   markExternalChange(tabId) {

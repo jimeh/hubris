@@ -76,10 +76,22 @@ pub async fn event_stream(
 fn event_matches_session(event: &Event, session_id: &str) -> bool {
     match &event.kind {
         EventKind::Snapshot { .. } => true,
-        EventKind::TabCreated(info) => info.session_id() == session_id,
-        EventKind::TabClosed { .. } => true,
-        EventKind::TabUpdated(info) => info.session_id() == session_id,
-        EventKind::TabsReordered { .. } => true,
+        EventKind::TabCreated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::TabClosed {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::TabUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::TabsReordered {
+            session_id: event_session_id,
+            ..
+        } => event_session_id == session_id,
         EventKind::ProjectAdded(_)
         | EventKind::ProjectRemoved { .. }
         | EventKind::ProjectUpdated(_)
@@ -148,4 +160,49 @@ fn to_sse_event(event: &Event) -> sse::Event {
     sse::Event::default()
         .event(event.kind.event_name())
         .data(serde_json::to_string(&event.kind).unwrap())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tab::TabInfo;
+
+    fn make_terminal_tab(session_id: &str) -> TabInfo {
+        TabInfo::Terminal {
+            id: "tab-1".into(),
+            session_id: session_id.into(),
+            worktree_id: "worktree-1".into(),
+            label: "Terminal 1".into(),
+            position: 1.0,
+            created_at: 0,
+            preview: false,
+        }
+    }
+
+    #[test]
+    fn tab_events_only_match_their_own_session() {
+        let event = Event {
+            kind: EventKind::TabsReordered {
+                session_id: "session-a".into(),
+                worktree_id: "worktree-1".into(),
+                tabs: vec![make_terminal_tab("session-a")],
+            },
+        };
+
+        assert!(event_matches_session(&event, "session-a"));
+        assert!(!event_matches_session(&event, "session-b"));
+    }
+
+    #[test]
+    fn tab_closed_only_matches_its_session() {
+        let event = Event {
+            kind: EventKind::TabClosed {
+                session_id: "session-a".into(),
+                tab_id: "tab-1".into(),
+            },
+        };
+
+        assert!(event_matches_session(&event, "session-a"));
+        assert!(!event_matches_session(&event, "session-b"));
+    }
 }

@@ -142,12 +142,12 @@ export type EventKind =
         settings_status: SettingsStatus;
       };
     }
-  | { type: "tab_created"; data: TabInfo }
-  | { type: "tab_closed"; data: { tab_id: string } }
-  | { type: "tab_updated"; data: TabInfo }
+  | { type: "tab_created"; data: { session_id: string; tab: TabInfo } }
+  | { type: "tab_closed"; data: { session_id: string; tab_id: string } }
+  | { type: "tab_updated"; data: { session_id: string; tab: TabInfo } }
   | {
       type: "tabs_reordered";
-      data: { worktree_id: string; tabs: Array<TabInfo> };
+      data: { session_id: string; worktree_id: string; tabs: Array<TabInfo> };
     }
   | { type: "project_added"; data: Project }
   | { type: "project_removed"; data: { project_id: string } }

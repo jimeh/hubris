@@ -524,7 +524,7 @@ export function initializeTabStore(): void {
         };
       });
     }),
-    events.on("tab_created", (tab) => {
+    events.on("tab_created", ({ tab }) => {
       useTabStore.setState((state) => {
         if (state.tabs.some((candidate) => candidate.id === tab.id)) {
           return state;
@@ -543,7 +543,7 @@ export function initializeTabStore(): void {
         return removeFromState(state, tab_id);
       });
     }),
-    events.on("tab_updated", (tab) => {
+    events.on("tab_updated", ({ tab }) => {
       useTabStore.setState((state) => ({
         tabs: sortedTabs(
           state.tabs.map((candidate) =>

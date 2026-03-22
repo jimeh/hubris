@@ -182,8 +182,11 @@ fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: Termi
     tokio::spawn(async move {
         let _ = close_rx.recv().await;
         terminal_tabs.remove(&id);
-        if tabs.remove(&id).is_some() {
-            events.emit(EventKind::TabClosed { tab_id: id });
+        if let Some((_, tab)) = tabs.remove(&id) {
+            events.emit(EventKind::TabClosed {
+                session_id: tab.session_id().to_string(),
+                tab_id: id,
+            });
         }
     });
 }
@@ -267,7 +270,10 @@ pub async fn create_tab(
             .insert(info.id().to_string(), runtime.clone());
     }
     state.tabs.insert(info.id().to_string(), info.clone());
-    state.events.emit(EventKind::TabCreated(info.clone()));
+    state.events.emit(EventKind::TabCreated {
+        session_id: info.session_id().to_string(),
+        tab: info.clone(),
+    });
     if let Some((_, close_rx)) = terminal_runtime {
         spawn_terminal_cleanup_task(&state, info.id().to_string(), close_rx);
     }
@@ -288,15 +294,18 @@ pub async fn create_tab(
 )]
 pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {
     let removed = state.tabs.remove(&id);
-    if removed.is_none() {
+    let Some((_, removed_tab)) = removed else {
         return StatusCode::NOT_FOUND;
-    }
+    };
 
     if let Some((_, runtime)) = state.terminal_tabs.remove(&id) {
         runtime.notify_close();
     }
 
-    state.events.emit(EventKind::TabClosed { tab_id: id });
+    state.events.emit(EventKind::TabClosed {
+        session_id: removed_tab.session_id().to_string(),
+        tab_id: id,
+    });
     StatusCode::NO_CONTENT
 }
 
@@ -335,7 +344,10 @@ pub async fn update_tab(
         tab.clone()
     };
 
-    state.events.emit(EventKind::TabUpdated(updated.clone()));
+    state.events.emit(EventKind::TabUpdated {
+        session_id: updated.session_id().to_string(),
+        tab: updated.clone(),
+    });
     Ok(Json(updated))
 }
 
@@ -352,11 +364,15 @@ pub async fn reorder_tabs(
     State(state): State<AppState>,
     Json(req): Json<ReorderTabsRequest>,
 ) -> Result<Json<Vec<TabInfo>>, StatusCode> {
-    let worktree_tab_ids: HashSet<String> = state
+    let worktree_tabs: Vec<TabInfo> = state
         .tabs
         .iter()
         .filter(|entry| entry.value().worktree_id() == req.worktree_id)
-        .map(|entry| entry.key().clone())
+        .map(|entry| entry.value().clone())
+        .collect();
+    let worktree_tab_ids: HashSet<String> = worktree_tabs
+        .iter()
+        .map(|tab| tab.id().to_string())
         .collect();
 
     if worktree_tab_ids.len() != req.tab_ids.len() {
@@ -365,6 +381,17 @@ pub async fn reorder_tabs(
 
     let received: HashSet<String> = req.tab_ids.iter().cloned().collect();
     if worktree_tab_ids != received {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let Some(first_tab) = worktree_tabs.first() else {
+        return Ok(Json(vec![]));
+    };
+    let session_id = first_tab.session_id().to_string();
+    if worktree_tabs
+        .iter()
+        .any(|tab| tab.session_id() != session_id)
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -387,6 +414,7 @@ pub async fn reorder_tabs(
     });
 
     state.events.emit(EventKind::TabsReordered {
+        session_id,
         worktree_id: req.worktree_id,
         tabs: reordered.clone(),
     });

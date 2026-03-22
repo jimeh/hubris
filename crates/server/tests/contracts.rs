@@ -5,11 +5,13 @@ use hubris_server::openapi_spec;
 #[test]
 fn sse_event_uses_type_and_data_envelope() {
     let json = serde_json::to_value(EventKind::TabClosed {
+        session_id: "default".to_string(),
         tab_id: "tab-1".to_string(),
     })
     .unwrap();
 
     assert_eq!(json["type"], "tab_closed");
+    assert_eq!(json["data"]["session_id"], "default");
     assert_eq!(json["data"]["tab_id"], "tab-1");
 }
 

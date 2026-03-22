@@ -25,6 +25,7 @@ const mockGetProjectWorktreeCommitDetails = vi.fn();
 const mockStageProjectWorktreePath = vi.fn();
 const mockUnstageProjectWorktreePath = vi.fn();
 const mockDiscardProjectWorktreePath = vi.fn();
+const mockOpenGitDiff = vi.fn();
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
@@ -134,9 +135,16 @@ describe("WorktreeGitStatusPanel", () => {
     const { resetWorktreeGitStatusViewStoreForTests } =
       await import("@/lib/stores/worktreeGitStatusView");
     resetWorktreeGitStatusViewStoreForTests();
+    const { resetTabStoreForTests, useTabStore } =
+      await import("@/lib/stores/tabs");
+    resetTabStoreForTests();
+    useTabStore.setState({
+      openGitDiff: mockOpenGitDiff,
+    });
     const { resetWorktreeStoreForTests } =
       await import("@/lib/stores/worktrees");
     resetWorktreeStoreForTests();
+    mockOpenGitDiff.mockReset();
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 1,
@@ -250,6 +258,61 @@ describe("WorktreeGitStatusPanel", () => {
     expect(screen.getAllByText("tmp2/bar").length).toBeGreaterThan(0);
     expect(screen.getByText("README.md")).toBeInTheDocument();
     expect(screen.getByText("Ahead commit")).toBeInTheDocument();
+  });
+
+  it("opens preview diffs from list rows via keyboard", async () => {
+    renderPanel();
+
+    await screen.findByRole("button", { name: "Unstaged" });
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
+
+    const listRow = screen.getByText("README.md").closest("[role='button']");
+    expect(listRow).toHaveAttribute("tabindex", "0");
+
+    fireEvent.keyDown(listRow!, { key: "Enter" });
+    fireEvent.keyDown(listRow!, { key: " " });
+
+    expect(mockOpenGitDiff).toHaveBeenNthCalledWith(1, {
+      worktreeId: "w1",
+      path: "README.md",
+      scope: "staged",
+      originalPath: undefined,
+      preview: true,
+    });
+    expect(mockOpenGitDiff).toHaveBeenNthCalledWith(2, {
+      worktreeId: "w1",
+      path: "README.md",
+      scope: "staged",
+      originalPath: undefined,
+      preview: true,
+    });
+  });
+
+  it("opens preview diffs from tree file rows via keyboard", async () => {
+    renderPanel();
+
+    const treeRow = (await screen.findByText("README.md")).closest(
+      "[role='button']",
+    );
+    expect(treeRow).toHaveAttribute("tabindex", "0");
+
+    fireEvent.keyDown(treeRow!, { key: "Enter" });
+    fireEvent.keyDown(treeRow!, { key: " " });
+
+    expect(mockOpenGitDiff).toHaveBeenNthCalledWith(1, {
+      worktreeId: "w1",
+      path: "README.md",
+      scope: "staged",
+      originalPath: undefined,
+      preview: true,
+    });
+    expect(mockOpenGitDiff).toHaveBeenNthCalledWith(2, {
+      worktreeId: "w1",
+      path: "README.md",
+      scope: "staged",
+      originalPath: undefined,
+      preview: true,
+    });
   });
 
   it("renders compacted directory labels with faded slash separators", async () => {

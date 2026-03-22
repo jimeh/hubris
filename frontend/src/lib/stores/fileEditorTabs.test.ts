@@ -4,12 +4,14 @@ import { ApiStatusError } from "@/lib/api";
 import type { EventHandler, SseEventName } from "@/lib/events";
 
 const mockSaveProjectWorktreeFileContent = vi.fn();
+const mockGetProjectWorktreeFileContent = vi.fn();
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
     ...actual,
-    getProjectWorktreeFileContent: vi.fn(),
+    getProjectWorktreeFileContent: (...args: unknown[]) =>
+      mockGetProjectWorktreeFileContent(...args),
     saveProjectWorktreeFileContent: (...args: unknown[]) =>
       mockSaveProjectWorktreeFileContent(...args),
   };
@@ -60,16 +62,19 @@ async function getStore() {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe("fileEditorTabs store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
+    mockGetProjectWorktreeFileContent.mockReset();
     mockSaveProjectWorktreeFileContent.mockReset();
     mockEvents = new MockEventClient();
   });
@@ -278,5 +283,59 @@ describe("fileEditorTabs store", () => {
     expect(Object.keys(nextSessions)).toEqual(["file-1"]);
     expect(nextSessions["file-1"]).toBe(keptSession);
     expect(nextSessions["file-2"]).toBeUndefined();
+  });
+
+  it("does not recreate a discarded session when reload fails later", async () => {
+    const { useFileEditorStore } = await getStore();
+    const { useTabStore } = await import("./tabs");
+    const reloadRequest = deferred<unknown>();
+    mockGetProjectWorktreeFileContent.mockImplementation(
+      () => reloadRequest.promise,
+    );
+
+    useTabStore.setState({
+      tabs: [
+        {
+          id: "file-1",
+          label: "main.ts",
+          position: 1,
+          worktree_id: "w1",
+          session_id: "default",
+          type: "file",
+          created_at: 0,
+          preview: false,
+          path: "src/main.ts",
+        },
+      ],
+    });
+    useFileEditorStore.setState({
+      sessions: {
+        "file-1": {
+          tabId: "file-1",
+          path: "src/main.ts",
+          draft: "draft-1",
+          savedContent: "saved-0",
+          versionToken: "v1",
+          language: "typescript",
+          readOnly: false,
+          unsupportedReason: null,
+          dirty: false,
+          externalChange: false,
+          loadStatus: "loaded",
+          saveStatus: "idle",
+          error: null,
+        },
+      },
+    });
+
+    const reloadPromise = useFileEditorStore
+      .getState()
+      .reload("p1", "w1", "file-1");
+
+    useFileEditorStore.getState().discardSession("file-1");
+    reloadRequest.reject(new Error("boom"));
+    await reloadPromise;
+
+    expect(useFileEditorStore.getState().sessions["file-1"]).toBeUndefined();
   });
 });

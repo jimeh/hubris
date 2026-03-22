@@ -158,6 +158,7 @@ describe("Tab store", () => {
     });
 
     mockEvents.emit("tabs_reordered", {
+      session_id: "default",
       worktree_id: "w1",
       tabs: [
         makeTab({ id: "c", position: 1, worktree_id: "w1" }),
@@ -185,6 +186,7 @@ describe("Tab store", () => {
     });
 
     mockEvents.emit("tabs_reordered", {
+      session_id: "default",
       worktree_id: "w1",
       tabs: [
         makeTab({ id: "b", position: 1, worktree_id: "w1" }),
@@ -243,7 +245,10 @@ describe("Tab store", () => {
       preview: true,
     });
     mockCreateTab.mockImplementation(async () => {
-      mockEvents.emit("tab_created", tab);
+      mockEvents.emit("tab_created", {
+        session_id: "default",
+        tab,
+      });
       return tab;
     });
 

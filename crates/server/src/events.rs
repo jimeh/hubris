@@ -30,13 +30,14 @@ pub enum EventKind {
         settings_status: SettingsStatus,
     },
     #[serde(rename = "tab_created")]
-    TabCreated(TabInfo),
+    TabCreated { session_id: String, tab: TabInfo },
     #[serde(rename = "tab_closed")]
-    TabClosed { tab_id: String },
+    TabClosed { session_id: String, tab_id: String },
     #[serde(rename = "tab_updated")]
-    TabUpdated(TabInfo),
+    TabUpdated { session_id: String, tab: TabInfo },
     #[serde(rename = "tabs_reordered")]
     TabsReordered {
+        session_id: String,
         worktree_id: String,
         tabs: Vec<TabInfo>,
     },
@@ -88,9 +89,9 @@ impl EventKind {
     pub fn event_name(&self) -> &'static str {
         match self {
             EventKind::Snapshot { .. } => "snapshot",
-            EventKind::TabCreated(_) => "tab_created",
+            EventKind::TabCreated { .. } => "tab_created",
             EventKind::TabClosed { .. } => "tab_closed",
-            EventKind::TabUpdated(_) => "tab_updated",
+            EventKind::TabUpdated { .. } => "tab_updated",
             EventKind::TabsReordered { .. } => "tabs_reordered",
             EventKind::ProjectAdded(_) => "project_added",
             EventKind::ProjectRemoved { .. } => "project_removed",
@@ -152,11 +153,14 @@ mod tests {
             preview: false,
         };
 
-        bus.emit(EventKind::TabCreated(info.clone()));
+        bus.emit(EventKind::TabCreated {
+            session_id: "default".into(),
+            tab: info.clone(),
+        });
 
         let event = rx.recv().await.unwrap();
         match &event.kind {
-            EventKind::TabCreated(t) => {
+            EventKind::TabCreated { tab: t, .. } => {
                 assert_eq!(t.id(), "t1");
                 assert_eq!(t.label(), "Terminal 1");
             }
@@ -169,7 +173,10 @@ mod tests {
     #[tokio::test]
     async fn test_event_bus_no_subscribers() {
         let bus = EventBus::new();
-        bus.emit(EventKind::TabClosed { tab_id: "x".into() });
+        bus.emit(EventKind::TabClosed {
+            session_id: "default".into(),
+            tab_id: "x".into(),
+        });
     }
 
     #[test]
@@ -188,7 +195,11 @@ mod tests {
             "snapshot"
         );
         assert_eq!(
-            EventKind::TabClosed { tab_id: "x".into() }.event_name(),
+            EventKind::TabClosed {
+                session_id: "default".into(),
+                tab_id: "x".into(),
+            }
+            .event_name(),
             "tab_closed"
         );
     }
