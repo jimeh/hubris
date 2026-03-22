@@ -1,12 +1,20 @@
-import { useMemo, useState, type ComponentType, type ReactNode } from "react";
-import { GitBranch, PanelRightClose, type LucideIcon } from "lucide-react";
-import { useIsMobile } from "@/hooks/use-mobile";
 import {
-  DEFAULT_WORKTREE_RIGHT_SIDEBAR_PANEL,
-  type WorktreeRightSidebarPanelId,
-} from "@/lib/worktreeRightSidebar";
-import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
-import type { Worktree } from "@/lib/types";
+  useCallback,
+  useMemo,
+  type ComponentType,
+  type ReactNode,
+} from "react";
+import {
+  Files,
+  GitBranch,
+  PanelRightClose,
+  RefreshCw,
+  type LucideIcon,
+} from "lucide-react";
+import WorktreeAllFilesPanel from "@/components/WorktreeAllFilesPanel";
+import WorktreeGitStatusViewToggle from "@/components/WorktreeGitStatusViewToggle";
+import WorktreeGitStatusPanel from "@/components/WorktreeGitStatusPanel";
+import WorktreeRightSidebarResizeHandle from "@/components/WorktreeRightSidebarResizeHandle";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -15,30 +23,44 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import WorktreeGitStatusPanel from "@/components/WorktreeGitStatusPanel";
-import WorktreeRightSidebarResizeHandle from "@/components/WorktreeRightSidebarResizeHandle";
+import { useWorktreeGitStatusViewStore } from "@/lib/stores/worktreeGitStatusView";
+import {
+  DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB,
+  WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
+  WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
+  type WorktreeRightSidebarTabId,
+} from "@/lib/worktreeRightSidebar";
+import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
+import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
+import type { Worktree } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
-type WorktreeRightSidebarPanelProps = {
+type WorktreeRightSidebarTabProps = {
   worktree: Worktree;
-  open?: boolean;
-  onActionsChange?: (actions: ReactNode | null) => void;
 };
 
-type WorktreeRightSidebarPanelDefinition = {
-  id: WorktreeRightSidebarPanelId;
+type WorktreeRightSidebarTabDefinition = {
+  id: WorktreeRightSidebarTabId;
   title: string;
   description: string;
   icon: LucideIcon;
-  Content: ComponentType<WorktreeRightSidebarPanelProps>;
+  Content: ComponentType<WorktreeRightSidebarTabProps>;
 };
 
-const RIGHT_SIDEBAR_PANELS: Record<
-  WorktreeRightSidebarPanelId,
-  WorktreeRightSidebarPanelDefinition
+const RIGHT_SIDEBAR_TABS: Record<
+  WorktreeRightSidebarTabId,
+  WorktreeRightSidebarTabDefinition
 > = {
-  "git-status": {
-    id: "git-status",
-    title: "Git status",
+  [WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB]: {
+    id: WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
+    title: "All Files",
+    description: "Browse the worktree with git-aware decorations.",
+    icon: Files,
+    Content: WorktreeAllFilesPanel,
+  },
+  [WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB]: {
+    id: WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
+    title: "Changes",
     description: "Review staged, unstaged, and ahead changes.",
     icon: GitBranch,
     Content: WorktreeGitStatusPanel,
@@ -50,27 +72,47 @@ type Props = {
 };
 
 function RightSidebarHeader({
-  title,
-  worktreeName,
-  Icon,
+  activeTab,
+  onTabChange,
+  badgeCounts,
   actions,
   closeAction,
 }: {
-  title: string;
-  worktreeName: string;
-  Icon: LucideIcon;
+  activeTab: WorktreeRightSidebarTabId;
+  onTabChange: (tabId: WorktreeRightSidebarTabId) => void;
+  badgeCounts: Partial<Record<WorktreeRightSidebarTabId, number | null>>;
   actions: ReactNode;
   closeAction?: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{title}</h2>
-          <p className="truncate text-xs text-muted-foreground">
-            {worktreeName}
-          </p>
+    <div className="flex items-start justify-between gap-2 border-b px-3 py-2">
+      <div className="min-w-0">
+        <div className="-ml-1 flex items-center gap-1">
+          {Object.values(RIGHT_SIDEBAR_TABS).map((tab) => (
+            <Button
+              key={tab.id}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-8 rounded-md px-3 text-sidebar-foreground/75",
+                activeTab === tab.id &&
+                  "bg-sidebar-accent/70 text-sidebar-accent-foreground hover:bg-sidebar-accent/70",
+              )}
+              aria-pressed={activeTab === tab.id}
+              onClick={() => onTabChange(tab.id)}
+            >
+              <tab.icon className="mr-2 h-4 w-4" />
+              {tab.title}
+              {tab.id === WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB &&
+              badgeCounts[tab.id] !== null &&
+              badgeCounts[tab.id] !== undefined ? (
+                <span className="ml-2 rounded-full bg-sidebar-accent px-2 py-0.5 text-[11px] leading-none text-sidebar-accent-foreground">
+                  {badgeCounts[tab.id]}
+                </span>
+              ) : null}
+            </Button>
+          ))}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
@@ -82,27 +124,121 @@ function RightSidebarHeader({
 }
 
 export default function WorktreeRightSidebar({ worktree }: Props) {
-  const isMobile = useIsMobile();
+  const isMobile = useWorktreeRightSidebarStore(
+    (state) => state.isMobileViewport,
+  );
   const desktopOpen = useWorktreeRightSidebarStore(
     (state) => state.desktopOpen,
   );
   const mobileOpen = useWorktreeRightSidebarStore((state) => state.mobileOpen);
-  const activePanel = useWorktreeRightSidebarStore(
-    (state) => state.activePanel,
-  );
+  const activeTab = useWorktreeRightSidebarStore((state) => state.activeTab);
   const setMobileOpen = useWorktreeRightSidebarStore(
     (state) => state.setMobileOpen,
   );
-  const [panelActions, setPanelActions] = useState<ReactNode>(null);
-
-  const panel = useMemo(
-    () =>
-      RIGHT_SIDEBAR_PANELS[activePanel] ??
-      RIGHT_SIDEBAR_PANELS[DEFAULT_WORKTREE_RIGHT_SIDEBAR_PANEL],
-    [activePanel],
+  const setActiveTab = useWorktreeRightSidebarStore(
+    (state) => state.setActiveTab,
   );
-  const PanelContent = panel.Content;
-  const PanelIcon = panel.icon;
+  const worktreeState = useWorktreeFileManagerStore(
+    (state) => state.worktrees[worktree.id],
+  );
+  const refreshVisiblePaths = useWorktreeFileManagerStore(
+    (state) => state.refreshVisiblePaths,
+  );
+  const loadGitStatus = useWorktreeFileManagerStore(
+    (state) => state.loadGitStatus,
+  );
+  const changesBadgeCount = useMemo(() => {
+    const gitStatus = worktreeState?.gitStatus;
+    if (!gitStatus) {
+      return null;
+    }
+
+    return gitStatus.staged_files.length + gitStatus.unstaged_files.length;
+  }, [worktreeState?.gitStatus]);
+  const viewMode = useWorktreeGitStatusViewStore(
+    (state) => state.viewModeByWorktree[worktree.id] ?? "tree",
+  );
+  const setStoredViewMode = useWorktreeGitStatusViewStore(
+    (state) => state.setViewMode,
+  );
+
+  const tab = useMemo(
+    () =>
+      RIGHT_SIDEBAR_TABS[activeTab] ??
+      RIGHT_SIDEBAR_TABS[DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB],
+    [activeTab],
+  );
+  const TabContent = tab.Content;
+  const allFilesLoading =
+    worktreeState?.directories[""]?.status === "loading-initial" ||
+    worktreeState?.directories[""]?.status === "loading-refresh" ||
+    worktreeState?.gitStatusStatus === "loading";
+  const changesLoading = worktreeState?.gitStatusStatus === "loading";
+
+  const handleAllFilesRefresh = useCallback(() => {
+    void refreshVisiblePaths(worktree.project_id, worktree.id, {
+      force: true,
+    });
+  }, [refreshVisiblePaths, worktree.id, worktree.project_id]);
+
+  const handleChangesRefresh = useCallback(() => {
+    void loadGitStatus(worktree.project_id, worktree.id, {
+      force: true,
+    });
+  }, [loadGitStatus, worktree.id, worktree.project_id]);
+
+  const handleViewModeChange = useCallback(
+    (nextViewMode: "list" | "tree") => {
+      setStoredViewMode(worktree.id, nextViewMode);
+    },
+    [setStoredViewMode, worktree.id],
+  );
+
+  const tabActions = useMemo(() => {
+    if (activeTab === WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB) {
+      return (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={handleAllFilesRefresh}
+          title="Refresh files"
+          aria-label="Refresh files"
+        >
+          <RefreshCw
+            className={cn("h-4 w-4", allFilesLoading && "animate-spin")}
+          />
+        </Button>
+      );
+    }
+
+    return (
+      <>
+        <WorktreeGitStatusViewToggle
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
+        />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={handleChangesRefresh}
+          title="Refresh git status"
+          aria-label="Refresh git status"
+        >
+          <RefreshCw
+            className={cn("h-4 w-4", changesLoading && "animate-spin")}
+          />
+        </Button>
+      </>
+    );
+  }, [
+    activeTab,
+    allFilesLoading,
+    changesLoading,
+    handleAllFilesRefresh,
+    handleChangesRefresh,
+    handleViewModeChange,
+    viewMode,
+  ]);
 
   if (isMobile) {
     return (
@@ -113,15 +249,17 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
           className="w-full max-w-none gap-0 p-0 sm:max-w-md"
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>{panel.title}</SheetTitle>
-            <SheetDescription>{panel.description}</SheetDescription>
+            <SheetTitle>{tab.title}</SheetTitle>
+            <SheetDescription>{tab.description}</SheetDescription>
           </SheetHeader>
           <div className="flex h-full min-h-0 flex-col overflow-hidden">
             <RightSidebarHeader
-              title={panel.title}
-              worktreeName={worktree.name}
-              Icon={PanelIcon}
-              actions={panelActions}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              badgeCounts={{
+                [WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB]: changesBadgeCount,
+              }}
+              actions={tabActions}
               closeAction={
                 <Button
                   variant="ghost"
@@ -134,11 +272,9 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
                 </Button>
               }
             />
-            <PanelContent
-              key={`${panel.id}:${worktree.id}:mobile`}
+            <TabContent
+              key={`${tab.id}:${worktree.id}:mobile`}
               worktree={worktree}
-              open={mobileOpen}
-              onActionsChange={setPanelActions}
             />
           </div>
         </SheetContent>
@@ -180,16 +316,16 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <RightSidebarHeader
-            title={panel.title}
-            worktreeName={worktree.name}
-            Icon={PanelIcon}
-            actions={panelActions}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            badgeCounts={{
+              [WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB]: changesBadgeCount,
+            }}
+            actions={tabActions}
           />
-          <PanelContent
-            key={`${panel.id}:${worktree.id}:desktop`}
+          <TabContent
+            key={`${tab.id}:${worktree.id}:desktop`}
             worktree={worktree}
-            open={desktopOpen}
-            onActionsChange={setPanelActions}
           />
         </div>
       </div>

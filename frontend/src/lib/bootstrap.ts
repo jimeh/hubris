@@ -9,6 +9,14 @@ import {
 } from "@/lib/stores/worktrees";
 import { initializeTabStore, resetTabStoreForTests } from "@/lib/stores/tabs";
 import {
+  initializeWorktreeFileManagerStore,
+  resetWorktreeFileManagerStoreForTests,
+} from "@/lib/stores/worktreeFileManager";
+import {
+  initializeWorktreeRightSidebarStore,
+  resetWorktreeRightSidebarStoreForTests,
+} from "@/lib/stores/worktreeRightSidebar";
+import {
   initializeSettingsStore,
   resetSettingsStoreForTests,
 } from "@/lib/stores/settings";
@@ -22,6 +30,8 @@ export function bootstrapApp(): void {
   initializeProjectStore();
   initializeWorktreeStore();
   initializeTabStore();
+  initializeWorktreeFileManagerStore();
+  initializeWorktreeRightSidebarStore();
   initializeSettingsStore();
 
   getEventClient().connect();
@@ -32,6 +42,8 @@ export function resetBootstrapForTests(): void {
   resetProjectStoreForTests();
   resetWorktreeStoreForTests();
   resetTabStoreForTests();
+  resetWorktreeFileManagerStoreForTests();
+  resetWorktreeRightSidebarStoreForTests();
   resetSettingsStoreForTests();
   getEventClient().disconnect();
 }

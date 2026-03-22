@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL } from "@/lib/worktreeRightSidebar";
+import { WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB } from "@/lib/worktreeRightSidebar";
 
 const LS_DESKTOP_OPEN = "hubris-worktree-right-sidebar-open";
 
@@ -28,16 +28,14 @@ describe("Worktree right sidebar store", () => {
     expect(store.getState().desktopOpen).toBe(false);
   });
 
-  it("openPanel selects the requested panel and opens the sidebar", async () => {
+  it("openTab selects the requested tab and opens the sidebar", async () => {
     const store = await getStore();
 
     store.getState().closeForViewport(false);
-    store.getState().openPanel(WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL, false);
+    store.getState().openTab(WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB, false);
 
     expect(store.getState().desktopOpen).toBe(true);
-    expect(store.getState().activePanel).toBe(
-      WORKTREE_RIGHT_SIDEBAR_GIT_STATUS_PANEL,
-    );
+    expect(store.getState().activeTab).toBe(WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB);
     expect(localStorage.getItem(LS_DESKTOP_OPEN)).toBe("true");
   });
 });

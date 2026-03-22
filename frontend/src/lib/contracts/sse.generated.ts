@@ -144,4 +144,18 @@ export type EventKind =
         git_error: string | null;
       };
     }
+  | {
+      type: "worktree_files_updated";
+      data: {
+        project_id: string;
+        worktree_id: string;
+        generation: number;
+        changed_paths: Array<string>;
+        listing_paths: Array<string>;
+      };
+    }
+  | {
+      type: "worktree_git_status_updated";
+      data: { project_id: string; worktree_id: string; generation: number };
+    }
   | { type: "settings_updated"; data: SettingsState };

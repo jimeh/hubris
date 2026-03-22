@@ -506,6 +506,128 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/{worktree_id}/files": {
+      "get": {
+        "tags": ["crate::api::files"],
+        "operationId": "list_project_worktree_files",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Relative path from the worktree root. Empty means root.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List immediate children for a worktree-relative directory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWorktreeFilesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid relative path"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Project, worktree, or directory not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/{worktree_id}/files/rename": {
+      "post": {
+        "tags": ["crate::api::files"],
+        "operationId": "rename_project_worktree_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameWorktreeFileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Rename a file or directory within the worktree",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenameWorktreeFileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid relative path or new name"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Project, worktree, or path not found"
+          },
+          "409": {
+            "description": "Target path already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/projects/{id}/worktrees/{worktree_id}/git-status": {
       "get": {
         "tags": ["crate::api::worktrees"],
@@ -543,6 +665,218 @@
           },
           "404": {
             "description": "Project or worktree not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}": {
+      "get": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "get_project_worktree_commit_details",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commit_id",
+            "in": "path",
+            "description": "Commit SHA",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Commit details for a worktree commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCommitDetailsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project, worktree, or commit not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/{worktree_id}/git/discard": {
+      "post": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "discard_project_worktree_path",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorktreeGitPathActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Worktree changes discarded for the path"
+          },
+          "400": {
+            "description": "Invalid relative path"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Project, worktree, or path not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/{worktree_id}/git/stage": {
+      "post": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "stage_project_worktree_path",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorktreeGitPathActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Path staged"
+          },
+          "400": {
+            "description": "Invalid relative path"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Project, worktree, or path not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/{worktree_id}/git/unstage": {
+      "post": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "unstage_project_worktree_path",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorktreeGitPathActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Path unstaged"
+          },
+          "400": {
+            "description": "Invalid relative path"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Project, worktree, or path not found"
           },
           "500": {
             "description": "Internal server error"
@@ -949,6 +1283,59 @@
           }
         }
       },
+      "GitCommitDetailsResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "short_id",
+          "summary",
+          "message",
+          "author",
+          "committer",
+          "files"
+        ],
+        "properties": {
+          "author": {
+            "$ref": "#/components/schemas/GitCommitPerson"
+          },
+          "committer": {
+            "$ref": "#/components/schemas/GitCommitPerson"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitFileChange"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "short_id": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "GitCommitPerson": {
+        "type": "object",
+        "required": ["name", "email", "date"],
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "GitCommitSummary": {
         "type": "object",
         "required": ["id", "short_id", "summary"],
@@ -970,6 +1357,9 @@
         "properties": {
           "change_type": {
             "$ref": "#/components/schemas/GitFileChangeType"
+          },
+          "original_path": {
+            "type": ["string", "null"]
           },
           "path": {
             "type": "string"
@@ -1007,6 +1397,27 @@
           "path": {
             "type": "string",
             "description": "Canonical absolute path of the listed directory."
+          }
+        }
+      },
+      "ListWorktreeFilesResponse": {
+        "type": "object",
+        "required": ["generation", "path", "entries"],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorktreeFileEntry"
+            }
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative path from the worktree root."
           }
         }
       },
@@ -1062,6 +1473,30 @@
           "position": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "RenameWorktreeFileRequest": {
+        "type": "object",
+        "required": ["path", "new_name"],
+        "properties": {
+          "new_name": {
+            "type": "string",
+            "description": "New basename for the file or directory."
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative path from the worktree root."
+          }
+        }
+      },
+      "RenameWorktreeFileResponse": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Updated relative path from the worktree root."
           }
         }
       },
@@ -1430,9 +1865,43 @@
           }
         }
       },
+      "WorktreeFileEntry": {
+        "type": "object",
+        "required": ["name", "path", "kind"],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/WorktreeFileKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "WorktreeFileKind": {
+        "type": "string",
+        "enum": ["directory", "file"]
+      },
+      "WorktreeGitPathActionRequest": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "original_path": {
+            "type": ["string", "null"],
+            "description": "Original relative path for rename/copy actions."
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative path from the worktree root."
+          }
+        }
+      },
       "WorktreeGitStatusResponse": {
         "type": "object",
         "required": [
+          "generation",
           "unstaged_files",
           "staged_files",
           "ahead_count",
@@ -1455,6 +1924,11 @@
           },
           "comparison_error": {
             "type": ["string", "null"]
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "source_ref": {
             "type": ["string", "null"]

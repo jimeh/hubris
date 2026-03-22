@@ -14,6 +14,10 @@ vi.mock("@/components/WorktreeGitStatusPanel", () => ({
   default: () => <div>Git panel</div>,
 }));
 
+vi.mock("@/components/WorktreeAllFilesPanel", () => ({
+  default: () => <div>Files panel</div>,
+}));
+
 vi.mock("@/components/TerminalTab", async () => {
   const { memo } = await vi.importActual<typeof import("react")>("react");
 
@@ -80,13 +84,16 @@ describe("WorktreeView", () => {
 
     const { resetTabStoreForTests, useTabStore } =
       await import("@/lib/stores/tabs");
-    const { resetWorktreeRightSidebarStoreForTests } =
-      await import("@/lib/stores/worktreeRightSidebar");
+    const {
+      initializeWorktreeRightSidebarStore,
+      resetWorktreeRightSidebarStoreForTests,
+    } = await import("@/lib/stores/worktreeRightSidebar");
     const { resetWorktreeRightSidebarWidthStoreForTests } =
       await import("@/lib/stores/worktreeRightSidebarWidth");
     resetTabStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     resetWorktreeRightSidebarWidthStoreForTests();
+    initializeWorktreeRightSidebarStore();
     useTabStore.setState({
       tabs: [],
       activeTabId: null,
@@ -167,7 +174,7 @@ describe("WorktreeView", () => {
 
     render(<WorktreeView worktree={worktree} />);
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
-    expect(screen.getByText("Git panel")).toBeInTheDocument();
+    expect(screen.getByText("Files panel")).toBeInTheDocument();
 
     const viewRoot = document.querySelector<HTMLElement>(
       "[data-worktree-view]",

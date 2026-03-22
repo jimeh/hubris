@@ -173,7 +173,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Show git status" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show file manager" }));
 
     expect(useWorktreeRightSidebarStore.getState().mobileOpen).toBe(true);
     expect(useWorktreeRightSidebarStore.getState().desktopOpen).toBe(false);
@@ -190,7 +190,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Show git status" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show file manager" }));
 
     expect(useWorktreeRightSidebarStore.getState().desktopOpen).toBe(true);
     expect(useWorktreeRightSidebarStore.getState().mobileOpen).toBe(false);

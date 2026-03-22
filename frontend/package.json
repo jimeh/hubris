@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "bun run generate:material-icons && vite build",
     "preview": "vite preview",
     "check": "tsc -p ./tsconfig.app.json && tsc -p ./tsconfig.node.json",
     "lint": "eslint . && prettier --check .",
@@ -15,7 +15,8 @@
     "test": "bun run test:unit",
     "test:all": "bun run test:unit && bun run test:e2e",
     "generate:contracts:rest": "bunx openapi-typescript src/lib/contracts/openapi.generated.json -o src/lib/contracts/rest.generated.ts && prettier --write src/lib/contracts/openapi.generated.json src/lib/contracts/rest.generated.ts src/lib/contracts/sse.generated.ts src/lib/contracts/ws.generated.ts",
-    "generate:theme-defaults": "bun run scripts/generate-theme-defaults.ts > src/lib/theme/defaults.generated.css && prettier --write src/lib/theme/defaults.generated.css"
+    "generate:theme-defaults": "bun run scripts/generate-theme-defaults.ts > src/lib/theme/defaults.generated.css && prettier --write src/lib/theme/defaults.generated.css",
+    "generate:material-icons": "bun run scripts/generate-material-icon-theme.ts && prettier --write src/lib/materialIconTheme.generated.ts"
   },
   "trustedDependencies": [
     "esbuild"
@@ -69,6 +70,7 @@
     "eslint-plugin-react-refresh": "^0.4.23",
     "globals": "^17.4.0",
     "jsdom": "^28.1.0",
+    "material-icon-theme": "^5.32.0",
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.8.1",
     "tailwindcss": "^4.2.1",

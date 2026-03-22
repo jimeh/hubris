@@ -111,6 +111,12 @@ No periodic reconciliation — drift corrects on reconnect.
 - Rust edition 2024, `style_edition = "2024"` in `rustfmt.toml`
 - React app imports should use `@/lib/...`, `@/components/...`, and
   `@/hooks/...`; do not introduce `$lib/...`
+- **Avoid `useEffect` unless it is clearly necessary**:
+  prefer deriving UI directly from Zustand or React state instead of using
+  effects for orchestration, prop syncing, or data flow. Valid exceptions are:
+  unavoidable external synchronization, timer/debounced presentation logic, or
+  performance-sensitive imperative paths where state-driven rerenders cause
+  visible lag (for example sidebar resize width writes).
 
 ## Gotchas
 
@@ -160,6 +166,10 @@ No periodic reconciliation — drift corrects on reconnect.
   into place, and syncs the parent directory to reduce crash-window
   corruption risk. Editors that keep hard file handles may treat the
   file as replaced rather than modified in place.
+- **Worktree rename conflict protection is only atomic on macOS/Linux**:
+  `worktree_files` uses no-replace OS rename calls there to avoid
+  TOCTOU overwrite races. Other targets still fall back to an
+  existence check plus rename.
 - **Settings sync uses SSE generations plus server status**: snapshot
   events now include `settings`, `settings_generation`, and
   `settings_status`; incremental `settings_updated` events carry the
@@ -256,6 +266,78 @@ No periodic reconciliation — drift corrects on reconnect.
   `cargo check`/`clippy`. Generated types still build.
 - **`ts-rs` v12 changed codegen API**:
   `TS::export_to_string()` now requires a `ts_rs::Config` argument.
+- **`material-icon-theme` manifest is not a complete browser file-type resolver**:
+  `generateManifest()` follows the VS Code icon-theme manifest model, which may
+  omit some generic language extensions (for example plain `.ts`) because VS
+  Code can also use language IDs. Browser file explorers that only have paths
+  should not assume the generated manifest alone reproduces full VS Code parity.
+- **`material-icon-theme` browser resolution must include `languageIds` too**:
+  plain path-based resolution for files like `.html` and `.yml` can miss custom
+  icons if it only consults `fileNames` and `fileExtensions`. The generated
+  manifest and browser resolver should carry `languageIds`, with a minimal alias
+  layer such as `yml -> yaml` where the file extension and VS Code language ID
+  differ.
+- **Explorer refresh UI should be stale-while-revalidate**:
+  watcher-driven refreshes for already-loaded directories should keep cached
+  children visible and use a refresh-specific status/indicator. Reusing the
+  initial-load placeholder state makes subtree renames/removals flash.
+- **`worktree_files_updated` separates exact changes from listing refreshes**:
+  `changed_paths` are the exact watcher-reported paths; `listing_paths` are the
+  directories whose immediate child list may have changed. Frontend explorer
+  invalidation should refresh exact matching loaded directories and exact parent
+  listings, not recursively stale whole descendant subtrees from parent listing
+  changes alone.
+- **Linux `notify` watcher batches can include ancestor directories**:
+  nested file writes may arrive as a batch containing the file plus one or more
+  parent directories. Backend watcher normalization must collapse strict
+  ancestors out of `changed_paths` and emit any concurrent git invalidation even
+  when the same batch also produces file invalidation.
+- **Git index mutations need explicit worktree-file cache invalidation**:
+  stage/unstage operations may not trigger the worktree watcher, especially for
+  linked worktrees where `.git` points outside the watched root. Backend git
+  action handlers must invalidate `worktree_files` caches and emit
+  `worktree_files_updated` instead of relying on filesystem events alone.
+- **Discarding unstaged git changes must restore from the index, not `HEAD`**:
+  use `git restore --worktree -- <path>` so mixed staged+unstaged files keep
+  their staged content intact. `--source=HEAD` is too destructive for `MM` and
+  can fail for staged-added files.
+- **Worktree file watchers coalesce overload to root+git invalidation**:
+  the watcher queue is intentionally bounded. When it overflows, Hubris falls
+  back to broad root file invalidation plus git refresh rather than risking
+  dropped fs events.
+- **Overflow `Notify` permits can outlive the overflow flag**:
+  the watcher overflow path must ignore stale `Notify` wakes after
+  `take_overflow_watch_event()` already consumed the atomic flag, or the
+  watcher task can misread that stale permit as stream termination and exit.
+- **Linked worktree git metadata lives outside the worktree root**:
+  watching `worktree.path` recursively is not enough to catch external commits,
+  ref updates, or index changes for linked worktrees. Git-status freshness needs
+  separate watches on the resolved absolute git dir and git common dir, and
+  git-only invalidation should not stale file listings.
+- **Linked worktree local-root resolution must prefer `repo.workdir()`**:
+  when deriving a git local root with `gix`, check `workdir()` before the
+  shared `common_dir()` parent or linked worktrees collapse to the main repo
+  root instead of their own checkout path.
+- **Prefer `gix` for read-only git operations**:
+  repository inspection like status, refs, branch/default-start-point lookup,
+  commit history/details, worktree enumeration, root resolution, and
+  git/common-dir discovery should stay on `gix`. Keep the git CLI for worktree
+  management (`git worktree ...`) and path-scoped mutation flows where `gix`
+  does not yet provide an equivalent.
+- **Staged copy detection may need action-time fallback context**:
+  `gix` can miss some staged copy rewrites after a path-scoped `git add`,
+  especially when the copy is the only staged change. Preserve any
+  API-supplied `original_path` hint so staged status can still surface
+  copied entries with source context for later unstage actions.
+- **Manual rewrite staging must include both source and destination paths**:
+  for plain filesystem renames, `git add -- <old> <new>` is what collapses the
+  tracked delete+add into a staged rename. Staging only the destination leaves
+  the source side as an unstaged delete.
+- **Sidebar passive loads must not use `refreshVisiblePaths()`**:
+  `refreshVisiblePaths()` is the invalidation path and force-refreshes git
+  status. The right-sidebar visibility coordinator should use
+  `loadDirectory("")`, `preloadVisibleDirectories()`, and `loadGitStatus()`
+  for normal tab-open hydration, or it can spin on already-fresh state.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.

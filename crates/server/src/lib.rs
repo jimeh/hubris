@@ -5,24 +5,27 @@ pub mod git;
 pub mod pty;
 mod settings_manager;
 pub mod state;
+pub mod worktree_files;
 
 use axum::Router;
 use axum::http::Method;
 use axum::http::header::CONTENT_TYPE;
-use axum::routing::{delete, get, put};
+use axum::routing::{delete, get, post, put};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use api::events::event_stream;
-use api::files::list_files;
+use api::files::{list_files, list_project_worktree_files, rename_project_worktree_file};
 use api::openapi::{openapi_json, spec as openapi_spec_impl};
 use api::projects::{add_project, delete_project, list_projects, reorder_projects, update_project};
 use api::settings::{get_settings, patch_settings, put_settings};
 use api::tabs::{create_tab, delete_tab, list_tabs, reorder_tabs, update_tab};
 use api::terminal::ws_handler;
 use api::worktrees::{
-    create_project_worktree, delete_project_worktree, get_project_worktree_git_status,
+    create_project_worktree, delete_project_worktree, discard_project_worktree_path,
+    get_project_worktree_commit_details, get_project_worktree_git_status,
     list_project_worktree_start_points, list_project_worktrees, reorder_project_worktrees,
+    stage_project_worktree_path, unstage_project_worktree_path,
 };
 use embedded::spa_handler;
 pub use state::AppState;
@@ -145,6 +148,30 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/projects/{id}/worktrees/{worktree_id}/git-status",
             get(get_project_worktree_git_status),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}",
+            get(get_project_worktree_commit_details),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/git/stage",
+            post(stage_project_worktree_path),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/git/unstage",
+            post(unstage_project_worktree_path),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/git/discard",
+            post(discard_project_worktree_path),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/files",
+            get(list_project_worktree_files),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/files/rename",
+            post(rename_project_worktree_file),
         )
         .route("/tabs", get(list_tabs).post(create_tab))
         .route("/tabs/reorder", put(reorder_tabs))

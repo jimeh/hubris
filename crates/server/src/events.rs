@@ -66,6 +66,20 @@ pub enum EventKind {
         worktrees: Vec<Worktree>,
         git_error: Option<String>,
     },
+    #[serde(rename = "worktree_files_updated")]
+    WorktreeFilesUpdated {
+        project_id: String,
+        worktree_id: String,
+        generation: u32,
+        changed_paths: Vec<String>,
+        listing_paths: Vec<String>,
+    },
+    #[serde(rename = "worktree_git_status_updated")]
+    WorktreeGitStatusUpdated {
+        project_id: String,
+        worktree_id: String,
+        generation: u32,
+    },
     #[serde(rename = "settings_updated")]
     SettingsUpdated(SettingsState),
 }
@@ -86,6 +100,8 @@ impl EventKind {
             EventKind::WorktreeDeleted { .. } => "worktree_deleted",
             EventKind::WorktreesReordered { .. } => "worktrees_reordered",
             EventKind::ProjectWorktreesUpdated { .. } => "project_worktrees_updated",
+            EventKind::WorktreeFilesUpdated { .. } => "worktree_files_updated",
+            EventKind::WorktreeGitStatusUpdated { .. } => "worktree_git_status_updated",
             EventKind::SettingsUpdated(_) => "settings_updated",
         }
     }

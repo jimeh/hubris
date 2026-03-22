@@ -1,4 +1,11 @@
-import type { ListFilesResponse, Project, Tab, Worktree } from "./types";
+import type {
+  ListFilesResponse,
+  ListWorktreeFilesResponse,
+  Project,
+  RenameWorktreeFileResponse,
+  Tab,
+  Worktree,
+} from "./types";
 import type { components } from "@/lib/contracts/rest.generated";
 import type { Settings, SettingsPatch, SettingsState } from "./theme/types";
 
@@ -7,8 +14,8 @@ const BASE = "/api";
 export class ApiStatusError extends Error {
   status: number;
 
-  constructor(status: number) {
-    super(`${status}`);
+  constructor(status: number, message = `${status}`) {
+    super(message);
     this.name = "ApiStatusError";
     this.status = status;
   }
@@ -24,15 +31,24 @@ type ListWorktreeStartPointsResponse =
 type CreateWorktreeRequest = components["schemas"]["CreateWorktreeRequest"];
 type WorktreeGitStatusResponse =
   components["schemas"]["WorktreeGitStatusResponse"];
+type GitCommitPerson = components["schemas"]["GitCommitPerson"];
+type GitCommitDetailsResponse =
+  components["schemas"]["GitCommitDetailsResponse"];
+type WorktreeFileEntry = components["schemas"]["WorktreeFileEntry"];
+type WorktreeFileKind = components["schemas"]["WorktreeFileKind"];
 type GitFileChange = components["schemas"]["GitFileChange"];
 type GitCommitSummary = components["schemas"]["GitCommitSummary"];
+type RenameWorktreeFileRequest =
+  components["schemas"]["RenameWorktreeFileRequest"];
+type WorktreeGitPathActionRequest =
+  components["schemas"]["WorktreeGitPathActionRequest"];
 type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
 
-function throwStatusError(status: number): never {
-  throw new ApiStatusError(status);
+function throwStatusError(status: number, message?: string): never {
+  throw new ApiStatusError(status, message);
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -113,8 +129,12 @@ export async function listProjectWorktrees(
 
 export type WorktreeStartPoint = StartPoint;
 export type WorktreeGitStatus = WorktreeGitStatusResponse;
+export type WorktreeFile = WorktreeFileEntry;
+export type WorktreeFileType = WorktreeFileKind;
 export type WorktreeGitFileChange = GitFileChange;
 export type WorktreeGitCommitSummary = GitCommitSummary;
+export type WorktreeGitCommitPerson = GitCommitPerson;
+export type WorktreeGitCommitDetails = GitCommitDetailsResponse;
 
 export async function listProjectWorktreeStartPoints(
   projectId: string,
@@ -156,6 +176,139 @@ export async function getProjectWorktreeGitStatus(
     `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git-status`,
   );
   if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function getProjectWorktreeCommitDetails(
+  projectId: string,
+  worktreeId: string,
+  commitId: string,
+): Promise<GitCommitDetailsResponse> {
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git/commits/${commitId}`,
+  );
+  if (!res.ok) {
+    if (res.status === 404) throw new Error("Commit not found");
+    throw new Error(`${res.status}`);
+  }
+  return res.json();
+}
+
+async function postWorktreeGitPathAction(
+  projectId: string,
+  worktreeId: string,
+  action: "stage" | "unstage" | "discard",
+  path: string,
+  originalPath?: string,
+): Promise<void> {
+  const payload: WorktreeGitPathActionRequest = { path };
+  if (originalPath) {
+    payload.original_path = originalPath;
+  }
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git/${action}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) {
+    if (res.status === 400) throw new Error("Invalid path");
+    if (res.status === 403) throw new Error("Permission denied");
+    if (res.status === 404) throw new Error("Path not found");
+    throw new Error(`${res.status}`);
+  }
+}
+
+export async function stageProjectWorktreePath(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+  originalPath?: string,
+): Promise<void> {
+  await postWorktreeGitPathAction(
+    projectId,
+    worktreeId,
+    "stage",
+    path,
+    originalPath,
+  );
+}
+
+export async function unstageProjectWorktreePath(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+  originalPath?: string,
+): Promise<void> {
+  await postWorktreeGitPathAction(
+    projectId,
+    worktreeId,
+    "unstage",
+    path,
+    originalPath,
+  );
+}
+
+export async function discardProjectWorktreePath(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+): Promise<void> {
+  await postWorktreeGitPathAction(projectId, worktreeId, "discard", path);
+}
+
+export async function listProjectWorktreeFiles(
+  projectId: string,
+  worktreeId: string,
+  path = "",
+): Promise<ListWorktreeFilesResponse> {
+  const params = new URLSearchParams();
+  if (path) {
+    params.set("path", path);
+  }
+
+  const qs = params.toString();
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/files${qs ? `?${qs}` : ""}`,
+  );
+  if (!res.ok) {
+    if (res.status === 400) throw new Error("Invalid path");
+    if (res.status === 403) throw new Error("Permission denied");
+    if (res.status === 404) {
+      throwStatusError(404, "Directory not found");
+    }
+    throw new Error(`${res.status}`);
+  }
+  return res.json();
+}
+
+export async function renameProjectWorktreeFile(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+  newName: string,
+): Promise<RenameWorktreeFileResponse> {
+  const payload: RenameWorktreeFileRequest = {
+    path,
+    new_name: newName,
+  };
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/files/rename`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) {
+    if (res.status === 400) throw new Error("Invalid name");
+    if (res.status === 403) throw new Error("Permission denied");
+    if (res.status === 404) throw new Error("Path not found");
+    if (res.status === 409) throw new Error("A file or folder already exists");
+    throw new Error(`${res.status}`);
+  }
   return res.json();
 }
 
