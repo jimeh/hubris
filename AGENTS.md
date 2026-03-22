@@ -72,7 +72,7 @@ No periodic reconciliation — drift corrects on reconnect.
   worktree_created, worktree_deleted, worktrees_reordered,
   project_worktrees_updated
 - Git status: `GET /api/projects/{id}/worktrees/{wt_id}/git-status`
-  uses `gix` (not CLI) to read staged/unstaged/ahead-of-source info.
+  uses `git2`/libgit2 (not CLI) to read staged/unstaged/ahead-of-source info.
   `source_ref` on worktrees tracks the branch it was created from.
 
 ### Frontend (React / Vite / Tailwind v4)
@@ -298,9 +298,9 @@ No periodic reconciliation — drift corrects on reconnect.
   action handlers must invalidate `worktree_files` caches and emit
   `worktree_files_updated` instead of relying on filesystem events alone.
 - **Discarding unstaged git changes must restore from the index, not `HEAD`**:
-  use `git restore --worktree -- <path>` so mixed staged+unstaged files keep
-  their staged content intact. `--source=HEAD` is too destructive for `MM` and
-  can fail for staged-added files.
+  restore worktree paths from the index so mixed staged+unstaged files keep
+  their staged content intact. Resetting from `HEAD` is too destructive for
+  `MM` and can fail for staged-added files.
 - **Worktree file watchers coalesce overload to root+git invalidation**:
   the watcher queue is intentionally bounded. When it overflows, Hubris falls
   back to broad root file invalidation plus git refresh rather than risking
@@ -315,27 +315,31 @@ No periodic reconciliation — drift corrects on reconnect.
   separate watches on the resolved absolute git dir and git common dir, and
   git-only invalidation should not stale file listings.
 - **Linked worktree local-root resolution must prefer `repo.workdir()`**:
-  when deriving a git local root with `gix`, check `workdir()` before the
-  shared `common_dir()` parent or linked worktrees collapse to the main repo
+  when deriving a git local root with `git2`, check `workdir()` before the
+  shared `commondir()` parent or linked worktrees collapse to the main repo
   root instead of their own checkout path.
-- **Prefer `gix` for read-only git operations**:
+- **`git2` worktree add names must be safe internal IDs**:
+  do not pass raw branch shorthands like `feature/foo` into
+  `repo.worktree(...)`. Use a filesystem-safe name derived from the target
+  path; keep the branch/ref selection separate in the worktree add options.
+- **Prefer `git2` for runtime git operations**:
   repository inspection like status, refs, branch/default-start-point lookup,
-  commit history/details, worktree enumeration, root resolution, and
-  git/common-dir discovery should stay on `gix`. Keep the git CLI for worktree
-  management (`git worktree ...`) and path-scoped mutation flows where `gix`
-  does not yet provide an equivalent.
-- **Staged git status needs a CLI fallback when `gix` tree-index reads misbehave**:
-  on some real repos `tree_index_status(None, ...)` can return no staged
-  entries, and some `gix` status iterator paths can even panic internally.
-  Keep the rewrite-aware `gix` staged read as the primary path, but fall back
-  to `git diff --cached --name-status -z --find-renames
-  --find-copies-harder` for staged sidebar/API data when the `gix` result is
-  empty, errors, or panics.
-- **Staged copy detection may need action-time fallback context**:
-  `gix` can miss some staged copy rewrites after a path-scoped `git add`,
-  especially when the copy is the only staged change. Preserve any
-  API-supplied `original_path` hint so staged status can still surface
-  copied entries with source context for later unstage actions.
+  commit history/details, worktree enumeration/lifecycle, root resolution,
+  and git/common-dir discovery should stay on `git2`. Keep the git CLI in
+  test fixtures or unsupported edge cases only.
+- **Staged git status uses `git2` diff + find-similar**:
+  staged sidebar/API data comes from a `HEAD -> index` diff with rename/copy
+  detection enabled. Keep `include_unmodified(true)` plus
+  `copies_from_unmodified(true)` or staged copies can regress back to plain
+  adds without source context.
+- **Commit-details diffs should stay rename-only**:
+  copy-harder detection is useful for staged status but too aggressive for the
+  commit-details API. Enabling copy detection there can mislabel a simple added
+  file as `copied`.
+- **`git2` status omits already-empty untracked directories**:
+  discard flows cannot rely on `repo.statuses(...)` alone for an explicitly
+  requested empty directory. If the path still exists on disk and is a
+  directory, remove it directly before treating the discard as a no-op.
 - **Manual rewrite staging must include both source and destination paths**:
   for plain filesystem renames, `git add -- <old> <new>` is what collapses the
   tracked delete+add into a staged rename. Staging only the destination leaves
@@ -366,7 +370,7 @@ No periodic reconciliation — drift corrects on reconnect.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (1987 symbols, 5907 relationships, 162 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hubris** (1966 symbols, 5886 relationships, 161 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -429,7 +433,6 @@ This project is indexed by GitNexus as **hubris** (1987 symbols, 5907 relationsh
 ## Self-Check Before Finishing
 
 Before completing any code modification task, verify:
-
 1. `gitnexus_impact` was run for all modified symbols
 2. No HIGH/CRITICAL risk warnings were ignored
 3. `gitnexus_detect_changes()` confirms changes match expected scope

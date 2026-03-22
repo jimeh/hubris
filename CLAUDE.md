@@ -3,7 +3,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (1987 symbols, 5907 relationships, 162 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hubris** (1966 symbols, 5886 relationships, 161 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -66,7 +66,6 @@ This project is indexed by GitNexus as **hubris** (1987 symbols, 5907 relationsh
 ## Self-Check Before Finishing
 
 Before completing any code modification task, verify:
-
 1. `gitnexus_impact` was run for all modified symbols
 2. No HIGH/CRITICAL risk warnings were ignored
 3. `gitnexus_detect_changes()` confirms changes match expected scope
