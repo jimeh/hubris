@@ -363,12 +363,15 @@ export function initializeFileEditorStore(): void {
         tabs.filter((tab) => tab.type === "file").map((tab) => tab.id),
       );
       useFileEditorStore.setState((state) => {
-        const nextSessions = Object.fromEntries(
-          Object.entries(state.sessions).filter(([tabId]) =>
-            activeIds.has(tabId),
-          ),
-        );
-        return nextSessions === state.sessions
+        let nextSessions: Record<string, FileEditorSession> | null = null;
+        for (const tabId of Object.keys(state.sessions)) {
+          if (activeIds.has(tabId)) {
+            continue;
+          }
+          nextSessions ??= { ...state.sessions };
+          delete nextSessions[tabId];
+        }
+        return nextSessions === null
           ? state
           : {
               sessions: nextSessions,

@@ -355,7 +355,6 @@ pub async fn put_project_worktree_file_content(
     file.read_to_end(&mut current_bytes)
         .await
         .map_err(map_io_status)?;
-    let current_text = std::str::from_utf8(&current_bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
     let current_token = version_token(&current_bytes, &metadata);
     if current_token != request.expected_version_token {
         return Err(StatusCode::CONFLICT);
@@ -365,12 +364,14 @@ pub async fn put_project_worktree_file_content(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    if current_text == request.content {
+    if current_bytes == request.content.as_bytes() {
         return Ok(Json(WriteWorktreeFileContentResponse {
             path,
             version_token: current_token,
         }));
     }
+
+    validate_existing_text_file_for_write(&current_bytes)?;
 
     let next_metadata = write_worktree_file_atomically(
         &absolute_path,
@@ -630,6 +631,12 @@ fn version_token(bytes: &[u8], metadata: &std::fs::Metadata) -> String {
         .unwrap_or_default()
         .hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+fn validate_existing_text_file_for_write(bytes: &[u8]) -> Result<(), StatusCode> {
+    std::str::from_utf8(bytes)
+        .map(|_| ())
+        .map_err(|_| StatusCode::BAD_REQUEST)
 }
 
 async fn load_text_file(path: &Path, relative_path: &str) -> Result<LoadedTextFile, StatusCode> {

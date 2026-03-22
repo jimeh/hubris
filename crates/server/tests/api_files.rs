@@ -378,6 +378,98 @@ async fn test_worktree_file_content_can_be_saved_and_detects_conflicts() {
     );
 }
 
+#[tokio::test]
+async fn test_worktree_file_content_noop_save_returns_same_token() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("notes.txt"), "first\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=notes.txt",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::OK);
+    let loaded_body: Value = loaded.json().await.unwrap();
+
+    let saved = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "notes.txt",
+            "content": "first\n",
+            "expected_version_token": loaded_body["version_token"],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let saved_body: Value = saved.json().await.unwrap();
+    assert_eq!(saved_body["version_token"], loaded_body["version_token"]);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("notes.txt")).unwrap(),
+        "first\n"
+    );
+}
+
+#[tokio::test]
+async fn test_binary_worktree_file_content_is_read_only_and_cannot_be_saved() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("binary.bin"), [0_u8, 159, 146, 150]).unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=binary.bin",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::OK);
+    let loaded_body: Value = loaded.json().await.unwrap();
+    assert_eq!(loaded_body["content"], "");
+    assert_eq!(loaded_body["read_only"], true);
+    assert_eq!(
+        loaded_body["unsupported_reason"],
+        "Binary files are read-only."
+    );
+
+    let save = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "binary.bin",
+            "content": "text\n",
+            "expected_version_token": loaded_body["version_token"],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(save.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        std::fs::read(repo.path().join("binary.bin")).unwrap(),
+        vec![0_u8, 159, 146, 150]
+    );
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn test_worktree_file_content_save_failure_does_not_truncate_original() {
