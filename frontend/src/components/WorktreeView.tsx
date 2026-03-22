@@ -71,7 +71,6 @@ export default function WorktreeView({ worktree }: Props) {
   const pin = useTabStore((state) => state.pin);
   const removeLocal = useTabStore((state) => state.removeLocal);
   const saveFile = useFileEditorStore((state) => state.save);
-  const fileSessions = useFileEditorStore((state) => state.sessions);
   const dirtyTabIds = useFileEditorStore(
     useShallow((state) =>
       Object.values(state.sessions)
@@ -108,14 +107,15 @@ export default function WorktreeView({ worktree }: Props) {
   const handleCloseTab = useCallback(
     (tabId: string) => {
       const tab = worktreeTabs.find((candidate) => candidate.id === tabId);
-      if (tab?.type === "file" && fileSessions[tabId]?.dirty) {
+      const isDirty = useFileEditorStore.getState().sessions[tabId]?.dirty;
+      if (tab?.type === "file" && isDirty) {
         setPendingCloseTabId(tabId);
         return;
       }
 
       void close(tabId);
     },
-    [close, fileSessions, worktreeTabs],
+    [close, worktreeTabs],
   );
   const handleAddTab = useCallback(() => {
     void addTerminal(worktree.id);
@@ -297,10 +297,11 @@ export default function WorktreeView({ worktree }: Props) {
               Don&apos;t Save
             </AlertDialogAction>
             <AlertDialogAction
-              onClick={() => {
+              onClick={(event) => {
                 if (!pendingCloseTabId || pendingCloseTab?.type !== "file") {
                   return;
                 }
+                event.preventDefault();
 
                 void (async () => {
                   try {

@@ -50,7 +50,9 @@ vi.mock("@/lib/stores/theme", () => ({
 
 vi.mock("@/lib/stores/worktreeFileManager", () => ({
   useWorktreeFileManagerStore: (
-    selector: (state: { worktrees: Record<string, { gitStatus: null }> }) => unknown,
+    selector: (state: {
+      worktrees: Record<string, { gitStatus: null }>;
+    }) => unknown,
   ) => selector({ worktrees: { w1: { gitStatus: null } } }),
 }));
 
@@ -78,7 +80,9 @@ vi.mock("./SortableTab", () => ({
     title?: string;
     iconKind?: string;
     toneClass?: string;
-  }) => <div>{`${label}:${title ?? ""}:${iconKind ?? ""}:${toneClass ?? ""}`}</div>,
+  }) => (
+    <div>{`${label}:${title ?? ""}:${iconKind ?? ""}:${toneClass ?? ""}`}</div>
+  ),
 }));
 
 vi.mock("./SortableTabView", () => ({
@@ -156,7 +160,9 @@ describe("SortableTabStrip", () => {
       "true",
     );
     expect(
-      screen.getByText("overlay:Tab B!:Tab B title:terminal:text-amber-500:true:321"),
+      screen.getByText(
+        "overlay:Tab B!:Tab B title:terminal:text-amber-500:true:321",
+      ),
     ).toBeInTheDocument();
   });
 

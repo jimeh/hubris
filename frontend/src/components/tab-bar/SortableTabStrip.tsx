@@ -150,10 +150,14 @@ export default function SortableTabStrip({
         {activeDragTab ? (
           <SortableTabView
             tabId={activeDragTab.id}
-            label={tabPresentations[activeDragTab.id]?.label ?? activeDragTab.label}
+            label={
+              tabPresentations[activeDragTab.id]?.label ?? activeDragTab.label
+            }
             labelSuffix={tabPresentations[activeDragTab.id]?.labelSuffix}
             statusLabel={tabPresentations[activeDragTab.id]?.statusLabel}
-            title={tabPresentations[activeDragTab.id]?.title ?? activeDragTab.label}
+            title={
+              tabPresentations[activeDragTab.id]?.title ?? activeDragTab.label
+            }
             iconKind={tabPresentations[activeDragTab.id]?.iconKind}
             iconPath={tabPresentations[activeDragTab.id]?.iconPath}
             iconId={tabPresentations[activeDragTab.id]?.iconId}

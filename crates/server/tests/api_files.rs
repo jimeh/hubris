@@ -294,6 +294,124 @@ async fn test_list_worktree_files_lists_root_and_nested_entries() {
 }
 
 #[tokio::test]
+async fn test_worktree_file_content_can_be_saved_and_detects_conflicts() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("notes.txt"), "first\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=notes.txt",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::OK);
+    let loaded_body: Value = loaded.json().await.unwrap();
+    assert_eq!(loaded_body["content"], "first\n");
+    let original_token = loaded_body["version_token"].as_str().unwrap().to_string();
+
+    let saved = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "notes.txt",
+            "content": "second\n",
+            "expected_version_token": original_token,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let saved_body: Value = saved.json().await.unwrap();
+    let updated_token = saved_body["version_token"].as_str().unwrap();
+    assert_ne!(updated_token, loaded_body["version_token"]);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("notes.txt")).unwrap(),
+        "second\n"
+    );
+
+    let conflict = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "notes.txt",
+            "content": "third\n",
+            "expected_version_token": loaded_body["version_token"],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(conflict.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("notes.txt")).unwrap(),
+        "second\n"
+    );
+}
+
+#[tokio::test]
+async fn test_unstaged_git_diff_for_missing_worktree_file_returns_empty_right_side() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    std::fs::remove_file(repo.path().join("README.md")).unwrap();
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=unstaged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "hello\n");
+    assert_eq!(body["right_content"], "");
+    assert_eq!(body["right_label"], "Working Tree");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unstaged_git_diff_rejects_symlink_escape() {
+    use std::os::unix::fs::symlink;
+
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+
+    symlink(outside.path(), repo.path().join("escape-link")).unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=escape-link&scope=unstaged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_rename_worktree_file_succeeds_for_file_and_directory() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();

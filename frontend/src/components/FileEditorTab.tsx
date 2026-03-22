@@ -1,4 +1,10 @@
-import { memo, useCallback, useEffect, useMemo, type ComponentProps } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  type ComponentProps,
+} from "react";
 import Editor from "@monaco-editor/react";
 import { Loader2, RefreshCw, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,12 +22,7 @@ type Props = {
   visible: boolean;
 };
 
-function FileEditorTab({
-  projectId,
-  worktreeId,
-  tab,
-  visible,
-}: Props) {
+function FileEditorTab({ projectId, worktreeId, tab, visible }: Props) {
   const session = useFileEditorStore((state) => state.sessions[tab.id]);
   const ensureLoaded = useFileEditorStore((state) => state.ensureLoaded);
   const updateDraft = useFileEditorStore((state) => state.updateDraft);
@@ -63,8 +64,12 @@ function FileEditorTab({
   );
   const handleMount = useCallback(
     (
-      editor: Parameters<NonNullable<ComponentProps<typeof Editor>["onMount"]>>[0],
-      monaco: Parameters<NonNullable<ComponentProps<typeof Editor>["onMount"]>>[1],
+      editor: Parameters<
+        NonNullable<ComponentProps<typeof Editor>["onMount"]>
+      >[0],
+      monaco: Parameters<
+        NonNullable<ComponentProps<typeof Editor>["onMount"]>
+      >[1],
     ) => {
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         void save(projectId, worktreeId, tab.id);

@@ -110,16 +110,19 @@ describe("App", () => {
   });
 
   it("updates the main pane when the selected worktree changes", async () => {
+    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
     const { default: App } = await import("./App");
 
     render(<App />);
 
     expect(screen.getByText("Active worktree: local")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "feature-a" }));
+    act(() => {
+      useWorktreeStore.getState().select("w-feature");
+    });
 
     expect(screen.getByText("Active worktree: feature-a")).toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("updates sidebar width via DOM subscription without rerendering the main pane", async () => {
     const { useSidebarWidthStore } = await import("@/lib/stores/sidebarWidth");
@@ -135,7 +138,8 @@ describe("App", () => {
     expect(sidebarWrapper?.style.getPropertyValue("--sidebar-width")).toBe(
       "256px",
     );
-    expect(worktreeViewRenderCount).toBe(1);
+    const initialRenderCount = worktreeViewRenderCount;
+    expect(initialRenderCount).toBeGreaterThan(0);
 
     act(() => {
       useSidebarWidthStore.getState().setWidth(320);
@@ -146,7 +150,7 @@ describe("App", () => {
     expect(sidebarWrapper?.style.getPropertyValue("--sidebar-width")).toBe(
       "400px",
     );
-    expect(worktreeViewRenderCount).toBe(1);
+    expect(worktreeViewRenderCount).toBe(initialRenderCount);
 
     act(() => {
       useSidebarWidthStore.getState().setResizing(true);

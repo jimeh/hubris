@@ -120,7 +120,9 @@ const SortableTabView = memo(
             aria-hidden="true"
           />
         ) : null}
-        <span className={cn("inline-flex min-w-0 items-baseline gap-1", toneClass)}>
+        <span
+          className={cn("inline-flex min-w-0 items-baseline gap-1", toneClass)}
+        >
           <span className={cn("truncate", preview && "italic")}>{label}</span>
           {labelSuffix ? (
             <span className="shrink-0 text-[0.92em] opacity-80">

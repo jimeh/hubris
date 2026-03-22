@@ -170,6 +170,10 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
       return;
     }
 
+    const savePath = session.path;
+    const saveDraft = session.draft;
+    const expectedVersionToken = session.versionToken;
+
     set((state) => ({
       sessions: {
         ...state.sessions,
@@ -185,41 +189,55 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
       const response = await saveProjectWorktreeFileContent(
         projectId,
         worktreeId,
-        session.path,
-        session.draft,
-        session.versionToken,
+        savePath,
+        saveDraft,
+        expectedVersionToken,
       );
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [tabId]: {
-            ...state.sessions[tabId],
-            savedContent: session.draft,
-            versionToken: response.version_token,
-            dirty: false,
-            externalChange: false,
-            saveStatus: "idle",
-            error: null,
+      set((state) => {
+        const current = state.sessions[tabId];
+        if (!current) {
+          return state;
+        }
+
+        return {
+          sessions: {
+            ...state.sessions,
+            [tabId]: {
+              ...current,
+              savedContent: saveDraft,
+              versionToken: response.version_token,
+              dirty: current.draft !== saveDraft,
+              externalChange: false,
+              saveStatus: "idle",
+              error: null,
+            },
           },
-        },
-      }));
+        };
+      });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to save file";
-      set((state) => ({
-        sessions: {
-          ...state.sessions,
-          [tabId]: {
-            ...state.sessions[tabId],
-            saveStatus: "error",
-            externalChange:
-              error instanceof ApiStatusError && error.status === 409
-                ? true
-                : state.sessions[tabId].externalChange,
-            error: message,
+      set((state) => {
+        const current = state.sessions[tabId];
+        if (!current) {
+          return state;
+        }
+
+        return {
+          sessions: {
+            ...state.sessions,
+            [tabId]: {
+              ...current,
+              saveStatus: "error",
+              externalChange:
+                error instanceof ApiStatusError && error.status === 409
+                  ? true
+                  : current.externalChange,
+              error: message,
+            },
           },
-        },
-      }));
+        };
+      });
       throw error;
     }
   },

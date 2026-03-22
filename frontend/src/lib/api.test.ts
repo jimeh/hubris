@@ -547,7 +547,7 @@ describe("API client", () => {
   });
 
   describe("createTab", () => {
-    it("sends POST with worktree_id in body", async () => {
+    it("sends POST with type and worktree_id in body", async () => {
       const mockTab = {
         id: "t1",
         session_id: "default",

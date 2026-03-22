@@ -1,13 +1,33 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
-import type { TerminalTab, Worktree } from "@/lib/types";
+import type { FileTab, TerminalTab, Worktree } from "@/lib/types";
 
 const terminalRenderSpy = vi.fn<(tabId: string) => void>();
 
 vi.mock("@/components/TabBar", () => ({
-  default: () => null,
+  default: ({
+    tabs,
+    onClose,
+  }: {
+    tabs: Array<{ id: string }>;
+    onClose: (tabId: string) => void;
+  }) => (
+    <div>
+      {tabs.map((tab) => (
+        <button key={tab.id} onClick={() => onClose(tab.id)}>
+          Close {tab.id}
+        </button>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/WorktreeGitStatusPanel", () => ({
@@ -83,6 +103,25 @@ function makeTab(
   };
 }
 
+function makeFileTab(
+  id: string,
+  worktreeId: string,
+  overrides: Partial<FileTab> = {},
+): FileTab {
+  const path = overrides.path ?? "src/file.ts";
+  return {
+    id,
+    label: path.split("/").filter(Boolean).at(-1) ?? path,
+    position: overrides.position ?? 1,
+    worktree_id: worktreeId,
+    session_id: overrides.session_id ?? "default",
+    type: "file",
+    created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? false,
+    path,
+  };
+}
+
 describe("WorktreeView", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
@@ -97,9 +136,12 @@ describe("WorktreeView", () => {
       initializeWorktreeRightSidebarStore,
       resetWorktreeRightSidebarStoreForTests,
     } = await import("@/lib/stores/worktreeRightSidebar");
+    const { resetFileEditorStoreForTests } =
+      await import("@/lib/stores/fileEditorTabs");
     const { resetWorktreeRightSidebarWidthStoreForTests } =
       await import("@/lib/stores/worktreeRightSidebarWidth");
     resetTabStoreForTests();
+    resetFileEditorStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     resetWorktreeRightSidebarWidthStoreForTests();
     initializeWorktreeRightSidebarStore();
@@ -342,5 +384,166 @@ describe("WorktreeView", () => {
       viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
     ).toBe("484px");
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+  });
+
+  it("does not rerender terminal tabs when file editor sessions change", async () => {
+    const { default: WorktreeView } = await import("./WorktreeView");
+    const { useTabStore } = await import("@/lib/stores/tabs");
+    const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
+    const worktree = makeWorktree();
+
+    useTabStore.setState({
+      tabs: [makeTab("a", worktree.id, { position: 1 })],
+      activeTabId: "a",
+      activeTabByWorktree: { [worktree.id]: "a" },
+    });
+
+    render(<WorktreeView worktree={worktree} />);
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+
+    act(() => {
+      useFileEditorStore.setState({
+        sessions: {
+          "file-1": {
+            tabId: "file-1",
+            path: "src/file.ts",
+            draft: "draft",
+            savedContent: "draft",
+            versionToken: "v1",
+            language: "typescript",
+            readOnly: false,
+            unsupportedReason: null,
+            dirty: false,
+            externalChange: true,
+            loadStatus: "loaded",
+            saveStatus: "idle",
+            error: null,
+          },
+        },
+      });
+    });
+
+    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+  });
+
+  it("keeps the save dialog open when saving a dirty file tab fails", async () => {
+    const closeSpy = vi.fn().mockResolvedValue(undefined);
+    const saveSpy = vi.fn().mockRejectedValue(new Error("save failed"));
+    const { default: WorktreeView } = await import("./WorktreeView");
+    const { useTabStore } = await import("@/lib/stores/tabs");
+    const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
+    const worktree = makeWorktree();
+    const fileTab = makeFileTab("file-1", worktree.id);
+
+    useTabStore.setState((state) => ({
+      ...state,
+      tabs: [fileTab],
+      activeTabId: fileTab.id,
+      activeTabByWorktree: { [worktree.id]: fileTab.id },
+      close: closeSpy,
+    }));
+    useFileEditorStore.setState((state) => ({
+      ...state,
+      sessions: {
+        [fileTab.id]: {
+          tabId: fileTab.id,
+          path: fileTab.path,
+          draft: "draft",
+          savedContent: "saved",
+          versionToken: "v1",
+          language: "typescript",
+          readOnly: false,
+          unsupportedReason: null,
+          dirty: true,
+          externalChange: false,
+          loadStatus: "loaded",
+          saveStatus: "idle",
+          error: null,
+        },
+      },
+      save: saveSpy,
+    }));
+
+    render(<WorktreeView worktree={worktree} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: `Close ${fileTab.id}` }),
+    );
+    expect(
+      await screen.findByText(`Save changes to ${fileTab.label}?`),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(
+        worktree.project_id,
+        worktree.id,
+        fileTab.id,
+      );
+    });
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(`Save changes to ${fileTab.label}?`),
+    ).toBeInTheDocument();
+  });
+
+  it("closes the dirty file tab after a successful save", async () => {
+    const closeSpy = vi.fn().mockResolvedValue(undefined);
+    const saveSpy = vi.fn().mockResolvedValue(undefined);
+    const { default: WorktreeView } = await import("./WorktreeView");
+    const { useTabStore } = await import("@/lib/stores/tabs");
+    const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
+    const worktree = makeWorktree();
+    const fileTab = makeFileTab("file-1", worktree.id);
+
+    useTabStore.setState((state) => ({
+      ...state,
+      tabs: [fileTab],
+      activeTabId: fileTab.id,
+      activeTabByWorktree: { [worktree.id]: fileTab.id },
+      close: closeSpy,
+    }));
+    useFileEditorStore.setState((state) => ({
+      ...state,
+      sessions: {
+        [fileTab.id]: {
+          tabId: fileTab.id,
+          path: fileTab.path,
+          draft: "draft",
+          savedContent: "saved",
+          versionToken: "v1",
+          language: "typescript",
+          readOnly: false,
+          unsupportedReason: null,
+          dirty: true,
+          externalChange: false,
+          loadStatus: "loaded",
+          saveStatus: "idle",
+          error: null,
+        },
+      },
+      save: saveSpy,
+    }));
+
+    render(<WorktreeView worktree={worktree} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: `Close ${fileTab.id}` }),
+    );
+    expect(
+      await screen.findByText(`Save changes to ${fileTab.label}?`),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(closeSpy).toHaveBeenCalledWith(fileTab.id);
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByText(`Save changes to ${fileTab.label}?`),
+      ).not.toBeInTheDocument();
+    });
   });
 });

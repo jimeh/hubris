@@ -267,6 +267,7 @@ async function replacePreviewIfNeeded(
     return;
   }
 
+  scheduleDisposeTabModels(previewTab);
   useTabStore.setState((current) => removeFromState(current, previewTab.id));
   try {
     await deleteTab(previewTab.id);

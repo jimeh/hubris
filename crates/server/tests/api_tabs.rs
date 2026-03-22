@@ -1,14 +1,30 @@
+use std::ffi::OsString;
 use std::path::Path;
 use std::process::Command;
+use std::sync::LazyLock;
+use std::time::Duration;
 
+use hubris_server::events::EventKind;
 use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
+use tokio::sync::Mutex;
+
+static TERMINAL_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 async fn start_test_server() -> (String, tempfile::TempDir) {
+    let (base, tmp, _state) = start_test_server_with_state().await;
+    (base, tmp)
+}
+
+async fn lock_terminal_test() -> tokio::sync::MutexGuard<'static, ()> {
+    TERMINAL_TEST_LOCK.lock().await
+}
+
+async fn start_test_server_with_state() -> (String, tempfile::TempDir, AppState) {
     let tmp = tempfile::TempDir::new().unwrap();
     let state = AppState::new(tmp.path().to_path_buf()).await;
-    let app = build_router(state);
+    let app = build_router(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -16,7 +32,7 @@ async fn start_test_server() -> (String, tempfile::TempDir) {
         axum::serve(listener, app).await.unwrap();
     });
 
-    (format!("http://{}", addr), tmp)
+    (format!("http://{}", addr), tmp, state)
 }
 
 fn init_git_repo() -> tempfile::TempDir {
@@ -90,8 +106,34 @@ async fn list_tabs(client: &reqwest::Client, base: &str) -> Vec<Value> {
     res.json().await.unwrap()
 }
 
+struct ShellEnvGuard {
+    original: Option<OsString>,
+}
+
+impl ShellEnvGuard {
+    fn set(value: &Path) -> Self {
+        let original = std::env::var_os("SHELL");
+        unsafe {
+            std::env::set_var("SHELL", value);
+        }
+        Self { original }
+    }
+}
+
+impl Drop for ShellEnvGuard {
+    fn drop(&mut self) {
+        unsafe {
+            match &self.original {
+                Some(value) => std::env::set_var("SHELL", value),
+                None => std::env::remove_var("SHELL"),
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_list_tabs_empty() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
 
@@ -108,6 +150,7 @@ async fn test_list_tabs_empty() {
 
 #[tokio::test]
 async fn test_create_tab() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -127,6 +170,7 @@ async fn test_create_tab() {
 
 #[tokio::test]
 async fn test_create_tab_invalid_worktree() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
 
@@ -144,6 +188,7 @@ async fn test_create_tab_invalid_worktree() {
 
 #[tokio::test]
 async fn test_create_tab_for_external_non_managed_worktree_returns_not_found() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -179,6 +224,7 @@ async fn test_create_tab_for_external_non_managed_worktree_returns_not_found() {
 
 #[tokio::test]
 async fn test_delete_project_cascades_tabs() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -215,6 +261,7 @@ async fn test_delete_project_cascades_tabs() {
 
 #[tokio::test]
 async fn test_delete_tab() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -244,6 +291,7 @@ async fn test_delete_tab() {
 
 #[tokio::test]
 async fn test_update_tab() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -277,6 +325,7 @@ async fn test_update_tab() {
 
 #[tokio::test]
 async fn test_list_tabs_sorted_by_position() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -304,6 +353,7 @@ async fn test_list_tabs_sorted_by_position() {
 
 #[tokio::test]
 async fn test_reorder_tabs() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -344,6 +394,7 @@ async fn test_reorder_tabs() {
 
 #[tokio::test]
 async fn test_reorder_tabs_wrong_ids() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -381,6 +432,7 @@ async fn test_reorder_tabs_wrong_ids() {
 
 #[tokio::test]
 async fn test_create_tab_label_increments() {
+    let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
     let repo = init_git_repo();
@@ -393,4 +445,63 @@ async fn test_create_tab_label_increments() {
 
     assert_eq!(first["label"], "Terminal 1");
     assert_eq!(second["label"], "Terminal 2");
+}
+
+#[tokio::test]
+async fn test_immediately_exiting_terminal_emits_created_then_closed() {
+    let _lock = lock_terminal_test().await;
+    let (base, tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let exit_marker = repo.path().join(".hubris-exit-shell");
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    std::fs::write(&exit_marker, "").unwrap();
+    let shell_wrapper = tmp.path().join("shell-wrapper.sh");
+    std::fs::write(
+        &shell_wrapper,
+        format!(
+            "#!/bin/sh\nif [ -f \"{}\" ]; then\n  exit 0\nfi\nexec /bin/sh \"$@\"\n",
+            exit_marker.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = std::fs::metadata(&shell_wrapper).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&shell_wrapper, permissions).unwrap();
+    }
+
+    let mut rx = state.events.subscribe();
+    let _shell_guard = ShellEnvGuard::set(&shell_wrapper);
+
+    let tab = create_tab(&client, &base, &worktree_id).await;
+    let tab_id = tab["id"].as_str().unwrap().to_string();
+
+    let event_sequence = tokio::time::timeout(Duration::from_secs(3), async move {
+        let mut sequence = Vec::new();
+        while sequence.len() < 2 {
+            let event = rx.recv().await.unwrap();
+            match &event.kind {
+                EventKind::TabCreated(info) if info.id() == tab_id => {
+                    sequence.push("created");
+                }
+                EventKind::TabClosed {
+                    tab_id: closed_tab_id,
+                } if *closed_tab_id == tab_id => {
+                    sequence.push("closed");
+                }
+                _ => {}
+            }
+        }
+        sequence
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(event_sequence, vec!["created", "closed"]);
 }

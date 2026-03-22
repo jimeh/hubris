@@ -42,9 +42,7 @@ describe("SortableTabView", () => {
     expect(label.parentElement).toHaveClass("text-amber-500");
     expect(screen.getByText("(Index)")).toBeInTheDocument();
     expect(screen.getByTestId("tab-status-label")).toHaveTextContent("M");
-    expect(screen.getByTestId("tab-status-label")).toHaveClass(
-      "text-[0.7em]",
-    );
+    expect(screen.getByTestId("tab-status-label")).toHaveClass("text-[0.7em]");
     expect(screen.getByTestId("tab-status-label")).toHaveClass("font-semibold");
     expect(screen.getByRole("tab")).toHaveAttribute(
       "title",

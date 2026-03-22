@@ -22,7 +22,10 @@ function GitDiffTab({ projectId, worktreeId, tab }: Props) {
   const [state, setState] = useState<State>({ status: "loading" });
   const fontFamily = useTerminalSettings((store) => store.fontFamily);
   const fontSize = useTerminalSettings((store) => store.settings.fontSize);
-  const modelPaths = getGitDiffModelPaths(worktreeId, tab);
+  const modelPaths = useMemo(
+    () => getGitDiffModelPaths(worktreeId, tab),
+    [worktreeId, tab],
+  );
   const diffOptions = useMemo(
     () => ({
       readOnly: true,

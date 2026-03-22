@@ -6,11 +6,17 @@ import type { FileTab, TerminalTab } from "@/lib/types";
 const mockCreateTab = vi.fn();
 const mockDeleteTab = vi.fn();
 const mockReorderTabs = vi.fn();
+const mockScheduleDisposeTabModels = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   createTab: (...args: unknown[]) => mockCreateTab(...args),
   deleteTab: (...args: unknown[]) => mockDeleteTab(...args),
   reorderTabs: (...args: unknown[]) => mockReorderTabs(...args),
+}));
+
+vi.mock("@/lib/monaco", () => ({
+  scheduleDisposeTabModels: (...args: unknown[]) =>
+    mockScheduleDisposeTabModels(...args),
 }));
 
 class MockEventClient {
@@ -100,6 +106,7 @@ describe("Tab store", () => {
     vi.resetModules();
     localStorage.clear();
     mockEvents = new MockEventClient();
+    mockScheduleDisposeTabModels.mockReset();
   });
 
   it("loads tabs from snapshot sorted by position", async () => {
@@ -246,8 +253,43 @@ describe("Tab store", () => {
       preview: true,
     });
 
-    expect(store.tabsForWorktree("w1").map((candidate) => candidate.id)).toEqual(
-      ["file-1"],
-    );
+    expect(
+      store.tabsForWorktree("w1").map((candidate) => candidate.id),
+    ).toEqual(["file-1"]);
+  });
+
+  it("preview replacement disposes Monaco models before removing the old tab", async () => {
+    const store = await getStore();
+    const previewTab = makeFileTab({
+      id: "preview-1",
+      worktree_id: "w1",
+      path: "src/old.ts",
+      preview: true,
+    });
+    const nextTab = makeFileTab({
+      id: "preview-2",
+      worktree_id: "w1",
+      path: "src/new.ts",
+      preview: true,
+      position: 2,
+    });
+    mockCreateTab.mockResolvedValue(nextTab);
+    mockDeleteTab.mockResolvedValue(undefined);
+
+    mockEvents.emit("snapshot", {
+      tabs: [previewTab],
+    });
+
+    await store.useTabStore.getState().openFile({
+      worktreeId: "w1",
+      path: "src/new.ts",
+      preview: true,
+    });
+
+    expect(mockScheduleDisposeTabModels).toHaveBeenCalledWith(previewTab);
+    expect(mockDeleteTab).toHaveBeenCalledWith(previewTab.id);
+    expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
+      nextTab.id,
+    ]);
   });
 });

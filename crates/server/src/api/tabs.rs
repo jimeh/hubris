@@ -17,6 +17,8 @@ use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TerminalSize};
 use crate::state::AppState;
 use crate::tab::{GitDiffScope, TabInfo};
 
+type TerminalCloseReceiver = tokio::sync::broadcast::Receiver<()>;
+
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CreateTabRequest {
@@ -138,10 +140,9 @@ fn build_tab_info(
 }
 
 fn spawn_terminal_runtime(
-    state: &AppState,
     worktree_path: &str,
     info: TabInfo,
-) -> Result<Arc<LiveTab>, StatusCode> {
+) -> Result<(Arc<LiveTab>, TerminalCloseReceiver), StatusCode> {
     let pty_system = NativePtySystem::default();
     let pair = pty_system
         .openpty(TerminalSize::default_pty().to_pty_size())
@@ -169,26 +170,22 @@ fn spawn_terminal_runtime(
         TerminalSize::default_pty(),
     );
 
-    let mut close_rx = live_tab.close_tx.subscribe();
+    let close_rx = live_tab.close_tx.subscribe();
     let tab = Arc::new(live_tab);
-    let id = tab.info().id().to_string();
+    Ok((tab, close_rx))
+}
 
-    state.terminal_tabs.insert(id.clone(), tab.clone());
-
-    {
-        let tabs = state.tabs.clone();
-        let terminal_tabs = state.terminal_tabs.clone();
-        let events = state.events.clone();
-        tokio::spawn(async move {
-            let _ = close_rx.recv().await;
-            terminal_tabs.remove(&id);
-            if tabs.remove(&id).is_some() {
-                events.emit(EventKind::TabClosed { tab_id: id });
-            }
-        });
-    }
-
-    Ok(tab)
+fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: TerminalCloseReceiver) {
+    let tabs = state.tabs.clone();
+    let terminal_tabs = state.terminal_tabs.clone();
+    let events = state.events.clone();
+    tokio::spawn(async move {
+        let _ = close_rx.recv().await;
+        terminal_tabs.remove(&id);
+        if tabs.remove(&id).is_some() {
+            events.emit(EventKind::TabClosed { tab_id: id });
+        }
+    });
 }
 
 #[utoipa::path(
@@ -255,12 +252,25 @@ pub async fn create_tab(
         terminal_number,
     );
 
-    if info.is_terminal() {
-        spawn_terminal_runtime(&state, &resolved.worktree.path, info.clone())?;
-    }
+    let terminal_runtime = if info.is_terminal() {
+        Some(spawn_terminal_runtime(
+            &resolved.worktree.path,
+            info.clone(),
+        )?)
+    } else {
+        None
+    };
 
+    if let Some((runtime, _)) = &terminal_runtime {
+        state
+            .terminal_tabs
+            .insert(info.id().to_string(), runtime.clone());
+    }
     state.tabs.insert(info.id().to_string(), info.clone());
     state.events.emit(EventKind::TabCreated(info.clone()));
+    if let Some((_, close_rx)) = terminal_runtime {
+        spawn_terminal_cleanup_task(&state, info.id().to_string(), close_rx);
+    }
 
     Ok((StatusCode::CREATED, Json(info)))
 }

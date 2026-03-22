@@ -7,6 +7,8 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use tokio::fs::OpenOptions;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::process::Command;
 use utoipa::{IntoParams, ToSchema};
 
@@ -333,9 +335,13 @@ pub async fn put_project_worktree_file_content(
 ) -> Result<Json<WriteWorktreeFileContentResponse>, StatusCode> {
     let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
     let (path, absolute_path) = resolve_existing_file_path(&resolved, &request.path).await?;
-    let metadata = tokio::fs::metadata(&absolute_path)
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&absolute_path)
         .await
         .map_err(map_io_status)?;
+    let metadata = file.metadata().await.map_err(map_io_status)?;
     if !metadata.is_file() {
         return Err(StatusCode::NOT_FOUND);
     }
@@ -343,7 +349,8 @@ pub async fn put_project_worktree_file_content(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let current_bytes = tokio::fs::read(&absolute_path)
+    let mut current_bytes = Vec::with_capacity(metadata.len() as usize);
+    file.read_to_end(&mut current_bytes)
         .await
         .map_err(map_io_status)?;
     let current_text = std::str::from_utf8(&current_bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -363,18 +370,20 @@ pub async fn put_project_worktree_file_content(
         }));
     }
 
-    tokio::fs::write(&absolute_path, request.content.as_bytes())
+    file.set_len(0).await.map_err(map_io_status)?;
+    file.rewind().await.map_err(map_io_status)?;
+    file.write_all(request.content.as_bytes())
         .await
         .map_err(map_io_status)?;
+    file.flush().await.map_err(map_io_status)?;
+    file.sync_all().await.map_err(map_io_status)?;
 
     state
         .worktree_files
         .invalidate_relative_paths(&resolved, std::slice::from_ref(&path))
         .map_err(map_worktree_file_error)?;
 
-    let next_metadata = tokio::fs::metadata(&absolute_path)
-        .await
-        .map_err(map_io_status)?;
+    let next_metadata = file.metadata().await.map_err(map_io_status)?;
     Ok(Json(WriteWorktreeFileContentResponse {
         path,
         version_token: version_token(request.content.as_bytes(), &next_metadata),
@@ -691,15 +700,16 @@ async fn read_optional_worktree_file(
         .await
         .map_err(map_io_status)?;
     let candidate = root.join(&path);
-    let parent = candidate.parent().ok_or(StatusCode::BAD_REQUEST)?;
-    let canonical_parent = tokio::fs::canonicalize(parent)
-        .await
-        .map_err(map_io_status)?;
-    if !canonical_parent.starts_with(&root) {
+    let canonical_candidate = match tokio::fs::canonicalize(&candidate).await {
+        Ok(canonical_candidate) => canonical_candidate,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(map_io_status(error)),
+    };
+    if !canonical_candidate.starts_with(&root) {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    match tokio::fs::read(candidate).await {
+    match tokio::fs::read(canonical_candidate).await {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(map_io_status(error)),
