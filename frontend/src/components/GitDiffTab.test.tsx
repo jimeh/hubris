@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitDiffTab as GitDiffTabType } from "@/lib/types";
 
@@ -104,5 +104,20 @@ describe("GitDiffTab", () => {
       expect(getProjectWorktreeGitDiff).toHaveBeenCalledTimes(2);
     });
     expect(getGitDiffModelPaths).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows backend denied-path messages verbatim", async () => {
+    const { default: GitDiffTab } = await import("./GitDiffTab");
+    getProjectWorktreeGitDiff.mockRejectedValue(
+      new Error(
+        "This path resolves outside the allowed roots. Only files inside this worktree or symlinks into the repository root can be opened.",
+      ),
+    );
+
+    render(<GitDiffTab projectId="p1" worktreeId="w1" tab={makeTab()} />);
+
+    expect(
+      await screen.findByText(/resolves outside the allowed roots/i),
+    ).toBeInTheDocument();
   });
 });

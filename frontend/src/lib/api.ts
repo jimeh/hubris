@@ -49,6 +49,7 @@ type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
+type ApiErrorResponse = components["schemas"]["ApiErrorResponse"];
 type WriteWorktreeFileContentRequest =
   components["schemas"]["WriteWorktreeFileContentRequest"];
 type WriteWorktreeFileContentResponse =
@@ -56,6 +57,19 @@ type WriteWorktreeFileContentResponse =
 
 function throwStatusError(status: number, message?: string): never {
   throw new ApiStatusError(status, message);
+}
+
+async function readApiErrorMessage(res: Response): Promise<string | null> {
+  if (typeof res.json !== "function") {
+    return null;
+  }
+
+  try {
+    const payload = (await res.json()) as Partial<ApiErrorResponse>;
+    return typeof payload.message === "string" ? payload.message : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -332,9 +346,10 @@ export async function getProjectWorktreeFileContent(
     `${BASE}/projects/${projectId}/worktrees/${worktreeId}/files/content?${params.toString()}`,
   );
   if (!res.ok) {
-    if (res.status === 400) throw new Error("Invalid path");
-    if (res.status === 403) throw new Error("Permission denied");
-    if (res.status === 404) throw new Error("File not found");
+    const message = await readApiErrorMessage(res);
+    if (res.status === 400) throw new Error(message ?? "Invalid path");
+    if (res.status === 403) throw new Error(message ?? "Permission denied");
+    if (res.status === 404) throw new Error(message ?? "File not found");
     throw new Error(`${res.status}`);
   }
   return res.json();
@@ -361,10 +376,13 @@ export async function saveProjectWorktreeFileContent(
     },
   );
   if (!res.ok) {
-    if (res.status === 400) throw new Error("Unsupported file");
-    if (res.status === 403) throw new Error("Permission denied");
-    if (res.status === 404) throw new Error("File not found");
-    if (res.status === 409) throwStatusError(409, "File changed on disk");
+    const message = await readApiErrorMessage(res);
+    if (res.status === 400) throw new Error(message ?? "Unsupported file");
+    if (res.status === 403) throw new Error(message ?? "Permission denied");
+    if (res.status === 404) throw new Error(message ?? "File not found");
+    if (res.status === 409) {
+      throwStatusError(409, message ?? "File changed on disk");
+    }
     throw new Error(`${res.status}`);
   }
   return res.json();
@@ -388,9 +406,10 @@ export async function getProjectWorktreeGitDiff(
     `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git/diff?${params.toString()}`,
   );
   if (!res.ok) {
-    if (res.status === 400) throw new Error("Invalid path");
-    if (res.status === 403) throw new Error("Permission denied");
-    if (res.status === 404) throw new Error("Diff not found");
+    const message = await readApiErrorMessage(res);
+    if (res.status === 400) throw new Error(message ?? "Invalid path");
+    if (res.status === 403) throw new Error(message ?? "Permission denied");
+    if (res.status === 404) throw new Error(message ?? "Diff not found");
     throw new Error(`${res.status}`);
   }
   return res.json();

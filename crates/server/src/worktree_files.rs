@@ -18,6 +18,7 @@ use crate::api::worktrees::ResolvedWorktree;
 use crate::api::worktrees::{GitFileChange, GitFileChangeType};
 use crate::events::{EventBus, EventKind};
 use crate::git;
+use crate::worktree_path_policy::{WorktreePathPolicy, WorktreePathPolicyError};
 
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(175);
 const IDLE_TTL: Duration = Duration::from_secs(300);
@@ -72,6 +73,7 @@ struct WorktreeFileTracker {
     project_id: String,
     worktree_id: String,
     root_path: PathBuf,
+    path_policy: WorktreePathPolicy,
     source_ref: Option<String>,
     file_generation: AtomicU64,
     git_generation: AtomicU64,
@@ -208,6 +210,7 @@ impl WorktreeFileTracker {
         events: Arc<EventBus>,
     ) -> Result<Arc<Self>, WorktreeFileError> {
         let root_path = std::fs::canonicalize(&resolved.worktree.path).map_err(map_io_error)?;
+        let repo_root = std::fs::canonicalize(&resolved.local_root).map_err(map_io_error)?;
         if !root_path.is_dir() {
             return Err(WorktreeFileError::NotDirectory);
         }
@@ -215,6 +218,7 @@ impl WorktreeFileTracker {
         let tracker = Arc::new(Self {
             project_id: resolved.project_id.clone(),
             worktree_id: resolved.worktree.id.clone(),
+            path_policy: WorktreePathPolicy::new(root_path.clone(), repo_root),
             root_path,
             source_ref: resolved.worktree.source_ref.clone(),
             file_generation: AtomicU64::new(1),
@@ -438,7 +442,7 @@ impl WorktreeFileTracker {
             });
         }
 
-        let directory_path = resolve_existing_path(&self.root_path, &relative_path)?;
+        let directory_path = resolve_allowed_existing_path(&self.path_policy, &relative_path)?;
         let metadata = tokio::fs::metadata(&directory_path)
             .await
             .map_err(map_io_error)?;
@@ -459,11 +463,8 @@ impl WorktreeFileTracker {
             }
 
             let file_type = entry.file_type().await.map_err(map_io_error)?;
-            let kind = if file_type.is_dir() {
-                WorktreeFileKind::Directory
-            } else {
-                WorktreeFileKind::File
-            };
+            let (kind, is_symlink) =
+                classify_directory_entry(&self.path_policy, entry.path(), file_type).await?;
             let relative_entry_path = if relative_path.is_empty() {
                 name.clone()
             } else {
@@ -473,6 +474,7 @@ impl WorktreeFileTracker {
                 name,
                 path: relative_entry_path,
                 kind,
+                is_symlink,
             });
         }
 
@@ -724,6 +726,52 @@ fn resolve_existing_path(root: &Path, relative_path: &str) -> Result<PathBuf, Wo
     Ok(canonical)
 }
 
+fn resolve_allowed_existing_path(
+    policy: &WorktreePathPolicy,
+    relative_path: &str,
+) -> Result<PathBuf, WorktreeFileError> {
+    policy
+        .resolve_existing(relative_path)
+        .map_err(map_path_policy_error)
+}
+
+async fn classify_directory_entry(
+    policy: &WorktreePathPolicy,
+    entry_path: PathBuf,
+    file_type: std::fs::FileType,
+) -> Result<(WorktreeFileKind, bool), WorktreeFileError> {
+    if !file_type.is_symlink() {
+        let kind = if file_type.is_dir() {
+            WorktreeFileKind::Directory
+        } else {
+            WorktreeFileKind::File
+        };
+        return Ok((kind, false));
+    }
+
+    let canonical = match tokio::fs::canonicalize(&entry_path).await {
+        Ok(canonical) => canonical,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((WorktreeFileKind::File, true));
+        }
+        Err(error) => return Err(map_io_error(error)),
+    };
+
+    if !policy.allows(&canonical) {
+        return Ok((WorktreeFileKind::File, true));
+    }
+
+    let metadata = tokio::fs::metadata(&canonical)
+        .await
+        .map_err(map_io_error)?;
+    let kind = if metadata.is_dir() {
+        WorktreeFileKind::Directory
+    } else {
+        WorktreeFileKind::File
+    };
+    Ok((kind, true))
+}
+
 fn relative_from_root(root: &Path, path: &Path) -> Result<String, WorktreeFileError> {
     let relative = path
         .strip_prefix(root)
@@ -858,6 +906,15 @@ fn map_io_error(error: std::io::Error) -> WorktreeFileError {
         std::io::ErrorKind::PermissionDenied => WorktreeFileError::PermissionDenied,
         std::io::ErrorKind::AlreadyExists => WorktreeFileError::Conflict,
         _ => WorktreeFileError::Internal,
+    }
+}
+
+fn map_path_policy_error(error: WorktreePathPolicyError) -> WorktreeFileError {
+    match error {
+        WorktreePathPolicyError::NotFound => WorktreeFileError::NotFound,
+        WorktreePathPolicyError::PermissionDenied => WorktreeFileError::PermissionDenied,
+        WorktreePathPolicyError::Denied => WorktreeFileError::PermissionDenied,
+        WorktreePathPolicyError::Internal => WorktreeFileError::Internal,
     }
 }
 

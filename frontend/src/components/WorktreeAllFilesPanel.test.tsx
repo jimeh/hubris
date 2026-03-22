@@ -143,15 +143,27 @@ describe("WorktreeAllFilesPanel", () => {
           return {
             generation: 1,
             path: "src",
-            entries: [{ name: "lib.rs", path: "src/lib.rs", kind: "file" }],
+            entries: [
+              {
+                name: "lib.rs",
+                path: "src/lib.rs",
+                kind: "file",
+                is_symlink: false,
+              },
+            ],
           };
         }
         return {
           generation: 1,
           path: "",
           entries: [
-            { name: "README.md", path: "README.md", kind: "file" },
-            { name: "src", path: "src", kind: "directory" },
+            {
+              name: "README.md",
+              path: "README.md",
+              kind: "file",
+              is_symlink: false,
+            },
+            { name: "src", path: "src", kind: "directory", is_symlink: false },
           ],
         };
       },
@@ -226,6 +238,30 @@ describe("WorktreeAllFilesPanel", () => {
       await screen.findByRole("menuitem", { name: "Rename" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("lib.rs")).not.toBeInTheDocument();
+  });
+
+  it("renders a symlink overlay while keeping the base icon", async () => {
+    mockListProjectWorktreeFiles.mockResolvedValue({
+      generation: 1,
+      path: "",
+      entries: [
+        {
+          name: "README.md",
+          path: "README.md",
+          kind: "file",
+          is_symlink: true,
+        },
+      ],
+    });
+
+    await renderPanel();
+
+    const row = getRowButton("README.md");
+    expect(within(row).getByTestId("file-icon-manifest")).toHaveAttribute(
+      "data-icon-id",
+      "readme",
+    );
+    expect(within(row).getByTestId("symlink-indicator")).toBeInTheDocument();
   });
 
   it("renders git-aware decorations for files", async () => {

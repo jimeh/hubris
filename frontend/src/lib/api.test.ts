@@ -18,8 +18,12 @@ const {
   createProjectWorktree,
   getProjectWorktreeCommitDetails,
   getProjectWorktreeGitStatus,
+  getProjectWorktreeFileContent,
+  getProjectWorktreeGitDiff,
   stageProjectWorktreePath,
+  saveProjectWorktreeFileContent,
   unstageProjectWorktreePath,
+  listProjectWorktreeFiles,
   terminalWsUrl,
   listFiles,
   listTabs,
@@ -498,6 +502,94 @@ describe("API client", () => {
       );
 
       await expect(listFiles("/secret")).rejects.toThrow("Permission denied");
+    });
+  });
+
+  describe("worktree file APIs", () => {
+    it("propagates backend denied-path messages for file content", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 403,
+          json: () =>
+            Promise.resolve({
+              message: "Only files inside this worktree can be opened.",
+            }),
+        }),
+      );
+
+      await expect(
+        getProjectWorktreeFileContent("p1", "w1", "escape-link"),
+      ).rejects.toThrow("Only files inside this worktree can be opened.");
+    });
+
+    it("propagates backend denied-path messages for file saves", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 403,
+          json: () =>
+            Promise.resolve({
+              message: "This path resolves outside the allowed roots.",
+            }),
+        }),
+      );
+
+      await expect(
+        saveProjectWorktreeFileContent(
+          "p1",
+          "w1",
+          "escape-link",
+          "test",
+          "token-1",
+        ),
+      ).rejects.toThrow("This path resolves outside the allowed roots.");
+    });
+
+    it("propagates backend denied-path messages for git diff", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 403,
+          json: () =>
+            Promise.resolve({
+              message: "Only files inside this worktree can be opened.",
+            }),
+        }),
+      );
+
+      await expect(
+        getProjectWorktreeGitDiff("p1", "w1", "escape-link", "unstaged"),
+      ).rejects.toThrow("Only files inside this worktree can be opened.");
+    });
+
+    it("lists worktree files from the expected route", async () => {
+      const mockResponse = {
+        generation: 1,
+        path: "",
+        entries: [
+          {
+            name: "README.md",
+            path: "README.md",
+            kind: "file",
+            is_symlink: false,
+          },
+        ],
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockResponse),
+        }),
+      );
+
+      const result = await listProjectWorktreeFiles("p1", "w1");
+      expect(fetch).toHaveBeenCalledWith("/api/projects/p1/worktrees/w1/files");
+      expect(result).toEqual(mockResponse);
     });
   });
 

@@ -318,6 +318,13 @@ No periodic reconciliation — drift corrects on reconnect.
   when deriving a git local root with `git2`, check `workdir()` before the
   shared `commondir()` parent or linked worktrees collapse to the main repo
   root instead of their own checkout path.
+- **File editor/diff symlinks may target only the worktree or repo root**:
+  working-tree file reads/writes follow symlinks only when the final canonical
+  target stays under the canonical worktree root or the canonical project
+  local root (`resolved.local_root`). This is what allows linked-worktree
+  symlinks like `.env.local` back into the repo root without permitting
+  arbitrary filesystem escapes. Explorer listing should use the same allowlist
+  and mark symlink entries via `is_symlink`.
 - **`git2` worktree add names must be safe internal IDs**:
   do not pass raw branch shorthands like `feature/foo` into
   `repo.worktree(...)`. Use a filesystem-safe name derived from the target

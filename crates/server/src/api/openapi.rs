@@ -2,10 +2,10 @@ use axum::Json;
 use utoipa::OpenApi;
 
 use crate::api::files::{
-    DirEntry, ListFilesResponse, ListWorktreeFilesResponse, RenameWorktreeFileRequest,
-    RenameWorktreeFileResponse, WorktreeFileContentParams, WorktreeFileContentResponse,
-    WorktreeFileEntry, WorktreeFileKind, WorktreeGitDiffParams, WorktreeGitDiffResponse,
-    WriteWorktreeFileContentRequest, WriteWorktreeFileContentResponse,
+    ApiErrorResponse, DirEntry, ListFilesResponse, ListWorktreeFilesResponse,
+    RenameWorktreeFileRequest, RenameWorktreeFileResponse, WorktreeFileContentParams,
+    WorktreeFileContentResponse, WorktreeFileEntry, WorktreeFileKind, WorktreeGitDiffParams,
+    WorktreeGitDiffResponse, WriteWorktreeFileContentRequest, WriteWorktreeFileContentResponse,
 };
 use crate::api::projects::{
     AddProjectRequest, Project, ReorderProjectsRequest, UpdateProjectRequest,
@@ -65,6 +65,7 @@ use crate::tab::{GitDiffScope, TabInfo};
         schemas(
             DirEntry,
             ListFilesResponse,
+            ApiErrorResponse,
             WorktreeFileKind,
             WorktreeFileEntry,
             ListWorktreeFilesResponse,

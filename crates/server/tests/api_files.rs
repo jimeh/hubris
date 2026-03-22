@@ -7,6 +7,9 @@ use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
 
+const DISALLOWED_PATH_MESSAGE: &str = "This path resolves outside the allowed roots. Only files inside this \
+     worktree or symlinks into the repository root can be opened.";
+
 async fn start_test_server() -> (String, tempfile::TempDir) {
     let (base, tmp, _state) = start_test_server_with_state().await;
     (base, tmp)
@@ -472,6 +475,197 @@ async fn test_binary_worktree_file_content_is_read_only_and_cannot_be_saved() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn test_worktree_file_content_rejects_symlink_escape_on_load() {
+    use std::os::unix::fs::symlink;
+
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+
+    symlink(outside.path(), repo.path().join("escape-link")).unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=escape-link",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::FORBIDDEN);
+    let body: Value = loaded.json().await.unwrap();
+    assert_eq!(body["message"], DISALLOWED_PATH_MESSAGE);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_worktree_file_content_rejects_symlink_escape_on_save() {
+    use std::os::unix::fs::symlink;
+
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+
+    std::fs::write(outside.path(), "outside\n").unwrap();
+    symlink(outside.path(), repo.path().join("escape-link")).unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let save = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "escape-link",
+            "content": "inside\n",
+            "expected_version_token": "ignored",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(save.status(), StatusCode::FORBIDDEN);
+    let body: Value = save.json().await.unwrap();
+    assert_eq!(body["message"], DISALLOWED_PATH_MESSAGE);
+    assert_eq!(
+        std::fs::read_to_string(outside.path()).unwrap(),
+        "outside\n"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_linked_worktree_symlink_into_repo_root_is_allowed_for_content_and_diff() {
+    use std::os::unix::fs::symlink;
+
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join(".env.local"), "ROOT=one\n").unwrap();
+    std::fs::create_dir(repo.path().join("shared")).unwrap();
+    std::fs::write(repo.path().join("shared/config.txt"), "shared\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let created = create_worktree(&client, &base, &project_id, "feature-shared").await;
+    let worktree_id = created["id"].as_str().unwrap();
+    let worktree_path = created["path"].as_str().unwrap();
+
+    symlink(
+        repo.path().join(".env.local"),
+        Path::new(worktree_path).join(".env.local"),
+    )
+    .unwrap();
+    symlink(
+        repo.path().join("shared"),
+        Path::new(worktree_path).join("shared-link"),
+    )
+    .unwrap();
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=.env.local",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::OK);
+    let loaded_body: Value = loaded.json().await.unwrap();
+    assert_eq!(loaded_body["content"], "ROOT=one\n");
+
+    let saved = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": ".env.local",
+            "content": "ROOT=two\n",
+            "expected_version_token": loaded_body["version_token"],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join(".env.local")).unwrap(),
+        "ROOT=two\n"
+    );
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=.env.local&scope=unstaged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let diff_body: Value = diff.json().await.unwrap();
+    assert_eq!(diff_body["left_content"], "");
+    assert_eq!(diff_body["right_content"], "ROOT=two\n");
+
+    let listing = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(listing.status(), StatusCode::OK);
+    let listing_body: Value = listing.json().await.unwrap();
+    assert!(
+        listing_body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["path"] == ".env.local"
+                    && entry["kind"] == "file"
+                    && entry["is_symlink"] == true
+            })
+    );
+    assert!(
+        listing_body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["path"] == "shared-link"
+                    && entry["kind"] == "directory"
+                    && entry["is_symlink"] == true
+            })
+    );
+
+    let nested_listing = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files?path=shared-link",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nested_listing.status(), StatusCode::OK);
+    let nested_body: Value = nested_listing.json().await.unwrap();
+    assert!(
+        nested_body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["path"] == "shared-link/config.txt")
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn test_worktree_file_content_save_failure_does_not_truncate_original() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -777,7 +971,9 @@ async fn test_unstaged_git_diff_rejects_symlink_escape() {
         .send()
         .await
         .unwrap();
-    assert_eq!(diff.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(diff.status(), StatusCode::FORBIDDEN);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["message"], DISALLOWED_PATH_MESSAGE);
 }
 
 #[tokio::test]

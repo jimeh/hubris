@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ChevronRight, Copy, PencilLine } from "lucide-react";
+import { ChevronRight, Copy, Link2, PencilLine } from "lucide-react";
 import { toast } from "sonner";
 import type { WorktreeGitStatus } from "@/lib/api";
 import {
@@ -121,45 +121,67 @@ function FolderIcon({
   name,
   open,
   theme,
+  isSymlink,
 }: {
   name: string;
   open: boolean;
   theme: HubrisTheme | null;
+  isSymlink: boolean;
 }) {
   const icon = resolveMaterialFolderIcon(name, theme, open);
 
   return (
-    <img
-      src={icon.iconPath}
-      alt=""
-      className="hubris-explorer-icon h-5 w-5 shrink-0 object-contain"
-      data-testid={open ? "folder-icon-open" : "folder-icon-closed"}
-      data-icon-id={icon.iconId}
-      aria-hidden="true"
-      draggable={false}
-    />
+    <span className="relative h-5 w-5 shrink-0">
+      <img
+        src={icon.iconPath}
+        alt=""
+        className="hubris-explorer-icon h-5 w-5 object-contain"
+        data-testid={open ? "folder-icon-open" : "folder-icon-closed"}
+        data-icon-id={icon.iconId}
+        aria-hidden="true"
+        draggable={false}
+      />
+      {isSymlink ? <SymlinkBadge /> : null}
+    </span>
   );
 }
 
 function FileIcon({
   path,
   theme,
+  isSymlink,
 }: {
   path: string;
   theme: HubrisTheme | null;
+  isSymlink: boolean;
 }) {
   const icon = resolveMaterialFileIcon(path, theme);
 
   return (
-    <img
-      src={icon.iconPath}
-      alt=""
-      className="hubris-explorer-icon h-5 w-5 shrink-0 object-contain"
-      data-testid="file-icon-manifest"
-      data-icon-id={icon.iconId}
+    <span className="relative h-5 w-5 shrink-0">
+      <img
+        src={icon.iconPath}
+        alt=""
+        className="hubris-explorer-icon h-5 w-5 object-contain"
+        data-testid="file-icon-manifest"
+        data-icon-id={icon.iconId}
+        aria-hidden="true"
+        draggable={false}
+      />
+      {isSymlink ? <SymlinkBadge /> : null}
+    </span>
+  );
+}
+
+function SymlinkBadge() {
+  return (
+    <span
+      className="absolute -right-1 -bottom-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-sidebar-border/80 bg-sidebar-background shadow-sm"
+      data-testid="symlink-indicator"
       aria-hidden="true"
-      draggable={false}
-    />
+    >
+      <Link2 className="h-2.5 w-2.5 text-sidebar-foreground/75" />
+    </span>
   );
 }
 
@@ -498,7 +520,11 @@ function FileTreeRow({
             onDoubleClick={() => onOpenFile(entry.path)}
           >
             <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <FileIcon path={entry.path} theme={theme} />
+            <FileIcon
+              path={entry.path}
+              theme={theme}
+              isSymlink={entry.is_symlink}
+            />
             {renameInput ?? (
               <span
                 className={cn(
@@ -559,7 +585,12 @@ function FileTreeRow({
                     expanded && "rotate-90",
                   )}
                 />
-                <FolderIcon name={entry.name} open={expanded} theme={theme} />
+                <FolderIcon
+                  name={entry.name}
+                  open={expanded}
+                  theme={theme}
+                  isSymlink={entry.is_symlink}
+                />
                 {renameInput ?? (
                   <span
                     className={cn(

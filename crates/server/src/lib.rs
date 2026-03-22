@@ -8,6 +8,7 @@ mod settings_manager;
 pub mod state;
 pub mod tab;
 pub mod worktree_files;
+pub mod worktree_path_policy;
 
 use axum::Router;
 use axum::http::Method;

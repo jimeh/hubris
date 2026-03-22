@@ -399,6 +399,9 @@ export interface components {
     AddProjectRequest: {
       path: string;
     };
+    ApiErrorResponse: {
+      message: string;
+    };
     AppearanceSettings: {
       colorScheme?: components["schemas"]["ColorScheme"];
       darkTheme?: string;
@@ -686,6 +689,7 @@ export interface components {
       version_token: string;
     };
     WorktreeFileEntry: {
+      is_symlink: boolean;
       kind: components["schemas"]["WorktreeFileKind"];
       name: string;
       path: string;
@@ -1360,28 +1364,36 @@ export interface operations {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Permission denied */
       403: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Project, worktree, or file not found */
       404: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Internal server error */
       500: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
     };
   };
@@ -1417,35 +1429,45 @@ export interface operations {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Permission denied */
       403: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Project, worktree, or file not found */
       404: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Version conflict */
       409: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Internal server error */
       500: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
     };
   };
@@ -1627,28 +1649,36 @@ export interface operations {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Permission denied */
       403: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Project or worktree not found */
       404: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Internal server error */
       500: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
     };
   };
