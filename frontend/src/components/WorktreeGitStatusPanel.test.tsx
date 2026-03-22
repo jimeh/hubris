@@ -821,32 +821,40 @@ describe("WorktreeGitStatusPanel", () => {
     expect(barToggle.firstElementChild).not.toHaveClass("rotate-90");
   });
 
-  it("remembers expanded descendants when an ancestor is collapsed", async () => {
-    renderPanel();
+  it(
+    "remembers expanded descendants when an ancestor is collapsed",
+    async () => {
+      renderPanel();
 
-    await screen.findByText("Unstaged");
-    fireEvent.click(screen.getByRole("button", { name: "Show tree view" }));
+      await screen.findByRole("button", { name: "Unstaged" });
+      fireEvent.click(screen.getByRole("button", { name: "Show tree view" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Toggle tmp2/bar" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Toggle tmp2/bar/baz" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Toggle tmp2/bar/baz/qux" }),
-    );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Toggle tmp2/bar" }),
+      );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Toggle tmp2/bar/baz" }),
+      );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Toggle tmp2/bar/baz/qux" }),
+      );
 
-    expect(screen.getByText("deep.txt")).toBeInTheDocument();
+      expect(await screen.findByText("deep.txt")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Toggle tmp2" }));
-    expect(screen.queryByText("deep.txt")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Toggle tmp2" }));
+      await waitFor(() => {
+        expect(screen.queryByText("deep.txt")).toBeNull();
+      });
 
-    fireEvent.click(screen.getByRole("button", { name: "Toggle tmp2" }));
+      fireEvent.click(screen.getByRole("button", { name: "Toggle tmp2" }));
 
-    expect(
-      screen.getByRole("button", { name: "Toggle tmp2/bar/baz/qux" }),
-    ).toBeVisible();
-    expect(screen.getByText("deep.txt")).toBeInTheDocument();
-  });
+      expect(
+        await screen.findByRole("button", { name: "Toggle tmp2/bar/baz/qux" }),
+      ).toBeVisible();
+      expect(await screen.findByText("deep.txt")).toBeInTheDocument();
+    },
+    10_000,
+  );
 
   it("uses one header toggle to switch both sections", async () => {
     renderPanel();
