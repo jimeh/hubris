@@ -132,6 +132,11 @@ No periodic reconciliation — drift corrects on reconnect.
 - **rustfmt style_edition 2024**: Formats more aggressively than
   default (collapses single-line signatures, method chains). Always
   run `cargo fmt` after edits.
+- **Async request paths must avoid blocking fs/process work**:
+  request-time filesystem access should use `tokio::fs`, not `std::fs`,
+  and any unavoidable sync-only filesystem or process call should be
+  wrapped in `tokio::task::spawn_blocking` instead of running on the
+  async executor.
 - **Tab position**: `f64` for fractional ordering (midpoint insertion).
 - **Project reorder**: Bulk `PUT /api/projects/reorder` with ordered
   IDs. Backend resequences all positions as clean integers and emits a

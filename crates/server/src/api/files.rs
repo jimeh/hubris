@@ -339,7 +339,7 @@ pub async fn get_project_worktree_file_content(
     let policy = WorktreePathPolicy::from_resolved(&resolved)
         .await
         .map_err(map_policy_build_error)?;
-    let (path, absolute_path) = resolve_existing_file_path(&policy, &params.path)?;
+    let (path, absolute_path) = resolve_existing_file_path(&policy, &params.path).await?;
     let loaded = load_text_file(&absolute_path, &path).await?;
 
     Ok(Json(WorktreeFileContentResponse {
@@ -384,7 +384,7 @@ pub async fn put_project_worktree_file_content(
     let policy = WorktreePathPolicy::from_resolved(&resolved)
         .await
         .map_err(map_policy_build_error)?;
-    let (path, absolute_path) = resolve_existing_file_path(&policy, &request.path)?;
+    let (path, absolute_path) = resolve_existing_file_path(&policy, &request.path).await?;
     let mut file = OpenOptions::new()
         .read(true)
         .open(&absolute_path)
@@ -623,13 +623,14 @@ fn normalize_relative_path(raw: &str) -> Result<String, FileApiError> {
     Ok(segments.join("/"))
 }
 
-fn resolve_existing_file_path(
+async fn resolve_existing_file_path(
     policy: &WorktreePathPolicy,
     raw_path: &str,
 ) -> Result<(String, PathBuf), FileApiError> {
     let path = normalize_relative_path(raw_path)?;
     let canonical = policy
         .resolve_existing(&path)
+        .await
         .map_err(map_path_policy_error)?;
     Ok((path, canonical))
 }
@@ -823,7 +824,7 @@ async fn load_optional_worktree_diff_side(
     path: &str,
 ) -> Result<DiffSideContent, FileApiError> {
     let path = normalize_relative_path(path)?;
-    let canonical_candidate = match policy.resolve_optional(&path) {
+    let canonical_candidate = match policy.resolve_optional(&path).await {
         Ok(Some(canonical_candidate)) => canonical_candidate,
         Ok(None) => {
             return Ok(DiffSideContent::Text(String::new()));

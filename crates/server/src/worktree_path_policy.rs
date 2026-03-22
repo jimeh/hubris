@@ -66,25 +66,29 @@ impl WorktreePathPolicy {
         }
     }
 
-    pub fn resolve_existing(
+    pub async fn resolve_existing(
         &self,
         relative_path: &str,
     ) -> Result<PathBuf, WorktreePathPolicyError> {
         let candidate = self.join(relative_path);
-        let canonical = std::fs::canonicalize(candidate).map_err(map_io_error)?;
+        let canonical = tokio::fs::canonicalize(candidate)
+            .await
+            .map_err(map_io_error)?;
         self.require_allowed(canonical)
     }
 
-    pub fn resolve_optional(
+    pub async fn resolve_optional(
         &self,
         relative_path: &str,
     ) -> Result<Option<PathBuf>, WorktreePathPolicyError> {
         let candidate = self.join(relative_path);
-        match std::fs::canonicalize(&candidate) {
+        match tokio::fs::canonicalize(&candidate).await {
             Ok(canonical) => self.require_allowed(canonical).map(Some),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let parent = candidate.parent().ok_or(WorktreePathPolicyError::Denied)?;
-                let canonical_parent = std::fs::canonicalize(parent).map_err(map_io_error)?;
+                let canonical_parent = tokio::fs::canonicalize(parent)
+                    .await
+                    .map_err(map_io_error)?;
                 self.require_allowed(canonical_parent)?;
                 Ok(None)
             }
