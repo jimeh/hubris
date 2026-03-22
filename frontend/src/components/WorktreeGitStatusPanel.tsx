@@ -39,6 +39,7 @@ import {
   useWorktreeGitStatusViewStore,
   type WorktreeGitStatusViewMode,
 } from "@/lib/stores/worktreeGitStatusView";
+import { useTabStore } from "@/lib/stores/tabs";
 import { useThemeSettings } from "@/lib/stores/theme";
 import type { HubrisTheme } from "@/lib/theme/types";
 import type { Worktree } from "@/lib/types";
@@ -329,9 +330,22 @@ const ChangeRowFrame = forwardRef<
     primary: ReactNode;
     actions?: ReactNode;
     badge?: ReactNode;
+    interactive?: boolean;
+    onActivate?: () => void;
   }
 >(function ChangeRowFrame(
-  { primary, actions, badge, className, ...props },
+  {
+    primary,
+    actions,
+    badge,
+    className,
+    interactive = false,
+    onActivate,
+    onKeyDown,
+    role,
+    tabIndex,
+    ...props
+  },
   ref,
 ) {
   return (
@@ -343,6 +357,20 @@ const ChangeRowFrame = forwardRef<
         "focus-within:bg-sidebar-accent/60 focus-within:text-sidebar-accent-foreground",
         className,
       )}
+      role={interactive ? "button" : role}
+      tabIndex={interactive ? 0 : tabIndex}
+      onKeyDown={(event) => {
+        onKeyDown?.(event);
+        if (event.defaultPrevented || !interactive || !onActivate) {
+          return;
+        }
+        if (event.key === "Enter") {
+          onActivate();
+        } else if (event.key === " ") {
+          event.preventDefault();
+          onActivate();
+        }
+      }}
       {...props}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">{primary}</div>
@@ -405,12 +433,19 @@ function FilePathRow({
   section,
   theme,
   disabled,
+  onOpenDiff,
   onAction,
 }: {
   change: WorktreeGitFileChange;
   section: ChangeSection;
   theme: HubrisTheme | null;
   disabled?: boolean;
+  onOpenDiff: (
+    path: string,
+    scope: ChangeSection,
+    originalPath: string | undefined,
+    preview: boolean,
+  ) => void;
   onAction: (
     action: GitAction,
     path: string,
@@ -440,6 +475,16 @@ function FilePathRow({
         }
       >
         <ChangeRowFrame
+          className="cursor-pointer"
+          interactive
+          onActivate={() =>
+            onOpenDiff(
+              change.path,
+              section,
+              change.original_path ?? undefined,
+              true,
+            )
+          }
           primary={
             <>
               <FileIcon path={change.path} theme={theme} />
@@ -478,6 +523,22 @@ function FilePathRow({
             />
           ))}
           badge={<ChangeStatusBadge changeType={change.change_type} />}
+          onClick={() =>
+            onOpenDiff(
+              change.path,
+              section,
+              change.original_path ?? undefined,
+              true,
+            )
+          }
+          onDoubleClick={() =>
+            onOpenDiff(
+              change.path,
+              section,
+              change.original_path ?? undefined,
+              false,
+            )
+          }
         />
       </ChangeContextMenu>
     </SidebarMenuItem>
@@ -489,12 +550,19 @@ function TreeFileNode({
   section,
   theme,
   disabled,
+  onOpenDiff,
   onAction,
 }: {
   node: Extract<WorktreeGitStatusTreeNode, { kind: "file" }>;
   section: ChangeSection;
   theme: HubrisTheme | null;
   disabled?: boolean;
+  onOpenDiff: (
+    path: string,
+    scope: ChangeSection,
+    originalPath: string | undefined,
+    preview: boolean,
+  ) => void;
   onAction: (
     action: GitAction,
     path: string,
@@ -523,6 +591,16 @@ function TreeFileNode({
         }
       >
         <ChangeRowFrame
+          className="cursor-pointer"
+          interactive
+          onActivate={() =>
+            onOpenDiff(
+              node.path,
+              section,
+              node.change.original_path ?? undefined,
+              true,
+            )
+          }
           primary={
             <>
               <span aria-hidden="true" className="h-4 w-4 shrink-0" />
@@ -550,6 +628,22 @@ function TreeFileNode({
             />
           ))}
           badge={<ChangeStatusBadge changeType={node.change.change_type} />}
+          onClick={() =>
+            onOpenDiff(
+              node.path,
+              section,
+              node.change.original_path ?? undefined,
+              true,
+            )
+          }
+          onDoubleClick={() =>
+            onOpenDiff(
+              node.path,
+              section,
+              node.change.original_path ?? undefined,
+              false,
+            )
+          }
         />
       </ChangeContextMenu>
     </SidebarMenuItem>
@@ -564,6 +658,7 @@ function TreeDirectoryNode({
   openState,
   disabled,
   onOpenChange,
+  onOpenDiff,
   onAction,
 }: {
   node: Extract<WorktreeGitStatusTreeNode, { kind: "directory" }>;
@@ -573,6 +668,12 @@ function TreeDirectoryNode({
   openState: TreeOpenState;
   disabled?: boolean;
   onOpenChange: (path: string, open: boolean) => void;
+  onOpenDiff: (
+    path: string,
+    scope: ChangeSection,
+    originalPath: string | undefined,
+    preview: boolean,
+  ) => void;
   onAction: (
     action: GitAction,
     path: string,
@@ -650,6 +751,7 @@ function TreeDirectoryNode({
                     openState={openState}
                     disabled={disabled}
                     onOpenChange={onOpenChange}
+                    onOpenDiff={onOpenDiff}
                     onAction={onAction}
                   />
                 ) : (
@@ -659,6 +761,7 @@ function TreeDirectoryNode({
                     section={section}
                     theme={theme}
                     disabled={disabled}
+                    onOpenDiff={onOpenDiff}
                     onAction={onAction}
                   />
                 ),
@@ -680,6 +783,7 @@ function StatusFileSection({
   theme,
   disabled,
   onOpenChange,
+  onOpenDiff,
   onAction,
 }: {
   title: string;
@@ -690,6 +794,12 @@ function StatusFileSection({
   theme: HubrisTheme | null;
   disabled?: boolean;
   onOpenChange: (section: ChangeSection, open: boolean) => void;
+  onOpenDiff: (
+    path: string,
+    scope: ChangeSection,
+    originalPath: string | undefined,
+    preview: boolean,
+  ) => void;
   onAction: (
     action: GitAction,
     path: string,
@@ -764,6 +874,7 @@ function StatusFileSection({
                 section={section}
                 theme={theme}
                 disabled={disabled}
+                onOpenDiff={onOpenDiff}
                 onAction={onAction}
               />
             ))}
@@ -781,6 +892,7 @@ function StatusFileSection({
                   openState={treeOpenState}
                   disabled={disabled}
                   onOpenChange={handleNodeOpenChange}
+                  onOpenDiff={onOpenDiff}
                   onAction={onAction}
                 />
               ) : (
@@ -790,6 +902,7 @@ function StatusFileSection({
                   section={section}
                   theme={theme}
                   disabled={disabled}
+                  onOpenDiff={onOpenDiff}
                   onAction={onAction}
                 />
               ),
@@ -1302,11 +1415,15 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
   const refreshPaths = useWorktreeFileManagerStore(
     (state) => state.refreshPaths,
   );
+  const setSelectedPath = useWorktreeFileManagerStore(
+    (state) => state.setSelectedPath,
+  );
   const viewMode = useWorktreeGitStatusViewStore(
     (state) =>
       state.viewModeByWorktree[worktree.id] ??
       DEFAULT_WORKTREE_GIT_STATUS_VIEW_MODE,
   );
+  const openGitDiff = useTabStore((state) => state.openGitDiff);
   const theme = useThemeSettings((state) => state.activeTheme);
   const status = worktreeState?.gitStatus ?? null;
   const loading = worktreeState?.gitStatusStatus === "loading";
@@ -1390,6 +1507,25 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
       void runAction(action, path, originalPath, label);
     },
     [runAction],
+  );
+
+  const handleOpenDiff = useCallback(
+    (
+      path: string,
+      scope: ChangeSection,
+      originalPath: string | undefined,
+      preview: boolean,
+    ) => {
+      setSelectedPath(worktree.id, path);
+      void openGitDiff({
+        worktreeId: worktree.id,
+        path,
+        scope,
+        originalPath,
+        preview,
+      });
+    },
+    [openGitDiff, setSelectedPath, worktree.id],
   );
 
   const confirmDiscard = useCallback(async () => {
@@ -1550,6 +1686,7 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
                 theme={theme}
                 disabled={pendingActionKey !== null}
                 onOpenChange={handleSectionOpenChange}
+                onOpenDiff={handleOpenDiff}
                 onAction={handleAction}
               />
               <Separator />
@@ -1562,6 +1699,7 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
                 theme={theme}
                 disabled={pendingActionKey !== null}
                 onOpenChange={handleSectionOpenChange}
+                onOpenDiff={handleOpenDiff}
                 onAction={handleAction}
               />
               <Separator />

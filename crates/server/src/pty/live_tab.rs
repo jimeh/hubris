@@ -5,12 +5,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use portable_pty::{Child, MasterPty, PtySize};
-use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use ts_rs::TS;
-use utoipa::ToSchema;
+
+use crate::tab::TabInfo;
 
 /// Default scrollback buffer size in bytes (~128KB).
 /// Passed to `LiveTab::spawn()` so it can be overridden
@@ -42,21 +41,6 @@ impl TerminalSize {
             pixel_height: 0,
         }
     }
-}
-
-/// Serializable tab metadata. Sent to clients via REST
-/// and SSE.
-#[derive(Debug, Clone, Serialize, ToSchema, TS)]
-pub struct TabInfo {
-    pub id: String,
-    pub session_id: String,
-    pub worktree_id: String,
-    pub label: String,
-    #[serde(rename = "type")]
-    pub tab_type: String,
-    pub position: f64,
-    #[ts(type = "number")]
-    pub created_at: u64,
 }
 
 /// A live terminal tab with its PTY, scrollback buffer,
@@ -518,14 +502,14 @@ mod tests {
         drop(pair.slave);
 
         Arc::new(LiveTab::spawn(
-            TabInfo {
+            TabInfo::Terminal {
                 id: "tab".to_string(),
                 session_id: "default".to_string(),
                 worktree_id: "worktree".to_string(),
                 label: "Terminal 1".to_string(),
-                tab_type: "terminal".to_string(),
                 position: 1.0,
                 created_at: 0,
+                preview: false,
             },
             pair.master,
             child,

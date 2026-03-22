@@ -363,6 +363,120 @@ fn head_tree(repo: &Repository) -> Result<Option<git2::Tree<'_>>, GitError> {
     }
 }
 
+/// Git object source used for file/diff tab content loading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitDiffBlobSource {
+    Head,
+    Index,
+}
+
+/// Loaded blob content for file/diff tabs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitDiffBlobContent {
+    Missing,
+    Text(String),
+    Unsupported(String),
+}
+
+fn format_diff_size_limit(max_bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
+
+    if max_bytes.is_multiple_of(MIB) {
+        format!("{} MiB", max_bytes / MIB)
+    } else if max_bytes.is_multiple_of(KIB) {
+        format!("{} KiB", max_bytes / KIB)
+    } else if max_bytes == 1 {
+        "1 byte".to_string()
+    } else {
+        format!("{max_bytes} bytes")
+    }
+}
+
+fn load_head_blob<'repo>(
+    repo: &'repo Repository,
+    relative_path: &str,
+) -> Result<Option<git2::Blob<'repo>>, GitError> {
+    let Some(tree) = head_tree(repo)? else {
+        return Ok(None);
+    };
+    let entry = match tree.get_path(Path::new(relative_path)) {
+        Ok(entry) => entry,
+        Err(err) if err.code() == ErrorCode::NotFound => return Ok(None),
+        Err(err) => return Err(to_git_error(err)),
+    };
+    let object = entry.to_object(repo).map_err(to_git_error)?;
+    if object.kind() != Some(git2::ObjectType::Blob) {
+        return Ok(None);
+    }
+    object.peel_to_blob().map(Some).map_err(to_git_error)
+}
+
+fn load_index_blob<'repo>(
+    repo: &'repo Repository,
+    relative_path: &str,
+) -> Result<Option<git2::Blob<'repo>>, GitError> {
+    let index = repo.index().map_err(to_git_error)?;
+    let Some(entry) = index.get_path(Path::new(relative_path), 0) else {
+        return Ok(None);
+    };
+    match repo.find_blob(entry.id) {
+        Ok(blob) => Ok(Some(blob)),
+        Err(err) if err.code() == ErrorCode::NotFound => Ok(None),
+        Err(err) => Err(to_git_error(err)),
+    }
+}
+
+fn read_diff_blob_git2(
+    worktree_path: &Path,
+    source: GitDiffBlobSource,
+    relative_path: &str,
+    max_bytes: u64,
+) -> Result<GitDiffBlobContent, GitError> {
+    let repo = open_repo(worktree_path)?;
+    let relative_path = normalize_relative_git_path(relative_path).map_err(|_| GitError {
+        message: format!("invalid relative git path: {relative_path}"),
+    })?;
+    let blob = match source {
+        GitDiffBlobSource::Head => load_head_blob(&repo, &relative_path)?,
+        GitDiffBlobSource::Index => load_index_blob(&repo, &relative_path)?,
+    };
+    let Some(blob) = blob else {
+        return Ok(GitDiffBlobContent::Missing);
+    };
+    if blob.size() as u64 > max_bytes {
+        return Ok(GitDiffBlobContent::Unsupported(format!(
+            "Diffs larger than {} are read-only.",
+            format_diff_size_limit(max_bytes)
+        )));
+    }
+
+    match std::str::from_utf8(blob.content()) {
+        Ok(content) => Ok(GitDiffBlobContent::Text(content.to_string())),
+        Err(_) => Ok(GitDiffBlobContent::Unsupported(
+            "Binary diffs are not supported.".to_string(),
+        )),
+    }
+}
+
+/// Load HEAD or index blob content for diff tabs without invoking the git CLI.
+pub async fn read_diff_blob(
+    worktree_path: &Path,
+    source: GitDiffBlobSource,
+    relative_path: &str,
+    max_bytes: u64,
+) -> Result<GitDiffBlobContent, GitError> {
+    let worktree_path = worktree_path.to_path_buf();
+    let relative_path = relative_path.to_string();
+    tokio::task::spawn_blocking(move || {
+        read_diff_blob_git2(&worktree_path, source, &relative_path, max_bytes)
+    })
+    .await
+    .map_err(|_| GitError {
+        message: "failed to join diff blob task".to_string(),
+    })?
+}
+
 fn revparse_commit<'repo>(
     repo: &'repo Repository,
     spec: &str,
@@ -1271,6 +1385,13 @@ mod tests {
             decode_ref_name(b"weird-\xff-branch"),
             "weird-\u{fffd}-branch"
         );
+    }
+
+    #[test]
+    fn format_diff_size_limit_uses_human_readable_units() {
+        assert_eq!(format_diff_size_limit(1024), "1 KiB");
+        assert_eq!(format_diff_size_limit(2 * 1024 * 1024), "2 MiB");
+        assert_eq!(format_diff_size_limit(123), "123 bytes");
     }
 
     #[test]

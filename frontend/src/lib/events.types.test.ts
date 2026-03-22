@@ -7,8 +7,9 @@ describe("EventClient typing", () => {
     const client = new EventClient();
 
     client.on("tab_created", (payload) => {
-      expectTypeOf(payload.id).toEqualTypeOf<string>();
-      expectTypeOf(payload.label).toEqualTypeOf<string>();
+      expectTypeOf(payload.session_id).toEqualTypeOf<string>();
+      expectTypeOf(payload.tab.id).toEqualTypeOf<string>();
+      expectTypeOf(payload.tab.label).toEqualTypeOf<string>();
     });
 
     client.on("project_removed", (payload) => {

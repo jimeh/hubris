@@ -32,6 +32,11 @@ vi.mock("@/lib/stores/tabs", () => ({
   resetTabStoreForTests: mockResetTabStore,
 }));
 
+vi.mock("@/lib/stores/fileEditorTabs", () => ({
+  initializeFileEditorStore: () => calls.push("file-editor-tabs"),
+  resetFileEditorStoreForTests: () => calls.push("reset-file-editor-tabs"),
+}));
+
 vi.mock("@/lib/stores/worktreeFileManager", () => ({
   initializeWorktreeFileManagerStore: () => calls.push("worktree-file-manager"),
   resetWorktreeFileManagerStoreForTests: () =>
@@ -52,6 +57,7 @@ vi.mock("@/lib/stores/settings", () => ({
 
 vi.mock("@/lib/events", () => ({
   getEventClient: () => ({
+    on: vi.fn(() => vi.fn()),
     connect: mockConnect,
     disconnect: mockDisconnect,
   }),
@@ -78,6 +84,7 @@ describe("bootstrapApp", () => {
       "projects",
       "worktrees",
       "tabs",
+      "file-editor-tabs",
       "worktree-file-manager",
       "worktree-right-sidebar",
       "settings",
@@ -94,6 +101,7 @@ describe("bootstrapApp", () => {
       "reset-projects",
       "reset-worktrees",
       "reset-tabs",
+      "reset-file-editor-tabs",
       "reset-worktree-file-manager",
       "reset-worktree-right-sidebar",
       "reset-settings",

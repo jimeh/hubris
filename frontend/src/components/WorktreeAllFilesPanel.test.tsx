@@ -111,15 +111,31 @@ describe("WorktreeAllFilesPanel", () => {
     mockListProjectWorktreeFiles.mockReset();
     mockGetProjectWorktreeGitStatus.mockReset();
     mockRenameProjectWorktreeFile.mockReset();
+    const { resetTabStoreForTests, useTabStore } =
+      await import("@/lib/stores/tabs");
     const { resetWorktreeFileManagerStoreForTests } =
       await import("@/lib/stores/worktreeFileManager");
     const { resetWorktreeRightSidebarStoreForTests } =
       await import("@/lib/stores/worktreeRightSidebar");
     const { resetWorktreeStoreForTests } =
       await import("@/lib/stores/worktrees");
+    resetTabStoreForTests();
     resetWorktreeFileManagerStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     resetWorktreeStoreForTests();
+    useTabStore.setState({
+      openFile: vi.fn().mockResolvedValue({
+        id: "file-tab-1",
+        session_id: "default",
+        worktree_id: "w1",
+        label: "README.md",
+        type: "file",
+        position: 1,
+        created_at: 0,
+        preview: true,
+        path: "README.md",
+      }),
+    });
 
     mockListProjectWorktreeFiles.mockImplementation(
       async (_projectId: string, _worktreeId: string, path = "") => {
@@ -127,15 +143,27 @@ describe("WorktreeAllFilesPanel", () => {
           return {
             generation: 1,
             path: "src",
-            entries: [{ name: "lib.rs", path: "src/lib.rs", kind: "file" }],
+            entries: [
+              {
+                name: "lib.rs",
+                path: "src/lib.rs",
+                kind: "file",
+                is_symlink: false,
+              },
+            ],
           };
         }
         return {
           generation: 1,
           path: "",
           entries: [
-            { name: "README.md", path: "README.md", kind: "file" },
-            { name: "src", path: "src", kind: "directory" },
+            {
+              name: "README.md",
+              path: "README.md",
+              kind: "file",
+              is_symlink: false,
+            },
+            { name: "src", path: "src", kind: "directory", is_symlink: false },
           ],
         };
       },
@@ -210,6 +238,30 @@ describe("WorktreeAllFilesPanel", () => {
       await screen.findByRole("menuitem", { name: "Rename" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("lib.rs")).not.toBeInTheDocument();
+  });
+
+  it("renders a symlink overlay while keeping the base icon", async () => {
+    mockListProjectWorktreeFiles.mockResolvedValue({
+      generation: 1,
+      path: "",
+      entries: [
+        {
+          name: "README.md",
+          path: "README.md",
+          kind: "file",
+          is_symlink: true,
+        },
+      ],
+    });
+
+    await renderPanel();
+
+    const row = getRowButton("README.md");
+    expect(within(row).getByTestId("file-icon-manifest")).toHaveAttribute(
+      "data-icon-id",
+      "readme",
+    );
+    expect(within(row).getByTestId("symlink-indicator")).toBeInTheDocument();
   });
 
   it("renders git-aware decorations for files", async () => {

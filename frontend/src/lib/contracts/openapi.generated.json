@@ -565,6 +565,189 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/{worktree_id}/files/content": {
+      "get": {
+        "tags": ["crate::api::files"],
+        "operationId": "get_project_worktree_file_content",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Relative path from the worktree root.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Load editable worktree file content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorktreeFileContentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid relative path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project, worktree, or file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["crate::api::files"],
+        "operationId": "put_project_worktree_file_content",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteWorktreeFileContentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Save editable worktree file content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteWorktreeFileContentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid path or unsupported file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project, worktree, or file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Version conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{id}/worktrees/{worktree_id}/files/rename": {
       "post": {
         "tags": ["crate::api::files"],
@@ -721,6 +904,110 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/{worktree_id}/git/diff": {
+      "get": {
+        "tags": ["crate::api::files"],
+        "operationId": "get_project_worktree_git_diff",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Relative path from the worktree root.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GitDiffScope"
+            }
+          },
+          {
+            "name": "original_path",
+            "in": "query",
+            "description": "Original relative path for rename/copy actions.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Load a staged or unstaged file diff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorktreeGitDiffResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid relative path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or worktree not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1181,6 +1468,15 @@
           }
         }
       },
+      "ApiErrorResponse": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "AppearanceSettings": {
         "type": "object",
         "properties": {
@@ -1248,13 +1544,65 @@
         "enum": ["auto", "light", "dark"]
       },
       "CreateTabRequest": {
-        "type": "object",
-        "required": ["worktree_id"],
-        "properties": {
-          "worktree_id": {
-            "type": "string"
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["worktree_id", "type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["terminal"]
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["worktree_id", "path", "type"],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "preview": {
+                "type": "boolean"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["file"]
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["worktree_id", "path", "scope", "type"],
+            "properties": {
+              "original_path": {
+                "type": ["string", "null"]
+              },
+              "path": {
+                "type": "string"
+              },
+              "preview": {
+                "type": "boolean"
+              },
+              "scope": {
+                "$ref": "#/components/schemas/GitDiffScope"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["git_diff"]
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
           }
-        }
+        ]
       },
       "CreateWorktreeRequest": {
         "type": "object",
@@ -1350,6 +1698,10 @@
             "type": "string"
           }
         }
+      },
+      "GitDiffScope": {
+        "type": "string",
+        "enum": ["staged", "unstaged"]
       },
       "GitFileChange": {
         "type": "object",
@@ -1716,43 +2068,152 @@
         }
       },
       "TabInfo": {
-        "type": "object",
-        "description": "Serializable tab metadata. Sent to clients via REST\nand SSE.",
-        "required": [
-          "id",
-          "session_id",
-          "worktree_id",
-          "label",
-          "type",
-          "position",
-          "created_at"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "session_id",
+              "worktree_id",
+              "label",
+              "position",
+              "created_at",
+              "preview",
+              "type"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "position": {
+                "type": "number",
+                "format": "double"
+              },
+              "preview": {
+                "type": "boolean"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["terminal"]
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
           },
-          "id": {
-            "type": "string"
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "session_id",
+              "worktree_id",
+              "label",
+              "position",
+              "created_at",
+              "preview",
+              "path",
+              "type"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "position": {
+                "type": "number",
+                "format": "double"
+              },
+              "preview": {
+                "type": "boolean"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["file"]
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
           },
-          "label": {
-            "type": "string"
-          },
-          "position": {
-            "type": "number",
-            "format": "double"
-          },
-          "session_id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          },
-          "worktree_id": {
-            "type": "string"
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "session_id",
+              "worktree_id",
+              "label",
+              "position",
+              "created_at",
+              "preview",
+              "path",
+              "scope",
+              "type"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "original_path": {
+                "type": ["string", "null"]
+              },
+              "path": {
+                "type": "string"
+              },
+              "position": {
+                "type": "number",
+                "format": "double"
+              },
+              "preview": {
+                "type": "boolean"
+              },
+              "scope": {
+                "$ref": "#/components/schemas/GitDiffScope"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["git_diff"]
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
           }
-        }
+        ]
       },
       "TerminalFontSource": {
         "type": "string",
@@ -1820,6 +2281,9 @@
           "position": {
             "type": ["number", "null"],
             "format": "double"
+          },
+          "preview": {
+            "type": ["boolean", "null"]
           }
         }
       },
@@ -1865,10 +2329,53 @@
           }
         }
       },
+      "WorktreeFileContentParams": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative path from the worktree root."
+          }
+        }
+      },
+      "WorktreeFileContentResponse": {
+        "type": "object",
+        "required": [
+          "path",
+          "content",
+          "version_token",
+          "language",
+          "read_only"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "unsupported_reason": {
+            "type": ["string", "null"]
+          },
+          "version_token": {
+            "type": "string"
+          }
+        }
+      },
       "WorktreeFileEntry": {
         "type": "object",
-        "required": ["name", "path", "kind"],
+        "required": ["name", "path", "kind", "is_symlink"],
         "properties": {
+          "is_symlink": {
+            "type": "boolean"
+          },
           "kind": {
             "$ref": "#/components/schemas/WorktreeFileKind"
           },
@@ -1883,6 +2390,68 @@
       "WorktreeFileKind": {
         "type": "string",
         "enum": ["directory", "file"]
+      },
+      "WorktreeGitDiffParams": {
+        "type": "object",
+        "required": ["path", "scope"],
+        "properties": {
+          "original_path": {
+            "type": ["string", "null"],
+            "description": "Original relative path for rename/copy actions."
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative path from the worktree root."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/GitDiffScope"
+          }
+        }
+      },
+      "WorktreeGitDiffResponse": {
+        "type": "object",
+        "required": [
+          "path",
+          "scope",
+          "left_label",
+          "right_label",
+          "left_content",
+          "right_content",
+          "language",
+          "read_only"
+        ],
+        "properties": {
+          "language": {
+            "type": "string"
+          },
+          "left_content": {
+            "type": "string"
+          },
+          "left_label": {
+            "type": "string"
+          },
+          "original_path": {
+            "type": ["string", "null"]
+          },
+          "path": {
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "right_content": {
+            "type": "string"
+          },
+          "right_label": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/GitDiffScope"
+          },
+          "unsupported_reason": {
+            "type": ["string", "null"]
+          }
+        }
       },
       "WorktreeGitPathActionRequest": {
         "type": "object",
@@ -1971,6 +2540,33 @@
                 "$ref": "#/components/schemas/WorktreeLocationMode"
               }
             ]
+          }
+        }
+      },
+      "WriteWorktreeFileContentRequest": {
+        "type": "object",
+        "required": ["path", "content", "expected_version_token"],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "expected_version_token": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "WriteWorktreeFileContentResponse": {
+        "type": "object",
+        "required": ["path", "version_token"],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "version_token": {
+            "type": "string"
           }
         }
       }

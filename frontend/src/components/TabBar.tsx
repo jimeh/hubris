@@ -10,8 +10,10 @@ const SCROLL_AMOUNT = 200;
 type Props = {
   worktreeId: string;
   tabs: Tab[];
+  dirtyTabIds?: string[];
   activeTabId: string | null;
   onActivate: (tabId: string) => void;
+  onPin: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onAdd: () => void;
   onReorder: (orderedIds: string[]) => Promise<void>;
@@ -20,8 +22,10 @@ type Props = {
 export default function TabBar({
   worktreeId,
   tabs,
+  dirtyTabIds = [],
   activeTabId,
   onActivate,
+  onPin,
   onClose,
   onAdd,
   onReorder,
@@ -113,11 +117,14 @@ export default function TabBar({
         ) : null}
 
         <SortableTabStrip
+          worktreeId={worktreeId}
           tabs={tabs}
+          dirtyTabIds={dirtyTabIds}
           activeTabId={activeTabId}
           tabListRef={tabListRef}
           onScroll={updateScrollState}
           onActivate={onActivate}
+          onPin={onPin}
           onClose={onClose}
           onReorder={onReorder}
         />

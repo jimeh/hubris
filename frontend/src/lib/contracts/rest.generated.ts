@@ -181,6 +181,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{id}/worktrees/{worktree_id}/files/content": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_project_worktree_file_content"];
+    put: operations["put_project_worktree_file_content"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/projects/{id}/worktrees/{worktree_id}/files/rename": {
     parameters: {
       query?: never;
@@ -221,6 +237,22 @@ export interface paths {
       cookie?: never;
     };
     get: operations["get_project_worktree_commit_details"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/projects/{id}/worktrees/{worktree_id}/git/diff": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_project_worktree_git_diff"];
     put?: never;
     post?: never;
     delete?: never;
@@ -367,6 +399,9 @@ export interface components {
     AddProjectRequest: {
       path: string;
     };
+    ApiErrorResponse: {
+      message: string;
+    };
     AppearanceSettings: {
       colorScheme?: components["schemas"]["ColorScheme"];
       darkTheme?: string;
@@ -388,9 +423,28 @@ export interface components {
     };
     /** @enum {string} */
     ColorScheme: "auto" | "light" | "dark";
-    CreateTabRequest: {
-      worktree_id: string;
-    };
+    CreateTabRequest:
+      | {
+          /** @enum {string} */
+          type: "terminal";
+          worktree_id: string;
+        }
+      | {
+          path: string;
+          preview?: boolean;
+          /** @enum {string} */
+          type: "file";
+          worktree_id: string;
+        }
+      | {
+          original_path?: string | null;
+          path: string;
+          preview?: boolean;
+          scope: components["schemas"]["GitDiffScope"];
+          /** @enum {string} */
+          type: "git_diff";
+          worktree_id: string;
+        };
     CreateWorktreeRequest: {
       branch: string;
       source_ref?: string | null;
@@ -419,6 +473,8 @@ export interface components {
       short_id: string;
       summary: string;
     };
+    /** @enum {string} */
+    GitDiffScope: "staged" | "unstaged";
     GitFileChange: {
       change_type: components["schemas"]["GitFileChangeType"];
       original_path?: string | null;
@@ -539,21 +595,50 @@ export interface components {
       sha: string;
       value: string;
     };
-    /**
-     * @description Serializable tab metadata. Sent to clients via REST
-     *     and SSE.
-     */
-    TabInfo: {
-      /** Format: int64 */
-      created_at: number;
-      id: string;
-      label: string;
-      /** Format: double */
-      position: number;
-      session_id: string;
-      type: string;
-      worktree_id: string;
-    };
+    TabInfo:
+      | {
+          /** Format: int64 */
+          created_at: number;
+          id: string;
+          label: string;
+          /** Format: double */
+          position: number;
+          preview: boolean;
+          session_id: string;
+          /** @enum {string} */
+          type: "terminal";
+          worktree_id: string;
+        }
+      | {
+          /** Format: int64 */
+          created_at: number;
+          id: string;
+          label: string;
+          path: string;
+          /** Format: double */
+          position: number;
+          preview: boolean;
+          session_id: string;
+          /** @enum {string} */
+          type: "file";
+          worktree_id: string;
+        }
+      | {
+          /** Format: int64 */
+          created_at: number;
+          id: string;
+          label: string;
+          original_path?: string | null;
+          path: string;
+          /** Format: double */
+          position: number;
+          preview: boolean;
+          scope: components["schemas"]["GitDiffScope"];
+          session_id: string;
+          /** @enum {string} */
+          type: "git_diff";
+          worktree_id: string;
+        };
     /** @enum {string} */
     TerminalFontSource: "default" | "system" | "bundled";
     TerminalSettings: {
@@ -577,6 +662,7 @@ export interface components {
       label?: string | null;
       /** Format: double */
       position?: number | null;
+      preview?: boolean | null;
     };
     Worktree: {
       branch: string;
@@ -590,13 +676,45 @@ export interface components {
       project_id: string;
       source_ref?: string | null;
     };
+    WorktreeFileContentParams: {
+      /** @description Relative path from the worktree root. */
+      path: string;
+    };
+    WorktreeFileContentResponse: {
+      content: string;
+      language: string;
+      path: string;
+      read_only: boolean;
+      unsupported_reason?: string | null;
+      version_token: string;
+    };
     WorktreeFileEntry: {
+      is_symlink: boolean;
       kind: components["schemas"]["WorktreeFileKind"];
       name: string;
       path: string;
     };
     /** @enum {string} */
     WorktreeFileKind: "directory" | "file";
+    WorktreeGitDiffParams: {
+      /** @description Original relative path for rename/copy actions. */
+      original_path?: string | null;
+      /** @description Relative path from the worktree root. */
+      path: string;
+      scope: components["schemas"]["GitDiffScope"];
+    };
+    WorktreeGitDiffResponse: {
+      language: string;
+      left_content: string;
+      left_label: string;
+      original_path?: string | null;
+      path: string;
+      read_only: boolean;
+      right_content: string;
+      right_label: string;
+      scope: components["schemas"]["GitDiffScope"];
+      unsupported_reason?: string | null;
+    };
     WorktreeGitPathActionRequest: {
       /** @description Original relative path for rename/copy actions. */
       original_path?: string | null;
@@ -621,6 +739,15 @@ export interface components {
     };
     WorktreeSettingsPatch: {
       locationMode?: null | components["schemas"]["WorktreeLocationMode"];
+    };
+    WriteWorktreeFileContentRequest: {
+      content: string;
+      expected_version_token: string;
+      path: string;
+    };
+    WriteWorktreeFileContentResponse: {
+      path: string;
+      version_token: string;
     };
   };
   responses: never;
@@ -1206,6 +1333,144 @@ export interface operations {
       };
     };
   };
+  get_project_worktree_file_content: {
+    parameters: {
+      query: {
+        /** @description Relative path from the worktree root. */
+        path: string;
+      };
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Load editable worktree file content */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorktreeFileContentResponse"];
+        };
+      };
+      /** @description Invalid relative path */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Permission denied */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Project, worktree, or file not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  put_project_worktree_file_content: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WriteWorktreeFileContentRequest"];
+      };
+    };
+    responses: {
+      /** @description Save editable worktree file content */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WriteWorktreeFileContentResponse"];
+        };
+      };
+      /** @description Invalid path or unsupported file */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Permission denied */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Project, worktree, or file not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Version conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
   rename_project_worktree_file: {
     parameters: {
       query?: never;
@@ -1347,6 +1612,73 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  get_project_worktree_git_diff: {
+    parameters: {
+      query: {
+        /** @description Relative path from the worktree root. */
+        path: string;
+        scope: components["schemas"]["GitDiffScope"];
+        /** @description Original relative path for rename/copy actions. */
+        original_path?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Load a staged or unstaged file diff */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorktreeGitDiffResponse"];
+        };
+      };
+      /** @description Invalid relative path */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Permission denied */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Project or worktree not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
     };
   };

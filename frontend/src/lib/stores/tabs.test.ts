@@ -1,16 +1,22 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
-import type { Tab } from "@/lib/types";
+import type { FileTab, TerminalTab } from "@/lib/types";
 
 const mockCreateTab = vi.fn();
 const mockDeleteTab = vi.fn();
 const mockReorderTabs = vi.fn();
+const mockScheduleDisposeTabModels = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   createTab: (...args: unknown[]) => mockCreateTab(...args),
   deleteTab: (...args: unknown[]) => mockDeleteTab(...args),
   reorderTabs: (...args: unknown[]) => mockReorderTabs(...args),
+}));
+
+vi.mock("@/lib/monaco", () => ({
+  scheduleDisposeTabModels: (...args: unknown[]) =>
+    mockScheduleDisposeTabModels(...args),
 }));
 
 class MockEventClient {
@@ -53,7 +59,9 @@ vi.mock("@/lib/events", async () => {
   };
 });
 
-function makeTab(overrides: Partial<Tab> & { id: string }): Tab {
+function makeTab(
+  overrides: Partial<TerminalTab> & { id: string },
+): TerminalTab {
   return {
     id: overrides.id,
     label: overrides.label ?? `Terminal ${overrides.id}`,
@@ -62,6 +70,26 @@ function makeTab(overrides: Partial<Tab> & { id: string }): Tab {
     session_id: overrides.session_id ?? "default",
     type: overrides.type ?? "terminal",
     created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? false,
+  };
+}
+
+function makeFileTab(
+  overrides: Partial<FileTab> & { id: string; path: string },
+): FileTab {
+  return {
+    id: overrides.id,
+    label:
+      overrides.label ??
+      overrides.path.split("/").filter(Boolean).at(-1) ??
+      overrides.path,
+    position: overrides.position ?? 1,
+    worktree_id: overrides.worktree_id ?? "w1",
+    session_id: overrides.session_id ?? "default",
+    type: "file",
+    created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? true,
+    path: overrides.path,
   };
 }
 
@@ -78,6 +106,7 @@ describe("Tab store", () => {
     vi.resetModules();
     localStorage.clear();
     mockEvents = new MockEventClient();
+    mockScheduleDisposeTabModels.mockReset();
   });
 
   it("loads tabs from snapshot sorted by position", async () => {
@@ -129,6 +158,7 @@ describe("Tab store", () => {
     });
 
     mockEvents.emit("tabs_reordered", {
+      session_id: "default",
       worktree_id: "w1",
       tabs: [
         makeTab({ id: "c", position: 1, worktree_id: "w1" }),
@@ -156,6 +186,7 @@ describe("Tab store", () => {
     });
 
     mockEvents.emit("tabs_reordered", {
+      session_id: "default",
       worktree_id: "w1",
       tabs: [
         makeTab({ id: "b", position: 1, worktree_id: "w1" }),
@@ -203,5 +234,67 @@ describe("Tab store", () => {
     store.resetTabStoreForTests();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(0);
+  });
+
+  it("openFile dedupes a raced tab_created event", async () => {
+    const store = await getStore();
+    const tab = makeFileTab({
+      id: "file-1",
+      worktree_id: "w1",
+      path: "src/main.ts",
+      preview: true,
+    });
+    mockCreateTab.mockImplementation(async () => {
+      mockEvents.emit("tab_created", {
+        session_id: "default",
+        tab,
+      });
+      return tab;
+    });
+
+    await store.useTabStore.getState().openFile({
+      worktreeId: "w1",
+      path: "src/main.ts",
+      preview: true,
+    });
+
+    expect(
+      store.tabsForWorktree("w1").map((candidate) => candidate.id),
+    ).toEqual(["file-1"]);
+  });
+
+  it("preview replacement disposes Monaco models before removing the old tab", async () => {
+    const store = await getStore();
+    const previewTab = makeFileTab({
+      id: "preview-1",
+      worktree_id: "w1",
+      path: "src/old.ts",
+      preview: true,
+    });
+    const nextTab = makeFileTab({
+      id: "preview-2",
+      worktree_id: "w1",
+      path: "src/new.ts",
+      preview: true,
+      position: 2,
+    });
+    mockCreateTab.mockResolvedValue(nextTab);
+    mockDeleteTab.mockResolvedValue(undefined);
+
+    mockEvents.emit("snapshot", {
+      tabs: [previewTab],
+    });
+
+    await store.useTabStore.getState().openFile({
+      worktreeId: "w1",
+      path: "src/new.ts",
+      preview: true,
+    });
+
+    expect(mockScheduleDisposeTabModels).toHaveBeenCalledWith(previewTab);
+    expect(mockDeleteTab).toHaveBeenCalledWith(previewTab.id);
+    expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
+      nextTab.id,
+    ]);
   });
 });

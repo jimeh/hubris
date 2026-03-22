@@ -9,6 +9,10 @@ import {
 } from "@/lib/stores/worktrees";
 import { initializeTabStore, resetTabStoreForTests } from "@/lib/stores/tabs";
 import {
+  initializeFileEditorStore,
+  resetFileEditorStoreForTests,
+} from "@/lib/stores/fileEditorTabs";
+import {
   initializeWorktreeFileManagerStore,
   resetWorktreeFileManagerStoreForTests,
 } from "@/lib/stores/worktreeFileManager";
@@ -30,6 +34,7 @@ export function bootstrapApp(): void {
   initializeProjectStore();
   initializeWorktreeStore();
   initializeTabStore();
+  initializeFileEditorStore();
   initializeWorktreeFileManagerStore();
   initializeWorktreeRightSidebarStore();
   initializeSettingsStore();
@@ -42,6 +47,7 @@ export function resetBootstrapForTests(): void {
   resetProjectStoreForTests();
   resetWorktreeStoreForTests();
   resetTabStoreForTests();
+  resetFileEditorStoreForTests();
   resetWorktreeFileManagerStoreForTests();
   resetWorktreeRightSidebarStoreForTests();
   resetSettingsStoreForTests();

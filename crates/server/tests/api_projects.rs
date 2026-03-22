@@ -168,6 +168,25 @@ async fn test_add_project_invalid_path() {
 }
 
 #[tokio::test]
+async fn test_add_project_rejects_file_path() {
+    let (base, tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let file_path = tmp.path().join("not-a-directory");
+    std::fs::write(&file_path, "hello\n").unwrap();
+
+    let res = client
+        .post(format!("{}/api/projects", base))
+        .json(&serde_json::json!({
+            "path": file_path.to_string_lossy()
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_add_project_deduplicates() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();

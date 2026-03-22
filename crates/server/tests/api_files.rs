@@ -7,6 +7,9 @@ use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
 
+const DISALLOWED_PATH_MESSAGE: &str = "This path resolves outside the allowed roots. Only files inside this \
+     worktree or symlinks into the repository root can be opened.";
+
 async fn start_test_server() -> (String, tempfile::TempDir) {
     let (base, tmp, _state) = start_test_server_with_state().await;
     (base, tmp)
@@ -47,6 +50,14 @@ fn init_git_repo() -> tempfile::TempDir {
     run_git(repo.path(), &["add", "README.md"]);
     run_git(repo.path(), &["commit", "-q", "-m", "init"]);
     run_git(repo.path(), &["branch", "-M", "main"]);
+    repo
+}
+
+fn init_empty_git_repo() -> tempfile::TempDir {
+    let repo = tempfile::TempDir::new().unwrap();
+    run_git(repo.path(), &["init", "-q"]);
+    run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+    run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
     repo
 }
 
@@ -117,6 +128,9 @@ async fn test_list_files_explicit_path() {
     let git_dir = tmp.path().join("myrepo");
     std::fs::create_dir(&git_dir).unwrap();
     std::fs::create_dir(git_dir.join(".git")).unwrap();
+    let linked_git_dir = tmp.path().join("linkedrepo");
+    std::fs::create_dir(&linked_git_dir).unwrap();
+    std::fs::write(linked_git_dir.join(".git"), "gitdir: /tmp/elsewhere\n").unwrap();
     // Hidden dir (should be excluded by default)
     std::fs::create_dir(tmp.path().join(".hidden")).unwrap();
     // Regular file (should be excluded)
@@ -132,8 +146,8 @@ async fn test_list_files_explicit_path() {
     let body: Value = res.json().await.unwrap();
     let entries = body["entries"].as_array().unwrap();
 
-    // Should have mydir and myrepo only
-    assert_eq!(entries.len(), 2);
+    // Should have mydir, myrepo, and linkedrepo only
+    assert_eq!(entries.len(), 3);
 
     let names: Vec<&str> = entries
         .iter()
@@ -141,10 +155,14 @@ async fn test_list_files_explicit_path() {
         .collect();
     assert!(names.contains(&"mydir"));
     assert!(names.contains(&"myrepo"));
+    assert!(names.contains(&"linkedrepo"));
 
     // myrepo should be detected as git repo
     let myrepo = entries.iter().find(|e| e["name"] == "myrepo").unwrap();
     assert_eq!(myrepo["is_git_repo"], true);
+
+    let linkedrepo = entries.iter().find(|e| e["name"] == "linkedrepo").unwrap();
+    assert_eq!(linkedrepo["is_git_repo"], true);
 
     let mydir = entries.iter().find(|e| e["name"] == "mydir").unwrap();
     assert_eq!(mydir["is_git_repo"], false);
@@ -291,6 +309,678 @@ async fn test_list_worktree_files_lists_root_and_nested_entries() {
             .iter()
             .any(|entry| entry["path"] == "src/nested" && entry["kind"] == "directory")
     );
+}
+
+#[tokio::test]
+async fn test_worktree_file_content_can_be_saved_and_detects_conflicts() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("notes.txt"), "first\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=notes.txt",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::OK);
+    let loaded_body: Value = loaded.json().await.unwrap();
+    assert_eq!(loaded_body["content"], "first\n");
+    let original_token = loaded_body["version_token"].as_str().unwrap().to_string();
+
+    let saved = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "notes.txt",
+            "content": "second\n",
+            "expected_version_token": original_token,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let saved_body: Value = saved.json().await.unwrap();
+    let updated_token = saved_body["version_token"].as_str().unwrap();
+    assert_ne!(updated_token, loaded_body["version_token"]);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("notes.txt")).unwrap(),
+        "second\n"
+    );
+    let temp_entries = std::fs::read_dir(repo.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("notes.txt.tmp.")
+        })
+        .count();
+    assert_eq!(temp_entries, 0);
+
+    let conflict = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "notes.txt",
+            "content": "third\n",
+            "expected_version_token": loaded_body["version_token"],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(conflict.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("notes.txt")).unwrap(),
+        "second\n"
+    );
+}
+
+#[tokio::test]
+async fn test_worktree_file_content_noop_save_returns_same_token() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("notes.txt"), "first\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=notes.txt",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::OK);
+    let loaded_body: Value = loaded.json().await.unwrap();
+
+    let saved = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "notes.txt",
+            "content": "first\n",
+            "expected_version_token": loaded_body["version_token"],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let saved_body: Value = saved.json().await.unwrap();
+    assert_eq!(saved_body["version_token"], loaded_body["version_token"]);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("notes.txt")).unwrap(),
+        "first\n"
+    );
+}
+
+#[tokio::test]
+async fn test_binary_worktree_file_content_is_read_only_and_cannot_be_saved() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("binary.bin"), [0_u8, 159, 146, 150]).unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=binary.bin",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::OK);
+    let loaded_body: Value = loaded.json().await.unwrap();
+    assert_eq!(loaded_body["content"], "");
+    assert_eq!(loaded_body["read_only"], true);
+    assert_eq!(
+        loaded_body["unsupported_reason"],
+        "Binary files are read-only."
+    );
+
+    let save = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "binary.bin",
+            "content": "text\n",
+            "expected_version_token": loaded_body["version_token"],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(save.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        std::fs::read(repo.path().join("binary.bin")).unwrap(),
+        vec![0_u8, 159, 146, 150]
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_worktree_file_content_rejects_symlink_escape_on_load() {
+    use std::os::unix::fs::symlink;
+
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+
+    symlink(outside.path(), repo.path().join("escape-link")).unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=escape-link",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::FORBIDDEN);
+    let body: Value = loaded.json().await.unwrap();
+    assert_eq!(body["message"], DISALLOWED_PATH_MESSAGE);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_worktree_file_content_rejects_symlink_escape_on_save() {
+    use std::os::unix::fs::symlink;
+
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+
+    std::fs::write(outside.path(), "outside\n").unwrap();
+    symlink(outside.path(), repo.path().join("escape-link")).unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let save = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "escape-link",
+            "content": "inside\n",
+            "expected_version_token": "ignored",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(save.status(), StatusCode::FORBIDDEN);
+    let body: Value = save.json().await.unwrap();
+    assert_eq!(body["message"], DISALLOWED_PATH_MESSAGE);
+    assert_eq!(
+        std::fs::read_to_string(outside.path()).unwrap(),
+        "outside\n"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_linked_worktree_symlink_into_repo_root_is_allowed_for_content_and_diff() {
+    use std::os::unix::fs::symlink;
+
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join(".env.local"), "ROOT=one\n").unwrap();
+    std::fs::create_dir(repo.path().join("shared")).unwrap();
+    std::fs::write(repo.path().join("shared/config.txt"), "shared\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let created = create_worktree(&client, &base, &project_id, "feature-shared").await;
+    let worktree_id = created["id"].as_str().unwrap();
+    let worktree_path = created["path"].as_str().unwrap();
+
+    symlink(
+        repo.path().join(".env.local"),
+        Path::new(worktree_path).join(".env.local"),
+    )
+    .unwrap();
+    symlink(
+        repo.path().join("shared"),
+        Path::new(worktree_path).join("shared-link"),
+    )
+    .unwrap();
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=.env.local",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::OK);
+    let loaded_body: Value = loaded.json().await.unwrap();
+    assert_eq!(loaded_body["content"], "ROOT=one\n");
+
+    let saved = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": ".env.local",
+            "content": "ROOT=two\n",
+            "expected_version_token": loaded_body["version_token"],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join(".env.local")).unwrap(),
+        "ROOT=two\n"
+    );
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=.env.local&scope=unstaged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let diff_body: Value = diff.json().await.unwrap();
+    assert_eq!(diff_body["left_content"], "");
+    assert_eq!(diff_body["right_content"], "ROOT=two\n");
+
+    let listing = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(listing.status(), StatusCode::OK);
+    let listing_body: Value = listing.json().await.unwrap();
+    assert!(
+        listing_body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["path"] == ".env.local"
+                    && entry["kind"] == "file"
+                    && entry["is_symlink"] == true
+            })
+    );
+    assert!(
+        listing_body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["path"] == "shared-link"
+                    && entry["kind"] == "directory"
+                    && entry["is_symlink"] == true
+            })
+    );
+
+    let nested_listing = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files?path=shared-link",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nested_listing.status(), StatusCode::OK);
+    let nested_body: Value = nested_listing.json().await.unwrap();
+    assert!(
+        nested_body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["path"] == "shared-link/config.txt")
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_worktree_file_content_save_failure_does_not_truncate_original() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("notes.txt"), "first\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let loaded = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content?path=notes.txt",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(loaded.status(), StatusCode::OK);
+    let loaded_body: Value = loaded.json().await.unwrap();
+
+    let metadata = std::fs::metadata(repo.path()).unwrap();
+    let original_mode = metadata.permissions().mode();
+    let mut read_only_permissions = metadata.permissions();
+    read_only_permissions.set_mode(0o555);
+    std::fs::set_permissions(repo.path(), read_only_permissions).unwrap();
+
+    let save = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/files/content",
+            base, project_id, worktree_id
+        ))
+        .json(&serde_json::json!({
+            "path": "notes.txt",
+            "content": "second\n",
+            "expected_version_token": loaded_body["version_token"],
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let mut restored_permissions = std::fs::metadata(repo.path()).unwrap().permissions();
+    restored_permissions.set_mode(original_mode);
+    std::fs::set_permissions(repo.path(), restored_permissions).unwrap();
+
+    assert_eq!(save.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("notes.txt")).unwrap(),
+        "first\n"
+    );
+}
+
+#[tokio::test]
+async fn test_unstaged_git_diff_for_missing_worktree_file_returns_empty_right_side() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    std::fs::remove_file(repo.path().join("README.md")).unwrap();
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=unstaged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "hello\n");
+    assert_eq!(body["right_content"], "");
+    assert_eq!(body["right_label"], "Working Tree");
+}
+
+#[tokio::test]
+async fn test_staged_git_diff_for_new_file_returns_empty_left_side() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("new.txt"), "new file\n").unwrap();
+    run_git(repo.path(), &["add", "new.txt"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=new.txt&scope=staged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "");
+    assert_eq!(body["right_content"], "new file\n");
+    assert!(body["unsupported_reason"].is_null());
+}
+
+#[tokio::test]
+async fn test_staged_git_diff_for_binary_index_blob_is_unsupported() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("binary.bin"), [0_u8, 159, 146, 150]).unwrap();
+    run_git(repo.path(), &["add", "binary.bin"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=binary.bin&scope=staged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(
+        body["unsupported_reason"],
+        "Binary diffs are not supported."
+    );
+    assert_eq!(body["left_content"], "");
+    assert_eq!(body["right_content"], "");
+}
+
+#[tokio::test]
+async fn test_unstaged_git_diff_for_binary_index_blob_is_unsupported() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("README.md"), [0_u8, 159, 146, 150]).unwrap();
+    run_git(repo.path(), &["add", "README.md"]);
+    std::fs::write(repo.path().join("README.md"), "worktree\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=unstaged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(
+        body["unsupported_reason"],
+        "Binary diffs are not supported."
+    );
+    assert_eq!(body["left_content"], "");
+    assert_eq!(body["right_content"], "worktree\n");
+}
+
+#[tokio::test]
+async fn test_staged_git_diff_uses_original_path_for_left_side() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("renamed.md"), "updated\n").unwrap();
+    run_git(repo.path(), &["add", "renamed.md"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=renamed.md&scope=staged&original_path=README.md",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "hello\n");
+    assert_eq!(body["right_content"], "updated\n");
+}
+
+#[tokio::test]
+async fn test_staged_git_diff_in_unborn_repo_returns_empty_head_side() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_empty_git_repo();
+
+    std::fs::write(repo.path().join("new.txt"), "new file\n").unwrap();
+    run_git(repo.path(), &["add", "new.txt"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=new.txt&scope=staged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "");
+    assert_eq!(body["right_content"], "new file\n");
+    assert!(body["unsupported_reason"].is_null());
+}
+
+#[tokio::test]
+async fn test_unstaged_git_diff_for_large_worktree_file_is_unsupported() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let large = "a".repeat(1024 * 1024 + 1);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    std::fs::write(repo.path().join("README.md"), large).unwrap();
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=unstaged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(
+        body["unsupported_reason"],
+        "Diffs larger than 1 MiB are read-only."
+    );
+    assert_eq!(body["left_content"], "hello\n");
+    assert_eq!(body["right_content"], "");
+}
+
+#[tokio::test]
+async fn test_staged_git_diff_for_large_index_blob_is_unsupported() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let large = "a".repeat(1024 * 1024 + 1);
+
+    std::fs::write(repo.path().join("large.txt"), large).unwrap();
+    run_git(repo.path(), &["add", "large.txt"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=large.txt&scope=staged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(
+        body["unsupported_reason"],
+        "Diffs larger than 1 MiB are read-only."
+    );
+    assert_eq!(body["left_content"], "");
+    assert_eq!(body["right_content"], "");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unstaged_git_diff_rejects_symlink_escape() {
+    use std::os::unix::fs::symlink;
+
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+
+    symlink(outside.path(), repo.path().join("escape-link")).unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=escape-link&scope=unstaged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::FORBIDDEN);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["message"], DISALLOWED_PATH_MESSAGE);
 }
 
 #[tokio::test]

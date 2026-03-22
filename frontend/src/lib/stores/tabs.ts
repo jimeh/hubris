@@ -1,16 +1,40 @@
 import { create } from "zustand";
-import { createTab, deleteTab, reorderTabs } from "@/lib/api";
+import {
+  createTab,
+  createTerminalTab,
+  deleteTab,
+  reorderTabs,
+  updateTab,
+} from "@/lib/api";
 import { getEventClient } from "@/lib/events";
-import type { Tab } from "@/lib/types";
+import { scheduleDisposeTabModels } from "@/lib/monaco";
+import type { GitDiffScope, GitDiffTab, Tab } from "@/lib/types";
 
 const LS_ACTIVE_TAB = "hubris-active-tab";
 const LS_TAB_BY_WORKTREE = "hubris-active-tab-by-worktree";
+
+type OpenFileOptions = {
+  worktreeId: string;
+  path: string;
+  preview: boolean;
+};
+
+type OpenGitDiffOptions = {
+  worktreeId: string;
+  path: string;
+  scope: GitDiffScope;
+  originalPath?: string | null;
+  preview: boolean;
+};
 
 type TabsState = {
   tabs: Tab[];
   activeTabId: string | null;
   activeTabByWorktree: Record<string, string>;
   addTerminal: (worktreeId: string) => Promise<Tab>;
+  openFile: (options: OpenFileOptions) => Promise<Tab>;
+  openGitDiff: (options: OpenGitDiffOptions) => Promise<Tab>;
+  pin: (id: string) => Promise<Tab | null>;
   close: (id: string) => Promise<void>;
   removeLocal: (id: string) => void;
   activate: (id: string) => void;
@@ -63,15 +87,46 @@ function sortedTabs(list: Tab[]): Tab[] {
   return [...list].sort((a, b) => a.position - b.position);
 }
 
+function tabKey(tab: Tab): string {
+  switch (tab.type) {
+    case "terminal":
+      return [
+        tab.id,
+        tab.label,
+        tab.position,
+        tab.worktree_id,
+        tab.preview,
+        tab.type,
+      ].join("|");
+    case "file":
+      return [
+        tab.id,
+        tab.label,
+        tab.position,
+        tab.worktree_id,
+        tab.preview,
+        tab.type,
+        tab.path,
+      ].join("|");
+    case "git_diff":
+      return [
+        tab.id,
+        tab.label,
+        tab.position,
+        tab.worktree_id,
+        tab.preview,
+        tab.type,
+        tab.path,
+        tab.scope,
+        tab.original_path ?? "",
+      ].join("|");
+  }
+}
+
 function tabsEqual(a: Tab[], b: Tab[]): boolean {
   if (a.length !== b.length) return false;
   for (let index = 0; index < a.length; index += 1) {
-    if (
-      a[index].id !== b[index].id ||
-      a[index].label !== b[index].label ||
-      a[index].position !== b[index].position ||
-      a[index].worktree_id !== b[index].worktree_id
-    ) {
+    if (tabKey(a[index]) !== tabKey(b[index])) {
       return false;
     }
   }
@@ -87,7 +142,6 @@ function activeTabMapEqual(
   if (aEntries.length !== bEntries.length) {
     return false;
   }
-
   return aEntries.every(([key, value]) => b[key] === value);
 }
 
@@ -95,25 +149,131 @@ function tabsForWorktreeInternal(tabs: Tab[], worktreeId: string): Tab[] {
   return tabs.filter((tab) => tab.worktree_id === worktreeId);
 }
 
+function setTabPreviewLocal(tabs: Tab[], id: string, preview: boolean): Tab[] {
+  return tabs.map((tab) => (tab.id === id ? { ...tab, preview } : tab));
+}
+
+function addTabIfMissing(tabs: Tab[], tab: Tab): Tab[] {
+  return tabs.some((candidate) => candidate.id === tab.id)
+    ? tabs
+    : sortedTabs([...tabs, tab]);
+}
+
 function removeFromState(state: TabsState, id: string): Partial<TabsState> {
-  const tab = state.tabs.find((candidate) => candidate.id === id);
+  const removed = state.tabs.find((candidate) => candidate.id === id);
   const tabs = state.tabs.filter((candidate) => candidate.id !== id);
 
-  if (state.activeTabId !== id) {
-    return { tabs };
+  const activeTabByWorktree = { ...state.activeTabByWorktree };
+  if (removed) {
+    const rememberedId = activeTabByWorktree[removed.worktree_id];
+    if (rememberedId === id) {
+      const nextWorktreeTab =
+        tabs
+          .filter((candidate) => candidate.worktree_id === removed.worktree_id)
+          .at(-1)?.id ?? "";
+      activeTabByWorktree[removed.worktree_id] = nextWorktreeTab;
+    }
   }
 
-  const worktreeId = tab?.worktree_id;
+  if (state.activeTabId !== id) {
+    persistSelection(state.activeTabId, activeTabByWorktree);
+    return { tabs, activeTabByWorktree };
+  }
+
+  const worktreeId = removed?.worktree_id;
   const remaining = worktreeId
     ? tabs.filter((candidate) => candidate.worktree_id === worktreeId)
     : tabs;
-  const activeTabId = remaining[remaining.length - 1]?.id ?? null;
-  const activeTabByWorktree = { ...state.activeTabByWorktree };
+  const activeTabId = remaining.at(-1)?.id ?? null;
   if (worktreeId) {
     activeTabByWorktree[worktreeId] = activeTabId ?? "";
   }
   persistSelection(activeTabId, activeTabByWorktree);
   return { tabs, activeTabId, activeTabByWorktree };
+}
+
+function removedTabs(previous: Tab[], next: Tab[]): Tab[] {
+  const nextIds = new Set(next.map((tab) => tab.id));
+  return previous.filter((tab) => !nextIds.has(tab.id));
+}
+
+function findFileTab(
+  tabs: Tab[],
+  worktreeId: string,
+  path: string,
+): Tab | null {
+  return (
+    tabs.find(
+      (tab) =>
+        tab.worktree_id === worktreeId &&
+        tab.type === "file" &&
+        tab.path === path,
+    ) ?? null
+  );
+}
+
+function findGitDiffTab(
+  tabs: Tab[],
+  worktreeId: string,
+  path: string,
+  scope: GitDiffScope,
+  originalPath?: string | null,
+): GitDiffTab | null {
+  return (
+    tabs.find(
+      (tab): tab is GitDiffTab =>
+        tab.worktree_id === worktreeId &&
+        tab.type === "git_diff" &&
+        tab.path === path &&
+        tab.scope === scope &&
+        (tab.original_path ?? null) === (originalPath ?? null),
+    ) ?? null
+  );
+}
+
+function findPreviewTab(tabs: Tab[], worktreeId: string): Tab | null {
+  return (
+    tabs.find(
+      (tab) =>
+        tab.worktree_id === worktreeId &&
+        tab.preview &&
+        tab.type !== "terminal",
+    ) ?? null
+  );
+}
+
+function activateLocal(
+  state: TabsState,
+  id: string,
+): Pick<TabsState, "activeTabId" | "activeTabByWorktree"> {
+  const tab = state.tabs.find((candidate) => candidate.id === id);
+  const activeTabByWorktree = { ...state.activeTabByWorktree };
+  if (tab) {
+    activeTabByWorktree[tab.worktree_id] = id;
+  }
+  persistSelection(id, activeTabByWorktree);
+  return {
+    activeTabId: id,
+    activeTabByWorktree,
+  };
+}
+
+async function replacePreviewIfNeeded(
+  state: TabsState,
+  worktreeId: string,
+): Promise<void> {
+  const previewTab = findPreviewTab(state.tabs, worktreeId);
+  if (!previewTab) {
+    return;
+  }
+
+  scheduleDisposeTabModels(previewTab);
+  useTabStore.setState((current) => removeFromState(current, previewTab.id));
+  try {
+    await deleteTab(previewTab.id);
+  } catch {
+    // Preview tab may already be gone.
+  }
 }
 
 export const useTabStore = create<TabsState>((set, get) => ({
@@ -122,11 +282,9 @@ export const useTabStore = create<TabsState>((set, get) => ({
   activeTabByWorktree:
     lsGetJson<Record<string, string>>(LS_TAB_BY_WORKTREE) ?? {},
   async addTerminal(worktreeId) {
-    const tab = await createTab(worktreeId);
+    const tab = await createTerminalTab(worktreeId);
     set((state) => {
-      const tabs = state.tabs.some((candidate) => candidate.id === tab.id)
-        ? state.tabs
-        : sortedTabs([...state.tabs, tab]);
+      const tabs = addTabIfMissing(state.tabs, tab);
       const activeTabByWorktree = {
         ...state.activeTabByWorktree,
         [worktreeId]: tab.id,
@@ -140,8 +298,121 @@ export const useTabStore = create<TabsState>((set, get) => ({
     });
     return tab;
   },
+  async openFile(options) {
+    const existing = findFileTab(get().tabs, options.worktreeId, options.path);
+    if (existing) {
+      if (!options.preview && existing.preview) {
+        set((state) => ({
+          tabs: sortedTabs(setTabPreviewLocal(state.tabs, existing.id, false)),
+          ...activateLocal(state, existing.id),
+        }));
+        try {
+          return await updateTab(existing.id, { preview: false });
+        } catch {
+          return { ...existing, preview: false };
+        }
+      }
+
+      set((state) => activateLocal(state, existing.id));
+      return existing;
+    }
+
+    if (options.preview) {
+      await replacePreviewIfNeeded(get(), options.worktreeId);
+    }
+
+    const tab = await createTab({
+      type: "file",
+      worktree_id: options.worktreeId,
+      path: options.path,
+      preview: options.preview,
+    });
+    set((state) => {
+      const tabs = addTabIfMissing(state.tabs, tab);
+      return {
+        tabs,
+        ...activateLocal(
+          {
+            ...state,
+            tabs,
+          } as TabsState,
+          tab.id,
+        ),
+      };
+    });
+    return tab;
+  },
+  async openGitDiff(options) {
+    const existing = findGitDiffTab(
+      get().tabs,
+      options.worktreeId,
+      options.path,
+      options.scope,
+      options.originalPath,
+    );
+    if (existing) {
+      if (!options.preview && existing.preview) {
+        set((state) => ({
+          tabs: sortedTabs(setTabPreviewLocal(state.tabs, existing.id, false)),
+          ...activateLocal(state, existing.id),
+        }));
+        try {
+          return await updateTab(existing.id, { preview: false });
+        } catch {
+          return { ...existing, preview: false };
+        }
+      }
+
+      set((state) => activateLocal(state, existing.id));
+      return existing;
+    }
+
+    if (options.preview) {
+      await replacePreviewIfNeeded(get(), options.worktreeId);
+    }
+
+    const tab = await createTab({
+      type: "git_diff",
+      worktree_id: options.worktreeId,
+      path: options.path,
+      scope: options.scope,
+      original_path: options.originalPath ?? undefined,
+      preview: options.preview,
+    });
+    set((state) => {
+      const tabs = addTabIfMissing(state.tabs, tab);
+      return {
+        tabs,
+        ...activateLocal(
+          {
+            ...state,
+            tabs,
+          } as TabsState,
+          tab.id,
+        ),
+      };
+    });
+    return tab;
+  },
+  async pin(id) {
+    const existing = get().tabs.find((tab) => tab.id === id) ?? null;
+    if (!existing || !existing.preview) {
+      return existing;
+    }
+
+    set((state) => ({
+      tabs: sortedTabs(setTabPreviewLocal(state.tabs, id, false)),
+    }));
+
+    try {
+      return await updateTab(id, { preview: false });
+    } catch {
+      return { ...existing, preview: false };
+    }
+  },
   async close(id) {
-    if (!get().tabs.some((candidate) => candidate.id === id)) {
+    const closingTab = get().tabs.find((candidate) => candidate.id === id);
+    if (!closingTab) {
       return;
     }
 
@@ -152,25 +423,18 @@ export const useTabStore = create<TabsState>((set, get) => ({
     } catch {
       // Already gone.
     }
+
+    scheduleDisposeTabModels(closingTab);
   },
   removeLocal(id) {
+    const closingTab = get().tabs.find((candidate) => candidate.id === id);
     set((state) => removeFromState(state, id));
+    if (closingTab) {
+      scheduleDisposeTabModels(closingTab);
+    }
   },
   activate(id) {
-    set((state) => {
-      const tab = state.tabs.find((candidate) => candidate.id === id);
-      const activeTabByWorktree = {
-        ...state.activeTabByWorktree,
-      };
-      if (tab) {
-        activeTabByWorktree[tab.worktree_id] = id;
-      }
-      persistSelection(id, activeTabByWorktree);
-      return {
-        activeTabId: id,
-        activeTabByWorktree,
-      };
-    });
+    set((state) => activateLocal(state, id));
   },
   async reorder(worktreeId, orderedIds) {
     set((state) => {
@@ -248,6 +512,10 @@ export function initializeTabStore(): void {
           return state;
         }
 
+        for (const tab of removedTabs(state.tabs, incoming)) {
+          scheduleDisposeTabModels(tab);
+        }
+
         persistSelection(activeTabId, activeTabByWorktree);
         return {
           tabs: incoming,
@@ -256,7 +524,7 @@ export function initializeTabStore(): void {
         };
       });
     }),
-    events.on("tab_created", (tab) => {
+    events.on("tab_created", ({ tab }) => {
       useTabStore.setState((state) => {
         if (state.tabs.some((candidate) => candidate.id === tab.id)) {
           return state;
@@ -267,9 +535,15 @@ export function initializeTabStore(): void {
       });
     }),
     events.on("tab_closed", ({ tab_id }) => {
-      useTabStore.setState((state) => removeFromState(state, tab_id));
+      useTabStore.setState((state) => {
+        const closedTab = state.tabs.find((tab) => tab.id === tab_id);
+        if (closedTab) {
+          scheduleDisposeTabModels(closedTab);
+        }
+        return removeFromState(state, tab_id);
+      });
     }),
-    events.on("tab_updated", (tab) => {
+    events.on("tab_updated", ({ tab }) => {
       useTabStore.setState((state) => ({
         tabs: sortedTabs(
           state.tabs.map((candidate) =>
@@ -280,10 +554,8 @@ export function initializeTabStore(): void {
     }),
     events.on("tabs_reordered", ({ tabs }) => {
       useTabStore.setState((state) => {
-        const reorderedIds = tabs.map((tab) => tab.id);
-        const other = state.tabs.filter(
-          (tab) => !reorderedIds.includes(tab.id),
-        );
+        const reorderedIds = new Set(tabs.map((tab) => tab.id));
+        const other = state.tabs.filter((tab) => !reorderedIds.has(tab.id));
         return {
           tabs: sortedTabs([...other, ...tabs]),
         };

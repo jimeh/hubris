@@ -373,14 +373,21 @@ pub fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) {
     let tab_ids: Vec<String> = state
         .tabs
         .iter()
-        .filter(|e| e.value().info().worktree_id == worktree_id)
+        .filter(|entry| entry.value().worktree_id() == worktree_id)
         .map(|e| e.key().clone())
         .collect();
 
     for tab_id in tab_ids {
         if let Some((_, tab)) = state.tabs.remove(&tab_id) {
-            tab.notify_close();
-            state.events.emit(EventKind::TabClosed { tab_id });
+            if tab.is_terminal()
+                && let Some((_, runtime)) = state.terminal_tabs.remove(&tab_id)
+            {
+                runtime.notify_close();
+            }
+            state.events.emit(EventKind::TabClosed {
+                session_id: tab.session_id().to_string(),
+                tab_id,
+            });
         }
     }
 }
@@ -749,12 +756,14 @@ async fn perform_git_path_action(
         state
             .worktree_files
             .record_git_rewrite_hint(&resolved, path, original_path)
+            .await
             .map_err(map_worktree_file_error)?;
     }
 
     state
         .worktree_files
         .invalidate_relative_paths(&resolved, &paths)
+        .await
         .map_err(map_worktree_file_error)?;
 
     Ok(StatusCode::NO_CONTENT)

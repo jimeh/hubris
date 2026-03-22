@@ -2,8 +2,10 @@ use axum::Json;
 use utoipa::OpenApi;
 
 use crate::api::files::{
-    DirEntry, ListFilesResponse, ListWorktreeFilesResponse, RenameWorktreeFileRequest,
-    RenameWorktreeFileResponse, WorktreeFileEntry, WorktreeFileKind,
+    ApiErrorResponse, DirEntry, ListFilesResponse, ListWorktreeFilesResponse,
+    RenameWorktreeFileRequest, RenameWorktreeFileResponse, WorktreeFileContentParams,
+    WorktreeFileContentResponse, WorktreeFileEntry, WorktreeFileKind, WorktreeGitDiffParams,
+    WorktreeGitDiffResponse, WriteWorktreeFileContentRequest, WriteWorktreeFileContentResponse,
 };
 use crate::api::projects::{
     AddProjectRequest, Project, ReorderProjectsRequest, UpdateProjectRequest,
@@ -21,7 +23,7 @@ use crate::api::worktrees::{
     ReorderWorktreesRequest, StartPoint, Worktree, WorktreeGitPathActionRequest,
     WorktreeGitStatusResponse,
 };
-use crate::pty::live_tab::TabInfo;
+use crate::tab::{GitDiffScope, TabInfo};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -29,7 +31,10 @@ use crate::pty::live_tab::TabInfo;
         openapi_json,
         crate::api::files::list_files,
         crate::api::files::list_project_worktree_files,
+        crate::api::files::get_project_worktree_file_content,
+        crate::api::files::put_project_worktree_file_content,
         crate::api::files::rename_project_worktree_file,
+        crate::api::files::get_project_worktree_git_diff,
         crate::api::projects::list_projects,
         crate::api::projects::add_project,
         crate::api::projects::update_project,
@@ -60,11 +65,18 @@ use crate::pty::live_tab::TabInfo;
         schemas(
             DirEntry,
             ListFilesResponse,
+            ApiErrorResponse,
             WorktreeFileKind,
             WorktreeFileEntry,
             ListWorktreeFilesResponse,
             RenameWorktreeFileRequest,
             RenameWorktreeFileResponse,
+            WorktreeFileContentParams,
+            WorktreeFileContentResponse,
+            WriteWorktreeFileContentRequest,
+            WriteWorktreeFileContentResponse,
+            WorktreeGitDiffParams,
+            WorktreeGitDiffResponse,
             Project,
             AddProjectRequest,
             UpdateProjectRequest,
@@ -82,6 +94,7 @@ use crate::pty::live_tab::TabInfo;
             GitCommitDetailsResponse,
             WorktreeGitStatusResponse,
             WorktreeGitPathActionRequest,
+            GitDiffScope,
             TabInfo,
             CreateTabRequest,
             UpdateTabRequest,

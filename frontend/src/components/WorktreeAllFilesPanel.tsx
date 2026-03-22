@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ChevronRight, Copy, PencilLine } from "lucide-react";
+import { ChevronRight, Copy, Link2, PencilLine } from "lucide-react";
 import { toast } from "sonner";
 import type { WorktreeGitStatus } from "@/lib/api";
 import {
@@ -39,6 +39,7 @@ import {
   mostSignificantGitChangeType,
   type GitChangeType,
 } from "@/lib/gitChangePresentation";
+import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import { useThemeSettings } from "@/lib/stores/theme";
 import type { HubrisTheme } from "@/lib/theme/types";
@@ -120,45 +121,67 @@ function FolderIcon({
   name,
   open,
   theme,
+  isSymlink,
 }: {
   name: string;
   open: boolean;
   theme: HubrisTheme | null;
+  isSymlink: boolean;
 }) {
   const icon = resolveMaterialFolderIcon(name, theme, open);
 
   return (
-    <img
-      src={icon.iconPath}
-      alt=""
-      className="hubris-explorer-icon h-5 w-5 shrink-0 object-contain"
-      data-testid={open ? "folder-icon-open" : "folder-icon-closed"}
-      data-icon-id={icon.iconId}
-      aria-hidden="true"
-      draggable={false}
-    />
+    <span className="relative h-5 w-5 shrink-0">
+      <img
+        src={icon.iconPath}
+        alt=""
+        className="hubris-explorer-icon h-5 w-5 object-contain"
+        data-testid={open ? "folder-icon-open" : "folder-icon-closed"}
+        data-icon-id={icon.iconId}
+        aria-hidden="true"
+        draggable={false}
+      />
+      {isSymlink ? <SymlinkBadge /> : null}
+    </span>
   );
 }
 
 function FileIcon({
   path,
   theme,
+  isSymlink,
 }: {
   path: string;
   theme: HubrisTheme | null;
+  isSymlink: boolean;
 }) {
   const icon = resolveMaterialFileIcon(path, theme);
 
   return (
-    <img
-      src={icon.iconPath}
-      alt=""
-      className="hubris-explorer-icon h-5 w-5 shrink-0 object-contain"
-      data-testid="file-icon-manifest"
-      data-icon-id={icon.iconId}
+    <span className="relative h-5 w-5 shrink-0">
+      <img
+        src={icon.iconPath}
+        alt=""
+        className="hubris-explorer-icon h-5 w-5 object-contain"
+        data-testid="file-icon-manifest"
+        data-icon-id={icon.iconId}
+        aria-hidden="true"
+        draggable={false}
+      />
+      {isSymlink ? <SymlinkBadge /> : null}
+    </span>
+  );
+}
+
+function SymlinkBadge() {
+  return (
+    <span
+      className="absolute -right-1 -bottom-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-sidebar-border/80 bg-sidebar-background shadow-sm"
+      data-testid="symlink-indicator"
       aria-hidden="true"
-      draggable={false}
-    />
+    >
+      <Link2 className="h-2.5 w-2.5 text-sidebar-foreground/75" />
+    </span>
   );
 }
 
@@ -433,7 +456,8 @@ function FileTreeRow({
   directoryChanges,
   theme,
   onToggleDirectory,
-  onSelect,
+  onPreviewFile,
+  onOpenFile,
   onRenamePathChange,
   onRenameSubmit,
   onRetryDirectory,
@@ -449,7 +473,8 @@ function FileTreeRow({
   directoryChanges: Map<string, GitChangeType>;
   theme: HubrisTheme | null;
   onToggleDirectory: (entry: WorktreeFileEntry) => void;
-  onSelect: (path: string) => void;
+  onPreviewFile: (path: string) => void;
+  onOpenFile: (path: string) => void;
   onRenamePathChange: (path: string | null) => void;
   onRenameSubmit: (entry: WorktreeFileEntry, nextName: string) => Promise<void>;
   onRetryDirectory: (path: string) => void;
@@ -491,10 +516,15 @@ function FileTreeRow({
             isActive={isSelected}
             data-testid="file-tree-row"
             data-path={entry.path}
-            onClick={() => onSelect(entry.path)}
+            onClick={() => onPreviewFile(entry.path)}
+            onDoubleClick={() => onOpenFile(entry.path)}
           >
             <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <FileIcon path={entry.path} theme={theme} />
+            <FileIcon
+              path={entry.path}
+              theme={theme}
+              isSymlink={entry.is_symlink}
+            />
             {renameInput ?? (
               <span
                 className={cn(
@@ -555,7 +585,12 @@ function FileTreeRow({
                     expanded && "rotate-90",
                   )}
                 />
-                <FolderIcon name={entry.name} open={expanded} theme={theme} />
+                <FolderIcon
+                  name={entry.name}
+                  open={expanded}
+                  theme={theme}
+                  isSymlink={entry.is_symlink}
+                />
                 {renameInput ?? (
                   <span
                     className={cn(
@@ -621,7 +656,8 @@ function FileTreeRow({
                         directoryChanges={directoryChanges}
                         theme={theme}
                         onToggleDirectory={onToggleDirectory}
-                        onSelect={onSelect}
+                        onPreviewFile={onPreviewFile}
+                        onOpenFile={onOpenFile}
                         onRenamePathChange={onRenamePathChange}
                         onRenameSubmit={onRenameSubmit}
                         onRetryDirectory={onRetryDirectory}
@@ -668,6 +704,7 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
   const setRenamePath = useWorktreeFileManagerStore(
     (state) => state.setRenamePath,
   );
+  const openFile = useTabStore((state) => state.openFile);
   const activeTheme = useThemeSettings((state) => state.activeTheme);
 
   const rootDirectory = worktreeState.directories[""];
@@ -721,6 +758,18 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
       }
     },
     [renameEntry, setRenamePath, worktree.id, worktree.project_id],
+  );
+
+  const handleOpenFile = useCallback(
+    (path: string, preview: boolean) => {
+      setSelectedPath(worktree.id, path);
+      void openFile({
+        worktreeId: worktree.id,
+        path,
+        preview,
+      });
+    },
+    [openFile, setSelectedPath, worktree.id],
   );
 
   return (
@@ -785,7 +834,8 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
                   directoryChanges={directoryChanges}
                   theme={activeTheme}
                   onToggleDirectory={handleToggleDirectory}
-                  onSelect={(path) => setSelectedPath(worktree.id, path)}
+                  onPreviewFile={(path) => handleOpenFile(path, true)}
+                  onOpenFile={(path) => handleOpenFile(path, false)}
                   onRenamePathChange={(path) =>
                     setRenamePath(worktree.id, path)
                   }

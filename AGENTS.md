@@ -132,6 +132,11 @@ No periodic reconciliation — drift corrects on reconnect.
 - **rustfmt style_edition 2024**: Formats more aggressively than
   default (collapses single-line signatures, method chains). Always
   run `cargo fmt` after edits.
+- **Async request paths must avoid blocking fs/process work**:
+  request-time filesystem access should use `tokio::fs`, not `std::fs`,
+  and any unavoidable sync-only filesystem or process call should be
+  wrapped in `tokio::task::spawn_blocking` instead of running on the
+  async executor.
 - **Tab position**: `f64` for fractional ordering (midpoint insertion).
 - **Project reorder**: Bulk `PUT /api/projects/reorder` with ordered
   IDs. Backend resequences all positions as clean integers and emits a
@@ -318,6 +323,13 @@ No periodic reconciliation — drift corrects on reconnect.
   when deriving a git local root with `git2`, check `workdir()` before the
   shared `commondir()` parent or linked worktrees collapse to the main repo
   root instead of their own checkout path.
+- **File editor/diff symlinks may target only the worktree or repo root**:
+  working-tree file reads/writes follow symlinks only when the final canonical
+  target stays under the canonical worktree root or the canonical project
+  local root (`resolved.local_root`). This is what allows linked-worktree
+  symlinks like `.env.local` back into the repo root without permitting
+  arbitrary filesystem escapes. Explorer listing should use the same allowlist
+  and mark symlink entries via `is_symlink`.
 - **`git2` worktree add names must be safe internal IDs**:
   do not pass raw branch shorthands like `feature/foo` into
   `repo.worktree(...)`. Use a filesystem-safe name derived from the target
@@ -349,6 +361,12 @@ No periodic reconciliation — drift corrects on reconnect.
   status. The right-sidebar visibility coordinator should use
   `loadDirectory("")`, `preloadVisibleDirectories()`, and `loadGitStatus()`
   for normal tab-open hydration, or it can spin on already-fresh state.
+- **Monaco theme/model ownership must stay global, not per-tab**:
+  file/diff tabs should not each call `defineTheme`/`setTheme` from mount
+  effects. Reordering tabs under React StrictMode can overlap Monaco cleanup
+  with those global theme mutations and crash disposed editors. Apply theme
+  idempotently from app-level code, and keep Monaco models alive across tab
+  reorder churn with explicit cleanup only when tabs actually close.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.
