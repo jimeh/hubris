@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 
 use git2::build::CheckoutBuilder;
 use git2::{
-    BranchType, Delta, DiffDelta, DiffFindOptions, DiffOptions, ErrorCode, FileMode,
-    IndexAddOption, Reference, Repository, Sort, Status, StatusEntry, Time, WorktreeAddOptions,
-    WorktreeLockStatus, WorktreePruneOptions,
+    BranchType, Delta, DiffDelta, DiffFindOptions, DiffOptions, ErrorCode, FileMode, Reference,
+    Repository, Sort, Status, StatusEntry, Time, WorktreeAddOptions, WorktreeLockStatus,
+    WorktreePruneOptions,
 };
 use uuid::Uuid;
 
@@ -185,6 +185,103 @@ fn normalized_git_action_paths(
         paths.insert(normalize_relative_git_path(original_path)?);
     }
     Ok(paths)
+}
+
+fn path_matches_literal_or_child(target: &str, candidate: &str) -> bool {
+    candidate == target
+        || candidate
+            .strip_prefix(target)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn matching_index_entries(index: &git2::Index, target: &str) -> Vec<git2::IndexEntry> {
+    index
+        .iter()
+        .filter(|entry| path_matches_literal_or_child(target, &bytes_to_string(&entry.path)))
+        .collect()
+}
+
+fn target_is_directory(
+    worktree_path: &Path,
+    target: &str,
+    current_entries: &[git2::IndexEntry],
+    head_entries: &[git2::IndexEntry],
+) -> bool {
+    worktree_path.join(target).is_dir()
+        || current_entries.iter().any(|entry| {
+            bytes_to_string(&entry.path)
+                .strip_prefix(target)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+        || head_entries.iter().any(|entry| {
+            bytes_to_string(&entry.path)
+                .strip_prefix(target)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+}
+
+fn remove_index_path(index: &mut git2::Index, path: &str) -> Result<(), GitPathActionError> {
+    match index.remove_path(Path::new(path)) {
+        Ok(()) => Ok(()),
+        Err(err) if err.code() == ErrorCode::NotFound => Ok(()),
+        Err(err) => Err(map_git2_path_error(err)),
+    }
+}
+
+fn collect_worktree_paths(root: &Path, target: &str) -> Result<Vec<String>, GitPathActionError> {
+    fn walk_dir(
+        root: &Path,
+        dir: &Path,
+        paths: &mut Vec<String>,
+    ) -> Result<(), GitPathActionError> {
+        for entry in std::fs::read_dir(dir).map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => GitPathActionError::NotFound,
+            std::io::ErrorKind::PermissionDenied => GitPathActionError::PermissionDenied,
+            _ => GitPathActionError::Internal,
+        })? {
+            let entry = entry.map_err(|error| match error.kind() {
+                std::io::ErrorKind::NotFound => GitPathActionError::NotFound,
+                std::io::ErrorKind::PermissionDenied => GitPathActionError::PermissionDenied,
+                _ => GitPathActionError::Internal,
+            })?;
+            let path = entry.path();
+            let metadata =
+                std::fs::symlink_metadata(&path).map_err(|error| match error.kind() {
+                    std::io::ErrorKind::NotFound => GitPathActionError::NotFound,
+                    std::io::ErrorKind::PermissionDenied => GitPathActionError::PermissionDenied,
+                    _ => GitPathActionError::Internal,
+                })?;
+            if metadata.is_dir() {
+                walk_dir(root, &path, paths)?;
+                continue;
+            }
+
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|_| GitPathActionError::Internal)?;
+            paths.push(relative.to_string_lossy().replace('\\', "/"));
+        }
+        Ok(())
+    }
+
+    let path = root.join(target);
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            if metadata.is_dir() {
+                let mut paths = Vec::new();
+                walk_dir(root, &path, &mut paths)?;
+                paths.sort();
+                Ok(paths)
+            } else {
+                Ok(vec![target.to_string()])
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            Err(GitPathActionError::PermissionDenied)
+        }
+        Err(_) => Err(GitPathActionError::Internal),
+    }
 }
 
 fn invalidated_parent_paths(paths: &BTreeSet<String>) -> Vec<String> {
@@ -809,15 +906,46 @@ fn stage_worktree_path_git2(
 ) -> Result<Vec<String>, GitPathActionError> {
     let repo = open_repo(worktree_path).map_err(map_git_path_error)?;
     let paths = normalized_git_action_paths(relative_path, original_path)?;
-    let path_vec: Vec<String> = paths.iter().cloned().collect();
     let mut index = repo.index().map_err(map_git2_path_error)?;
-    index
-        .add_all(
-            path_vec.iter().map(String::as_str),
-            IndexAddOption::DEFAULT | IndexAddOption::CHECK_PATHSPEC,
-            None,
-        )
-        .map_err(map_git2_path_error)?;
+
+    for path in &paths {
+        let current_entries = matching_index_entries(&index, path);
+        let worktree_paths = collect_worktree_paths(worktree_path, path)?;
+
+        if target_is_directory(worktree_path, path, &current_entries, &[]) {
+            let current_paths = current_entries
+                .iter()
+                .map(|entry| bytes_to_string(&entry.path))
+                .collect::<HashSet<_>>();
+            let worktree_paths_set = worktree_paths.iter().cloned().collect::<HashSet<_>>();
+
+            for current_path in current_paths.difference(&worktree_paths_set) {
+                remove_index_path(&mut index, current_path)?;
+            }
+
+            for worktree_path in worktree_paths {
+                let path = Path::new(&worktree_path);
+                let tracked = index.get_path(path, 0).is_some();
+                if !tracked && repo.is_path_ignored(path).map_err(map_git2_path_error)? {
+                    continue;
+                }
+                index.add_path(path).map_err(map_git2_path_error)?;
+            }
+            continue;
+        }
+
+        if let Some(worktree_path) = worktree_paths.first() {
+            let path = Path::new(worktree_path);
+            let tracked = index.get_path(path, 0).is_some();
+            if !tracked && repo.is_path_ignored(path).map_err(map_git2_path_error)? {
+                continue;
+            }
+            index.add_path(path).map_err(map_git2_path_error)?;
+        } else {
+            remove_index_path(&mut index, path)?;
+        }
+    }
+
     index.write().map_err(map_git2_path_error)?;
     Ok(invalidated_parent_paths(&paths))
 }
@@ -844,18 +972,49 @@ fn unstage_worktree_path_git2(
 ) -> Result<Vec<String>, GitPathActionError> {
     let repo = open_repo(worktree_path).map_err(map_git_path_error)?;
     let paths = normalized_git_action_paths(relative_path, original_path)?;
-    let path_vec: Vec<String> = paths.iter().cloned().collect();
-    let head = match repo.head() {
-        Ok(head) => Some(
-            head.peel_to_commit()
-                .and_then(|commit| repo.find_object(commit.id(), None))
-                .map_err(map_git2_path_error)?,
-        ),
+    let mut index = repo.index().map_err(map_git2_path_error)?;
+    let head_index = match repo.head() {
+        Ok(head) => {
+            let commit = head.peel_to_commit().map_err(map_git2_path_error)?;
+            let tree = commit.tree().map_err(map_git2_path_error)?;
+            let mut head_index = git2::Index::new().map_err(map_git2_path_error)?;
+            head_index.read_tree(&tree).map_err(map_git2_path_error)?;
+            Some(head_index)
+        }
         Err(err) if is_unborn_or_missing_head(&err) => None,
         Err(err) => return Err(map_git2_path_error(err)),
     };
-    repo.reset_default(head.as_ref(), path_vec.iter().map(String::as_str))
-        .map_err(map_git2_path_error)?;
+
+    for path in &paths {
+        let current_entries = matching_index_entries(&index, path);
+        let head_entries = head_index
+            .as_ref()
+            .map(|head_index| matching_index_entries(head_index, path))
+            .unwrap_or_default();
+
+        if target_is_directory(worktree_path, path, &current_entries, &head_entries) {
+            match index.remove_dir(Path::new(path), 0) {
+                Ok(()) => {}
+                Err(err) if err.code() == ErrorCode::NotFound => {}
+                Err(err) => return Err(map_git2_path_error(err)),
+            }
+            for entry in head_entries {
+                index.add(&entry).map_err(map_git2_path_error)?;
+            }
+            continue;
+        }
+
+        if let Some(entry) = head_entries
+            .into_iter()
+            .find(|entry| entry.path == path.as_bytes())
+        {
+            index.add(&entry).map_err(map_git2_path_error)?;
+        } else {
+            remove_index_path(&mut index, path)?;
+        }
+    }
+
+    index.write().map_err(map_git2_path_error)?;
     Ok(invalidated_parent_paths(&paths))
 }
 
@@ -968,6 +1127,7 @@ fn discard_worktree_path_git2(
         .recurse_untracked_dirs(true)
         .renames_index_to_workdir(true)
         .renames_from_rewrites(true)
+        .disable_pathspec_match(true)
         .pathspec(&relative_path);
     let statuses = repo
         .statuses(Some(&mut status_options))

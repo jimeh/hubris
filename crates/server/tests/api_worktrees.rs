@@ -1286,6 +1286,85 @@ async fn test_worktree_git_stage_and_unstage_actions_refresh_cached_git_status()
 }
 
 #[tokio::test]
+async fn test_worktree_git_actions_treat_metachar_paths_literally() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let local_worktree_id = list_worktrees(&client, &base, &project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    std::fs::write(repo.path().join("foo[1].txt"), "literal target\n").unwrap();
+    std::fs::write(repo.path().join("foo1.txt"), "sibling\n").unwrap();
+
+    let stage_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "stage",
+        "foo[1].txt",
+    )
+    .await;
+    assert_eq!(stage_status, StatusCode::NO_CONTENT);
+
+    let staged_status =
+        get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    let staged_files = staged_status["staged_files"].as_array().unwrap();
+    assert_eq!(staged_files.len(), 1);
+    assert_eq!(staged_files[0]["path"], "foo[1].txt");
+    let unstaged_files = staged_status["unstaged_files"].as_array().unwrap();
+    assert_eq!(unstaged_files.len(), 1);
+    assert_eq!(unstaged_files[0]["path"], "foo1.txt");
+
+    let unstage_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "unstage",
+        "foo[1].txt",
+    )
+    .await;
+    assert_eq!(unstage_status, StatusCode::NO_CONTENT);
+
+    let unstaged_status =
+        get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    assert_eq!(unstaged_status["staged_files"], serde_json::json!([]));
+    let unstaged_files = unstaged_status["unstaged_files"].as_array().unwrap();
+    assert!(
+        unstaged_files
+            .iter()
+            .any(|file| file["path"] == "foo[1].txt")
+    );
+    assert!(unstaged_files.iter().any(|file| file["path"] == "foo1.txt"));
+
+    let discard_status = post_worktree_git_action(
+        &client,
+        &base,
+        &project_id,
+        &local_worktree_id,
+        "discard",
+        "foo[1].txt",
+    )
+    .await;
+    assert_eq!(discard_status, StatusCode::NO_CONTENT);
+
+    assert!(!repo.path().join("foo[1].txt").exists());
+    assert!(repo.path().join("foo1.txt").exists());
+
+    let final_status =
+        get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
+    assert_eq!(final_status["staged_files"], serde_json::json!([]));
+    let final_unstaged = final_status["unstaged_files"].as_array().unwrap();
+    assert_eq!(final_unstaged.len(), 1);
+    assert_eq!(final_unstaged[0]["path"], "foo1.txt");
+}
+
+#[tokio::test]
 async fn test_worktree_git_actions_accept_directory_paths() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
