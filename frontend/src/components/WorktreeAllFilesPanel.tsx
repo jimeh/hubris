@@ -39,6 +39,7 @@ import {
   mostSignificantGitChangeType,
   type GitChangeType,
 } from "@/lib/gitChangePresentation";
+import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import { useThemeSettings } from "@/lib/stores/theme";
 import type { HubrisTheme } from "@/lib/theme/types";
@@ -433,7 +434,8 @@ function FileTreeRow({
   directoryChanges,
   theme,
   onToggleDirectory,
-  onSelect,
+  onPreviewFile,
+  onOpenFile,
   onRenamePathChange,
   onRenameSubmit,
   onRetryDirectory,
@@ -449,7 +451,8 @@ function FileTreeRow({
   directoryChanges: Map<string, GitChangeType>;
   theme: HubrisTheme | null;
   onToggleDirectory: (entry: WorktreeFileEntry) => void;
-  onSelect: (path: string) => void;
+  onPreviewFile: (path: string) => void;
+  onOpenFile: (path: string) => void;
   onRenamePathChange: (path: string | null) => void;
   onRenameSubmit: (entry: WorktreeFileEntry, nextName: string) => Promise<void>;
   onRetryDirectory: (path: string) => void;
@@ -491,7 +494,8 @@ function FileTreeRow({
             isActive={isSelected}
             data-testid="file-tree-row"
             data-path={entry.path}
-            onClick={() => onSelect(entry.path)}
+            onClick={() => onPreviewFile(entry.path)}
+            onDoubleClick={() => onOpenFile(entry.path)}
           >
             <span className="h-4 w-4 shrink-0" aria-hidden="true" />
             <FileIcon path={entry.path} theme={theme} />
@@ -621,7 +625,8 @@ function FileTreeRow({
                         directoryChanges={directoryChanges}
                         theme={theme}
                         onToggleDirectory={onToggleDirectory}
-                        onSelect={onSelect}
+                        onPreviewFile={onPreviewFile}
+                        onOpenFile={onOpenFile}
                         onRenamePathChange={onRenamePathChange}
                         onRenameSubmit={onRenameSubmit}
                         onRetryDirectory={onRetryDirectory}
@@ -668,6 +673,7 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
   const setRenamePath = useWorktreeFileManagerStore(
     (state) => state.setRenamePath,
   );
+  const openFile = useTabStore((state) => state.openFile);
   const activeTheme = useThemeSettings((state) => state.activeTheme);
 
   const rootDirectory = worktreeState.directories[""];
@@ -721,6 +727,18 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
       }
     },
     [renameEntry, setRenamePath, worktree.id, worktree.project_id],
+  );
+
+  const handleOpenFile = useCallback(
+    (path: string, preview: boolean) => {
+      setSelectedPath(worktree.id, path);
+      void openFile({
+        worktreeId: worktree.id,
+        path,
+        preview,
+      });
+    },
+    [openFile, setSelectedPath, worktree.id],
   );
 
   return (
@@ -785,7 +803,8 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
                   directoryChanges={directoryChanges}
                   theme={activeTheme}
                   onToggleDirectory={handleToggleDirectory}
-                  onSelect={(path) => setSelectedPath(worktree.id, path)}
+                  onPreviewFile={(path) => handleOpenFile(path, true)}
+                  onOpenFile={(path) => handleOpenFile(path, false)}
                   onRenamePathChange={(path) =>
                     setRenamePath(worktree.id, path)
                   }

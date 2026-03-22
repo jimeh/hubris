@@ -529,6 +529,7 @@ describe("API client", () => {
           type: "terminal",
           position: 1.0,
           created_at: 1000,
+          preview: false,
         },
       ];
       vi.stubGlobal(
@@ -555,6 +556,7 @@ describe("API client", () => {
         type: "terminal",
         position: 1.0,
         created_at: 1000,
+        preview: false,
       };
       vi.stubGlobal(
         "fetch",
@@ -564,11 +566,14 @@ describe("API client", () => {
         }),
       );
 
-      const result = await createTab("w1");
+      const result = await createTab({
+        type: "terminal",
+        worktree_id: "w1",
+      });
       expect(fetch).toHaveBeenCalledWith("/api/tabs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ worktree_id: "w1" }),
+        body: JSON.stringify({ type: "terminal", worktree_id: "w1" }),
       });
       expect(result).toEqual(mockTab);
     });
@@ -613,6 +618,7 @@ describe("API client", () => {
         type: "terminal",
         position: 1.0,
         created_at: 1000,
+        preview: false,
       };
       vi.stubGlobal(
         "fetch",

@@ -5,6 +5,7 @@ pub mod git;
 pub mod pty;
 mod settings_manager;
 pub mod state;
+pub mod tab;
 pub mod worktree_files;
 
 use axum::Router;
@@ -15,7 +16,10 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use api::events::event_stream;
-use api::files::{list_files, list_project_worktree_files, rename_project_worktree_file};
+use api::files::{
+    get_project_worktree_file_content, get_project_worktree_git_diff, list_files,
+    list_project_worktree_files, put_project_worktree_file_content, rename_project_worktree_file,
+};
 use api::openapi::{openapi_json, spec as openapi_spec_impl};
 use api::projects::{add_project, delete_project, list_projects, reorder_projects, update_project};
 use api::settings::{get_settings, patch_settings, put_settings};
@@ -170,8 +174,16 @@ pub fn build_router(state: AppState) -> Router {
             get(list_project_worktree_files),
         )
         .route(
+            "/projects/{id}/worktrees/{worktree_id}/files/content",
+            get(get_project_worktree_file_content).put(put_project_worktree_file_content),
+        )
+        .route(
             "/projects/{id}/worktrees/{worktree_id}/files/rename",
             post(rename_project_worktree_file),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/git/diff",
+            get(get_project_worktree_git_diff),
         )
         .route("/tabs", get(list_tabs).post(create_tab))
         .route("/tabs/reorder", put(reorder_tabs))

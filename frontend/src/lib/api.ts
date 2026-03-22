@@ -1,9 +1,12 @@
 import type {
+  GitDiffScope,
   ListFilesResponse,
   ListWorktreeFilesResponse,
   Project,
   RenameWorktreeFileResponse,
   Tab,
+  WorktreeFileContentResponse,
+  WorktreeGitDiffResponse,
   Worktree,
 } from "./types";
 import type { components } from "@/lib/contracts/rest.generated";
@@ -46,6 +49,10 @@ type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
+type WriteWorktreeFileContentRequest =
+  components["schemas"]["WriteWorktreeFileContentRequest"];
+type WriteWorktreeFileContentResponse =
+  components["schemas"]["WriteWorktreeFileContentResponse"];
 
 function throwStatusError(status: number, message?: string): never {
   throw new ApiStatusError(status, message);
@@ -135,6 +142,9 @@ export type WorktreeGitFileChange = GitFileChange;
 export type WorktreeGitCommitSummary = GitCommitSummary;
 export type WorktreeGitCommitPerson = GitCommitPerson;
 export type WorktreeGitCommitDetails = GitCommitDetailsResponse;
+export type WorktreeFileContent = WorktreeFileContentResponse;
+export type SaveWorktreeFileContentResponse = WriteWorktreeFileContentResponse;
+export type WorktreeGitDiff = WorktreeGitDiffResponse;
 
 export async function listProjectWorktreeStartPoints(
   projectId: string,
@@ -312,6 +322,80 @@ export async function renameProjectWorktreeFile(
   return res.json();
 }
 
+export async function getProjectWorktreeFileContent(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+): Promise<WorktreeFileContentResponse> {
+  const params = new URLSearchParams({ path });
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/files/content?${params.toString()}`,
+  );
+  if (!res.ok) {
+    if (res.status === 400) throw new Error("Invalid path");
+    if (res.status === 403) throw new Error("Permission denied");
+    if (res.status === 404) throw new Error("File not found");
+    throw new Error(`${res.status}`);
+  }
+  return res.json();
+}
+
+export async function saveProjectWorktreeFileContent(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+  content: string,
+  expectedVersionToken: string,
+): Promise<WriteWorktreeFileContentResponse> {
+  const payload: WriteWorktreeFileContentRequest = {
+    path,
+    content,
+    expected_version_token: expectedVersionToken,
+  };
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/files/content`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) {
+    if (res.status === 400) throw new Error("Unsupported file");
+    if (res.status === 403) throw new Error("Permission denied");
+    if (res.status === 404) throw new Error("File not found");
+    if (res.status === 409) throwStatusError(409, "File changed on disk");
+    throw new Error(`${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getProjectWorktreeGitDiff(
+  projectId: string,
+  worktreeId: string,
+  path: string,
+  scope: GitDiffScope,
+  originalPath?: string,
+): Promise<WorktreeGitDiffResponse> {
+  const params = new URLSearchParams({
+    path,
+    scope,
+  });
+  if (originalPath) {
+    params.set("original_path", originalPath);
+  }
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git/diff?${params.toString()}`,
+  );
+  if (!res.ok) {
+    if (res.status === 400) throw new Error("Invalid path");
+    if (res.status === 403) throw new Error("Permission denied");
+    if (res.status === 404) throw new Error("Diff not found");
+    throw new Error(`${res.status}`);
+  }
+  return res.json();
+}
+
 export async function reorderProjectWorktrees(
   projectId: string,
   worktreeIds: string[],
@@ -366,15 +450,18 @@ export async function listTabs(): Promise<Tab[]> {
   return res.json();
 }
 
-export async function createTab(worktreeId: string): Promise<Tab> {
-  const payload: CreateTabRequest = { worktree_id: worktreeId };
+export async function createTab(request: CreateTabRequest): Promise<Tab> {
   const res = await fetch(`${BASE}/tabs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(request),
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
+}
+
+export async function createTerminalTab(worktreeId: string): Promise<Tab> {
+  return createTab({ type: "terminal", worktree_id: worktreeId });
 }
 
 export async function deleteTab(id: string): Promise<void> {

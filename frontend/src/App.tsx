@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Folder, PanelRight } from "lucide-react";
 import {
   Breadcrumb,
@@ -25,6 +25,7 @@ import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import ToastViewport from "@/components/ToastViewport";
 import WorktreeView from "@/components/WorktreeView";
 import { Button } from "@/components/ui/button";
+import { applyMonacoTheme } from "@/lib/monaco";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
@@ -141,6 +142,7 @@ export default function App() {
   const worktreesByProject = useWorktreeStore(
     (state) => state.worktreesByProject,
   );
+  const activeTheme = useSettingsStore((state) => state.activeTheme);
   const settingsStatus = useSettingsStore((state) => state.status);
   const isResizing = useSidebarWidthStore((state) => state.isResizing);
   const appRootRef = useRef<HTMLDivElement | null>(null);
@@ -188,6 +190,10 @@ export default function App() {
       applySidebarWidth(state.width);
     });
   }, []);
+
+  useEffect(() => {
+    applyMonacoTheme(activeTheme);
+  }, [activeTheme]);
 
   return (
     <div ref={appRootRef}>

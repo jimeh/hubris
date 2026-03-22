@@ -76,9 +76,9 @@ pub async fn event_stream(
 fn event_matches_session(event: &Event, session_id: &str) -> bool {
     match &event.kind {
         EventKind::Snapshot { .. } => true,
-        EventKind::TabCreated(info) => info.session_id == session_id,
+        EventKind::TabCreated(info) => info.session_id() == session_id,
         EventKind::TabClosed { .. } => true,
-        EventKind::TabUpdated(info) => info.session_id == session_id,
+        EventKind::TabUpdated(info) => info.session_id() == session_id,
         EventKind::TabsReordered { .. } => true,
         EventKind::ProjectAdded(_)
         | EventKind::ProjectRemoved { .. }
@@ -98,12 +98,12 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
     let mut tabs: Vec<_> = state
         .tabs
         .iter()
-        .map(|e| e.value().info())
-        .filter(|t| t.session_id == session_id)
+        .map(|e| e.value().clone())
+        .filter(|t| t.session_id() == session_id)
         .collect();
     tabs.sort_by(|a, b| {
-        a.position
-            .partial_cmp(&b.position)
+        a.position()
+            .partial_cmp(&b.position())
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 

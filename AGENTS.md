@@ -349,6 +349,12 @@ No periodic reconciliation — drift corrects on reconnect.
   status. The right-sidebar visibility coordinator should use
   `loadDirectory("")`, `preloadVisibleDirectories()`, and `loadGitStatus()`
   for normal tab-open hydration, or it can spin on already-fresh state.
+- **Monaco theme/model ownership must stay global, not per-tab**:
+  file/diff tabs should not each call `defineTheme`/`setTheme` from mount
+  effects. Reordering tabs under React StrictMode can overlap Monaco cleanup
+  with those global theme mutations and crash disposed editors. Apply theme
+  idempotently from app-level code, and keep Monaco models alive across tab
+  reorder churn with explicit cleanup only when tabs actually close.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.

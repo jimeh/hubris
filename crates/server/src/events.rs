@@ -8,7 +8,7 @@ use ts_rs::TS;
 use crate::api::projects::Project;
 use crate::api::settings::{Settings, SettingsState, SettingsStatus};
 use crate::api::worktrees::Worktree;
-use crate::pty::live_tab::TabInfo;
+use crate::tab::TabInfo;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Event {
@@ -142,14 +142,14 @@ mod tests {
         let bus = EventBus::new();
         let mut rx = bus.subscribe();
 
-        let info = TabInfo {
+        let info = TabInfo::Terminal {
             id: "t1".into(),
             session_id: "default".into(),
             worktree_id: "w1".into(),
             label: "Terminal 1".into(),
-            tab_type: "terminal".into(),
             position: 1.0,
             created_at: 0,
+            preview: false,
         };
 
         bus.emit(EventKind::TabCreated(info.clone()));
@@ -157,8 +157,8 @@ mod tests {
         let event = rx.recv().await.unwrap();
         match &event.kind {
             EventKind::TabCreated(t) => {
-                assert_eq!(t.id, "t1");
-                assert_eq!(t.label, "Terminal 1");
+                assert_eq!(t.id(), "t1");
+                assert_eq!(t.label(), "Terminal 1");
             }
             other => {
                 panic!("unexpected event: {:?}", other)

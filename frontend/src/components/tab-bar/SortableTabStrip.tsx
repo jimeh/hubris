@@ -24,8 +24,10 @@ type SortableTabStripProps = {
   tabListRef: RefObject<HTMLDivElement | null>;
   onScroll: UIEventHandler<HTMLDivElement>;
   onActivate: (tabId: string) => void;
+  onPin: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onReorder: (orderedIds: string[]) => Promise<void>;
+  dirtyTabIds?: string[];
 };
 
 export default function SortableTabStrip({
@@ -34,12 +36,15 @@ export default function SortableTabStrip({
   tabListRef,
   onScroll,
   onActivate,
+  onPin,
   onClose,
   onReorder,
+  dirtyTabIds = [],
 }: SortableTabStripProps) {
   const [dragging, setDragging] = useState(false);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeDragWidth, setActiveDragWidth] = useState<number | null>(null);
+  const dirtyTabIdSet = useMemo(() => new Set(dirtyTabIds), [dirtyTabIds]);
   const sortableItems = useMemo(() => tabs.map((tab) => tab.id), [tabs]);
   const activeDragTab = useMemo(
     () => tabs.find((tab) => tab.id === activeDragId) ?? null,
@@ -107,8 +112,11 @@ export default function SortableTabStrip({
               tabId={tab.id}
               label={tab.label}
               isActive={tab.id === activeTabId}
+              preview={tab.preview}
+              dirty={dirtyTabIdSet.has(tab.id)}
               dragging={dragging}
               onActivateTab={onActivate}
+              onPinTab={onPin}
               onCloseTab={onClose}
             />
           ))}
@@ -121,6 +129,8 @@ export default function SortableTabStrip({
             tabId={activeDragTab.id}
             label={activeDragTab.label}
             isActive={activeDragTab.id === activeTabId}
+            preview={activeDragTab.preview}
+            dirty={dirtyTabIdSet.has(activeDragTab.id)}
             isOverlay
             width={activeDragWidth}
           />

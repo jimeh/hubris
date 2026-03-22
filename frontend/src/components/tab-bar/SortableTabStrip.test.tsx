@@ -2,7 +2,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { createRef, type PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Tab } from "@/lib/types";
+import type { TerminalTab } from "@/lib/types";
 import SortableTabStrip from "./SortableTabStrip";
 
 type CapturedDndHandlers = {
@@ -59,7 +59,7 @@ vi.mock("./SortableTabView", () => ({
   }) => <div>{`overlay:${label}:${String(isOverlay)}:${width ?? "null"}`}</div>,
 }));
 
-function makeTab(id: string, position: number): Tab {
+function makeTab(id: string, position: number): TerminalTab {
   return {
     id,
     label: `Tab ${id.toUpperCase()}`,
@@ -68,6 +68,7 @@ function makeTab(id: string, position: number): Tab {
     session_id: "default",
     type: "terminal",
     created_at: 0,
+    preview: false,
   };
 }
 
@@ -87,6 +88,7 @@ describe("SortableTabStrip", () => {
         tabListRef={createRef<HTMLDivElement>()}
         onScroll={vi.fn()}
         onActivate={vi.fn()}
+        onPin={vi.fn()}
         onClose={vi.fn()}
         onReorder={vi.fn().mockResolvedValue(undefined)}
       />,
@@ -118,6 +120,7 @@ describe("SortableTabStrip", () => {
         tabListRef={createRef<HTMLDivElement>()}
         onScroll={vi.fn()}
         onActivate={vi.fn()}
+        onPin={vi.fn()}
         onClose={vi.fn()}
         onReorder={onReorder}
       />,
@@ -153,6 +156,7 @@ describe("SortableTabStrip", () => {
         tabListRef={createRef<HTMLDivElement>()}
         onScroll={vi.fn()}
         onActivate={vi.fn()}
+        onPin={vi.fn()}
         onClose={vi.fn()}
         onReorder={vi.fn().mockResolvedValue(undefined)}
       />,

@@ -15,11 +15,14 @@ const SortableTabView = memo(
       tabId,
       label,
       isActive,
+      preview = false,
+      dirty = false,
       dragging = false,
       isOverlay = false,
       width,
       style,
       onActivateTab,
+      onPinTab,
       onCloseTab,
       className,
       onKeyDown,
@@ -54,6 +57,14 @@ const SortableTabView = memo(
       onActivateTab?.(tabId);
     }
 
+    function handleDoubleClick(event: MouseEvent<HTMLDivElement>): void {
+      if (event.defaultPrevented || !preview) {
+        return;
+      }
+
+      onPinTab?.(tabId);
+    }
+
     return (
       <div
         ref={ref}
@@ -75,9 +86,16 @@ const SortableTabView = memo(
         tabIndex={isOverlay ? -1 : (providedTabIndex ?? 0)}
         aria-selected={isActive}
         onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
         onKeyDown={handleKeyDown}
       >
-        <span>{label}</span>
+        {dirty ? (
+          <span
+            className="h-2 w-2 shrink-0 rounded-full bg-sky-400"
+            aria-hidden="true"
+          />
+        ) : null}
+        <span className={preview ? "italic" : undefined}>{label}</span>
         {isOverlay || !onCloseTab ? null : (
           <button
             type="button"

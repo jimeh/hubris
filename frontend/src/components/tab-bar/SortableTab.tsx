@@ -7,8 +7,11 @@ type SortableTabProps = {
   tabId: string;
   label: string;
   isActive: boolean;
+  preview: boolean;
+  dirty: boolean;
   dragging: boolean;
   onActivateTab: (tabId: string) => void;
+  onPinTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
 };
 
@@ -16,8 +19,11 @@ const SortableTab = memo(function SortableTab({
   tabId,
   label,
   isActive,
+  preview,
+  dirty,
   dragging,
   onActivateTab,
+  onPinTab,
   onCloseTab,
 }: SortableTabProps) {
   const {
@@ -43,8 +49,11 @@ const SortableTab = memo(function SortableTab({
       tabId={tabId}
       label={label}
       isActive={isActive}
+      preview={preview}
+      dirty={dirty}
       dragging={dragging}
       onActivateTab={onActivateTab}
+      onPinTab={onPinTab}
       onCloseTab={onCloseTab}
       {...attributes}
       {...listeners}

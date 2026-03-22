@@ -11,7 +11,7 @@ use hubris_server::api::terminal::{ClientControlMessage, ServerControlMessage};
 use hubris_server::api::worktrees::Worktree;
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
-use hubris_server::pty::live_tab::TabInfo;
+use hubris_server::tab::{GitDiffScope, TabInfo};
 use ts_rs::{Config, TS};
 
 fn workspace_root() -> PathBuf {
@@ -58,6 +58,7 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     let cfg = Config::from_env();
 
     let mut sse = String::from("// Generated file. Do not edit.\n\n");
+    push_ts_export::<GitDiffScope>(&mut sse, &cfg)?;
     push_ts_export::<TabInfo>(&mut sse, &cfg)?;
     push_ts_export::<Project>(&mut sse, &cfg)?;
     push_ts_export::<Worktree>(&mut sse, &cfg)?;

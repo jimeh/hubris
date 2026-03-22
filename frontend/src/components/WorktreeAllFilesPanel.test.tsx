@@ -111,15 +111,31 @@ describe("WorktreeAllFilesPanel", () => {
     mockListProjectWorktreeFiles.mockReset();
     mockGetProjectWorktreeGitStatus.mockReset();
     mockRenameProjectWorktreeFile.mockReset();
+    const { resetTabStoreForTests, useTabStore } =
+      await import("@/lib/stores/tabs");
     const { resetWorktreeFileManagerStoreForTests } =
       await import("@/lib/stores/worktreeFileManager");
     const { resetWorktreeRightSidebarStoreForTests } =
       await import("@/lib/stores/worktreeRightSidebar");
     const { resetWorktreeStoreForTests } =
       await import("@/lib/stores/worktrees");
+    resetTabStoreForTests();
     resetWorktreeFileManagerStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     resetWorktreeStoreForTests();
+    useTabStore.setState({
+      openFile: vi.fn().mockResolvedValue({
+        id: "file-tab-1",
+        session_id: "default",
+        worktree_id: "w1",
+        label: "README.md",
+        type: "file",
+        position: 1,
+        created_at: 0,
+        preview: true,
+        path: "README.md",
+      }),
+    });
 
     mockListProjectWorktreeFiles.mockImplementation(
       async (_projectId: string, _worktreeId: string, path = "") => {

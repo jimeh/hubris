@@ -13,18 +13,38 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
-use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TabInfo, TerminalSize};
+use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TerminalSize};
 use crate::state::AppState;
+use crate::tab::{GitDiffScope, TabInfo};
 
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateTabRequest {
-    pub worktree_id: String,
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CreateTabRequest {
+    Terminal {
+        worktree_id: String,
+    },
+    File {
+        worktree_id: String,
+        path: String,
+        #[serde(default)]
+        preview: bool,
+    },
+    GitDiff {
+        worktree_id: String,
+        path: String,
+        scope: GitDiffScope,
+        #[serde(default)]
+        original_path: Option<String>,
+        #[serde(default)]
+        preview: bool,
+    },
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateTabRequest {
     pub label: Option<String>,
     pub position: Option<f64>,
+    pub preview: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -44,6 +64,133 @@ fn default_session_id() -> String {
     "default".to_string()
 }
 
+fn tab_basename(path: &str) -> String {
+    path.rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .map_or_else(|| path.to_string(), |segment| segment.to_string())
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn worktree_id_for_create(req: &CreateTabRequest) -> &str {
+    match req {
+        CreateTabRequest::Terminal { worktree_id }
+        | CreateTabRequest::File { worktree_id, .. }
+        | CreateTabRequest::GitDiff { worktree_id, .. } => worktree_id,
+    }
+}
+
+fn build_tab_info(
+    req: CreateTabRequest,
+    id: String,
+    position: f64,
+    created_at: u64,
+    terminal_number: u32,
+) -> TabInfo {
+    match req {
+        CreateTabRequest::Terminal { worktree_id } => TabInfo::Terminal {
+            id,
+            session_id: "default".to_string(),
+            worktree_id,
+            label: format!("Terminal {}", terminal_number),
+            position,
+            created_at,
+            preview: false,
+        },
+        CreateTabRequest::File {
+            worktree_id,
+            path,
+            preview,
+        } => TabInfo::File {
+            id,
+            session_id: "default".to_string(),
+            worktree_id,
+            label: tab_basename(&path),
+            position,
+            created_at,
+            preview,
+            path,
+        },
+        CreateTabRequest::GitDiff {
+            worktree_id,
+            path,
+            scope,
+            original_path,
+            preview,
+        } => TabInfo::GitDiff {
+            id,
+            session_id: "default".to_string(),
+            worktree_id,
+            label: tab_basename(&path),
+            position,
+            created_at,
+            preview,
+            path,
+            scope,
+            original_path,
+        },
+    }
+}
+
+fn spawn_terminal_runtime(
+    state: &AppState,
+    worktree_path: &str,
+    info: TabInfo,
+) -> Result<Arc<LiveTab>, StatusCode> {
+    let pty_system = NativePtySystem::default();
+    let pair = pty_system
+        .openpty(TerminalSize::default_pty().to_pty_size())
+        .map_err(|error| {
+            tracing::error!("failed to open pty: {}", error);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let mut cmd = CommandBuilder::new(&shell);
+    cmd.cwd(PathBuf::from(worktree_path));
+    cmd.env("TERM", "xterm-256color");
+
+    let child = pair.slave.spawn_command(cmd).map_err(|error| {
+        tracing::error!("failed to spawn shell: {}", error);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    drop(pair.slave);
+
+    let live_tab = LiveTab::spawn(
+        info,
+        pair.master,
+        child,
+        DEFAULT_SCROLLBACK,
+        TerminalSize::default_pty(),
+    );
+
+    let mut close_rx = live_tab.close_tx.subscribe();
+    let tab = Arc::new(live_tab);
+    let id = tab.info().id().to_string();
+
+    state.terminal_tabs.insert(id.clone(), tab.clone());
+
+    {
+        let tabs = state.tabs.clone();
+        let terminal_tabs = state.terminal_tabs.clone();
+        let events = state.events.clone();
+        tokio::spawn(async move {
+            let _ = close_rx.recv().await;
+            terminal_tabs.remove(&id);
+            if tabs.remove(&id).is_some() {
+                events.emit(EventKind::TabClosed { tab_id: id });
+            }
+        });
+    }
+
+    Ok(tab)
+}
+
 #[utoipa::path(
     get,
     path = "/api/tabs",
@@ -59,12 +206,12 @@ pub async fn list_tabs(
     let mut tabs: Vec<TabInfo> = state
         .tabs
         .iter()
-        .map(|e| e.value().info())
-        .filter(|t| t.session_id == params.session_id)
+        .map(|entry| entry.value().clone())
+        .filter(|tab| tab.session_id() == params.session_id)
         .collect();
     tabs.sort_by(|a, b| {
-        a.position
-            .partial_cmp(&b.position)
+        a.position()
+            .partial_cmp(&b.position())
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     Json(tabs)
@@ -84,78 +231,36 @@ pub async fn create_tab(
     State(state): State<AppState>,
     Json(req): Json<CreateTabRequest>,
 ) -> Result<(StatusCode, Json<TabInfo>), StatusCode> {
-    // TODO: Track a worktree_id -> path index in AppState so tab creation
-    // avoids scanning all projects/worktrees via git on every request.
-    let resolved = resolve_worktree(&state, &req.worktree_id)
+    let worktree_id = worktree_id_for_create(&req).to_string();
+    let resolved = resolve_worktree(&state, &worktree_id)
         .await?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let tab_num = state.next_tab_num.fetch_add(1, Ordering::Relaxed);
+    let terminal_number = if matches!(req, CreateTabRequest::Terminal { .. }) {
+        state.next_tab_num.fetch_add(1, Ordering::Relaxed)
+    } else {
+        0
+    };
 
     let max_pos = state
         .tabs
         .iter()
-        .map(|e| e.value().info().position)
+        .map(|entry| entry.value().position())
         .fold(0.0_f64, f64::max);
-
-    let created_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
-
-    let info = TabInfo {
-        id: uuid::Uuid::new_v4().to_string(),
-        session_id: "default".to_string(),
-        worktree_id: req.worktree_id.clone(),
-        label: format!("Terminal {}", tab_num),
-        tab_type: "terminal".to_string(),
-        position: max_pos + 1.0,
-        created_at,
-    };
-
-    let pty_system = NativePtySystem::default();
-    let pair = pty_system
-        .openpty(TerminalSize::default_pty().to_pty_size())
-        .map_err(|e| {
-            tracing::error!("failed to open pty: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    let mut cmd = CommandBuilder::new(&shell);
-    cmd.cwd(PathBuf::from(&resolved.worktree.path));
-    cmd.env("TERM", "xterm-256color");
-
-    let child = pair.slave.spawn_command(cmd).map_err(|e| {
-        tracing::error!("failed to spawn shell: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    drop(pair.slave);
-
-    let live_tab = LiveTab::spawn(
-        info.clone(),
-        pair.master,
-        child,
-        DEFAULT_SCROLLBACK,
-        TerminalSize::default_pty(),
+    let info = build_tab_info(
+        req,
+        uuid::Uuid::new_v4().to_string(),
+        max_pos + 1.0,
+        now_ms(),
+        terminal_number,
     );
-    let mut close_rx = live_tab.close_tx.subscribe();
-    let tab = Arc::new(live_tab);
-    state.tabs.insert(info.id.clone(), tab);
 
-    state.events.emit(EventKind::TabCreated(info.clone()));
-
-    {
-        let tabs = state.tabs.clone();
-        let events = state.events.clone();
-        let id = info.id.clone();
-        tokio::spawn(async move {
-            let _ = close_rx.recv().await;
-            if tabs.remove(&id).is_some() {
-                events.emit(EventKind::TabClosed { tab_id: id });
-            }
-        });
+    if info.is_terminal() {
+        spawn_terminal_runtime(&state, &resolved.worktree.path, info.clone())?;
     }
+
+    state.tabs.insert(info.id().to_string(), info.clone());
+    state.events.emit(EventKind::TabCreated(info.clone()));
 
     Ok((StatusCode::CREATED, Json(info)))
 }
@@ -172,14 +277,17 @@ pub async fn create_tab(
     ),
 )]
 pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {
-    match state.tabs.remove(&id) {
-        Some((_, tab)) => {
-            tab.notify_close();
-            state.events.emit(EventKind::TabClosed { tab_id: id });
-            StatusCode::NO_CONTENT
-        }
-        None => StatusCode::NOT_FOUND,
+    let removed = state.tabs.remove(&id);
+    if removed.is_none() {
+        return StatusCode::NOT_FOUND;
     }
+
+    if let Some((_, runtime)) = state.terminal_tabs.remove(&id) {
+        runtime.notify_close();
+    }
+
+    state.events.emit(EventKind::TabClosed { tab_id: id });
+    StatusCode::NO_CONTENT
 }
 
 #[utoipa::path(
@@ -199,24 +307,25 @@ pub async fn update_tab(
     Path(id): Path<String>,
     Json(req): Json<UpdateTabRequest>,
 ) -> Result<Json<TabInfo>, StatusCode> {
-    let tab = state
-        .tabs
-        .get(&id)
-        .map(|e| e.value().clone())
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let updated = {
+        let mut tab = state.tabs.get_mut(&id).ok_or(StatusCode::NOT_FOUND)?;
 
-    let updated = tab.update_info(|info| {
-        if let Some(label) = req.label {
-            info.label = label;
-        }
         if let Some(position) = req.position {
-            info.position = position;
+            tab.set_position(position);
         }
-        info.clone()
-    });
+        if let Some(preview) = req.preview {
+            tab.set_preview(preview);
+        }
+        if let Some(label) = req.label
+            && matches!(&*tab, TabInfo::Terminal { .. })
+        {
+            tab.set_label(label);
+        }
+
+        tab.clone()
+    };
 
     state.events.emit(EventKind::TabUpdated(updated.clone()));
-
     Ok(Json(updated))
 }
 
@@ -233,12 +342,11 @@ pub async fn reorder_tabs(
     State(state): State<AppState>,
     Json(req): Json<ReorderTabsRequest>,
 ) -> Result<Json<Vec<TabInfo>>, StatusCode> {
-    // Collect tabs belonging to this worktree.
     let worktree_tab_ids: HashSet<String> = state
         .tabs
         .iter()
-        .filter(|e| e.value().info().worktree_id == req.worktree_id)
-        .map(|e| e.key().clone())
+        .filter(|entry| entry.value().worktree_id() == req.worktree_id)
+        .map(|entry| entry.key().clone())
         .collect();
 
     if worktree_tab_ids.len() != req.tab_ids.len() {
@@ -250,26 +358,21 @@ pub async fn reorder_tabs(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    // Assign sequential positions based on the new order.
-    for (i, id) in req.tab_ids.iter().enumerate() {
-        if let Some(tab) = state.tabs.get(id) {
-            tab.value().update_info(|info| {
-                info.position = (i + 1) as f64;
-                info.clone()
-            });
+    for (index, id) in req.tab_ids.iter().enumerate() {
+        if let Some(mut tab) = state.tabs.get_mut(id) {
+            tab.set_position((index + 1) as f64);
         }
     }
 
-    // Collect reordered tabs for the response.
     let mut reordered: Vec<TabInfo> = state
         .tabs
         .iter()
-        .filter(|e| e.value().info().worktree_id == req.worktree_id)
-        .map(|e| e.value().info())
+        .filter(|entry| entry.value().worktree_id() == req.worktree_id)
+        .map(|entry| entry.value().clone())
         .collect();
     reordered.sort_by(|a, b| {
-        a.position
-            .partial_cmp(&b.position)
+        a.position()
+            .partial_cmp(&b.position())
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 

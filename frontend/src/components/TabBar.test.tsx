@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { act, useCallback, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabBar, { SortableTabView } from "@/components/TabBar";
-import type { Tab } from "@/lib/types";
+import type { TerminalTab } from "@/lib/types";
 
 let resizeCallback: ResizeObserverCallback | null = null;
 
@@ -18,7 +18,7 @@ class ResizeObserverMock {
   disconnect() {}
 }
 
-function makeTab(id: string, position: number): Tab {
+function makeTab(id: string, position: number): TerminalTab {
   return {
     id,
     label: `Tab ${id.toUpperCase()}`,
@@ -27,6 +27,7 @@ function makeTab(id: string, position: number): Tab {
     session_id: "default",
     type: "terminal",
     created_at: 0,
+    preview: false,
   };
 }
 
@@ -109,6 +110,7 @@ describe("TabBar", () => {
         tabs={[makeTab("a", 1), makeTab("b", 2)]}
         activeTabId="a"
         onActivate={onActivate}
+        onPin={vi.fn()}
         onClose={onClose}
         onAdd={vi.fn()}
         onReorder={vi.fn().mockResolvedValue(undefined)}
@@ -136,6 +138,7 @@ describe("TabBar", () => {
         tabs={[makeTab("a", 1), makeTab("b", 2), makeTab("c", 3)]}
         activeTabId="a"
         onActivate={vi.fn()}
+        onPin={vi.fn()}
         onClose={vi.fn()}
         onAdd={vi.fn()}
         onReorder={vi.fn().mockResolvedValue(undefined)}
@@ -162,6 +165,7 @@ describe("TabBar", () => {
       worktreeId: "w1",
       activeTabId: "a",
       onActivate: vi.fn(),
+      onPin: vi.fn(),
       onClose: vi.fn(),
       onAdd: vi.fn(),
       onReorder: vi.fn().mockResolvedValue(undefined),
@@ -192,6 +196,7 @@ describe("TabBar", () => {
         tabs={[makeTab("a", 1)]}
         activeTabId="a"
         onActivate={vi.fn()}
+        onPin={vi.fn()}
         onClose={vi.fn()}
         onAdd={vi.fn()}
         onReorder={vi.fn().mockResolvedValue(undefined)}
@@ -210,6 +215,7 @@ describe("TabBar", () => {
         tabs={[makeTab("a", 1), makeTab("b", 2)]}
         activeTabId="a"
         onActivate={vi.fn()}
+        onPin={vi.fn()}
         onClose={vi.fn()}
         onAdd={vi.fn()}
         onReorder={vi.fn().mockResolvedValue(undefined)}

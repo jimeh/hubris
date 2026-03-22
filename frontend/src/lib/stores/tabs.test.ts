@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
-import type { Tab } from "@/lib/types";
+import type { FileTab, TerminalTab } from "@/lib/types";
 
 const mockCreateTab = vi.fn();
 const mockDeleteTab = vi.fn();
@@ -53,7 +53,9 @@ vi.mock("@/lib/events", async () => {
   };
 });
 
-function makeTab(overrides: Partial<Tab> & { id: string }): Tab {
+function makeTab(
+  overrides: Partial<TerminalTab> & { id: string },
+): TerminalTab {
   return {
     id: overrides.id,
     label: overrides.label ?? `Terminal ${overrides.id}`,
@@ -62,6 +64,26 @@ function makeTab(overrides: Partial<Tab> & { id: string }): Tab {
     session_id: overrides.session_id ?? "default",
     type: overrides.type ?? "terminal",
     created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? false,
+  };
+}
+
+function makeFileTab(
+  overrides: Partial<FileTab> & { id: string; path: string },
+): FileTab {
+  return {
+    id: overrides.id,
+    label:
+      overrides.label ??
+      overrides.path.split("/").filter(Boolean).at(-1) ??
+      overrides.path,
+    position: overrides.position ?? 1,
+    worktree_id: overrides.worktree_id ?? "w1",
+    session_id: overrides.session_id ?? "default",
+    type: "file",
+    created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? true,
+    path: overrides.path,
   };
 }
 
@@ -203,5 +225,29 @@ describe("Tab store", () => {
     store.resetTabStoreForTests();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(0);
+  });
+
+  it("openFile dedupes a raced tab_created event", async () => {
+    const store = await getStore();
+    const tab = makeFileTab({
+      id: "file-1",
+      worktree_id: "w1",
+      path: "src/main.ts",
+      preview: true,
+    });
+    mockCreateTab.mockImplementation(async () => {
+      mockEvents.emit("tab_created", tab);
+      return tab;
+    });
+
+    await store.useTabStore.getState().openFile({
+      worktreeId: "w1",
+      path: "src/main.ts",
+      preview: true,
+    });
+
+    expect(store.tabsForWorktree("w1").map((candidate) => candidate.id)).toEqual(
+      ["file-1"],
+    );
   });
 });

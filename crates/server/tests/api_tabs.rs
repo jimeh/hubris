@@ -69,7 +69,10 @@ async fn first_worktree_id(client: &reqwest::Client, base: &str, project_id: &st
 async fn create_tab(client: &reqwest::Client, base: &str, worktree_id: &str) -> Value {
     let res = client
         .post(format!("{}/api/tabs", base))
-        .json(&serde_json::json!({ "worktree_id": worktree_id }))
+        .json(&serde_json::json!({
+            "type": "terminal",
+            "worktree_id": worktree_id
+        }))
         .send()
         .await
         .unwrap();
@@ -130,6 +133,7 @@ async fn test_create_tab_invalid_worktree() {
     let res = client
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
+            "type": "terminal",
             "worktree_id": "nonexistent"
         }))
         .send()
@@ -163,7 +167,10 @@ async fn test_create_tab_for_external_non_managed_worktree_returns_not_found() {
 
     let res = client
         .post(format!("{}/api/tabs", base))
-        .json(&serde_json::json!({ "worktree_id": external_id }))
+        .json(&serde_json::json!({
+            "type": "terminal",
+            "worktree_id": external_id
+        }))
         .send()
         .await
         .unwrap();

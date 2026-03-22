@@ -69,7 +69,7 @@ pub async fn ws_handler(
     Query(params): Query<TerminalParams>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, StatusCode> {
-    if !state.tabs.contains_key(&params.tab_id) {
+    if !state.terminal_tabs.contains_key(&params.tab_id) {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -87,7 +87,7 @@ async fn handle_attach(
     state: AppState,
 ) {
     // Clone Arc out of DashMap to avoid holding shard lock
-    let tab = match state.tabs.get(&tab_id).map(|r| r.value().clone()) {
+    let tab = match state.terminal_tabs.get(&tab_id).map(|r| r.value().clone()) {
         Some(t) => t,
         None => return,
     };

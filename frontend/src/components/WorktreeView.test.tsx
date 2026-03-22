@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
-import type { Tab, Worktree } from "@/lib/types";
+import type { TerminalTab, Worktree } from "@/lib/types";
 
 const terminalRenderSpy = vi.fn<(tabId: string) => void>();
 
@@ -36,6 +36,14 @@ vi.mock("@/components/TerminalTab", async () => {
   };
 });
 
+vi.mock("@/components/FileEditorTab", () => ({
+  default: () => <div>File editor</div>,
+}));
+
+vi.mock("@/components/GitDiffTab", () => ({
+  default: () => <div>Git diff</div>,
+}));
+
 function getTerminalRenderCounts(): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const [tabId] of terminalRenderSpy.mock.calls) {
@@ -61,8 +69,8 @@ function makeWorktree(): Worktree {
 function makeTab(
   id: string,
   worktreeId: string,
-  overrides: Partial<Tab> = {},
-): Tab {
+  overrides: Partial<TerminalTab> = {},
+): TerminalTab {
   return {
     id,
     label: `Tab ${id.toUpperCase()}`,
@@ -71,6 +79,7 @@ function makeTab(
     session_id: overrides.session_id ?? "default",
     type: overrides.type ?? "terminal",
     created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? false,
   };
 }
 
@@ -155,6 +164,39 @@ describe("WorktreeView", () => {
     });
 
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+  });
+
+  it("does not rerender terminal tabs when worktree tabs reorder", async () => {
+    const { useTabStore } = await import("@/lib/stores/tabs");
+    const { default: WorktreeView } = await import("./WorktreeView");
+    const worktree = makeWorktree();
+
+    useTabStore.setState({
+      tabs: [
+        makeTab("a", worktree.id, { position: 1, created_at: 1 }),
+        makeTab("b", worktree.id, { position: 2, created_at: 2 }),
+      ],
+      activeTabId: "a",
+      activeTabByWorktree: { [worktree.id]: "a" },
+    });
+
+    render(<WorktreeView worktree={worktree} />);
+
+    expect(getTerminalRenderCounts()).toEqual({ a: 1, b: 1 });
+
+    act(() => {
+      useTabStore.setState((state) => ({
+        tabs: state.tabs.map((tab) =>
+          tab.id === "a"
+            ? { ...tab, position: 2 }
+            : tab.id === "b"
+              ? { ...tab, position: 1 }
+              : tab,
+        ),
+      }));
+    });
+
+    expect(getTerminalRenderCounts()).toEqual({ a: 1, b: 1 });
   });
 
   it("updates right sidebar width without rerendering terminal tabs", async () => {

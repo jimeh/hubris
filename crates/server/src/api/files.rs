@@ -1,14 +1,21 @@
-use std::path::PathBuf;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use tokio::process::Command;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::errors::map_worktree_file_error;
-use crate::api::worktrees::resolve_worktree;
+use crate::api::worktrees::{ResolvedWorktree, resolve_worktree};
 use crate::state::AppState;
+use crate::tab::GitDiffScope;
+
+const MAX_TEXT_FILE_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -80,6 +87,77 @@ pub struct RenameWorktreeFileResponse {
     pub path: String,
 }
 
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct WorktreeFileContentParams {
+    /// Relative path from the worktree root.
+    pub path: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WorktreeFileContentResponse {
+    pub path: String,
+    pub content: String,
+    pub version_token: String,
+    pub language: String,
+    pub read_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsupported_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct WriteWorktreeFileContentRequest {
+    pub path: String,
+    pub content: String,
+    pub expected_version_token: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WriteWorktreeFileContentResponse {
+    pub path: String,
+    pub version_token: String,
+}
+
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct WorktreeGitDiffParams {
+    /// Relative path from the worktree root.
+    pub path: String,
+    pub scope: GitDiffScope,
+    /// Original relative path for rename/copy actions.
+    #[serde(default)]
+    pub original_path: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WorktreeGitDiffResponse {
+    pub path: String,
+    pub scope: GitDiffScope,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_path: Option<String>,
+    pub left_label: String,
+    pub right_label: String,
+    pub left_content: String,
+    pub right_content: String,
+    pub language: String,
+    pub read_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsupported_reason: Option<String>,
+}
+
+struct LoadedTextFile {
+    content: String,
+    version_token: String,
+    language: String,
+    read_only: bool,
+    unsupported_reason: Option<String>,
+}
+
+enum DiffSideContent {
+    Text(String),
+    Unsupported(String),
+}
+
 #[utoipa::path(
     get,
     path = "/api/files",
@@ -98,17 +176,11 @@ pub async fn list_files(
     let home = dirs::home_dir();
 
     let dir = match &params.path {
-        Some(p) if !p.is_empty() => PathBuf::from(p),
+        Some(path) if !path.is_empty() => PathBuf::from(path),
         _ => home.clone().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
     };
 
-    let dir = tokio::fs::canonicalize(&dir)
-        .await
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
-            std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+    let dir = tokio::fs::canonicalize(&dir).await.map_err(map_io_status)?;
 
     let meta = tokio::fs::metadata(&dir)
         .await
@@ -119,40 +191,35 @@ pub async fn list_files(
 
     let mut read_dir = tokio::fs::read_dir(&dir)
         .await
-        .map_err(|e| match e.kind() {
+        .map_err(|error| match error.kind() {
             std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         })?;
 
     let mut entries = Vec::new();
-
     while let Some(entry) = read_dir
         .next_entry()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     {
-        let file_name = entry.file_name();
-        let name = file_name.to_string_lossy().to_string();
-
-        // Skip hidden entries unless requested
+        let name = entry.file_name().to_string_lossy().to_string();
         if !params.show_hidden && name.starts_with('.') {
             continue;
         }
 
-        // Only include directories
         let file_type = match entry.file_type().await {
-            Ok(ft) => ft,
+            Ok(file_type) => file_type,
             Err(_) => continue,
         };
         if !file_type.is_dir() {
             continue;
         }
 
-        // Check for .git subdirectory or file (worktrees)
         let git_path = entry.path().join(".git");
-        let is_git_repo = git_path.is_dir() || git_path.is_file();
-
-        entries.push(DirEntry { name, is_git_repo });
+        entries.push(DirEntry {
+            name,
+            is_git_repo: git_path.is_dir() || git_path.is_file(),
+        });
     }
 
     entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -160,7 +227,7 @@ pub async fn list_files(
     Ok(Json(ListFilesResponse {
         path: dir.to_string_lossy().to_string(),
         entries,
-        home_dir: home.map(|h| h.to_string_lossy().to_string()),
+        home_dir: home.map(|value| value.to_string_lossy().to_string()),
     }))
 }
 
@@ -186,15 +253,10 @@ pub async fn list_files(
 )]
 pub async fn list_project_worktree_files(
     State(state): State<AppState>,
-    Path((project_id, worktree_id)): Path<(String, String)>,
+    AxumPath((project_id, worktree_id)): AxumPath<(String, String)>,
     Query(params): Query<ListWorktreeFilesParams>,
 ) -> Result<Json<ListWorktreeFilesResponse>, StatusCode> {
-    let resolved = resolve_worktree(&state, &worktree_id)
-        .await?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    if resolved.project_id != project_id {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
 
     state
         .worktree_files
@@ -202,6 +264,209 @@ pub async fn list_project_worktree_files(
         .await
         .map(Json)
         .map_err(map_worktree_file_error)
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/files/content",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+        WorktreeFileContentParams,
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Load editable worktree file content",
+            body = WorktreeFileContentResponse
+        ),
+        (status = 400, description = "Invalid relative path"),
+        (status = 403, description = "Permission denied"),
+        (status = 404, description = "Project, worktree, or file not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn get_project_worktree_file_content(
+    State(state): State<AppState>,
+    AxumPath((project_id, worktree_id)): AxumPath<(String, String)>,
+    Query(params): Query<WorktreeFileContentParams>,
+) -> Result<Json<WorktreeFileContentResponse>, StatusCode> {
+    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
+    let (path, absolute_path) = resolve_existing_file_path(&resolved, &params.path).await?;
+    let loaded = load_text_file(&absolute_path, &path).await?;
+
+    Ok(Json(WorktreeFileContentResponse {
+        path,
+        content: loaded.content,
+        version_token: loaded.version_token,
+        language: loaded.language,
+        read_only: loaded.read_only,
+        unsupported_reason: loaded.unsupported_reason,
+    }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/files/content",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+    ),
+    request_body = WriteWorktreeFileContentRequest,
+    responses(
+        (
+            status = 200,
+            description = "Save editable worktree file content",
+            body = WriteWorktreeFileContentResponse
+        ),
+        (status = 400, description = "Invalid path or unsupported file"),
+        (status = 403, description = "Permission denied"),
+        (status = 404, description = "Project, worktree, or file not found"),
+        (status = 409, description = "Version conflict"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn put_project_worktree_file_content(
+    State(state): State<AppState>,
+    AxumPath((project_id, worktree_id)): AxumPath<(String, String)>,
+    Json(request): Json<WriteWorktreeFileContentRequest>,
+) -> Result<Json<WriteWorktreeFileContentResponse>, StatusCode> {
+    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
+    let (path, absolute_path) = resolve_existing_file_path(&resolved, &request.path).await?;
+    let metadata = tokio::fs::metadata(&absolute_path)
+        .await
+        .map_err(map_io_status)?;
+    if !metadata.is_file() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if metadata.len() > MAX_TEXT_FILE_BYTES {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let current_bytes = tokio::fs::read(&absolute_path)
+        .await
+        .map_err(map_io_status)?;
+    let current_text = std::str::from_utf8(&current_bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let current_token = version_token(&current_bytes, &metadata);
+    if current_token != request.expected_version_token {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    if request.content.len() as u64 > MAX_TEXT_FILE_BYTES {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    if current_text == request.content {
+        return Ok(Json(WriteWorktreeFileContentResponse {
+            path,
+            version_token: current_token,
+        }));
+    }
+
+    tokio::fs::write(&absolute_path, request.content.as_bytes())
+        .await
+        .map_err(map_io_status)?;
+
+    state
+        .worktree_files
+        .invalidate_relative_paths(&resolved, std::slice::from_ref(&path))
+        .map_err(map_worktree_file_error)?;
+
+    let next_metadata = tokio::fs::metadata(&absolute_path)
+        .await
+        .map_err(map_io_status)?;
+    Ok(Json(WriteWorktreeFileContentResponse {
+        path,
+        version_token: version_token(request.content.as_bytes(), &next_metadata),
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/git/diff",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+        WorktreeGitDiffParams,
+    ),
+    responses(
+        (
+            status = 200,
+            description = "Load a staged or unstaged file diff",
+            body = WorktreeGitDiffResponse
+        ),
+        (status = 400, description = "Invalid relative path"),
+        (status = 403, description = "Permission denied"),
+        (status = 404, description = "Project or worktree not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn get_project_worktree_git_diff(
+    State(state): State<AppState>,
+    AxumPath((project_id, worktree_id)): AxumPath<(String, String)>,
+    Query(params): Query<WorktreeGitDiffParams>,
+) -> Result<Json<WorktreeGitDiffResponse>, StatusCode> {
+    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
+    let path = normalize_relative_path(&params.path)?;
+    let original_path = params
+        .original_path
+        .as_deref()
+        .map(normalize_relative_path)
+        .transpose()?;
+    let language = infer_language(&path);
+    let left_path = match params.scope {
+        GitDiffScope::Staged => original_path.clone().unwrap_or_else(|| path.clone()),
+        GitDiffScope::Unstaged => original_path.clone().unwrap_or_else(|| path.clone()),
+    };
+    let right_path = path.clone();
+
+    let left_bytes = match params.scope {
+        GitDiffScope::Staged => {
+            git_show_blob(&resolved.worktree.path, &format!("HEAD:./{}", left_path)).await?
+        }
+        GitDiffScope::Unstaged => {
+            git_show_blob(&resolved.worktree.path, &format!(":./{}", left_path)).await?
+        }
+    };
+    let right_bytes = match params.scope {
+        GitDiffScope::Staged => {
+            git_show_blob(&resolved.worktree.path, &format!(":./{}", right_path)).await?
+        }
+        GitDiffScope::Unstaged => read_optional_worktree_file(&resolved, &right_path).await?,
+    };
+
+    let left_content = diff_side_content(left_bytes)?;
+    let right_content = diff_side_content(right_bytes)?;
+    let unsupported_reason = match (&left_content, &right_content) {
+        (DiffSideContent::Unsupported(reason), _) => Some(reason.clone()),
+        (_, DiffSideContent::Unsupported(reason)) => Some(reason.clone()),
+        _ => None,
+    };
+
+    Ok(Json(WorktreeGitDiffResponse {
+        path,
+        scope: params.scope,
+        original_path,
+        left_label: match params.scope {
+            GitDiffScope::Staged => "HEAD".to_string(),
+            GitDiffScope::Unstaged => "Index".to_string(),
+        },
+        right_label: match params.scope {
+            GitDiffScope::Staged => "Index".to_string(),
+            GitDiffScope::Unstaged => "Working Tree".to_string(),
+        },
+        left_content: match left_content {
+            DiffSideContent::Text(content) => content,
+            DiffSideContent::Unsupported(_) => String::new(),
+        },
+        right_content: match right_content {
+            DiffSideContent::Text(content) => content,
+            DiffSideContent::Unsupported(_) => String::new(),
+        },
+        language,
+        read_only: true,
+        unsupported_reason,
+    }))
 }
 
 #[utoipa::path(
@@ -227,15 +492,10 @@ pub async fn list_project_worktree_files(
 )]
 pub async fn rename_project_worktree_file(
     State(state): State<AppState>,
-    Path((project_id, worktree_id)): Path<(String, String)>,
+    AxumPath((project_id, worktree_id)): AxumPath<(String, String)>,
     Json(request): Json<RenameWorktreeFileRequest>,
 ) -> Result<Json<RenameWorktreeFileResponse>, StatusCode> {
-    let resolved = resolve_worktree(&state, &worktree_id)
-        .await?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    if resolved.project_id != project_id {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
 
     let path = state
         .worktree_files
@@ -244,4 +504,223 @@ pub async fn rename_project_worktree_file(
         .map_err(map_worktree_file_error)?;
 
     Ok(Json(RenameWorktreeFileResponse { path }))
+}
+
+async fn resolve_project_worktree(
+    state: &AppState,
+    project_id: &str,
+    worktree_id: &str,
+) -> Result<ResolvedWorktree, StatusCode> {
+    let resolved = resolve_worktree(state, worktree_id)
+        .await?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if resolved.project_id != project_id {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(resolved)
+}
+
+fn map_io_status(error: std::io::Error) -> StatusCode {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+        std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+fn normalize_relative_path(raw: &str) -> Result<String, StatusCode> {
+    let trimmed = raw.trim_matches('/');
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let mut segments = Vec::new();
+    for segment in trimmed.split('/') {
+        if segment.is_empty()
+            || segment == "."
+            || segment == ".."
+            || segment.contains('\\')
+            || segment.contains(':')
+        {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        segments.push(segment);
+    }
+
+    Ok(segments.join("/"))
+}
+
+async fn resolve_existing_file_path(
+    resolved: &ResolvedWorktree,
+    raw_path: &str,
+) -> Result<(String, PathBuf), StatusCode> {
+    let path = normalize_relative_path(raw_path)?;
+    let root = tokio::fs::canonicalize(&resolved.worktree.path)
+        .await
+        .map_err(map_io_status)?;
+    let candidate = root.join(&path);
+    let parent = candidate.parent().ok_or(StatusCode::BAD_REQUEST)?;
+    let canonical_parent = tokio::fs::canonicalize(parent)
+        .await
+        .map_err(map_io_status)?;
+    if !canonical_parent.starts_with(&root) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let canonical = tokio::fs::canonicalize(&candidate)
+        .await
+        .map_err(map_io_status)?;
+    if !canonical.starts_with(&root) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok((path, canonical))
+}
+
+fn infer_language(path: &str) -> String {
+    match Path::new(path).extension().and_then(|ext| ext.to_str()) {
+        Some("rs") => "rust",
+        Some("ts") => "typescript",
+        Some("tsx") => "typescript",
+        Some("js") => "javascript",
+        Some("jsx") => "javascript",
+        Some("json") => "json",
+        Some("md") => "markdown",
+        Some("toml") => "toml",
+        Some("yaml") | Some("yml") => "yaml",
+        Some("html") => "html",
+        Some("css") => "css",
+        Some("scss") => "scss",
+        Some("sh") | Some("bash") => "shell",
+        Some("py") => "python",
+        Some("go") => "go",
+        Some("java") => "java",
+        Some("sql") => "sql",
+        Some("xml") => "xml",
+        Some("c") => "c",
+        Some("h") => "cpp",
+        Some("cpp") | Some("cc") | Some("cxx") | Some("hpp") => "cpp",
+        _ => "plaintext",
+    }
+    .to_string()
+}
+
+fn version_token(bytes: &[u8], metadata: &std::fs::Metadata) -> String {
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    metadata.len().hash(&mut hasher);
+    metadata
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default()
+        .hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+async fn load_text_file(path: &Path, relative_path: &str) -> Result<LoadedTextFile, StatusCode> {
+    let metadata = tokio::fs::metadata(path).await.map_err(map_io_status)?;
+    if !metadata.is_file() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    if metadata.len() > MAX_TEXT_FILE_BYTES {
+        return Ok(LoadedTextFile {
+            content: String::new(),
+            version_token: version_token(&[], &metadata),
+            language: infer_language(relative_path),
+            read_only: true,
+            unsupported_reason: Some("Files larger than 1 MiB are read-only.".to_string()),
+        });
+    }
+
+    let bytes = tokio::fs::read(path).await.map_err(map_io_status)?;
+    let content = match String::from_utf8(bytes.clone()) {
+        Ok(content) => content,
+        Err(_) => {
+            return Ok(LoadedTextFile {
+                content: String::new(),
+                version_token: version_token(&bytes, &metadata),
+                language: infer_language(relative_path),
+                read_only: true,
+                unsupported_reason: Some("Binary files are read-only.".to_string()),
+            });
+        }
+    };
+
+    Ok(LoadedTextFile {
+        content,
+        version_token: version_token(&bytes, &metadata),
+        language: infer_language(relative_path),
+        read_only: false,
+        unsupported_reason: None,
+    })
+}
+
+async fn git_show_blob(worktree_path: &str, spec: &str) -> Result<Option<Vec<u8>>, StatusCode> {
+    let output = Command::new("git")
+        .args(["-C", worktree_path, "show", spec])
+        .output()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if output.status.success() {
+        return Ok(Some(output.stdout));
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+    if stderr.contains("does not exist")
+        || stderr.contains("exists on disk, but not in")
+        || stderr.contains("path '")
+        || stderr.contains("bad revision")
+        || stderr.contains("invalid object name")
+        || stderr.contains("ambiguous argument")
+        || stderr.contains("unknown revision")
+    {
+        return Ok(None);
+    }
+
+    Err(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn read_optional_worktree_file(
+    resolved: &ResolvedWorktree,
+    path: &str,
+) -> Result<Option<Vec<u8>>, StatusCode> {
+    let path = normalize_relative_path(path)?;
+    let root = tokio::fs::canonicalize(&resolved.worktree.path)
+        .await
+        .map_err(map_io_status)?;
+    let candidate = root.join(&path);
+    let parent = candidate.parent().ok_or(StatusCode::BAD_REQUEST)?;
+    let canonical_parent = tokio::fs::canonicalize(parent)
+        .await
+        .map_err(map_io_status)?;
+    if !canonical_parent.starts_with(&root) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    match tokio::fs::read(candidate).await {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(map_io_status(error)),
+    }
+}
+
+fn diff_side_content(bytes: Option<Vec<u8>>) -> Result<DiffSideContent, StatusCode> {
+    let Some(bytes) = bytes else {
+        return Ok(DiffSideContent::Text(String::new()));
+    };
+
+    if bytes.len() as u64 > MAX_TEXT_FILE_BYTES {
+        return Ok(DiffSideContent::Unsupported(
+            "Diffs larger than 1 MiB are read-only.".to_string(),
+        ));
+    }
+
+    match String::from_utf8(bytes) {
+        Ok(content) => Ok(DiffSideContent::Text(content)),
+        Err(_) => Ok(DiffSideContent::Unsupported(
+            "Binary diffs are not supported.".to_string(),
+        )),
+    }
 }
