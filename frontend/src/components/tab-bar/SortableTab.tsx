@@ -6,6 +6,8 @@ import SortableTabView from "./SortableTabView";
 type SortableTabProps = {
   tabId: string;
   label: string;
+  labelSuffix?: string;
+  statusLabel?: string;
   title?: string;
   iconKind?: "terminal" | "material";
   iconPath?: string;
@@ -23,6 +25,8 @@ type SortableTabProps = {
 const SortableTab = memo(function SortableTab({
   tabId,
   label,
+  labelSuffix,
+  statusLabel,
   title,
   iconKind,
   iconPath,
@@ -58,6 +62,8 @@ const SortableTab = memo(function SortableTab({
       style={style}
       tabId={tabId}
       label={label}
+      labelSuffix={labelSuffix}
+      statusLabel={statusLabel}
       title={title}
       iconKind={iconKind}
       iconPath={iconPath}

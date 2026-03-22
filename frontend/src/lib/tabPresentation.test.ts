@@ -75,6 +75,8 @@ describe("tab presentation", () => {
     expect(presentation.iconKind).toBe("material");
     expect(presentation.iconId).toBe("rust");
     expect(presentation.label).toBe("lib.rs");
+    expect(presentation.labelSuffix).toBeUndefined();
+    expect(presentation.statusLabel).toBeUndefined();
     expect(presentation.title).toBe("src/lib.rs");
   });
 
@@ -88,8 +90,10 @@ describe("tab presentation", () => {
       staged_files: [{ path: "src/lib.rs", change_type: "modified" }],
     });
 
-    expect(presentation.label).toBe("[staged] lib.rs M");
-    expect(presentation.title).toBe("[staged] src/lib.rs M");
+    expect(presentation.label).toBe("lib.rs");
+    expect(presentation.labelSuffix).toBe("(Index)");
+    expect(presentation.statusLabel).toBe("M");
+    expect(presentation.title).toBe("src/lib.rs (Index) M");
     expect(presentation.toneClass).toBe("text-amber-500");
     expect(presentation.iconId).toBe("rust");
   });
@@ -118,15 +122,19 @@ describe("tab presentation", () => {
       },
     );
 
-    expect(presentation.label).toBe("[unstaged] new-name.ts R");
+    expect(presentation.label).toBe("new-name.ts");
+    expect(presentation.labelSuffix).toBe("(Working Tree)");
+    expect(presentation.statusLabel).toBe("R");
     expect(presentation.toneClass).toBe("text-amber-500");
   });
 
   it("falls back cleanly when git status is unavailable", () => {
     const presentation = presentTab(gitDiffTab(), darkTheme, null);
 
-    expect(presentation.label).toBe("[staged] lib.rs");
-    expect(presentation.title).toBe("[staged] src/lib.rs");
+    expect(presentation.label).toBe("lib.rs");
+    expect(presentation.labelSuffix).toBe("(Index)");
+    expect(presentation.statusLabel).toBeUndefined();
+    expect(presentation.title).toBe("src/lib.rs (Index)");
     expect(presentation.toneClass).toBeUndefined();
   });
 });

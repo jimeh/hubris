@@ -21,8 +21,10 @@ describe("SortableTabView", () => {
     render(
       <SortableTabView
         tabId="d1"
-        label="[staged] lib.rs M"
-        title="[staged] src/lib.rs M"
+        label="lib.rs"
+        labelSuffix="(Index)"
+        statusLabel="M"
+        title="src/lib.rs (Index) M"
         isActive={false}
         preview
         iconKind="material"
@@ -35,12 +37,18 @@ describe("SortableTabView", () => {
     const icon = screen.getByTestId("tab-file-icon");
     expect(icon).toHaveAttribute("data-icon-id", "rust");
 
-    const label = screen.getByText("[staged] lib.rs M");
+    const label = screen.getByText("lib.rs");
     expect(label).toHaveClass("italic");
-    expect(label).toHaveClass("text-amber-500");
+    expect(label.parentElement).toHaveClass("text-amber-500");
+    expect(screen.getByText("(Index)")).toBeInTheDocument();
+    expect(screen.getByTestId("tab-status-label")).toHaveTextContent("M");
+    expect(screen.getByTestId("tab-status-label")).toHaveClass(
+      "text-[0.7em]",
+    );
+    expect(screen.getByTestId("tab-status-label")).toHaveClass("font-semibold");
     expect(screen.getByRole("tab")).toHaveAttribute(
       "title",
-      "[staged] src/lib.rs M",
+      "src/lib.rs (Index) M",
     );
   });
 });

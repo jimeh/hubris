@@ -9,6 +9,8 @@ import type { Tab } from "@/lib/types";
 
 export type TabPresentation = {
   label: string;
+  labelSuffix?: string;
+  statusLabel?: string;
   title: string;
   iconKind: "terminal" | "material";
   iconPath?: string;
@@ -21,7 +23,7 @@ function baseName(path: string): string {
 }
 
 function formatGitDiffScope(scope: "staged" | "unstaged"): string {
-  return scope === "staged" ? "staged" : "unstaged";
+  return scope === "staged" ? "Index" : "Working Tree";
 }
 
 function matchGitChange(
@@ -82,15 +84,16 @@ export function presentTab(
 
   const change = gitDiffChange(tab, gitStatus);
   const statusLabel = change ? gitChangeTypeLabel(change.change_type) : null;
-  const label = `[${formatGitDiffScope(tab.scope)}] ${baseName(tab.path)}${
-    statusLabel ? ` ${statusLabel}` : ""
-  }`;
-  const title = `[${formatGitDiffScope(tab.scope)}] ${tab.path}${
+  const scopeLabel = `(${formatGitDiffScope(tab.scope)})`;
+  const label = baseName(tab.path);
+  const title = `${tab.path} ${scopeLabel}${
     statusLabel ? ` ${statusLabel}` : ""
   }`;
 
   return {
     label,
+    labelSuffix: scopeLabel,
+    statusLabel: statusLabel ?? undefined,
     title,
     iconKind: "material",
     iconPath: icon.iconPath,
