@@ -72,7 +72,7 @@ function FileEditorTab({ projectId, worktreeId, tab, visible }: Props) {
       >[1],
     ) => {
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-        void save(projectId, worktreeId, tab.id);
+        void save(projectId, worktreeId, tab.id).catch(() => {});
       });
     },
     [projectId, save, tab.id, worktreeId],
@@ -165,7 +165,9 @@ function FileEditorTab({ projectId, worktreeId, tab, visible }: Props) {
             disabled={
               !session.dirty || session.saveStatus === "saving" || !visible
             }
-            onClick={() => void save(projectId, worktreeId, tab.id)}
+            onClick={() =>
+              void save(projectId, worktreeId, tab.id).catch(() => {})
+            }
           >
             {session.saveStatus === "saving" ? (
               <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />

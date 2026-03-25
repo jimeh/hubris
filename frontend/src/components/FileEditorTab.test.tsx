@@ -5,7 +5,7 @@ import type { FileTab } from "@/lib/types";
 
 const ensureLoaded = vi.fn();
 const updateDraft = vi.fn();
-const save = vi.fn();
+const save = vi.fn().mockResolvedValue(undefined);
 const reload = vi.fn();
 const clearExternalChange = vi.fn();
 const pin = vi.fn();

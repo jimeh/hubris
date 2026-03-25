@@ -376,6 +376,18 @@ export default function WorktreeView({ worktree }: Props) {
                         pendingCloseTab.id,
                       );
                     }
+                    const stillDirty =
+                      pendingCloseTab.type === "file"
+                        ? useFileEditorStore.getState().sessions[
+                            pendingCloseTab.id
+                          ]?.dirty
+                        : useGitDiffStore.getState().sessions[
+                            pendingCloseTab.id
+                          ]?.dirty;
+                    if (stillDirty) {
+                      setIsPendingCloseSaving(false);
+                      return;
+                    }
                     setIsPendingCloseSaving(false);
                     setPendingCloseTabId(null);
                     await close(pendingCloseTab.id);

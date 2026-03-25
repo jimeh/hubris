@@ -94,7 +94,7 @@ function GitDiffTab({ projectId, worktreeId, tab, visible }: Props) {
       modifiedEditor.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
         () => {
-          void save(projectId, worktreeId, tab.id);
+          void save(projectId, worktreeId, tab.id).catch(() => {});
         },
       );
     },
@@ -197,7 +197,9 @@ function GitDiffTab({ projectId, worktreeId, tab, visible }: Props) {
             disabled={
               !session.dirty || session.saveStatus === "saving" || !visible
             }
-            onClick={() => void save(projectId, worktreeId, tab.id)}
+            onClick={() =>
+              void save(projectId, worktreeId, tab.id).catch(() => {})
+            }
           >
             {session.saveStatus === "saving" ? (
               <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />

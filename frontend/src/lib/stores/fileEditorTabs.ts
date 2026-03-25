@@ -24,6 +24,7 @@ export type FileEditorSession = {
   externalChange: boolean;
   loadStatus: LoadStatus;
   saveStatus: SaveStatus;
+  reloadGeneration: number;
   error: string | null;
 };
 
@@ -61,6 +62,7 @@ function createSession(tab: FileTab): FileEditorSession {
     externalChange: false,
     loadStatus: "idle",
     saveStatus: "idle",
+    reloadGeneration: 0,
     error: null,
   };
 }
@@ -180,7 +182,13 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
   },
   async save(projectId, worktreeId, tabId) {
     const session = get().sessions[tabId];
-    if (!session || session.readOnly || session.loadStatus !== "loaded") {
+    if (
+      !session ||
+      session.readOnly ||
+      session.loadStatus !== "loaded" ||
+      !session.dirty ||
+      session.saveStatus === "saving"
+    ) {
       return;
     }
 
@@ -267,6 +275,20 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
       return;
     }
 
+    const generation = session.reloadGeneration + 1;
+    set((state) => {
+      const current = state.sessions[tabId];
+      if (!current) {
+        return state;
+      }
+      return {
+        sessions: {
+          ...state.sessions,
+          [tabId]: { ...current, reloadGeneration: generation },
+        },
+      };
+    });
+
     try {
       const response = await getProjectWorktreeFileContent(
         projectId,
@@ -275,7 +297,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
       );
       set((state) => {
         const current = state.sessions[tabId];
-        if (!current) {
+        if (!current || current.reloadGeneration !== generation) {
           return state;
         }
 
@@ -307,7 +329,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
     } catch (error) {
       set((state) => {
         const current = state.sessions[tabId];
-        if (!current) {
+        if (!current || current.reloadGeneration !== generation) {
           return state;
         }
 

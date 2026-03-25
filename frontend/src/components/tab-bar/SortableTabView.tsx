@@ -140,11 +140,14 @@ const SortableTabView = memo(
           ) : null}
         </span>
         {locked ? (
-          <Lock
-            className="h-3 w-3 shrink-0 text-muted-foreground/80"
-            data-testid="tab-lock-icon"
-            aria-hidden="true"
-          />
+          <>
+            <Lock
+              className="h-3 w-3 shrink-0 text-muted-foreground/80"
+              data-testid="tab-lock-icon"
+              aria-hidden="true"
+            />
+            <span className="sr-only">read-only</span>
+          </>
         ) : null}
         {isOverlay || !onCloseTab ? null : (
           <button

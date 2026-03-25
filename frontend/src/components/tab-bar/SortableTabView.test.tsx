@@ -63,6 +63,8 @@ describe("SortableTabView", () => {
 
     const lockIcon = screen.getByTestId("tab-lock-icon");
     const closeButton = screen.getByRole("button", { name: "Close lib.rs" });
-    expect(lockIcon.nextElementSibling).toBe(closeButton);
+    const srOnly = screen.getByText("read-only");
+    expect(lockIcon.nextElementSibling).toBe(srOnly);
+    expect(srOnly.nextElementSibling).toBe(closeButton);
   });
 });

@@ -27,6 +27,7 @@ export type GitDiffSession = {
   externalChange: boolean;
   loadStatus: LoadStatus;
   saveStatus: SaveStatus;
+  reloadGeneration: number;
   error: string | null;
 };
 
@@ -67,6 +68,7 @@ function createSession(tab: GitDiffTab): GitDiffSession {
     externalChange: false,
     loadStatus: "idle",
     saveStatus: "idle",
+    reloadGeneration: 0,
     error: null,
   };
 }
@@ -211,7 +213,9 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
       !session ||
       session.readOnly ||
       session.loadStatus !== "loaded" ||
-      session.modifiedVersionToken === null
+      session.modifiedVersionToken === null ||
+      !session.dirty ||
+      session.saveStatus === "saving"
     ) {
       return;
     }
@@ -299,6 +303,20 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
       return;
     }
 
+    const generation = session.reloadGeneration + 1;
+    set((state) => {
+      const current = state.sessions[tabId];
+      if (!current) {
+        return state;
+      }
+      return {
+        sessions: {
+          ...state.sessions,
+          [tabId]: { ...current, reloadGeneration: generation },
+        },
+      };
+    });
+
     try {
       const response = await getProjectWorktreeGitDiff(
         projectId,
@@ -309,7 +327,7 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
       );
       set((state) => {
         const current = state.sessions[tabId];
-        if (!current) {
+        if (!current || current.reloadGeneration !== generation) {
           return state;
         }
 
@@ -344,7 +362,7 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
     } catch (error) {
       set((state) => {
         const current = state.sessions[tabId];
-        if (!current) {
+        if (!current || current.reloadGeneration !== generation) {
           return state;
         }
 

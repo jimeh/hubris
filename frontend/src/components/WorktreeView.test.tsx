@@ -451,6 +451,7 @@ describe("WorktreeView", () => {
             externalChange: true,
             loadStatus: "loaded",
             saveStatus: "idle",
+            reloadGeneration: 0,
             error: null,
           },
         },
@@ -493,6 +494,7 @@ describe("WorktreeView", () => {
           externalChange: false,
           loadStatus: "loaded",
           saveStatus: "idle",
+          reloadGeneration: 0,
           error: null,
         },
       },
@@ -540,13 +542,24 @@ describe("WorktreeView", () => {
   it("closes the dirty git diff tab after a successful save", async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const saveAttempt = deferred<void>();
-    const saveSpy = vi.fn().mockReturnValue(saveAttempt.promise);
     const { default: WorktreeView } = await import("./WorktreeView");
     const { useTabStore } = await import("@/lib/stores/tabs");
     const { useGitDiffStore } = await import("@/lib/stores/gitDiffTabs");
     const worktree = makeWorktree();
     const diffTab = makeGitDiffTab("diff-1", worktree.id, {
       path: "README.md",
+    });
+    const saveSpy = vi.fn().mockImplementation(async () => {
+      await saveAttempt.promise;
+      useGitDiffStore.setState((state) => ({
+        sessions: {
+          ...state.sessions,
+          [diffTab.id]: {
+            ...state.sessions[diffTab.id]!,
+            dirty: false,
+          },
+        },
+      }));
     });
 
     useTabStore.setState((state) => ({
@@ -575,6 +588,7 @@ describe("WorktreeView", () => {
           externalChange: false,
           loadStatus: "loaded",
           saveStatus: "idle",
+          reloadGeneration: 0,
           error: null,
         },
       },
@@ -613,12 +627,23 @@ describe("WorktreeView", () => {
   it("closes the dirty file tab after a successful save", async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const saveAttempt = deferred<void>();
-    const saveSpy = vi.fn().mockReturnValue(saveAttempt.promise);
     const { default: WorktreeView } = await import("./WorktreeView");
     const { useTabStore } = await import("@/lib/stores/tabs");
     const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
     const worktree = makeWorktree();
     const fileTab = makeFileTab("file-1", worktree.id);
+    const saveSpy = vi.fn().mockImplementation(async () => {
+      await saveAttempt.promise;
+      useFileEditorStore.setState((state) => ({
+        sessions: {
+          ...state.sessions,
+          [fileTab.id]: {
+            ...state.sessions[fileTab.id]!,
+            dirty: false,
+          },
+        },
+      }));
+    });
 
     useTabStore.setState((state) => ({
       ...state,
@@ -643,6 +668,7 @@ describe("WorktreeView", () => {
           externalChange: false,
           loadStatus: "loaded",
           saveStatus: "idle",
+          reloadGeneration: 0,
           error: null,
         },
       },
@@ -689,12 +715,23 @@ describe("WorktreeView", () => {
   it("does not allow cancel or discard to race a pending save", async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const saveAttempt = deferred<void>();
-    const saveSpy = vi.fn().mockReturnValue(saveAttempt.promise);
     const { default: WorktreeView } = await import("./WorktreeView");
     const { useTabStore } = await import("@/lib/stores/tabs");
     const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
     const worktree = makeWorktree();
     const fileTab = makeFileTab("file-race", worktree.id);
+    const saveSpy = vi.fn().mockImplementation(async () => {
+      await saveAttempt.promise;
+      useFileEditorStore.setState((state) => ({
+        sessions: {
+          ...state.sessions,
+          [fileTab.id]: {
+            ...state.sessions[fileTab.id]!,
+            dirty: false,
+          },
+        },
+      }));
+    });
 
     useTabStore.setState((state) => ({
       ...state,
@@ -719,6 +756,7 @@ describe("WorktreeView", () => {
           externalChange: false,
           loadStatus: "loaded",
           saveStatus: "idle",
+          reloadGeneration: 0,
           error: null,
         },
       },
@@ -795,6 +833,7 @@ describe("WorktreeView", () => {
           externalChange: false,
           loadStatus: "loaded",
           saveStatus: "idle",
+          reloadGeneration: 0,
           error: null,
         },
       },
