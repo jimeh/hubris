@@ -37,6 +37,11 @@ vi.mock("@/lib/stores/fileEditorTabs", () => ({
   resetFileEditorStoreForTests: () => calls.push("reset-file-editor-tabs"),
 }));
 
+vi.mock("@/lib/stores/gitDiffTabs", () => ({
+  initializeGitDiffStore: () => calls.push("git-diff-tabs"),
+  resetGitDiffStoreForTests: () => calls.push("reset-git-diff-tabs"),
+}));
+
 vi.mock("@/lib/stores/worktreeFileManager", () => ({
   initializeWorktreeFileManagerStore: () => calls.push("worktree-file-manager"),
   resetWorktreeFileManagerStoreForTests: () =>
@@ -85,6 +90,7 @@ describe("bootstrapApp", () => {
       "worktrees",
       "tabs",
       "file-editor-tabs",
+      "git-diff-tabs",
       "worktree-file-manager",
       "worktree-right-sidebar",
       "settings",
@@ -102,6 +108,7 @@ describe("bootstrapApp", () => {
       "reset-worktrees",
       "reset-tabs",
       "reset-file-editor-tabs",
+      "reset-git-diff-tabs",
       "reset-worktree-file-manager",
       "reset-worktree-right-sidebar",
       "reset-settings",

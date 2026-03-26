@@ -13,6 +13,10 @@ import {
   resetFileEditorStoreForTests,
 } from "@/lib/stores/fileEditorTabs";
 import {
+  initializeGitDiffStore,
+  resetGitDiffStoreForTests,
+} from "@/lib/stores/gitDiffTabs";
+import {
   initializeWorktreeFileManagerStore,
   resetWorktreeFileManagerStoreForTests,
 } from "@/lib/stores/worktreeFileManager";
@@ -35,6 +39,7 @@ export function bootstrapApp(): void {
   initializeWorktreeStore();
   initializeTabStore();
   initializeFileEditorStore();
+  initializeGitDiffStore();
   initializeWorktreeFileManagerStore();
   initializeWorktreeRightSidebarStore();
   initializeSettingsStore();
@@ -48,6 +53,7 @@ export function resetBootstrapForTests(): void {
   resetWorktreeStoreForTests();
   resetTabStoreForTests();
   resetFileEditorStoreForTests();
+  resetGitDiffStoreForTests();
   resetWorktreeFileManagerStoreForTests();
   resetWorktreeRightSidebarStoreForTests();
   resetSettingsStoreForTests();

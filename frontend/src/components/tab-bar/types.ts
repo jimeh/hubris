@@ -13,6 +13,7 @@ export type TabViewProps = {
   isActive: boolean;
   preview?: boolean;
   dirty?: boolean;
+  locked?: boolean;
   dragging?: boolean;
   isOverlay?: boolean;
   width?: number | null;

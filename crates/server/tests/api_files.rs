@@ -751,6 +751,35 @@ async fn test_unstaged_git_diff_for_missing_worktree_file_returns_empty_right_si
     assert_eq!(body["left_content"], "hello\n");
     assert_eq!(body["right_content"], "");
     assert_eq!(body["right_label"], "Working Tree");
+    assert_eq!(body["read_only"], true);
+    assert!(body["modified_version_token"].is_null());
+}
+
+#[tokio::test]
+async fn test_unstaged_git_diff_for_text_worktree_file_is_editable() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("README.md"), "hello world\n").unwrap();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=unstaged",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "hello\n");
+    assert_eq!(body["right_content"], "hello world\n");
+    assert_eq!(body["read_only"], false);
+    assert!(body["modified_version_token"].as_str().is_some());
 }
 
 #[tokio::test]
@@ -777,6 +806,8 @@ async fn test_staged_git_diff_for_new_file_returns_empty_left_side() {
     let body: Value = diff.json().await.unwrap();
     assert_eq!(body["left_content"], "");
     assert_eq!(body["right_content"], "new file\n");
+    assert_eq!(body["read_only"], true);
+    assert!(body["modified_version_token"].is_null());
     assert!(body["unsupported_reason"].is_null());
 }
 
@@ -839,6 +870,8 @@ async fn test_unstaged_git_diff_for_binary_index_blob_is_unsupported() {
     );
     assert_eq!(body["left_content"], "");
     assert_eq!(body["right_content"], "worktree\n");
+    assert_eq!(body["read_only"], true);
+    assert!(body["modified_version_token"].is_null());
 }
 
 #[tokio::test]
@@ -922,6 +955,8 @@ async fn test_unstaged_git_diff_for_large_worktree_file_is_unsupported() {
     );
     assert_eq!(body["left_content"], "hello\n");
     assert_eq!(body["right_content"], "");
+    assert_eq!(body["read_only"], true);
+    assert!(body["modified_version_token"].is_null());
 }
 
 #[tokio::test]

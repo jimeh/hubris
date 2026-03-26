@@ -101,6 +101,7 @@ describe("fileEditorTabs store", () => {
           externalChange: false,
           loadStatus: "loaded",
           saveStatus: "idle",
+          reloadGeneration: 0,
           error: null,
         },
       },
@@ -145,6 +146,7 @@ describe("fileEditorTabs store", () => {
           externalChange: false,
           loadStatus: "loaded",
           saveStatus: "idle",
+          reloadGeneration: 0,
           error: null,
         },
       },
@@ -254,6 +256,7 @@ describe("fileEditorTabs store", () => {
           externalChange: false,
           loadStatus: "loaded",
           saveStatus: "idle",
+          reloadGeneration: 0,
           error: null,
         },
       },
@@ -288,6 +291,7 @@ describe("fileEditorTabs store", () => {
       externalChange: false,
       loadStatus: "loaded" as const,
       saveStatus: "idle" as const,
+      reloadGeneration: 0,
       error: null,
     };
     useFileEditorStore.setState({
@@ -329,6 +333,7 @@ describe("fileEditorTabs store", () => {
       externalChange: false,
       loadStatus: "loaded" as const,
       saveStatus: "idle" as const,
+      reloadGeneration: 0,
       error: null,
     };
     useFileEditorStore.setState({
@@ -395,6 +400,7 @@ describe("fileEditorTabs store", () => {
           externalChange: false,
           loadStatus: "loaded",
           saveStatus: "idle",
+          reloadGeneration: 0,
           error: null,
         },
       },

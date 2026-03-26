@@ -24,6 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
+import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import { useWorktreeRightSidebarWidthStore } from "@/lib/stores/worktreeRightSidebarWidth";
@@ -72,12 +73,46 @@ export default function WorktreeView({ worktree }: Props) {
   const pin = useTabStore((state) => state.pin);
   const removeLocal = useTabStore((state) => state.removeLocal);
   const saveFile = useFileEditorStore((state) => state.save);
-  const dirtyTabIds = useFileEditorStore(
+  const saveDiff = useGitDiffStore((state) => state.save);
+  const dirtyFileTabIds = useFileEditorStore(
     useShallow((state) =>
       Object.values(state.sessions)
         .filter((session) => session.dirty)
         .map((session) => session.tabId),
     ),
+  );
+  const dirtyGitDiffTabIds = useGitDiffStore(
+    useShallow((state) =>
+      Object.values(state.sessions)
+        .filter((session) => session.dirty)
+        .map((session) => session.tabId),
+    ),
+  );
+  const lockedFileTabIds = useFileEditorStore(
+    useShallow((state) =>
+      Object.values(state.sessions)
+        .filter(
+          (session) => session.loadStatus === "loaded" && session.readOnly,
+        )
+        .map((session) => session.tabId),
+    ),
+  );
+  const lockedGitDiffTabIds = useGitDiffStore(
+    useShallow((state) =>
+      Object.values(state.sessions)
+        .filter(
+          (session) => session.loadStatus === "loaded" && session.readOnly,
+        )
+        .map((session) => session.tabId),
+    ),
+  );
+  const dirtyTabIds = useMemo(
+    () => [...dirtyFileTabIds, ...dirtyGitDiffTabIds],
+    [dirtyFileTabIds, dirtyGitDiffTabIds],
+  );
+  const lockedTabIds = useMemo(
+    () => [...lockedFileTabIds, ...lockedGitDiffTabIds],
+    [lockedFileTabIds, lockedGitDiffTabIds],
   );
   const setSelectedPath = useWorktreeFileManagerStore(
     (state) => state.setSelectedPath,
@@ -110,8 +145,10 @@ export default function WorktreeView({ worktree }: Props) {
       const tab = useTabStore
         .getState()
         .tabs.find((candidate) => candidate.id === tabId);
-      const isDirty = useFileEditorStore.getState().sessions[tabId]?.dirty;
-      if (tab?.type === "file" && isDirty) {
+      const isDirty =
+        useFileEditorStore.getState().sessions[tabId]?.dirty ||
+        useGitDiffStore.getState().sessions[tabId]?.dirty;
+      if ((tab?.type === "file" || tab?.type === "git_diff") && isDirty) {
         setPendingCloseTabId(tabId);
         return;
       }
@@ -221,6 +258,7 @@ export default function WorktreeView({ worktree }: Props) {
           worktreeId={worktree.id}
           tabs={worktreeTabs}
           dirtyTabIds={dirtyTabIds}
+          lockedTabIds={lockedTabIds}
           activeTabId={activeTabId}
           onActivate={handleActivateTab}
           onPin={handlePinTab}
@@ -253,6 +291,7 @@ export default function WorktreeView({ worktree }: Props) {
                   projectId={worktree.project_id}
                   worktreeId={worktree.id}
                   tab={tab}
+                  visible={tab.id === activeTabId}
                 />
               ) : null}
             </div>
@@ -313,7 +352,8 @@ export default function WorktreeView({ worktree }: Props) {
               onClick={(event) => {
                 if (
                   !pendingCloseTabId ||
-                  pendingCloseTab?.type !== "file" ||
+                  (pendingCloseTab?.type !== "file" &&
+                    pendingCloseTab?.type !== "git_diff") ||
                   isPendingCloseSaving
                 ) {
                   return;
@@ -323,11 +363,31 @@ export default function WorktreeView({ worktree }: Props) {
 
                 void (async () => {
                   try {
-                    await saveFile(
-                      worktree.project_id,
-                      worktree.id,
-                      pendingCloseTab.id,
-                    );
+                    if (pendingCloseTab.type === "file") {
+                      await saveFile(
+                        worktree.project_id,
+                        worktree.id,
+                        pendingCloseTab.id,
+                      );
+                    } else {
+                      await saveDiff(
+                        worktree.project_id,
+                        worktree.id,
+                        pendingCloseTab.id,
+                      );
+                    }
+                    const stillDirty =
+                      pendingCloseTab.type === "file"
+                        ? useFileEditorStore.getState().sessions[
+                            pendingCloseTab.id
+                          ]?.dirty
+                        : useGitDiffStore.getState().sessions[
+                            pendingCloseTab.id
+                          ]?.dirty;
+                    if (stillDirty) {
+                      setIsPendingCloseSaving(false);
+                      return;
+                    }
                     setIsPendingCloseSaving(false);
                     setPendingCloseTabId(null);
                     await close(pendingCloseTab.id);

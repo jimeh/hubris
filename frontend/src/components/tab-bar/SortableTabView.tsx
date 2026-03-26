@@ -5,7 +5,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { Terminal, X } from "lucide-react";
+import { Lock, Terminal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TabViewProps } from "./types";
 
@@ -24,6 +24,7 @@ const SortableTabView = memo(
       isActive,
       preview = false,
       dirty = false,
+      locked = false,
       dragging = false,
       isOverlay = false,
       width,
@@ -138,6 +139,16 @@ const SortableTabView = memo(
             </span>
           ) : null}
         </span>
+        {locked ? (
+          <>
+            <Lock
+              className="h-3 w-3 shrink-0 text-muted-foreground/80"
+              data-testid="tab-lock-icon"
+              aria-hidden="true"
+            />
+            <span className="sr-only">read-only</span>
+          </>
+        ) : null}
         {isOverlay || !onCloseTab ? null : (
           <button
             type="button"

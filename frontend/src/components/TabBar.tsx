@@ -11,6 +11,7 @@ type Props = {
   worktreeId: string;
   tabs: Tab[];
   dirtyTabIds?: string[];
+  lockedTabIds?: string[];
   activeTabId: string | null;
   onActivate: (tabId: string) => void;
   onPin: (tabId: string) => void;
@@ -23,6 +24,7 @@ export default function TabBar({
   worktreeId,
   tabs,
   dirtyTabIds = [],
+  lockedTabIds = [],
   activeTabId,
   onActivate,
   onPin,
@@ -120,6 +122,7 @@ export default function TabBar({
           worktreeId={worktreeId}
           tabs={tabs}
           dirtyTabIds={dirtyTabIds}
+          lockedTabIds={lockedTabIds}
           activeTabId={activeTabId}
           tabListRef={tabListRef}
           onScroll={updateScrollState}

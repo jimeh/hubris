@@ -474,6 +474,10 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 
 > Claude Code users: A PostToolUse hook handles this automatically after `git commit` and `git merge`.
 
+- **`gitnexus_detect_changes()` can report unrelated `tmp2/...` files in this
+  worktree**: cross-check its output with `git status --short` before trusting
+  the reported changed file list.
+
 ## CLI
 
 | Task | Read this skill file |

@@ -707,6 +707,7 @@ export interface components {
       language: string;
       left_content: string;
       left_label: string;
+      modified_version_token?: string | null;
       original_path?: string | null;
       path: string;
       read_only: boolean;

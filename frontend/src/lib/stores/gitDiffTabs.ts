@@ -1,22 +1,25 @@
 import { create } from "zustand";
 import {
   ApiStatusError,
-  getProjectWorktreeFileContent,
+  getProjectWorktreeGitDiff,
   saveProjectWorktreeFileContent,
 } from "@/lib/api";
 import { getEventClient } from "@/lib/events";
 import { useTabStore } from "@/lib/stores/tabs";
-import type { FileTab } from "@/lib/types";
+import type { GitDiffTab } from "@/lib/types";
 
 type LoadStatus = "idle" | "loading" | "loaded" | "error";
 type SaveStatus = "idle" | "saving" | "error";
 
-export type FileEditorSession = {
+export type GitDiffSession = {
   tabId: string;
   path: string;
+  originalPath: string | null;
+  scope: GitDiffTab["scope"];
+  originalContent: string;
   draft: string;
   savedContent: string;
-  versionToken: string;
+  modifiedVersionToken: string | null;
   language: string;
   readOnly: boolean;
   unsupportedReason: string | null;
@@ -28,12 +31,12 @@ export type FileEditorSession = {
   error: string | null;
 };
 
-type FileEditorStoreState = {
-  sessions: Record<string, FileEditorSession>;
+type GitDiffStoreState = {
+  sessions: Record<string, GitDiffSession>;
   ensureLoaded: (
     projectId: string,
     worktreeId: string,
-    tab: FileTab,
+    tab: GitDiffTab,
   ) => Promise<void>;
   updateDraft: (tabId: string, draft: string) => void;
   save: (projectId: string, worktreeId: string, tabId: string) => Promise<void>;
@@ -48,15 +51,18 @@ type FileEditorStoreState = {
   discardSession: (tabId: string) => void;
 };
 
-function createSession(tab: FileTab): FileEditorSession {
+function createSession(tab: GitDiffTab): GitDiffSession {
   return {
     tabId: tab.id,
     path: tab.path,
+    originalPath: tab.original_path ?? null,
+    scope: tab.scope,
+    originalContent: "",
     draft: "",
     savedContent: "",
-    versionToken: "",
+    modifiedVersionToken: null,
     language: "plaintext",
-    readOnly: false,
+    readOnly: true,
     unsupportedReason: null,
     dirty: false,
     externalChange: false,
@@ -67,7 +73,12 @@ function createSession(tab: FileTab): FileEditorSession {
   };
 }
 
-function isFilePathAffected(
+function parentPath(path: string): string {
+  const index = path.lastIndexOf("/");
+  return index === -1 ? "" : path.slice(0, index);
+}
+
+function isPathAffected(
   path: string,
   changedPaths: string[],
   listingPaths: string[],
@@ -79,12 +90,20 @@ function isFilePathAffected(
   );
 }
 
-function parentPath(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index === -1 ? "" : path.slice(0, index);
+function isDiffPathAffected(
+  path: string,
+  originalPath: string | null,
+  changedPaths: string[],
+  listingPaths: string[],
+): boolean {
+  return (
+    isPathAffected(path, changedPaths, listingPaths) ||
+    (originalPath !== null &&
+      isPathAffected(originalPath, changedPaths, listingPaths))
+  );
 }
 
-export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
+export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
   sessions: {},
   async ensureLoaded(projectId, worktreeId, tab) {
     const existing = get().sessions[tab.id];
@@ -100,6 +119,9 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
         ...state.sessions,
         [tab.id]: {
           ...(state.sessions[tab.id] ?? createSession(tab)),
+          path: tab.path,
+          originalPath: tab.original_path ?? null,
+          scope: tab.scope,
           loadStatus: "loading",
           error: null,
         },
@@ -107,10 +129,12 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
     }));
 
     try {
-      const response = await getProjectWorktreeFileContent(
+      const response = await getProjectWorktreeGitDiff(
         projectId,
         worktreeId,
         tab.path,
+        tab.scope,
+        tab.original_path ?? undefined,
       );
       set((state) => {
         const current = state.sessions[tab.id];
@@ -124,9 +148,12 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
             [tab.id]: {
               ...current,
               path: tab.path,
-              draft: response.content,
-              savedContent: response.content,
-              versionToken: response.version_token,
+              originalPath: tab.original_path ?? null,
+              scope: tab.scope,
+              originalContent: response.left_content,
+              draft: response.right_content,
+              savedContent: response.right_content,
+              modifiedVersionToken: response.modified_version_token ?? null,
               language: response.language,
               readOnly: response.read_only,
               unsupportedReason: response.unsupported_reason ?? null,
@@ -153,7 +180,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
               ...current,
               loadStatus: "error",
               error:
-                error instanceof Error ? error.message : "Failed to load file",
+                error instanceof Error ? error.message : "Failed to load diff",
             },
           },
         };
@@ -163,9 +190,10 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
   updateDraft(tabId, draft) {
     set((state) => {
       const current = state.sessions[tabId];
-      if (!current) {
+      if (!current || current.draft === draft) {
         return state;
       }
+
       return {
         sessions: {
           ...state.sessions,
@@ -173,7 +201,6 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
             ...current,
             draft,
             dirty: draft !== current.savedContent,
-            externalChange: current.externalChange,
             error: null,
           },
         },
@@ -186,6 +213,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
       !session ||
       session.readOnly ||
       session.loadStatus !== "loaded" ||
+      session.modifiedVersionToken === null ||
       !session.dirty ||
       session.saveStatus === "saving"
     ) {
@@ -194,7 +222,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
 
     const savePath = session.path;
     const saveDraft = session.draft;
-    const expectedVersionToken = session.versionToken;
+    const expectedVersionToken = session.modifiedVersionToken;
 
     set((state) => ({
       sessions: {
@@ -227,7 +255,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
             [tabId]: {
               ...current,
               savedContent: saveDraft,
-              versionToken: response.version_token,
+              modifiedVersionToken: response.version_token,
               dirty: current.draft !== saveDraft,
               externalChange: false,
               saveStatus: "idle",
@@ -238,7 +266,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
       });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to save file";
+        error instanceof Error ? error.message : "Failed to save diff";
       set((state) => {
         const current = state.sessions[tabId];
         if (!current) {
@@ -268,8 +296,8 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
     const tab = useTabStore
       .getState()
       .tabs.find(
-        (candidate): candidate is FileTab =>
-          candidate.id === tabId && candidate.type === "file",
+        (candidate): candidate is GitDiffTab =>
+          candidate.id === tabId && candidate.type === "git_diff",
       );
     if (!session || !tab) {
       return;
@@ -290,10 +318,12 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
     });
 
     try {
-      const response = await getProjectWorktreeFileContent(
+      const response = await getProjectWorktreeGitDiff(
         projectId,
         worktreeId,
-        session.path,
+        tab.path,
+        tab.scope,
+        tab.original_path ?? undefined,
       );
       set((state) => {
         const current = state.sessions[tabId];
@@ -308,12 +338,15 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
             [tabId]: {
               ...current,
               path: tab.path,
+              originalPath: tab.original_path ?? null,
+              scope: tab.scope,
+              originalContent: response.left_content,
               draft:
                 preserveDirty && current.dirty
                   ? current.draft
-                  : response.content,
-              savedContent: response.content,
-              versionToken: response.version_token,
+                  : response.right_content,
+              savedContent: response.right_content,
+              modifiedVersionToken: response.modified_version_token ?? null,
               language: response.language,
               readOnly: response.read_only,
               unsupportedReason: response.unsupported_reason ?? null,
@@ -342,7 +375,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
               error:
                 error instanceof Error
                   ? error.message
-                  : "Failed to reload file",
+                  : "Failed to reload diff",
             },
           },
         };
@@ -355,6 +388,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
       if (!current) {
         return state;
       }
+
       return {
         sessions: {
           ...state.sessions,
@@ -372,6 +406,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
       if (!current) {
         return state;
       }
+
       return {
         sessions: {
           ...state.sessions,
@@ -395,7 +430,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
 let initialized = false;
 let eventUnsubscribers: Array<() => void> = [];
 
-export function initializeFileEditorStore(): void {
+export function initializeGitDiffStore(): void {
   if (initialized) {
     return;
   }
@@ -405,10 +440,10 @@ export function initializeFileEditorStore(): void {
   eventUnsubscribers = [
     events.on("snapshot", ({ tabs }) => {
       const activeIds = new Set(
-        tabs.filter((tab) => tab.type === "file").map((tab) => tab.id),
+        tabs.filter((tab) => tab.type === "git_diff").map((tab) => tab.id),
       );
-      useFileEditorStore.setState((state) => {
-        let nextSessions: Record<string, FileEditorSession> | null = null;
+      useGitDiffStore.setState((state) => {
+        let nextSessions: Record<string, GitDiffSession> | null = null;
         for (const tabId of Object.keys(state.sessions)) {
           if (activeIds.has(tabId)) {
             continue;
@@ -426,16 +461,25 @@ export function initializeFileEditorStore(): void {
     events.on(
       "worktree_files_updated",
       ({ project_id, worktree_id, changed_paths, listing_paths }) => {
-        const fileTabs = useTabStore
+        const gitDiffTabs = useTabStore
           .getState()
           .tabs.filter(
-            (tab): tab is FileTab =>
-              tab.type === "file" && tab.worktree_id === worktree_id,
+            (tab): tab is GitDiffTab =>
+              tab.type === "git_diff" &&
+              tab.worktree_id === worktree_id &&
+              tab.scope === "unstaged",
           );
-        const store = useFileEditorStore.getState();
+        const store = useGitDiffStore.getState();
 
-        for (const tab of fileTabs) {
-          if (!isFilePathAffected(tab.path, changed_paths, listing_paths)) {
+        for (const tab of gitDiffTabs) {
+          if (
+            !isDiffPathAffected(
+              tab.path,
+              tab.original_path ?? null,
+              changed_paths,
+              listing_paths,
+            )
+          ) {
             continue;
           }
 
@@ -453,16 +497,16 @@ export function initializeFileEditorStore(): void {
       },
     ),
     events.on("tab_closed", ({ tab_id }) => {
-      useFileEditorStore.getState().discardSession(tab_id);
+      useGitDiffStore.getState().discardSession(tab_id);
     }),
   ];
 }
 
-export function resetFileEditorStoreForTests(): void {
+export function resetGitDiffStoreForTests(): void {
   for (const unsubscribe of eventUnsubscribers) {
     unsubscribe();
   }
   eventUnsubscribers = [];
   initialized = false;
-  useFileEditorStore.setState({ sessions: {} });
+  useGitDiffStore.setState({ sessions: {} });
 }
