@@ -628,7 +628,9 @@ fn compute_diff_line_stats(diff: &git2::Diff<'_>) -> HashMap<String, (usize, usi
             continue;
         };
 
-        // Skip statuses that are irrelevant or produce misleading stats.
+        // Skip statuses where patch-based stats are irrelevant or
+        // misleading. Untracked files are handled separately below via
+        // attach_untracked_line_stats().
         match delta.status() {
             Delta::Conflicted
             | Delta::Ignored
@@ -730,10 +732,14 @@ fn attach_untracked_line_stats(changes: &mut [GitFileChange], worktree_path: &Pa
 }
 
 /// Attach precomputed line stats to the matching `GitFileChange`
-/// entries. Typechange entries are intentionally left without stats.
+/// entries. Typechange and untracked entries are intentionally left
+/// without stats here.
 fn attach_line_stats(changes: &mut [GitFileChange], stats: &HashMap<String, (usize, usize)>) {
     for change in changes.iter_mut() {
-        if change.change_type == GitFileChangeType::Typechange {
+        if matches!(
+            change.change_type,
+            GitFileChangeType::Typechange | GitFileChangeType::Untracked
+        ) {
             continue;
         }
         if let Some(&(ins, del)) = stats.get(&change.path) {
