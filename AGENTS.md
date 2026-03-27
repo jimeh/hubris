@@ -396,10 +396,19 @@ No periodic reconciliation — drift corrects on reconnect.
   server startup must check inherited fd0 via `listenfd` before using
   dev fallback port binding.
 
+## EDD (Eval-Driven Development)
+
+- Feature specs live in `docs/features/NNN-slug/`; check there before
+  implementing a feature request
+- Reference EDD feature numbers in commits: `feat(edd-NNN): ...`
+- Never modify `evals.md` once feature status is Evals Ready or later
+- When writing specs from evals, use your own language — don't just
+  reformat the eval criteria
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (1966 symbols, 5886 relationships, 161 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hubris** (2382 symbols, 7150 relationships, 196 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -484,10 +493,6 @@ npx gitnexus analyze --embeddings
 To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.embeddings` field shows the count (0 means no embeddings). **Running analyze without `--embeddings` will delete any previously generated embeddings.**
 
 > Claude Code users: A PostToolUse hook handles this automatically after `git commit` and `git merge`.
-
-- **`gitnexus_detect_changes()` can report unrelated `tmp2/...` files in this
-  worktree**: cross-check its output with `git status --short` before trusting
-  the reported changed file list.
 
 ## CLI
 
