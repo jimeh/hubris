@@ -4,7 +4,7 @@
 
 | #   | Feature                             | Status | Created    | Updated    |
 |-----|-------------------------------------|--------|------------|------------|
-| 001 | Diff Line Stats in Changes Sidebar  | Draft  | 2026-03-26 | 2026-03-26 |
+| 001 | Diff Line Stats in Changes Sidebar  | Verifying   | 2026-03-26 | 2026-03-27 |
 
 ## Completed
 
