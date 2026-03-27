@@ -732,13 +732,15 @@ fn attach_untracked_line_stats(changes: &mut [GitFileChange], worktree_path: &Pa
 }
 
 /// Attach precomputed line stats to the matching `GitFileChange`
-/// entries. Typechange and untracked entries are intentionally left
-/// without stats here.
+/// entries. Typechange, untracked, and conflicted entries are
+/// intentionally left without stats here.
 fn attach_line_stats(changes: &mut [GitFileChange], stats: &HashMap<String, (usize, usize)>) {
     for change in changes.iter_mut() {
         if matches!(
             change.change_type,
-            GitFileChangeType::Typechange | GitFileChangeType::Untracked
+            GitFileChangeType::Typechange
+                | GitFileChangeType::Untracked
+                | GitFileChangeType::Conflict
         ) {
             continue;
         }
