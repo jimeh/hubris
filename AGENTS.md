@@ -373,6 +373,11 @@ No periodic reconciliation — drift corrects on reconnect.
   `esm/vs/basic-languages/`. Any generator that mirrors Monaco file-extension
   coverage must scan both roots or `.json` files will fall back to
   `plaintext`.
+- **Monaco contribution files can register multiple languages**:
+  `cpp.contribution.js` registers both `c` and `cpp` from one file. The Monaco
+  registry generator must parse every `registerLanguage(...)` or
+  `languages.register(...)` block in a contribution file, not assume one
+  language id per file.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.

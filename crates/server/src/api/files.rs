@@ -720,27 +720,39 @@ fn preferred_diff_first_line<'a>(
         .or_else(|| normalize_first_line(diff_side_first_line(left_content)))
 }
 
+fn shebang_tokens(first_line: &str) -> Option<impl Iterator<Item = &str>> {
+    if !first_line.starts_with("#!") {
+        return None;
+    }
+
+    Some(first_line.split(|character: char| {
+        !character.is_ascii_alphanumeric()
+            && character != '.'
+            && character != '-'
+            && character != '_'
+    }))
+}
+
+fn matches_python_shebang_token(token: &str) -> bool {
+    if token == "python" {
+        return true;
+    }
+
+    token.strip_prefix("python").is_some_and(|suffix| {
+        !suffix.is_empty()
+            && suffix
+                .chars()
+                .all(|character| character.is_ascii_digit() || character == '.' || character == '-')
+    })
+}
+
 fn first_line_rule_matches(rule: MonacoFirstLineRule, first_line: &str) -> bool {
     match rule {
         MonacoFirstLineRule::NodeShebang => {
-            first_line.starts_with("#!") && first_line.contains("node")
+            shebang_tokens(first_line).is_some_and(|mut tokens| tokens.any(|token| token == "node"))
         }
-        MonacoFirstLineRule::PythonShebang => {
-            if !first_line.starts_with("#!") {
-                return false;
-            }
-
-            first_line
-                .split(|character: char| {
-                    !character.is_ascii_alphanumeric() && character != '.' && character != '-'
-                })
-                .any(|token| {
-                    token == "python"
-                        || token
-                            .strip_prefix("python")
-                            .is_some_and(|suffix| !suffix.is_empty())
-                })
-        }
+        MonacoFirstLineRule::PythonShebang => shebang_tokens(first_line)
+            .is_some_and(|mut tokens| tokens.any(matches_python_shebang_token)),
         MonacoFirstLineRule::XmlLike => {
             let trimmed = first_line.trim_start();
             trimmed.starts_with("<?xml")
@@ -1037,6 +1049,14 @@ mod tests {
         assert_eq!(infer_language("script.ps1", None), "powershell");
         assert_eq!(infer_language("main.tf", None), "hcl");
         assert_eq!(infer_language("main.tfvars", None), "hcl");
+        assert_eq!(infer_language("header.h", None), "c");
+        assert_eq!(infer_language("main.c", None), "c");
+        assert_eq!(infer_language("main.cpp", None), "cpp");
+        assert_eq!(infer_language("main.cc", None), "cpp");
+        assert_eq!(infer_language("main.cxx", None), "cpp");
+        assert_eq!(infer_language("main.hpp", None), "cpp");
+        assert_eq!(infer_language("main.hh", None), "cpp");
+        assert_eq!(infer_language("main.hxx", None), "cpp");
         assert_eq!(infer_language("app.rb", None), "ruby");
         assert_eq!(infer_language("app.kt", None), "kotlin");
         assert_eq!(infer_language("app.swift", None), "swift");
@@ -1071,6 +1091,14 @@ mod tests {
         assert_eq!(
             infer_language("vector", Some("<svg viewBox=\"0 0 10 10\">")),
             "xml"
+        );
+        assert_eq!(
+            infer_language("script", Some("#!/usr/bin/env antinode")),
+            "plaintext"
+        );
+        assert_eq!(
+            infer_language("script", Some("#!/usr/bin/env pythontool")),
+            "plaintext"
         );
     }
 

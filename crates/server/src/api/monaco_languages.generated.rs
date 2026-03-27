@@ -663,6 +663,22 @@ pub const MONACO_EXTENSION_ASSOCIATIONS: &[MonacoExtensionAssociation] = &[
         language: "csharp",
     },
     MonacoExtensionAssociation {
+        suffix: ".cpp",
+        language: "cpp",
+    },
+    MonacoExtensionAssociation {
+        suffix: ".cxx",
+        language: "cpp",
+    },
+    MonacoExtensionAssociation {
+        suffix: ".hpp",
+        language: "cpp",
+    },
+    MonacoExtensionAssociation {
+        suffix: ".hxx",
+        language: "cpp",
+    },
+    MonacoExtensionAssociation {
         suffix: ".clj",
         language: "clojure",
     },
@@ -689,6 +705,10 @@ pub const MONACO_EXTENSION_ASSOCIATIONS: &[MonacoExtensionAssociation] = &[
     MonacoExtensionAssociation {
         suffix: ".ts",
         language: "typescript",
+    },
+    MonacoExtensionAssociation {
+        suffix: ".vh",
+        language: "verilog",
     },
     MonacoExtensionAssociation {
         suffix: ".sv",
@@ -809,6 +829,18 @@ pub const MONACO_EXTENSION_ASSOCIATIONS: &[MonacoExtensionAssociation] = &[
     MonacoExtensionAssociation {
         suffix: ".cs",
         language: "csharp",
+    },
+    MonacoExtensionAssociation {
+        suffix: ".cc",
+        language: "cpp",
+    },
+    MonacoExtensionAssociation {
+        suffix: ".hh",
+        language: "cpp",
+    },
+    MonacoExtensionAssociation {
+        suffix: ".v",
+        language: "verilog",
     },
     MonacoExtensionAssociation {
         suffix: ".r",

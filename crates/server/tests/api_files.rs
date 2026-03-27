@@ -491,6 +491,7 @@ async fn test_worktree_file_content_infers_monaco_languages() {
         ("package.json", "{\"name\":\"hubris\"}\n", "json"),
         ("Dockerfile", "FROM scratch\n", "dockerfile"),
         (".editorconfig", "root = true\n", "ini"),
+        ("hello.cpp", "int main() { return 0; }\n", "cpp"),
         (
             "script",
             "#!/usr/bin/env node\nconsole.log('ok');\n",
@@ -864,6 +865,7 @@ async fn test_staged_git_diff_infers_monaco_languages() {
         ("package.json", "{\"name\":\"hubris\"}\n", "json"),
         ("schema.proto", "syntax = \"proto3\";\n", "proto"),
         ("Gemfile", "source \"https://rubygems.org\"\n", "ruby"),
+        ("hello.hpp", "#pragma once\n", "cpp"),
         ("runner", "#!/usr/bin/python3\nprint('ok')\n", "python"),
         ("main.tf", "terraform {}\n", "hcl"),
         ("notes.unknown", "plain text\n", "plaintext"),

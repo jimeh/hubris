@@ -49,17 +49,25 @@ function parseStringArray(source: string, field: string): string[] {
   );
 }
 
-function parseContribution(file: string, order: number): Contribution | null {
-  const source = readFileSync(file, "utf8");
-  const id =
-    source.match(/languages\.register\(\{\s*id:\s*"([^"]+)"/s)?.[1] ??
-    source.match(/id:\s*"([^"]+)"/)?.[1];
+function registrationBlocks(source: string): string[] {
+  return [
+    ...source.matchAll(
+      /(?:registerLanguage|languages\.register)\(\s*(\{[\s\S]*?\})\s*\)/g,
+    ),
+  ].map((match) => match[1]);
+}
+
+function parseContributionBlock(
+  block: string,
+  order: number,
+): Contribution | null {
+  const id = block.match(/id:\s*"([^"]+)"/)?.[1];
 
   if (!id) {
     return null;
   }
 
-  const firstLine = source.match(/firstLine:\s*"((?:\\.|[^"])*)"/)?.[1] ?? null;
+  const firstLine = block.match(/firstLine:\s*"((?:\\.|[^"])*)"/)?.[1] ?? null;
   if (firstLine && !FIRST_LINE_RULES.has(firstLine)) {
     throw new Error(`Unhandled Monaco firstLine rule for ${id}: ${firstLine}`);
   }
@@ -67,10 +75,22 @@ function parseContribution(file: string, order: number): Contribution | null {
   return {
     id,
     order,
-    extensions: parseStringArray(source, "extensions"),
-    filenames: parseStringArray(source, "filenames"),
+    extensions: parseStringArray(block, "extensions"),
+    filenames: parseStringArray(block, "filenames"),
     firstLine,
   };
+}
+
+function parseContributions(file: string, orderBase: number): Contribution[] {
+  const source = readFileSync(file, "utf8");
+
+  return registrationBlocks(source)
+    .map((block, blockIndex) =>
+      parseContributionBlock(block, orderBase + blockIndex),
+    )
+    .filter(
+      (contribution): contribution is Contribution => contribution != null,
+    );
 }
 
 function orderedBasicContributionFiles(): string[] {
@@ -244,8 +264,8 @@ const contributionFiles = [
   ...extraContributionFiles(),
 ];
 const contributions = contributionFiles.flatMap((file, index) => {
-  const contribution = parseContribution(file, index);
-  return contribution ? [contribution] : [];
+  const orderBase = index * 1000;
+  return parseContributions(file, orderBase);
 });
 
 writeRustRegistry(contributions);
