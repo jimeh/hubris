@@ -4,9 +4,10 @@
  * Usage: bun run scripts/generate-monaco-language-registry.ts
  */
 
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { extraContributionFilesForRoot } from "./monaco-language-registry-generator";
 
 type Contribution = {
   id: string;
@@ -108,17 +109,7 @@ function orderedBasicContributionFiles(): string[] {
 }
 
 function extraContributionFiles(): string[] {
-  return readdirSync(languageRoot)
-    .map((dirName) => `${languageRoot}${dirName}/monaco.contribution.js`)
-    .filter((file) => {
-      try {
-        const source = readFileSync(file, "utf8");
-        return source.includes("languages.register({");
-      } catch {
-        return false;
-      }
-    })
-    .sort((left, right) => left.localeCompare(right));
+  return extraContributionFilesForRoot(languageRoot);
 }
 
 function rustString(value: string): string {
@@ -263,9 +254,11 @@ const contributionFiles = [
   ...orderedBasicContributionFiles(),
   ...extraContributionFiles(),
 ];
-const contributions = contributionFiles.flatMap((file, index) => {
-  const orderBase = index * 1000;
-  return parseContributions(file, orderBase);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const contributions = contributionFiles.flatMap((file, index) => {
+    const orderBase = index * 1000;
+    return parseContributions(file, orderBase);
+  });
 
-writeRustRegistry(contributions);
+  writeRustRegistry(contributions);
+}

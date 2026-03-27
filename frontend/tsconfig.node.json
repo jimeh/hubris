@@ -22,5 +22,10 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["vite.config.ts"]
+  "include": [
+    "vite.config.ts",
+    "scripts/generate-monaco-language-registry.ts",
+    "scripts/monaco-language-registry-generator.ts",
+    "scripts/monaco-language-registry-generator.test.ts"
+  ]
 }
