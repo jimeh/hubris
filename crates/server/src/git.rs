@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use git2::build::CheckoutBuilder;
@@ -493,7 +493,10 @@ fn diff_options(include_untracked: bool, include_unmodified: bool) -> DiffOption
     let mut options = DiffOptions::new();
     options.include_typechange(true);
     if include_untracked {
-        options.include_untracked(true).recurse_untracked_dirs(true);
+        options
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .show_untracked_content(true);
     }
     if include_unmodified {
         options.include_unmodified(true);
@@ -573,6 +576,8 @@ fn map_diff_delta(delta: DiffDelta<'_>) -> Option<GitFileChange> {
         path,
         original_path,
         change_type,
+        insertions: None,
+        deletions: None,
     })
 }
 
@@ -580,6 +585,90 @@ fn collect_diff_changes(diff: &git2::Diff<'_>) -> Vec<GitFileChange> {
     let mut changes = diff.deltas().filter_map(map_diff_delta).collect::<Vec<_>>();
     changes.sort_by(|a, b| a.path.cmp(&b.path));
     changes
+}
+
+/// Maximum blob size (in bytes) for which we compute per-file line
+/// stats. Larger files are skipped to bound diff computation cost.
+const DIFF_STAT_MAX_BLOB_BYTES: u64 = 1_048_576; // 1 MB
+
+/// Compute per-file (insertions, deletions) from a prepared diff.
+///
+/// Returns a map keyed by the same path that `map_diff_delta` would
+/// assign to each delta, so callers can attach stats to the matching
+/// `GitFileChange` entries.
+fn compute_diff_line_stats(diff: &git2::Diff<'_>) -> HashMap<String, (usize, usize)> {
+    let mut stats = HashMap::new();
+    for idx in 0..diff.deltas().len() {
+        let Some(delta) = diff.get_delta(idx) else {
+            continue;
+        };
+
+        // Skip statuses that are irrelevant or produce misleading stats.
+        match delta.status() {
+            Delta::Conflicted | Delta::Ignored | Delta::Unmodified | Delta::Typechange => continue,
+            _ => {}
+        }
+
+        let old_file = delta.old_file();
+        let new_file = delta.new_file();
+
+        // Skip directory (tree) entries.
+        if diff_file_is_tree(&old_file) || diff_file_is_tree(&new_file) {
+            continue;
+        }
+
+        // Skip blobs exceeding the size limit.
+        if old_file.size() > DIFF_STAT_MAX_BLOB_BYTES || new_file.size() > DIFF_STAT_MAX_BLOB_BYTES
+        {
+            continue;
+        }
+
+        // Skip binary files.
+        if old_file.is_binary() || new_file.is_binary() {
+            continue;
+        }
+
+        // Build a Patch to get line-level stats.
+        let patch = match git2::Patch::from_diff(diff, idx) {
+            Ok(Some(p)) => p,
+            Ok(None) => continue, // binary
+            Err(_) => continue,   // graceful degradation
+        };
+
+        let (_context, additions, deletions) = match patch.line_stats() {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        // Key by the same path logic as map_diff_delta.
+        let key = match delta.status() {
+            Delta::Added | Delta::Untracked => diff_path(new_file.path()),
+            Delta::Deleted => diff_path(old_file.path()),
+            Delta::Modified | Delta::Unreadable | Delta::Renamed | Delta::Copied => {
+                diff_path(new_file.path())
+            }
+            _ => None,
+        };
+
+        if let Some(key) = key {
+            stats.insert(key, (additions, deletions));
+        }
+    }
+    stats
+}
+
+/// Attach precomputed line stats to the matching `GitFileChange`
+/// entries. Typechange entries are intentionally left without stats.
+fn attach_line_stats(changes: &mut [GitFileChange], stats: &HashMap<String, (usize, usize)>) {
+    for change in changes.iter_mut() {
+        if change.change_type == GitFileChangeType::Typechange {
+            continue;
+        }
+        if let Some(&(ins, del)) = stats.get(&change.path) {
+            change.insertions = Some(ins);
+            change.deletions = Some(del);
+        }
+    }
 }
 
 fn read_commit_details_git2(
@@ -645,7 +734,10 @@ fn read_staged_files(repo: &Repository) -> Result<Vec<GitFileChange>, GitError> 
     let mut find_options = diff_find_options(false, true);
     diff.find_similar(Some(&mut find_options))
         .map_err(to_git_error)?;
-    Ok(collect_diff_changes(&diff))
+    let stats = compute_diff_line_stats(&diff);
+    let mut changes = collect_diff_changes(&diff);
+    attach_line_stats(&mut changes, &stats);
+    Ok(changes)
 }
 
 fn read_unstaged_files(repo: &Repository) -> Result<Vec<GitFileChange>, GitError> {
@@ -657,7 +749,10 @@ fn read_unstaged_files(repo: &Repository) -> Result<Vec<GitFileChange>, GitError
     let mut find_options = diff_find_options(true, false);
     diff.find_similar(Some(&mut find_options))
         .map_err(to_git_error)?;
-    Ok(collect_diff_changes(&diff))
+    let stats = compute_diff_line_stats(&diff);
+    let mut changes = collect_diff_changes(&diff);
+    attach_line_stats(&mut changes, &stats);
+    Ok(changes)
 }
 
 fn commit_summary(
@@ -1463,5 +1558,65 @@ mod tests {
 
         let resolved = resolve_local_root_git2(&worktree_path).unwrap();
         assert_eq!(resolved, std::fs::canonicalize(&worktree_path).unwrap());
+    }
+
+    #[test]
+    fn test_line_stats_new_file() {
+        let repo = tempfile::TempDir::new().unwrap();
+        run_git(repo.path(), &["init", "-q"]);
+        run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+        run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+
+        // Write a 3-line file without committing — it's untracked.
+        std::fs::write(repo.path().join("new.txt"), "a\nb\nc\n").unwrap();
+
+        let git_repo = Repository::open(repo.path()).unwrap();
+        let unstaged = read_unstaged_files(&git_repo).unwrap();
+        let file = unstaged.iter().find(|f| f.path == "new.txt").unwrap();
+        assert_eq!(file.insertions, Some(3));
+        assert_eq!(file.deletions, Some(0));
+    }
+
+    #[test]
+    fn test_line_stats_modified_file() {
+        let repo = tempfile::TempDir::new().unwrap();
+        run_git(repo.path(), &["init", "-q"]);
+        run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+        run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+
+        // Commit a file, then modify it.
+        std::fs::write(repo.path().join("file.txt"), "line1\nline2\nline3\n").unwrap();
+        run_git(repo.path(), &["add", "file.txt"]);
+        run_git(repo.path(), &["commit", "-q", "-m", "initial"]);
+
+        // Remove line2, add two new lines.
+        std::fs::write(repo.path().join("file.txt"), "line1\nline3\nnew1\nnew2\n").unwrap();
+
+        let git_repo = Repository::open(repo.path()).unwrap();
+        let unstaged = read_unstaged_files(&git_repo).unwrap();
+        let file = unstaged.iter().find(|f| f.path == "file.txt").unwrap();
+        assert_eq!(file.insertions, Some(2));
+        assert_eq!(file.deletions, Some(1));
+    }
+
+    #[test]
+    fn test_line_stats_rename_no_changes() {
+        let repo = tempfile::TempDir::new().unwrap();
+        run_git(repo.path(), &["init", "-q"]);
+        run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+        run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+
+        // Commit a file, then rename it (staged).
+        std::fs::write(repo.path().join("old.txt"), "content\n").unwrap();
+        run_git(repo.path(), &["add", "old.txt"]);
+        run_git(repo.path(), &["commit", "-q", "-m", "initial"]);
+        run_git(repo.path(), &["mv", "old.txt", "new.txt"]);
+
+        let git_repo = Repository::open(repo.path()).unwrap();
+        let staged = read_staged_files(&git_repo).unwrap();
+        let file = staged.iter().find(|f| f.path == "new.txt").unwrap();
+        assert_eq!(file.change_type, GitFileChangeType::Renamed);
+        assert_eq!(file.insertions, Some(0));
+        assert_eq!(file.deletions, Some(0));
     }
 }
