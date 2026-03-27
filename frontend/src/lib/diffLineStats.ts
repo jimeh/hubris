@@ -1,7 +1,9 @@
 import type { WorktreeGitFileChange } from "@/lib/api";
 
+const diffStatFormatter = new Intl.NumberFormat("en-US");
+
 export function formatDiffStat(value: number): string {
-  return new Intl.NumberFormat().format(value);
+  return diffStatFormatter.format(value);
 }
 
 export function computeAggregateStats(changes: WorktreeGitFileChange[]): {

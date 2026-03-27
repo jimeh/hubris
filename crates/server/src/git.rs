@@ -493,10 +493,7 @@ fn diff_options(include_untracked: bool, include_unmodified: bool) -> DiffOption
     let mut options = DiffOptions::new();
     options.include_typechange(true);
     if include_untracked {
-        options
-            .include_untracked(true)
-            .recurse_untracked_dirs(true)
-            .show_untracked_content(true);
+        options.include_untracked(true).recurse_untracked_dirs(true);
     }
     if include_unmodified {
         options.include_unmodified(true);
@@ -534,6 +531,30 @@ fn diff_path(path: Option<&Path>) -> Option<String> {
     path.map(path_to_string)
 }
 
+fn diff_display_path_from_paths(
+    status: Delta,
+    old_path: Option<&Path>,
+    new_path: Option<&Path>,
+) -> Option<String> {
+    match status {
+        Delta::Added | Delta::Untracked => diff_path(new_path),
+        Delta::Deleted => diff_path(old_path),
+        Delta::Modified | Delta::Typechange | Delta::Unreadable | Delta::Conflicted => {
+            diff_path(new_path).or_else(|| diff_path(old_path))
+        }
+        Delta::Renamed | Delta::Copied => diff_path(new_path),
+        Delta::Ignored | Delta::Unmodified => None,
+    }
+}
+
+fn diff_display_path(
+    status: Delta,
+    old_file: &git2::DiffFile<'_>,
+    new_file: &git2::DiffFile<'_>,
+) -> Option<String> {
+    diff_display_path_from_paths(status, old_file.path(), new_file.path())
+}
+
 fn diff_change_type(
     delta: Delta,
     old_file: &git2::DiffFile<'_>,
@@ -562,10 +583,14 @@ fn map_diff_delta(delta: DiffDelta<'_>) -> Option<GitFileChange> {
     let change_type = diff_change_type(delta.status(), &old_file, &new_file)?;
 
     let (path, original_path) = match delta.status() {
-        Delta::Added | Delta::Untracked => (diff_path(new_file.path())?, None),
-        Delta::Deleted => (diff_path(old_file.path())?, None),
-        Delta::Modified | Delta::Typechange | Delta::Unreadable | Delta::Conflicted => (
-            diff_path(new_file.path()).or_else(|| diff_path(old_file.path()))?,
+        Delta::Added
+        | Delta::Untracked
+        | Delta::Deleted
+        | Delta::Modified
+        | Delta::Typechange
+        | Delta::Unreadable
+        | Delta::Conflicted => (
+            diff_display_path(delta.status(), &old_file, &new_file)?,
             None,
         ),
         Delta::Renamed | Delta::Copied => (diff_path(new_file.path())?, diff_path(old_file.path())),
@@ -605,7 +630,11 @@ fn compute_diff_line_stats(diff: &git2::Diff<'_>) -> HashMap<String, (usize, usi
 
         // Skip statuses that are irrelevant or produce misleading stats.
         match delta.status() {
-            Delta::Conflicted | Delta::Ignored | Delta::Unmodified | Delta::Typechange => continue,
+            Delta::Conflicted
+            | Delta::Ignored
+            | Delta::Unmodified
+            | Delta::Typechange
+            | Delta::Untracked => continue,
             _ => {}
         }
 
@@ -642,12 +671,8 @@ fn compute_diff_line_stats(diff: &git2::Diff<'_>) -> HashMap<String, (usize, usi
 
         // Key by the same path logic as map_diff_delta.
         let key = match delta.status() {
-            Delta::Added | Delta::Untracked => diff_path(new_file.path()),
-            Delta::Deleted => diff_path(old_file.path()),
-            Delta::Modified | Delta::Unreadable | Delta::Renamed | Delta::Copied => {
-                diff_path(new_file.path())
-            }
-            _ => None,
+            Delta::Renamed | Delta::Copied => diff_path(new_file.path()),
+            status => diff_display_path(status, &old_file, &new_file),
         };
 
         if let Some(key) = key {
@@ -655,6 +680,53 @@ fn compute_diff_line_stats(diff: &git2::Diff<'_>) -> HashMap<String, (usize, usi
         }
     }
     stats
+}
+
+fn count_lines(bytes: &[u8]) -> usize {
+    if bytes.is_empty() {
+        return 0;
+    }
+
+    let newline_count = bytes.iter().filter(|&&byte| byte == b'\n').count();
+    if bytes.last() == Some(&b'\n') {
+        newline_count
+    } else {
+        newline_count + 1
+    }
+}
+
+fn read_untracked_file_line_stats(path: &Path) -> Option<(usize, usize)> {
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() || !file_type.is_file() {
+        return None;
+    }
+    if metadata.len() > DIFF_STAT_MAX_BLOB_BYTES {
+        return None;
+    }
+
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.contains(&0) {
+        return None;
+    }
+
+    Some((count_lines(&bytes), 0))
+}
+
+fn attach_untracked_line_stats(changes: &mut [GitFileChange], worktree_path: &Path) {
+    for change in changes.iter_mut() {
+        if change.change_type != GitFileChangeType::Untracked {
+            continue;
+        }
+
+        let Some((insertions, deletions)) =
+            read_untracked_file_line_stats(&worktree_path.join(&change.path))
+        else {
+            continue;
+        };
+        change.insertions = Some(insertions);
+        change.deletions = Some(deletions);
+    }
 }
 
 /// Attach precomputed line stats to the matching `GitFileChange`
@@ -752,6 +824,9 @@ fn read_unstaged_files(repo: &Repository) -> Result<Vec<GitFileChange>, GitError
     let stats = compute_diff_line_stats(&diff);
     let mut changes = collect_diff_changes(&diff);
     attach_line_stats(&mut changes, &stats);
+    if let Some(worktree_path) = repo.workdir() {
+        attach_untracked_line_stats(&mut changes, worktree_path);
+    }
     Ok(changes)
 }
 
@@ -1618,5 +1693,88 @@ mod tests {
         assert_eq!(file.change_type, GitFileChangeType::Renamed);
         assert_eq!(file.insertions, Some(0));
         assert_eq!(file.deletions, Some(0));
+    }
+
+    #[test]
+    fn diff_display_path_uses_old_path_fallback_for_modified() {
+        let path = Path::new("fallback.txt");
+        assert_eq!(
+            diff_display_path_from_paths(Delta::Modified, Some(path), None),
+            Some("fallback.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn diff_display_path_uses_old_path_fallback_for_unreadable() {
+        let path = Path::new("fallback.txt");
+        assert_eq!(
+            diff_display_path_from_paths(Delta::Unreadable, Some(path), None),
+            Some("fallback.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn test_line_stats_empty_untracked_file() {
+        let repo = tempfile::TempDir::new().unwrap();
+        run_git(repo.path(), &["init", "-q"]);
+        run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+        run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+
+        std::fs::write(repo.path().join("empty.txt"), b"").unwrap();
+
+        let git_repo = Repository::open(repo.path()).unwrap();
+        let unstaged = read_unstaged_files(&git_repo).unwrap();
+        let file = unstaged.iter().find(|f| f.path == "empty.txt").unwrap();
+        assert_eq!(file.insertions, Some(0));
+        assert_eq!(file.deletions, Some(0));
+    }
+
+    #[test]
+    fn test_line_stats_untracked_file_without_trailing_newline() {
+        let repo = tempfile::TempDir::new().unwrap();
+        run_git(repo.path(), &["init", "-q"]);
+        run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+        run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+
+        std::fs::write(repo.path().join("notes.txt"), "a\nb\nc").unwrap();
+
+        let git_repo = Repository::open(repo.path()).unwrap();
+        let unstaged = read_unstaged_files(&git_repo).unwrap();
+        let file = unstaged.iter().find(|f| f.path == "notes.txt").unwrap();
+        assert_eq!(file.insertions, Some(3));
+        assert_eq!(file.deletions, Some(0));
+    }
+
+    #[test]
+    fn test_line_stats_binary_untracked_file_are_skipped() {
+        let repo = tempfile::TempDir::new().unwrap();
+        run_git(repo.path(), &["init", "-q"]);
+        run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+        run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+
+        std::fs::write(repo.path().join("image.bin"), b"abc\0def").unwrap();
+
+        let git_repo = Repository::open(repo.path()).unwrap();
+        let unstaged = read_unstaged_files(&git_repo).unwrap();
+        let file = unstaged.iter().find(|f| f.path == "image.bin").unwrap();
+        assert_eq!(file.insertions, None);
+        assert_eq!(file.deletions, None);
+    }
+
+    #[test]
+    fn test_line_stats_large_untracked_file_are_skipped() {
+        let repo = tempfile::TempDir::new().unwrap();
+        run_git(repo.path(), &["init", "-q"]);
+        run_git(repo.path(), &["config", "user.email", "test@example.com"]);
+        run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
+
+        let oversized = vec![b'a'; DIFF_STAT_MAX_BLOB_BYTES as usize + 1];
+        std::fs::write(repo.path().join("large.txt"), oversized).unwrap();
+
+        let git_repo = Repository::open(repo.path()).unwrap();
+        let unstaged = read_unstaged_files(&git_repo).unwrap();
+        let file = unstaged.iter().find(|f| f.path == "large.txt").unwrap();
+        assert_eq!(file.insertions, None);
+        assert_eq!(file.deletions, None);
     }
 }

@@ -13,11 +13,11 @@ describe("formatDiffStat", () => {
     expect(formatDiffStat(999)).toBe("999");
   });
 
-  it("formats 1000 with a comma separator", () => {
+  it("formats 1000 with an en-US comma separator", () => {
     expect(formatDiffStat(1000)).toBe("1,000");
   });
 
-  it("formats large numbers with comma separators", () => {
+  it("formats large numbers with en-US separators", () => {
     expect(formatDiffStat(12345)).toBe("12,345");
   });
 });

@@ -37,7 +37,7 @@ describe("DiffLineStats", () => {
     expect(screen.getByText("-5")).toBeInTheDocument();
   });
 
-  it("formats large numbers with comma separators", () => {
+  it("formats large numbers with en-US separators", () => {
     render(<DiffLineStats insertions={12345} deletions={6789} />);
     expect(screen.getByText("+12,345")).toBeInTheDocument();
     expect(screen.getByText("-6,789")).toBeInTheDocument();
