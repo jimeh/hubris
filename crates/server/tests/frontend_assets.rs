@@ -37,7 +37,7 @@ async fn serves_spa_assets_from_filesystem_with_index_fallback() {
     std::fs::write(assets.join("app.js"), "console.log('hubris');").unwrap();
 
     let app = build_router_with_options(
-        hubris_server::AppState::new(temp.path().join("data")),
+        hubris_server::AppState::new(temp.path().join("data")).await,
         ServerOptions {
             frontend: FrontendAssets::from_dir(&assets).unwrap(),
             access: hubris_server::ServerAccess::Open,

@@ -1,8 +1,8 @@
 mod access;
 pub mod api;
 pub mod events;
-mod fs_sync;
 mod frontend;
+mod fs_sync;
 pub mod git;
 pub mod pty;
 mod settings_manager;
@@ -88,7 +88,7 @@ pub fn resolve_data_dir(default_dir_name: &str) -> std::io::Result<std::path::Pa
 /// ensuring the directory exists first.
 pub async fn create_app_state(data_dir: std::path::PathBuf) -> std::io::Result<AppState> {
     tokio::fs::create_dir_all(&data_dir).await?;
-    Ok(AppState::new(data_dir))
+    Ok(AppState::new(data_dir).await)
 }
 
 /// Try binding to `host:start_port`, incrementing port up

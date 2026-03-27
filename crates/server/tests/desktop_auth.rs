@@ -20,7 +20,7 @@ async fn start_test_server(options: ServerOptions) -> (String, TempDir) {
     let tmp = TempDir::new().unwrap();
     let data_dir = tmp.path().join("data");
     std::fs::create_dir_all(&data_dir).unwrap();
-    let state = AppState::new(data_dir);
+    let state = AppState::new(data_dir).await;
     let app = build_router_with_options(state, options);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
