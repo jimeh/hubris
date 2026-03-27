@@ -1,10 +1,15 @@
 import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
+import "monaco-editor/esm/vs/basic-languages/monaco.contribution.js";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import "monaco-editor/esm/vs/language/css/monaco.contribution.js";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
+import "monaco-editor/esm/vs/language/html/monaco.contribution.js";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
+import "monaco-editor/esm/vs/language/json/monaco.contribution.js";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+import "monaco-editor/esm/vs/language/typescript/monaco.contribution.js";
 import type { HubrisTheme } from "@/lib/theme/types";
 import type { FileTab, GitDiffTab, Tab } from "@/lib/types";
 

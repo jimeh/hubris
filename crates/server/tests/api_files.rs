@@ -480,6 +480,49 @@ async fn test_binary_worktree_file_content_is_read_only_and_cannot_be_saved() {
     );
 }
 
+#[tokio::test]
+async fn test_worktree_file_content_infers_monaco_languages() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let cases = [
+        ("notes.mdx", "# heading\n", "mdx"),
+        ("package.json", "{\"name\":\"hubris\"}\n", "json"),
+        ("Dockerfile", "FROM scratch\n", "dockerfile"),
+        (".editorconfig", "root = true\n", "ini"),
+        (
+            "script",
+            "#!/usr/bin/env node\nconsole.log('ok');\n",
+            "javascript",
+        ),
+        ("runner", "#!/usr/bin/python3\nprint('ok')\n", "python"),
+        ("vector", "<svg viewBox=\"0 0 10 10\"></svg>\n", "xml"),
+        ("notes.unknown", "plain text\n", "plaintext"),
+    ];
+
+    for (path, content, _) in cases {
+        std::fs::write(repo.path().join(path), content).unwrap();
+    }
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    for (path, _, expected_language) in cases {
+        let loaded = client
+            .get(format!(
+                "{}/api/projects/{}/worktrees/{}/files/content?path={}",
+                base, project_id, worktree_id, path
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(loaded.status(), StatusCode::OK, "path={path}");
+        let body: Value = loaded.json().await.unwrap();
+        assert_eq!(body["language"], expected_language, "path={path}");
+    }
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn test_worktree_file_content_rejects_symlink_escape_on_load() {
@@ -809,6 +852,47 @@ async fn test_staged_git_diff_for_new_file_returns_empty_left_side() {
     assert_eq!(body["read_only"], true);
     assert!(body["modified_version_token"].is_null());
     assert!(body["unsupported_reason"].is_null());
+}
+
+#[tokio::test]
+async fn test_staged_git_diff_infers_monaco_languages() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let cases = [
+        ("package.json", "{\"name\":\"hubris\"}\n", "json"),
+        ("schema.proto", "syntax = \"proto3\";\n", "proto"),
+        ("Gemfile", "source \"https://rubygems.org\"\n", "ruby"),
+        ("runner", "#!/usr/bin/python3\nprint('ok')\n", "python"),
+        ("main.tf", "terraform {}\n", "hcl"),
+        ("notes.unknown", "plain text\n", "plaintext"),
+    ];
+
+    for (path, content, _) in cases {
+        std::fs::write(repo.path().join(path), content).unwrap();
+        run_git(repo.path(), &["add", path]);
+    }
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    for (path, content, expected_language) in cases {
+        let diff = client
+            .get(format!(
+                "{}/api/projects/{}/worktrees/{}/git/diff?path={}&scope=staged",
+                base, project_id, worktree_id, path
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(diff.status(), StatusCode::OK, "path={path}");
+        let body: Value = diff.json().await.unwrap();
+        assert_eq!(body["left_content"], "", "path={path}");
+        assert_eq!(body["right_content"], content, "path={path}");
+        assert_eq!(body["language"], expected_language, "path={path}");
+        assert!(body["unsupported_reason"].is_null(), "path={path}");
+    }
 }
 
 #[tokio::test]
