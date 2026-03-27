@@ -746,11 +746,14 @@ fn matches_python_shebang_token(token: &str) -> bool {
     })
 }
 
+fn matches_node_shebang_token(token: &str) -> bool {
+    token.starts_with("node")
+}
+
 fn first_line_rule_matches(rule: MonacoFirstLineRule, first_line: &str) -> bool {
     match rule {
-        MonacoFirstLineRule::NodeShebang => {
-            shebang_tokens(first_line).is_some_and(|mut tokens| tokens.any(|token| token == "node"))
-        }
+        MonacoFirstLineRule::NodeShebang => shebang_tokens(first_line)
+            .is_some_and(|mut tokens| tokens.any(matches_node_shebang_token)),
         MonacoFirstLineRule::PythonShebang => shebang_tokens(first_line)
             .is_some_and(|mut tokens| tokens.any(matches_python_shebang_token)),
         MonacoFirstLineRule::XmlLike => {
@@ -1078,6 +1081,10 @@ mod tests {
     fn infer_language_matches_monaco_first_line_rules() {
         assert_eq!(
             infer_language("script", Some("#!/usr/bin/env node")),
+            "javascript"
+        );
+        assert_eq!(
+            infer_language("script", Some("#!/usr/bin/env nodejs")),
             "javascript"
         );
         assert_eq!(
