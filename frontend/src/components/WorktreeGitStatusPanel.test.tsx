@@ -59,6 +59,72 @@ function makeWorktree(overrides?: Partial<Worktree>): Worktree {
   };
 }
 
+function makeGitStatusResponse(overrides?: Record<string, unknown>) {
+  return {
+    source_ref: "main",
+    generation: 1,
+    unstaged_files: [
+      {
+        path: "tmp2/bar/bar.txt",
+        change_type: "modified",
+        insertions: 5,
+        deletions: 2,
+      },
+      {
+        path: "tmp2/bar/baz/fox.txt",
+        change_type: "untracked",
+        insertions: 10,
+        deletions: 0,
+      },
+      {
+        path: "tmp2/bar/baz/qux/deep.txt",
+        change_type: "modified",
+        insertions: 3,
+        deletions: 1,
+      },
+      {
+        path: "tmp2/foo.txt",
+        change_type: "modified",
+        insertions: 0,
+        deletions: 0,
+      },
+    ],
+    staged_files: [
+      {
+        path: "README.md",
+        change_type: "added",
+        insertions: 20,
+        deletions: 0,
+      },
+      {
+        path: "src/main.ts",
+        change_type: "modified",
+        insertions: 8,
+        deletions: 4,
+      },
+    ],
+    ahead_count: 1,
+    ahead_commits: [
+      { id: "abcdef123456", short_id: "abcdef1", summary: "Ahead commit" },
+    ],
+    comparison_available: true,
+    comparison_error: null,
+    ...overrides,
+  };
+}
+
+function makeMinimalNestedGitStatusResponse() {
+  return makeGitStatusResponse({
+    unstaged_files: [
+      { path: "tmp2/bar/bar.txt", change_type: "modified" },
+      { path: "tmp2/foo.txt", change_type: "modified" },
+    ],
+    staged_files: [{ path: "README.md", change_type: "added" }],
+    ahead_count: 0,
+    ahead_commits: [],
+  });
+}
+
 function renderPanel(): RenderResult {
   return renderPanelWithWorktree();
 }
@@ -145,56 +211,7 @@ describe("WorktreeGitStatusPanel", () => {
       await import("@/lib/stores/worktrees");
     resetWorktreeStoreForTests();
     mockOpenGitDiff.mockReset();
-    mockGetProjectWorktreeGitStatus.mockResolvedValue({
-      source_ref: "main",
-      generation: 1,
-      unstaged_files: [
-        {
-          path: "tmp2/bar/bar.txt",
-          change_type: "modified",
-          insertions: 5,
-          deletions: 2,
-        },
-        {
-          path: "tmp2/bar/baz/fox.txt",
-          change_type: "untracked",
-          insertions: 10,
-          deletions: 0,
-        },
-        {
-          path: "tmp2/bar/baz/qux/deep.txt",
-          change_type: "modified",
-          insertions: 3,
-          deletions: 1,
-        },
-        {
-          path: "tmp2/foo.txt",
-          change_type: "modified",
-          insertions: 0,
-          deletions: 0,
-        },
-      ],
-      staged_files: [
-        {
-          path: "README.md",
-          change_type: "added",
-          insertions: 20,
-          deletions: 0,
-        },
-        {
-          path: "src/main.ts",
-          change_type: "modified",
-          insertions: 8,
-          deletions: 4,
-        },
-      ],
-      ahead_count: 1,
-      ahead_commits: [
-        { id: "abcdef123456", short_id: "abcdef1", summary: "Ahead commit" },
-      ],
-      comparison_available: true,
-      comparison_error: null,
-    });
+    mockGetProjectWorktreeGitStatus.mockResolvedValue(makeGitStatusResponse());
     mockStageProjectWorktreePath.mockResolvedValue(undefined);
     mockUnstageProjectWorktreePath.mockResolvedValue(undefined);
     mockDiscardProjectWorktreePath.mockResolvedValue(undefined);
@@ -901,6 +918,10 @@ describe("WorktreeGitStatusPanel", () => {
   });
 
   it("persists list mode across remounts for the same worktree", async () => {
+    mockGetProjectWorktreeGitStatus.mockResolvedValue(
+      makeMinimalNestedGitStatusResponse(),
+    );
+
     const firstRender = renderPanel();
 
     await screen.findByRole("button", { name: "Unstaged" });
@@ -925,6 +946,10 @@ describe("WorktreeGitStatusPanel", () => {
   });
 
   it("keeps view mode separate per worktree", async () => {
+    mockGetProjectWorktreeGitStatus.mockResolvedValue(
+      makeMinimalNestedGitStatusResponse(),
+    );
+
     const firstRender = renderPanelWithWorktree({ id: "w-alpha" });
 
     await screen.findByRole("button", { name: "Unstaged" });
@@ -948,6 +973,10 @@ describe("WorktreeGitStatusPanel", () => {
   });
 
   it("preserves section collapse state per worktree without reset effects", async () => {
+    mockGetProjectWorktreeGitStatus.mockResolvedValue(
+      makeMinimalNestedGitStatusResponse(),
+    );
+
     const alpha = makeWorktree({ id: "w-alpha" });
     const beta = makeWorktree({ id: "w-beta", name: "feature-b" });
     useWorktreeStore.setState({
