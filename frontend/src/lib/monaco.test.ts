@@ -7,9 +7,10 @@ const monacoStub = {
     getModel: vi.fn(),
     setTheme: vi.fn(),
   },
+  languages: {
+    getLanguages: vi.fn(() => [{ id: "json" }, { id: "rust" }]),
+  },
 };
-
-const sideEffectImports: string[] = [];
 
 vi.mock("@monaco-editor/react", () => ({
   loader: {
@@ -17,30 +18,7 @@ vi.mock("@monaco-editor/react", () => ({
   },
 }));
 
-vi.mock("monaco-editor/esm/vs/editor/editor.api", () => monacoStub);
-vi.mock("monaco-editor/esm/vs/basic-languages/monaco.contribution.js", () => {
-  sideEffectImports.push("basic");
-  return {};
-});
-vi.mock("monaco-editor/esm/vs/language/css/monaco.contribution.js", () => {
-  sideEffectImports.push("css");
-  return {};
-});
-vi.mock("monaco-editor/esm/vs/language/html/monaco.contribution.js", () => {
-  sideEffectImports.push("html");
-  return {};
-});
-vi.mock("monaco-editor/esm/vs/language/json/monaco.contribution.js", () => {
-  sideEffectImports.push("json");
-  return {};
-});
-vi.mock(
-  "monaco-editor/esm/vs/language/typescript/monaco.contribution.js",
-  () => {
-    sideEffectImports.push("typescript");
-    return {};
-  },
-);
+vi.mock("monaco-editor", () => monacoStub);
 
 vi.mock("monaco-editor/esm/vs/editor/editor.worker?worker", () => ({
   default: class EditorWorker {},
@@ -62,24 +40,28 @@ describe("configureMonaco", () => {
   beforeEach(() => {
     vi.resetModules();
     loaderConfig.mockReset();
-    sideEffectImports.length = 0;
+    vi.mocked(monacoStub.languages.getLanguages).mockClear();
   });
 
-  it("loads Monaco language contributions before configuring the loader", async () => {
+  it("configures the loader with the package-root Monaco instance", async () => {
     const mod = await import("./monaco");
-
-    expect(sideEffectImports).toEqual([
-      "basic",
-      "css",
-      "html",
-      "json",
-      "typescript",
-    ]);
 
     mod.configureMonaco();
     mod.configureMonaco();
 
     expect(loaderConfig).toHaveBeenCalledTimes(1);
     expect(loaderConfig).toHaveBeenCalledWith({ monaco: monacoStub });
+  });
+
+  it("uses a Monaco instance that already includes basic languages", async () => {
+    await import("./monaco");
+
+    const languages = monacoStub.languages
+      .getLanguages()
+      .map((lang) => lang.id);
+
+    expect(monacoStub.languages.getLanguages).toHaveBeenCalled();
+    expect(languages).toContain("json");
+    expect(languages).toContain("rust");
   });
 });

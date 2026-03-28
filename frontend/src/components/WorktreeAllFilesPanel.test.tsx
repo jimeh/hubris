@@ -65,6 +65,20 @@ function createDeferred<T>() {
   return { promise, resolve };
 }
 
+function consumeClipboardItems(items: unknown[]): void {
+  for (const item of items) {
+    if (!item || typeof item !== "object" || !("items" in item)) {
+      continue;
+    }
+
+    for (const value of Object.values(
+      (item as { items: Record<string, Promise<unknown> | unknown> }).items,
+    )) {
+      Promise.resolve(value).catch(() => {});
+    }
+  }
+}
+
 async function renderPanel() {
   const worktree = makeWorktree();
   const { useWorktreeStore } = await import("@/lib/stores/worktrees");
@@ -184,7 +198,12 @@ describe("WorktreeAllFilesPanel", () => {
     Object.defineProperty(window.navigator, "clipboard", {
       configurable: true,
       value: {
+        write: vi.fn().mockImplementation(async (items: unknown[]) => {
+          consumeClipboardItems(items);
+        }),
+        read: vi.fn().mockResolvedValue([]),
         writeText: vi.fn().mockResolvedValue(undefined),
+        readText: vi.fn().mockResolvedValue(""),
       },
     });
   });
@@ -789,7 +808,14 @@ describe("WorktreeAllFilesPanel", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window.navigator, "clipboard", {
       configurable: true,
-      value: { writeText },
+      value: {
+        write: vi.fn().mockImplementation(async (items: unknown[]) => {
+          consumeClipboardItems(items);
+        }),
+        read: vi.fn().mockResolvedValue([]),
+        writeText,
+        readText: vi.fn().mockResolvedValue(""),
+      },
     });
 
     await renderPanel();

@@ -4,8 +4,9 @@
  * Usage: bun run scripts/generate-monaco-language-registry.ts
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extraContributionFilesForRoot } from "./monaco-language-registry-generator";
 
@@ -25,13 +26,13 @@ const FIRST_LINE_RULES = new Map<string, FirstLineRule>([
   ["(\\\\<\\\\?xml.*)|(\\\\<svg)|(\\\\<\\\\!doctype\\\\s+svg)", "XmlLike"],
 ]);
 
-function monacoContributionFile(): string {
-  return fileURLToPath(
-    new URL(
-      "../node_modules/monaco-editor/esm/vs/basic-languages/monaco.contribution.js",
-      import.meta.url,
-    ),
-  );
+function monacoContributionManifestFile(): string {
+  const candidates = [
+    "../node_modules/monaco-editor/esm/vs/basic-languages/monaco.contribution.js",
+    "../node_modules/monaco-editor/esm/vs/editor/editor.main.js",
+  ].map((path) => fileURLToPath(new URL(path, import.meta.url)));
+
+  return candidates.find((path) => existsSync(path)) ?? candidates[0];
 }
 
 function languageRoot(): string {
@@ -102,17 +103,28 @@ function parseContributions(file: string, orderBase: number): Contribution[] {
     );
 }
 
-function orderedBasicContributionFiles(): string[] {
-  const source = readFileSync(monacoContributionFile(), "utf8");
+/**
+ * Monaco moved the language import list from
+ * `basic-languages/monaco.contribution.js` to `editor/editor.main.js`
+ * in 0.55.x. Resolve the referenced contribution files from either
+ * manifest shape instead of hardcoding the old one.
+ */
+export function orderedBasicContributionFilesForManifest(
+  manifestFile: string,
+): string[] {
+  const source = readFileSync(manifestFile, "utf8");
+  const importPattern = manifestFile.endsWith("editor.main.js")
+    ? /['"](\.\.\/basic-languages\/[^'"]+\.contribution\.js)['"]/g
+    : /['"](\.\/[^'"]+\.contribution\.js)['"]/g;
 
-  return [...source.matchAll(/\.\/([^/]+)\/[^"]+\.contribution\.js/g)].map(
-    (match) =>
-      fileURLToPath(
-        new URL(
-          `../node_modules/monaco-editor/esm/vs/basic-languages/${match[1]}/${match[1]}.contribution.js`,
-          import.meta.url,
-        ),
-      ),
+  return [...source.matchAll(importPattern)].map((match) =>
+    resolve(dirname(manifestFile), match[1]),
+  );
+}
+
+function orderedBasicContributionFiles(): string[] {
+  return orderedBasicContributionFilesForManifest(
+    monacoContributionManifestFile(),
   );
 }
 
