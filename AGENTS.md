@@ -126,7 +126,6 @@ No periodic reconciliation — drift corrects on reconnect.
   `frontend/src/components/ui/` are managed vendor code. Editing them
   makes future shadcn updates painful. Put customizations in wrapper
   components or app-level code instead.
-
 - **SSE init ordering**: All store handlers must be registered before
   `EventClient.connect()` — the snapshot fires immediately on connect.
   In React bootstrap, initialize project/worktree/tab stores before
