@@ -151,6 +151,51 @@ describe("useTerminalConnection", () => {
     vi.useFakeTimers();
   });
 
+  it("defers websocket creation until a hidden tab becomes visible", () => {
+    const queuedFrames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 1;
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      const frameId = nextFrameId;
+      nextFrameId += 1;
+      queuedFrames.set(frameId, callback);
+      return frameId;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = vi.fn((frameId: number) => {
+      queuedFrames.delete(frameId);
+    }) as typeof window.cancelAnimationFrame;
+
+    const { rerender } = renderTerminalConnection({ visible: false });
+
+    expect(MockWebSocket.instances).toHaveLength(0);
+
+    act(() => {
+      rerender({ visible: true, onClosed: vi.fn() });
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(0);
+
+    act(() => {
+      for (const callback of Array.from(queuedFrames.values())) {
+        callback(0);
+      }
+      queuedFrames.clear();
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.open();
+    });
+
+    expect(parseControlMessage(ws.sent[0])).toEqual({
+      type: "resize",
+      cols: 100,
+      rows: 30,
+      visible: true,
+    });
+  });
+
   it("sends visible resize on open and applies attached PTY size", () => {
     const { result } = renderTerminalConnection();
 
@@ -204,6 +249,67 @@ describe("useTerminalConnection", () => {
       cols: 100,
       rows: 30,
       visible: false,
+    });
+  });
+
+  it("keeps the existing connection when a started tab is shown again", () => {
+    const queuedFrames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 1;
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      const frameId = nextFrameId;
+      nextFrameId += 1;
+      queuedFrames.set(frameId, callback);
+      return frameId;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = vi.fn((frameId: number) => {
+      queuedFrames.delete(frameId);
+    }) as typeof window.cancelAnimationFrame;
+
+    const { result, rerender } = renderTerminalConnection({ visible: false });
+
+    act(() => {
+      rerender({ visible: true, onClosed: vi.fn() });
+    });
+
+    act(() => {
+      for (const callback of Array.from(queuedFrames.values())) {
+        callback(0);
+      }
+      queuedFrames.clear();
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.open();
+    });
+
+    rerender({ visible: false, onClosed: vi.fn() });
+
+    act(() => {
+      result.current.sendResize(true);
+    });
+
+    expect(parseControlMessage(ws.sent.at(-1)!)).toEqual({
+      type: "resize",
+      cols: 100,
+      rows: 30,
+      visible: false,
+    });
+
+    rerender({ visible: true, onClosed: vi.fn() });
+
+    act(() => {
+      result.current.sendResize(true);
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(parseControlMessage(ws.sent.at(-1)!)).toEqual({
+      type: "resize",
+      cols: 100,
+      rows: 30,
+      visible: true,
     });
   });
 

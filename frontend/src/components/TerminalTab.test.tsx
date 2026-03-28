@@ -182,6 +182,30 @@ describe("TerminalTab", () => {
     expect(mockTerminal.clear).toHaveBeenCalledTimes(1);
   });
 
+  it("waits to connect until a hidden terminal becomes visible", () => {
+    const { rerender } = render(
+      <TerminalTab tabId="tab-1" visible={false} onClosed={vi.fn()} />,
+    );
+
+    expect(MockWebSocket.instances).toHaveLength(0);
+
+    rerender(<TerminalTab tabId="tab-1" visible onClosed={vi.fn()} />);
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.open();
+    });
+
+    expect(parseControlMessage(ws.sent[0])).toEqual({
+      type: "resize",
+      cols: 100,
+      rows: 30,
+      visible: true,
+    });
+  });
+
   it("sends hidden resize participation changes when visibility flips", () => {
     const { rerender } = render(
       <TerminalTab tabId="tab-1" visible onClosed={vi.fn()} />,
