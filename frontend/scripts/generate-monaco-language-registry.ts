@@ -26,13 +26,25 @@ const FIRST_LINE_RULES = new Map<string, FirstLineRule>([
   ["(\\\\<\\\\?xml.*)|(\\\\<svg)|(\\\\<\\\\!doctype\\\\s+svg)", "XmlLike"],
 ]);
 
-function monacoContributionManifestFile(): string {
-  const candidates = [
+function defaultMonacoContributionManifestCandidates(): string[] {
+  return [
     "../node_modules/monaco-editor/esm/vs/basic-languages/monaco.contribution.js",
     "../node_modules/monaco-editor/esm/vs/editor/editor.main.js",
   ].map((path) => fileURLToPath(new URL(path, import.meta.url)));
+}
 
-  return candidates.find((path) => existsSync(path)) ?? candidates[0];
+export function monacoContributionManifestFile(candidates?: string[]): string {
+  const candidatePaths =
+    candidates ?? defaultMonacoContributionManifestCandidates();
+  const manifestFile = candidatePaths.find((path) => existsSync(path));
+
+  if (manifestFile) {
+    return manifestFile;
+  }
+
+  throw new Error(
+    `Monaco manifest file not found. Checked: ${candidatePaths.join(", ")}`,
+  );
 }
 
 function languageRoot(): string {

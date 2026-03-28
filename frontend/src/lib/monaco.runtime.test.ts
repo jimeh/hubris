@@ -1,0 +1,17 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+describe("monaco-editor package root", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it("registers rich and basic languages", async () => {
+    const monaco = await import("monaco-editor");
+    const languageIds = new Set(
+      monaco.languages.getLanguages().map((language) => language.id),
+    );
+
+    expect(languageIds.has("json")).toBe(true);
+    expect(languageIds.has("rust")).toBe(true);
+  }, 15_000);
+});

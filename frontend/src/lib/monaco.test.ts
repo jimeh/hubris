@@ -7,9 +7,6 @@ const monacoStub = {
     getModel: vi.fn(),
     setTheme: vi.fn(),
   },
-  languages: {
-    getLanguages: vi.fn(() => [{ id: "json" }, { id: "rust" }]),
-  },
 };
 
 vi.mock("@monaco-editor/react", () => ({
@@ -40,7 +37,6 @@ describe("configureMonaco", () => {
   beforeEach(() => {
     vi.resetModules();
     loaderConfig.mockReset();
-    vi.mocked(monacoStub.languages.getLanguages).mockClear();
   });
 
   it("configures the loader with the package-root Monaco instance", async () => {
@@ -51,17 +47,5 @@ describe("configureMonaco", () => {
 
     expect(loaderConfig).toHaveBeenCalledTimes(1);
     expect(loaderConfig).toHaveBeenCalledWith({ monaco: monacoStub });
-  });
-
-  it("uses a Monaco instance that already includes basic languages", async () => {
-    await import("./monaco");
-
-    const languages = monacoStub.languages
-      .getLanguages()
-      .map((lang) => lang.id);
-
-    expect(monacoStub.languages.getLanguages).toHaveBeenCalled();
-    expect(languages).toContain("json");
-    expect(languages).toContain("rust");
   });
 });

@@ -7,7 +7,10 @@ import {
   extraContributionFilesForRoot,
   sourceHasRegistrationBlock,
 } from "./monaco-language-registry-generator";
-import { orderedBasicContributionFilesForManifest } from "./generate-monaco-language-registry";
+import {
+  monacoContributionManifestFile,
+  orderedBasicContributionFilesForManifest,
+} from "./generate-monaco-language-registry";
 
 function createContributionFile(
   root: string,
@@ -109,5 +112,26 @@ describe("Monaco language registry generator", () => {
       join(basicDir, "abap", "abap.contribution.js"),
       join(basicDir, "cpp", "cpp.contribution.js"),
     ]);
+  });
+
+  it("throws a descriptive error when no Monaco manifest exists", () => {
+    const root = mkdtempSync(join(tmpdir(), "monaco-manifest-missing-"));
+    tempDirs.push(root);
+
+    const missingBasicManifest = join(
+      root,
+      "basic-languages",
+      "monaco.contribution.js",
+    );
+    const missingEditorManifest = join(root, "editor", "editor.main.js");
+
+    expect(() =>
+      monacoContributionManifestFile([
+        missingBasicManifest,
+        missingEditorManifest,
+      ]),
+    ).toThrowError(
+      `Monaco manifest file not found. Checked: ${missingBasicManifest}, ${missingEditorManifest}`,
+    );
   });
 });
