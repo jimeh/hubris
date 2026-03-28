@@ -15,18 +15,27 @@ import {
 } from "@/lib/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
 
-let resizeCallback: ResizeObserverCallback | null = null;
-
 class ResizeObserverMock {
+  static instances = new Set<ResizeObserverMock>();
+
+  private readonly callback: ResizeObserverCallback;
+
   constructor(callback: ResizeObserverCallback) {
-    resizeCallback = callback;
+    this.callback = callback;
+    ResizeObserverMock.instances.add(this);
   }
 
   observe() {}
 
   unobserve() {}
 
-  disconnect() {}
+  disconnect() {
+    ResizeObserverMock.instances.delete(this);
+  }
+
+  notify(target: Element): void {
+    this.callback([{ target } as ResizeObserverEntry], this as ResizeObserver);
+  }
 }
 
 vi.mock("@/components/WorktreeGitStatusPanel", () => ({
@@ -108,12 +117,16 @@ function setElementWidths(
 }
 
 function triggerResize(target: Element): void {
-  if (!resizeCallback) {
+  const observers = Array.from(ResizeObserverMock.instances);
+
+  if (observers.length === 0) {
     throw new Error("ResizeObserver callback not registered");
   }
 
   act(() => {
-    resizeCallback?.([{ target } as ResizeObserverEntry], {} as ResizeObserver);
+    for (const observer of observers) {
+      observer.notify(target);
+    }
   });
 }
 
@@ -158,8 +171,8 @@ function setHeaderMetrics({
 
 describe("WorktreeRightSidebar", () => {
   beforeEach(async () => {
-    resizeCallback = null;
     vi.restoreAllMocks();
+    ResizeObserverMock.instances.clear();
     window.ResizeObserver = ResizeObserverMock;
     localStorage.clear();
     setMobile(false);
@@ -520,6 +533,33 @@ describe("WorktreeRightSidebar", () => {
     expect(
       screen.getByRole("button", { name: "Hide right sidebar" }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps resize measurement working after the sidebar remounts", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const { default: WorktreeRightSidebar } =
+      await import("./WorktreeRightSidebar");
+
+    const { rerender } = render(<WorktreeRightSidebar worktree={worktree} />);
+    setHeaderMetrics({
+      headerWidth: 280,
+      tabsWidth: 150,
+      actionsWidth: 80,
+    });
+
+    rerender(<WorktreeRightSidebar worktree={{ ...worktree, id: "w2" }} />);
+    setHeaderMetrics({
+      headerWidth: 220,
+      tabsWidth: 150,
+      actionsWidth: 80,
+    });
+
+    expect(
+      document
+        .querySelector("[data-worktree-right-sidebar-header]")
+        ?.getAttribute("data-compact-tabs"),
+    ).toBe("true");
   });
 
   it("loads files and git status when all-files becomes visible", async () => {

@@ -96,6 +96,7 @@ function RightSidebarHeader({
   const [compactTabs, setCompactTabs] = useState(false);
 
   const changesBadgeCount = badgeCounts[WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB];
+  const hasCloseAction = closeAction !== undefined;
 
   const measureCompactTabs = useCallback(() => {
     const availableWidth = headerRef.current?.clientWidth ?? 0;
@@ -139,7 +140,7 @@ function RightSidebarHeader({
       cancelAnimationFrame(frameId);
       observer.disconnect();
     };
-  }, [activeTab, changesBadgeCount, closeAction, measureCompactTabs]);
+  }, [activeTab, changesBadgeCount, hasCloseAction, measureCompactTabs]);
 
   function renderTabButton(
     tab: WorktreeRightSidebarTabDefinition,
@@ -167,7 +168,7 @@ function RightSidebarHeader({
         )}
         title={tab.title}
         aria-label={isCompact ? tab.title : undefined}
-        aria-hidden={isMeasure}
+        aria-hidden={isMeasure || undefined}
         aria-pressed={isMeasure ? undefined : isActive}
         onClick={isMeasure ? undefined : () => onTabChange(tab.id)}
       >
