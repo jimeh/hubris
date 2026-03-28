@@ -1,6 +1,9 @@
 import {
   useCallback,
+  useLayoutEffect,
   useMemo,
+  useRef,
+  useState,
   type ComponentType,
   type ReactNode,
 } from "react";
@@ -71,6 +74,9 @@ type Props = {
   worktree: Worktree;
 };
 
+const HEADER_SECTION_GAP_PX = 8;
+const HEADER_COLLAPSE_BUFFER_PX = 16;
+
 function RightSidebarHeader({
   activeTab,
   onTabChange,
@@ -84,40 +90,141 @@ function RightSidebarHeader({
   actions: ReactNode;
   closeAction?: ReactNode;
 }) {
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const tabsMeasureRef = useRef<HTMLDivElement | null>(null);
+  const actionsRef = useRef<HTMLDivElement | null>(null);
+  const [compactTabs, setCompactTabs] = useState(false);
+
+  const changesBadgeCount = badgeCounts[WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB];
+
+  const measureCompactTabs = useCallback(() => {
+    const availableWidth = headerRef.current?.clientWidth ?? 0;
+    const tabsWidth = tabsMeasureRef.current?.scrollWidth ?? 0;
+    const actionsWidth = actionsRef.current?.scrollWidth ?? 0;
+
+    if (availableWidth === 0 || tabsWidth === 0) {
+      setCompactTabs(false);
+      return;
+    }
+
+    setCompactTabs(
+      tabsWidth +
+        actionsWidth +
+        HEADER_SECTION_GAP_PX +
+        HEADER_COLLAPSE_BUFFER_PX >
+        availableWidth,
+    );
+  }, []);
+
+  useLayoutEffect(() => {
+    const frameId = requestAnimationFrame(() => {
+      measureCompactTabs();
+    });
+
+    const observer = new ResizeObserver(() => {
+      measureCompactTabs();
+    });
+
+    if (headerRef.current) {
+      observer.observe(headerRef.current);
+    }
+    if (tabsMeasureRef.current) {
+      observer.observe(tabsMeasureRef.current);
+    }
+    if (actionsRef.current) {
+      observer.observe(actionsRef.current);
+    }
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      observer.disconnect();
+    };
+  }, [activeTab, changesBadgeCount, closeAction, measureCompactTabs]);
+
+  function renderTabButton(
+    tab: WorktreeRightSidebarTabDefinition,
+    variant: "visible" | "measure",
+  ) {
+    const Icon = tab.icon;
+    const isActive = activeTab === tab.id;
+    const isCompact = variant === "visible" && compactTabs;
+    const isMeasure = variant === "measure";
+    const badgeCount =
+      tab.id === WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB ? changesBadgeCount : null;
+
+    return (
+      <Button
+        key={`${variant}:${tab.id}`}
+        type="button"
+        variant="ghost"
+        size="sm"
+        tabIndex={isMeasure ? -1 : undefined}
+        className={cn(
+          "h-8 rounded-md text-sidebar-foreground/75",
+          isCompact ? "relative size-8 px-0" : "px-3",
+          isActive &&
+            "bg-sidebar-accent/70 text-sidebar-accent-foreground hover:bg-sidebar-accent/70",
+        )}
+        title={tab.title}
+        aria-label={isCompact ? tab.title : undefined}
+        aria-hidden={isMeasure}
+        aria-pressed={isMeasure ? undefined : isActive}
+        onClick={isMeasure ? undefined : () => onTabChange(tab.id)}
+      >
+        <Icon className={cn("h-4 w-4", isCompact ? "" : "mr-2")} />
+        {isCompact ? null : tab.title}
+        {badgeCount !== null && badgeCount !== undefined ? (
+          <span
+            className={cn(
+              "rounded-full bg-sidebar-accent text-sidebar-accent-foreground",
+              isCompact
+                ? "absolute top-0.5 right-0.5 min-w-4 px-1 py-0 text-[10px] leading-none"
+                : "ml-2 px-2 py-0.5 text-[11px] leading-none",
+            )}
+          >
+            {badgeCount}
+          </span>
+        ) : null}
+      </Button>
+    );
+  }
+
   return (
-    <div className="flex items-start justify-between gap-2 border-b px-3 py-2">
+    <div
+      ref={headerRef}
+      data-worktree-right-sidebar-header
+      data-compact-tabs={compactTabs ? "true" : "false"}
+      className="relative flex items-start justify-between gap-2 border-b px-3 py-2"
+    >
       <div className="min-w-0">
-        <div className="-ml-1 flex items-center gap-1">
-          {Object.values(RIGHT_SIDEBAR_TABS).map((tab) => (
-            <Button
-              key={tab.id}
-              type="button"
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "h-8 rounded-md px-3 text-sidebar-foreground/75",
-                activeTab === tab.id &&
-                  "bg-sidebar-accent/70 text-sidebar-accent-foreground hover:bg-sidebar-accent/70",
-              )}
-              aria-pressed={activeTab === tab.id}
-              onClick={() => onTabChange(tab.id)}
-            >
-              <tab.icon className="mr-2 h-4 w-4" />
-              {tab.title}
-              {tab.id === WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB &&
-              badgeCounts[tab.id] !== null &&
-              badgeCounts[tab.id] !== undefined ? (
-                <span className="ml-2 rounded-full bg-sidebar-accent px-2 py-0.5 text-[11px] leading-none text-sidebar-accent-foreground">
-                  {badgeCounts[tab.id]}
-                </span>
-              ) : null}
-            </Button>
-          ))}
+        <div
+          data-worktree-right-sidebar-tabs
+          className="-ml-1 flex items-center gap-1"
+        >
+          {Object.values(RIGHT_SIDEBAR_TABS).map((tab) =>
+            renderTabButton(tab, "visible"),
+          )}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div
+        ref={actionsRef}
+        data-worktree-right-sidebar-actions
+        className="flex shrink-0 items-center gap-1"
+      >
         {actions}
         {closeAction}
+      </div>
+      <div
+        ref={tabsMeasureRef}
+        data-worktree-right-sidebar-tabs-measure
+        aria-hidden="true"
+        className="pointer-events-none absolute top-2 left-3 invisible h-0 overflow-hidden whitespace-nowrap"
+      >
+        <div className="-ml-1 flex items-center gap-1">
+          {Object.values(RIGHT_SIDEBAR_TABS).map((tab) =>
+            renderTabButton(tab, "measure"),
+          )}
+        </div>
       </div>
     </div>
   );

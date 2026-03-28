@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -13,6 +14,20 @@ import {
   WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
 } from "@/lib/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
+
+let resizeCallback: ResizeObserverCallback | null = null;
+
+class ResizeObserverMock {
+  constructor(callback: ResizeObserverCallback) {
+    resizeCallback = callback;
+  }
+
+  observe() {}
+
+  unobserve() {}
+
+  disconnect() {}
+}
 
 vi.mock("@/components/WorktreeGitStatusPanel", () => ({
   default: function MockWorktreeGitStatusPanel() {
@@ -70,9 +85,82 @@ async function resetStores(): Promise<void> {
   resetWorktreeStoreForTests();
 }
 
+function setElementWidths(
+  element: HTMLElement,
+  {
+    clientWidth,
+    scrollWidth,
+  }: {
+    clientWidth: number;
+    scrollWidth: number;
+  },
+): void {
+  Object.defineProperties(element, {
+    clientWidth: {
+      configurable: true,
+      get: () => clientWidth,
+    },
+    scrollWidth: {
+      configurable: true,
+      get: () => scrollWidth,
+    },
+  });
+}
+
+function triggerResize(target: Element): void {
+  if (!resizeCallback) {
+    throw new Error("ResizeObserver callback not registered");
+  }
+
+  act(() => {
+    resizeCallback?.([{ target } as ResizeObserverEntry], {} as ResizeObserver);
+  });
+}
+
+function setHeaderMetrics({
+  headerWidth,
+  tabsWidth,
+  actionsWidth,
+}: {
+  headerWidth: number;
+  tabsWidth: number;
+  actionsWidth: number;
+}): void {
+  const header = document.querySelector<HTMLElement>(
+    "[data-worktree-right-sidebar-header]",
+  );
+  const tabsMeasure = document.querySelector<HTMLElement>(
+    "[data-worktree-right-sidebar-tabs-measure]",
+  );
+  const actions = document.querySelector<HTMLElement>(
+    "[data-worktree-right-sidebar-actions]",
+  );
+
+  if (!header || !tabsMeasure || !actions) {
+    throw new Error("Right sidebar header metrics targets not found");
+  }
+
+  setElementWidths(header, {
+    clientWidth: headerWidth,
+    scrollWidth: headerWidth,
+  });
+  setElementWidths(tabsMeasure, {
+    clientWidth: tabsWidth,
+    scrollWidth: tabsWidth,
+  });
+  setElementWidths(actions, {
+    clientWidth: actionsWidth,
+    scrollWidth: actionsWidth,
+  });
+
+  triggerResize(header);
+}
+
 describe("WorktreeRightSidebar", () => {
   beforeEach(async () => {
+    resizeCallback = null;
     vi.restoreAllMocks();
+    window.ResizeObserver = ResizeObserverMock;
     localStorage.clear();
     setMobile(false);
     await resetStores();
@@ -98,6 +186,78 @@ describe("WorktreeRightSidebar", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps labeled tabs when the desktop header has enough room", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const { default: WorktreeRightSidebar } =
+      await import("./WorktreeRightSidebar");
+
+    render(<WorktreeRightSidebar worktree={worktree} />);
+    setHeaderMetrics({
+      headerWidth: 280,
+      tabsWidth: 150,
+      actionsWidth: 80,
+    });
+
+    expect(
+      document
+        .querySelector("[data-worktree-right-sidebar-header]")
+        ?.getAttribute("data-compact-tabs"),
+    ).toBe("false");
+    expect(screen.getByRole("button", { name: "All Files" })).toHaveTextContent(
+      "All Files",
+    );
+    expect(screen.getByRole("button", { name: "Changes" })).toHaveTextContent(
+      "Changes",
+    );
+  });
+
+  it("collapses desktop tabs to icons when the header gets too tight", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const { default: WorktreeRightSidebar } =
+      await import("./WorktreeRightSidebar");
+
+    render(<WorktreeRightSidebar worktree={worktree} />);
+    setHeaderMetrics({
+      headerWidth: 220,
+      tabsWidth: 150,
+      actionsWidth: 80,
+    });
+
+    expect(
+      document
+        .querySelector("[data-worktree-right-sidebar-header]")
+        ?.getAttribute("data-compact-tabs"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "All Files" }),
+    ).not.toHaveTextContent("All Files");
+    expect(
+      screen.getByRole("button", { name: "Changes" }),
+    ).not.toHaveTextContent("Changes");
+  });
+
+  it("collapses slightly before the exact width boundary", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const { default: WorktreeRightSidebar } =
+      await import("./WorktreeRightSidebar");
+
+    render(<WorktreeRightSidebar worktree={worktree} />);
+    setHeaderMetrics({
+      headerWidth: 250,
+      tabsWidth: 150,
+      actionsWidth: 80,
+    });
+
+    expect(
+      document
+        .querySelector("[data-worktree-right-sidebar-header]")
+        ?.getAttribute("data-compact-tabs"),
+    ).toBe("true");
+  });
+
   it("switching tabs swaps header actions immediately", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
@@ -121,6 +281,43 @@ describe("WorktreeRightSidebar", () => {
       screen.queryByRole("button", { name: "Refresh files" }),
     ).not.toBeInTheDocument();
     expect(screen.getByText("Git panel body")).toBeInTheDocument();
+  });
+
+  it("recomputes compact mode when the changes actions get wider", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const { default: WorktreeRightSidebar } =
+      await import("./WorktreeRightSidebar");
+
+    render(<WorktreeRightSidebar worktree={worktree} />);
+    setHeaderMetrics({
+      headerWidth: 248,
+      tabsWidth: 150,
+      actionsWidth: 70,
+    });
+
+    expect(
+      document
+        .querySelector("[data-worktree-right-sidebar-header]")
+        ?.getAttribute("data-compact-tabs"),
+    ).toBe("false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
+    setHeaderMetrics({
+      headerWidth: 248,
+      tabsWidth: 150,
+      actionsWidth: 100,
+    });
+
+    expect(
+      document
+        .querySelector("[data-worktree-right-sidebar-header]")
+        ?.getAttribute("data-compact-tabs"),
+    ).toBe("true");
+    expect(screen.getByRole("button", { name: "Changes" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Changes" }),
+    ).not.toHaveTextContent("Changes");
   });
 
   it("shows the total change count on the changes tab", async () => {
@@ -171,6 +368,64 @@ describe("WorktreeRightSidebar", () => {
     expect(screen.getByRole("button", { name: /Changes/ })).toHaveTextContent(
       "Changes3",
     );
+  });
+
+  it("keeps the numeric changes badge visible in compact mode", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const { useWorktreeRightSidebarStore } =
+      await import("@/lib/stores/worktreeRightSidebar");
+    const { useWorktreeFileManagerStore } =
+      await import("@/lib/stores/worktreeFileManager");
+
+    useWorktreeRightSidebarStore.setState({
+      activeTab: WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
+    });
+    useWorktreeFileManagerStore.setState({
+      worktrees: {
+        [worktree.id]: {
+          directories: {},
+          expandedPaths: [],
+          selectedPath: null,
+          renamePath: null,
+          gitStatus: {
+            source_ref: "main",
+            generation: 1,
+            unstaged_files: [
+              { path: "foo.txt", change_type: "modified" },
+              { path: "bar.txt", change_type: "untracked" },
+            ],
+            staged_files: [{ path: "README.md", change_type: "added" }],
+            ahead_count: 0,
+            ahead_commits: [],
+            comparison_available: true,
+            comparison_error: null,
+          },
+          gitStatusStatus: "loaded",
+          gitError: null,
+          pendingGeneration: 0,
+          pendingGitGeneration: 0,
+          pendingChangedPaths: [],
+          pendingListingPaths: [],
+        },
+      },
+    });
+
+    const { default: WorktreeRightSidebar } =
+      await import("./WorktreeRightSidebar");
+    render(<WorktreeRightSidebar worktree={worktree} />);
+    setHeaderMetrics({
+      headerWidth: 220,
+      tabsWidth: 165,
+      actionsWidth: 100,
+    });
+
+    expect(screen.getByRole("button", { name: "Changes" })).toHaveTextContent(
+      "3",
+    );
+    expect(
+      screen.getByRole("button", { name: "Changes" }),
+    ).not.toHaveTextContent("Changes");
   });
 
   it("hides completely when collapsed on desktop", async () => {
@@ -231,6 +486,40 @@ describe("WorktreeRightSidebar", () => {
     await waitFor(() => {
       expect(useWorktreeRightSidebarStore.getState().mobileOpen).toBe(false);
     });
+  });
+
+  it("collapses tabs in the mobile sheet when the header is tight", async () => {
+    setMobile(true);
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const { useWorktreeRightSidebarStore } =
+      await import("@/lib/stores/worktreeRightSidebar");
+    useWorktreeRightSidebarStore.setState({
+      desktopOpen: true,
+      mobileOpen: true,
+      isMobileViewport: true,
+    });
+    const { default: WorktreeRightSidebar } =
+      await import("./WorktreeRightSidebar");
+
+    render(<WorktreeRightSidebar worktree={worktree} />);
+    setHeaderMetrics({
+      headerWidth: 220,
+      tabsWidth: 150,
+      actionsWidth: 110,
+    });
+
+    expect(
+      document
+        .querySelector("[data-worktree-right-sidebar-header]")
+        ?.getAttribute("data-compact-tabs"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "All Files" }),
+    ).not.toHaveTextContent("All Files");
+    expect(
+      screen.getByRole("button", { name: "Hide right sidebar" }),
+    ).toBeInTheDocument();
   });
 
   it("loads files and git status when all-files becomes visible", async () => {
