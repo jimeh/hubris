@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
 import {
   WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
@@ -36,7 +37,13 @@ class ResizeObserverMock {
   notify(target: Element): void {
     this.callback([{ target } as ResizeObserverEntry], this as ResizeObserver);
   }
+
+  static reset(): void {
+    ResizeObserverMock.instances.clear();
+  }
 }
+
+let originalResizeObserver = window.ResizeObserver;
 
 vi.mock("@/components/WorktreeGitStatusPanel", () => ({
   default: function MockWorktreeGitStatusPanel() {
@@ -172,11 +179,18 @@ function setHeaderMetrics({
 describe("WorktreeRightSidebar", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
-    ResizeObserverMock.instances.clear();
+    originalResizeObserver = window.ResizeObserver;
+    ResizeObserverMock.reset();
     window.ResizeObserver = ResizeObserverMock;
     localStorage.clear();
     setMobile(false);
     await resetStores();
+  });
+
+  afterEach(() => {
+    cleanup();
+    ResizeObserverMock.reset();
+    window.ResizeObserver = originalResizeObserver;
   });
 
   it("renders all-files header actions declaratively on desktop", async () => {
@@ -249,6 +263,56 @@ describe("WorktreeRightSidebar", () => {
     expect(
       screen.getByRole("button", { name: "Changes" }),
     ).not.toHaveTextContent("Changes");
+  });
+
+  it("applies compact tabs on first render when the header is already tight", async () => {
+    const worktree = makeWorktree();
+    await seedSelectedWorktree(worktree);
+    const { default: WorktreeRightSidebar } =
+      await import("./WorktreeRightSidebar");
+
+    const clientWidthSpy = vi.spyOn(
+      HTMLElement.prototype,
+      "clientWidth",
+      "get",
+    );
+    clientWidthSpy.mockImplementation(function clientWidth(this: HTMLElement) {
+      if (this.matches("[data-worktree-right-sidebar-header]")) {
+        return 220;
+      }
+      if (this.matches("[data-worktree-right-sidebar-actions]")) {
+        return 80;
+      }
+
+      return 0;
+    });
+
+    const scrollWidthSpy = vi.spyOn(
+      HTMLElement.prototype,
+      "scrollWidth",
+      "get",
+    );
+    scrollWidthSpy.mockImplementation(function scrollWidth(this: HTMLElement) {
+      if (this.matches("[data-worktree-right-sidebar-tabs-measure]")) {
+        return 150;
+      }
+      if (this.matches("[data-worktree-right-sidebar-actions]")) {
+        return 80;
+      }
+
+      return 0;
+    });
+
+    render(<WorktreeRightSidebar worktree={worktree} />);
+
+    expect(
+      document
+        .querySelector("[data-worktree-right-sidebar-header]")
+        ?.getAttribute("data-compact-tabs"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "All Files" }),
+    ).not.toHaveTextContent("All Files");
   });
 
   it("collapses slightly before the exact width boundary", async () => {

@@ -74,8 +74,8 @@ type Props = {
   worktree: Worktree;
 };
 
-const HEADER_SECTION_GAP_PX = 8;
-const HEADER_COLLAPSE_BUFFER_PX = 16;
+const HEADER_TAB_ACTIONS_GAP_PX = 8;
+const HEADER_EARLY_COLLAPSE_BUFFER_PX = 16;
 
 function RightSidebarHeader({
   activeTab,
@@ -108,20 +108,49 @@ function RightSidebarHeader({
       return;
     }
 
-    setCompactTabs(
+    // The measured tab and action widths already include each control's own
+    // padding, so only the inter-group gap plus the early-collapse guard band
+    // need to be added here.
+    const requiredWidth =
       tabsWidth +
-        actionsWidth +
-        HEADER_SECTION_GAP_PX +
-        HEADER_COLLAPSE_BUFFER_PX >
-        availableWidth,
-    );
+      actionsWidth +
+      HEADER_TAB_ACTIONS_GAP_PX +
+      HEADER_EARLY_COLLAPSE_BUFFER_PX;
+
+    setCompactTabs(requiredWidth > availableWidth);
   }, []);
 
-  useLayoutEffect(() => {
-    const frameId = requestAnimationFrame(() => {
-      measureCompactTabs();
-    });
+  const setHeaderElement = useCallback(
+    (node: HTMLDivElement | null) => {
+      headerRef.current = node;
+      if (node) {
+        measureCompactTabs();
+      }
+    },
+    [measureCompactTabs],
+  );
 
+  const setTabsMeasureElement = useCallback(
+    (node: HTMLDivElement | null) => {
+      tabsMeasureRef.current = node;
+      if (node) {
+        measureCompactTabs();
+      }
+    },
+    [measureCompactTabs],
+  );
+
+  const setActionsElement = useCallback(
+    (node: HTMLDivElement | null) => {
+      actionsRef.current = node;
+      if (node) {
+        measureCompactTabs();
+      }
+    },
+    [measureCompactTabs],
+  );
+
+  useLayoutEffect(() => {
     const observer = new ResizeObserver(() => {
       measureCompactTabs();
     });
@@ -137,7 +166,6 @@ function RightSidebarHeader({
     }
 
     return () => {
-      cancelAnimationFrame(frameId);
       observer.disconnect();
     };
   }, [activeTab, changesBadgeCount, hasCloseAction, measureCompactTabs]);
@@ -192,7 +220,7 @@ function RightSidebarHeader({
 
   return (
     <div
-      ref={headerRef}
+      ref={setHeaderElement}
       data-worktree-right-sidebar-header
       data-compact-tabs={compactTabs ? "true" : "false"}
       className="relative flex items-start justify-between gap-2 border-b px-3 py-2"
@@ -208,7 +236,7 @@ function RightSidebarHeader({
         </div>
       </div>
       <div
-        ref={actionsRef}
+        ref={setActionsElement}
         data-worktree-right-sidebar-actions
         className="flex shrink-0 items-center gap-1"
       >
@@ -216,7 +244,7 @@ function RightSidebarHeader({
         {closeAction}
       </div>
       <div
-        ref={tabsMeasureRef}
+        ref={setTabsMeasureElement}
         data-worktree-right-sidebar-tabs-measure
         aria-hidden="true"
         className="pointer-events-none absolute top-2 left-3 invisible h-0 overflow-hidden whitespace-nowrap"
