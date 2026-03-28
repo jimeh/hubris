@@ -406,7 +406,7 @@ export function useTerminalConnection({
   useEffect(() => {
     visibleRef.current = visible;
 
-    if (!terminalRef.current) {
+    if (!connectionStarted || !terminalRef.current) {
       return;
     }
 
@@ -419,7 +419,7 @@ export function useTerminalConnection({
     });
 
     return () => cancelAnimationFrame(frameId);
-  }, [sendResize, terminalRef, visible]);
+  }, [connectionStarted, sendResize, terminalRef, visible]);
 
   const handleTerminalData = useCallback((data: string): void => {
     const encoded = encoderRef.current.encode(data);

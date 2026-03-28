@@ -167,6 +167,7 @@ describe("useTerminalConnection", () => {
     const { rerender } = renderTerminalConnection({ visible: false });
 
     expect(MockWebSocket.instances).toHaveLength(0);
+    expect(queuedFrames.size).toBe(0);
 
     act(() => {
       rerender({ visible: true, onClosed: vi.fn() });
