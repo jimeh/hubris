@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#MISE description="Run the Tauri desktop app in dev mode"
+set -euo pipefail
+
+TMP_DIR="${HUBRIS_DEV_TMP:-$(pwd)/tmp}"
+mkdir -p "$TMP_DIR"
+
+DEV_ID="${HUBRIS_DEV_ID:-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')}"
+BOOTSTRAP_TOKEN="${HUBRIS_DESKTOP_BOOTSTRAP_TOKEN:-$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')}"
+SESSION_TOKEN="${HUBRIS_DESKTOP_SESSION_TOKEN:-$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')}"
+export HUBRIS_DEV_ID="$DEV_ID"
+export HUBRIS_DEV_TMP="$TMP_DIR"
+export HUBRIS_DESKTOP_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"
+export HUBRIS_DESKTOP_SESSION_TOKEN="$SESSION_TOKEN"
+
+FRONTEND_STATE_FILE="$TMP_DIR/dev-${DEV_ID}.frontend.json"
+TAURI_CONFIG_OVERRIDE="$TMP_DIR/dev-${DEV_ID}.tauri.dev.json"
+DEV_STACK_PID=""
+
+cleanup() {
+  rm -f "$FRONTEND_STATE_FILE" "$TAURI_CONFIG_OVERRIDE"
+
+  if [[ -n "$DEV_STACK_PID" ]] && kill -0 "$DEV_STACK_PID" 2>/dev/null; then
+    kill "$DEV_STACK_PID" 2>/dev/null || true
+    wait "$DEV_STACK_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+wait_for_frontend_port() {
+  local start_ts now port
+  start_ts=$(date +%s)
+
+  while true; do
+    if [[ -f "$FRONTEND_STATE_FILE" ]]; then
+      port=$(
+        sed -n 's/.*"port":[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+          "$FRONTEND_STATE_FILE"
+      )
+      if [[ -n "$port" ]]; then
+        printf '%s\n' "$port"
+        return 0
+      fi
+    fi
+
+    now=$(date +%s)
+    if (( now - start_ts >= 120 )); then
+      echo "frontend did not report a port within 120 seconds" >&2
+      return 1
+    fi
+
+    sleep 0.1
+  done
+}
+
+./.mise/tasks/dev dev:frontend &
+DEV_STACK_PID=$!
+
+FRONTEND_PORT="$(wait_for_frontend_port)"
+printf \
+  '{\n  "build": {\n    "devUrl": "http://localhost:%s/_hubris/desktop/bootstrap?token=%s"\n  }\n}\n' \
+  "$FRONTEND_PORT" \
+  "$BOOTSTRAP_TOKEN" >"$TAURI_CONFIG_OVERRIDE"
+
+cd desktop
+cargo tauri dev --config "$TAURI_CONFIG_OVERRIDE" "$@"

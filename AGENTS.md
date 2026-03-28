@@ -8,6 +8,8 @@ frontend and persistent PTY sessions.
 ```sh
 mise run setup     # install all deps
 mise run dev       # backend + frontend dev servers
+mise run dev:desktop  # Tauri desktop app in dev mode
+mise run build:desktop  # Tauri desktop app bundle
 mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
 mise run test      # frontend tests + cargo test
@@ -506,3 +508,30 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+- **Desktop app serves bundled frontend files from Tauri resources**:
+  the Tauri shell still loads Hubris over loopback HTTP. Production
+  desktop builds bundle `frontend/dist` as Tauri resources and the
+  embedded server reads those files at runtime instead of using
+  `embed-frontend`. Keep `desktop/build.rs` creating a placeholder
+  `frontend/dist/index.html` for clean-checkout `cargo check`, but
+  rely on `bun run build` to produce the real frontend before desktop
+  release builds.
+- **Desktop Tauri hooks run from the repo root in this setup**:
+  `desktop/tauri.conf.json` build hooks should use root-relative paths
+  like `cd frontend && bun run build`, not paths relative to
+  `desktop/`.
+- **Desktop dev dynamically overrides `devUrl` from the frontend state
+  file**: `.mise/tasks/dev-desktop` reuses the shared `HUBRIS_DEV_ID`
+  / `HUBRIS_DEV_TMP` mechanism, waits for
+  `tmp/dev-<id>.frontend.json`, then launches `cargo tauri dev
+  --config` with the actual Vite port. Keep that wrapper in sync with
+  the Vite `devInstancePlugin()` output shape, and keep
+  `desktop/src/main.rs` reading `app.config().build.dev_url` in debug
+  mode instead of hardcoding a localhost port.
+- **Desktop loopback auth uses a one-time bootstrap plus an `HttpOnly`
+  cookie**: packaged desktop hits
+  `/_hubris/desktop/bootstrap?token=...` on the embedded server, while
+  `mise run dev:desktop` hits the same path on the Vite dev server.
+  The backend trusts only the `hubris_desktop_session` cookie in
+  desktop mode, so keep desktop auth out of frontend JS fetch/SSE/WS
+  code.

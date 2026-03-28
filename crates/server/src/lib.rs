@@ -1,6 +1,7 @@
+mod access;
 pub mod api;
-mod embedded;
 pub mod events;
+mod frontend;
 mod fs_sync;
 pub mod git;
 pub mod pty;
@@ -10,13 +11,19 @@ pub mod tab;
 pub mod worktree_files;
 pub mod worktree_path_policy;
 
+use axum::Extension;
 use axum::Router;
 use axum::http::Method;
 use axum::http::header::CONTENT_TYPE;
+use axum::middleware;
 use axum::routing::{delete, get, post, put};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+pub use access::{
+    DESKTOP_BOOTSTRAP_PATH, DESKTOP_SESSION_COOKIE_NAME, DesktopAccess, ServerAccess,
+};
+use access::{desktop_auth_middleware, desktop_bootstrap_handler};
 use api::events::event_stream;
 use api::files::{
     get_project_worktree_file_content, get_project_worktree_git_diff, list_files,
@@ -33,8 +40,56 @@ use api::worktrees::{
     list_project_worktree_start_points, list_project_worktrees, reorder_project_worktrees,
     stage_project_worktree_path, unstage_project_worktree_path,
 };
-use embedded::spa_handler;
+pub use frontend::FrontendAssets;
+use frontend::apply_frontend_fallback;
 pub use state::AppState;
+
+/// Runtime options for the Hubris server.
+#[derive(Clone, Debug)]
+pub struct ServerOptions {
+    pub frontend: FrontendAssets,
+    pub access: ServerAccess,
+}
+
+impl Default for ServerOptions {
+    fn default() -> Self {
+        let frontend = {
+            #[cfg(feature = "embed-frontend")]
+            {
+                FrontendAssets::embedded()
+            }
+            #[cfg(not(feature = "embed-frontend"))]
+            {
+                FrontendAssets::disabled()
+            }
+        };
+
+        Self {
+            frontend,
+            access: ServerAccess::Open,
+        }
+    }
+}
+
+/// Resolve the Hubris data directory from the environment or
+/// a provided default directory name under the user's home.
+pub fn resolve_data_dir(default_dir_name: &str) -> std::io::Result<std::path::PathBuf> {
+    if let Ok(path) = std::env::var("HUBRIS_DATA_DIR") {
+        return Ok(std::path::PathBuf::from(path));
+    }
+
+    let home = dirs::home_dir()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no home directory"))?;
+
+    Ok(home.join(default_dir_name))
+}
+
+/// Create the app state for a given data directory,
+/// ensuring the directory exists first.
+pub async fn create_app_state(data_dir: std::path::PathBuf) -> std::io::Result<AppState> {
+    tokio::fs::create_dir_all(&data_dir).await?;
+    Ok(AppState::new(data_dir).await)
+}
 
 /// Try binding to `host:start_port`, incrementing port up
 /// to `max_attempts` times if already in use.
@@ -126,6 +181,12 @@ const API_METHODS: [Method; 5] = [
 
 /// Build the API router for a given AppState.
 pub fn build_router(state: AppState) -> Router {
+    build_router_with_options(state, ServerOptions::default())
+}
+
+/// Build the API router with explicit runtime options.
+pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Router {
+    let ServerOptions { frontend, access } = options;
     let api = Router::new()
         .route("/openapi.json", get(openapi_json))
         .route("/files", get(list_files))
@@ -197,7 +258,7 @@ pub fn build_router(state: AppState) -> Router {
             get(get_settings).put(put_settings).patch(patch_settings),
         );
 
-    let cors = if cfg!(debug_assertions) {
+    let cors = if cfg!(debug_assertions) && !access.is_desktop_locked() {
         CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
             .allow_methods(API_METHODS)
@@ -210,12 +271,54 @@ pub fn build_router(state: AppState) -> Router {
             .allow_headers([CONTENT_TYPE])
     };
 
-    Router::new()
-        .nest("/api", api)
-        .fallback(spa_handler)
-        .layer(cors)
-        .layer(TraceLayer::new_for_http())
-        .with_state(state)
+    let mut router = Router::new().nest("/api", api).with_state(state);
+
+    if access
+        .desktop()
+        .is_some_and(|desktop| desktop.has_bootstrap())
+    {
+        router = router.route(DESKTOP_BOOTSTRAP_PATH, get(desktop_bootstrap_handler));
+    }
+
+    let redact_query = access.is_desktop_locked();
+    let trace =
+        TraceLayer::new_for_http().make_span_with(move |request: &axum::http::Request<_>| {
+            let uri = if redact_query {
+                request.uri().path().to_string()
+            } else {
+                request.uri().to_string()
+            };
+
+            tracing::debug_span!(
+                "request",
+                method = %request.method(),
+                uri = %uri,
+                version = ?request.version(),
+            )
+        });
+
+    let router = apply_frontend_fallback(router, frontend);
+    let router = router.layer(cors).layer(trace);
+
+    if let Some(desktop) = access.desktop().cloned() {
+        router
+            .layer(middleware::from_fn(desktop_auth_middleware))
+            .layer(Extension(desktop))
+    } else {
+        router
+    }
+}
+
+/// Run the Hubris server on an existing listener.
+pub async fn run_server(
+    listener: tokio::net::TcpListener,
+    data_dir: std::path::PathBuf,
+    options: ServerOptions,
+) -> std::io::Result<()> {
+    let app = build_router_with_options(create_app_state(data_dir).await?, options);
+    axum::serve(listener, app)
+        .await
+        .map_err(std::io::Error::other)
 }
 
 pub fn openapi_spec() -> utoipa::openapi::OpenApi {

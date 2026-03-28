@@ -4,6 +4,8 @@
 /tmp/
 /frontend/node_modules/
 /frontend/dist/
+/desktop/gen/
+/desktop/target/
 *.swp
 *.swo
 .DS_Store

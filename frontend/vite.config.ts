@@ -3,9 +3,12 @@ import fs from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import tailwindcss from "@tailwindcss/vite";
+import { handleDesktopBootstrapRequest } from "./viteDesktopBootstrap";
 
 const devId = process.env.HUBRIS_DEV_ID;
 const devTmp = process.env.HUBRIS_DEV_TMP;
+const desktopBootstrapToken = process.env.HUBRIS_DESKTOP_BOOTSTRAP_TOKEN;
+const desktopSessionToken = process.env.HUBRIS_DESKTOP_SESSION_TOKEN;
 
 async function waitForBackendState(
   timeoutMs = 120_000,
@@ -33,6 +36,26 @@ function devInstancePlugin(): Plugin {
   return {
     name: "hubris-dev-instance",
     configureServer(server) {
+      if (desktopBootstrapToken && desktopSessionToken) {
+        server.middlewares.use((req, res, next) => {
+          const response = handleDesktopBootstrapRequest(
+            req.url,
+            desktopBootstrapToken,
+            desktopSessionToken,
+          );
+          if (!response) {
+            next();
+            return;
+          }
+
+          res.statusCode = response.statusCode;
+          for (const [name, value] of Object.entries(response.headers)) {
+            res.setHeader(name, value);
+          }
+          res.end(response.body);
+        });
+      }
+
       if (!devId || !devTmp) return;
 
       server.httpServer?.once("listening", () => {
