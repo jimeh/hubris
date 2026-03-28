@@ -81,7 +81,9 @@ export function useTerminalConnection({
   const flushInputAfterResizeRef = useRef(false);
   const connectFrameRef = useRef<ConnectFrame>(null);
   const encoderRef = useRef(new TextEncoder());
+  const startConnectionFrameRef = useRef<number | null>(null);
 
+  const [connectionStarted, setConnectionStarted] = useState(visible);
   const [everConnected, setEverConnected] = useState(false);
   const [connected, setConnected] = useState(false);
 
@@ -334,6 +336,29 @@ export function useTerminalConnection({
   }, [connectWs]);
 
   useEffect(() => {
+    if (!visible || connectionStarted) {
+      return;
+    }
+
+    const frameId = requestAnimationFrame(() => {
+      startConnectionFrameRef.current = null;
+      setConnectionStarted(true);
+    });
+    startConnectionFrameRef.current = frameId;
+
+    return () => {
+      if (startConnectionFrameRef.current !== null) {
+        cancelAnimationFrame(startConnectionFrameRef.current);
+        startConnectionFrameRef.current = null;
+      }
+    };
+  }, [connectionStarted, visible]);
+
+  useEffect(() => {
+    if (!connectionStarted) {
+      return;
+    }
+
     const container = containerRef.current;
     if (!container || !terminalRef.current) {
       return;
@@ -369,6 +394,7 @@ export function useTerminalConnection({
       wsRef.current = null;
     };
   }, [
+    connectionStarted,
     connectWs,
     containerRef,
     measureViewport,
@@ -380,7 +406,7 @@ export function useTerminalConnection({
   useEffect(() => {
     visibleRef.current = visible;
 
-    if (!terminalRef.current) {
+    if (!connectionStarted || !terminalRef.current) {
       return;
     }
 
@@ -393,7 +419,7 @@ export function useTerminalConnection({
     });
 
     return () => cancelAnimationFrame(frameId);
-  }, [sendResize, terminalRef, visible]);
+  }, [connectionStarted, sendResize, terminalRef, visible]);
 
   const handleTerminalData = useCallback((data: string): void => {
     const encoded = encoderRef.current.encode(data);
