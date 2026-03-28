@@ -149,14 +149,44 @@ describe("WorktreeGitStatusPanel", () => {
       source_ref: "main",
       generation: 1,
       unstaged_files: [
-        { path: "tmp2/bar/bar.txt", change_type: "modified" },
-        { path: "tmp2/bar/baz/fox.txt", change_type: "untracked" },
-        { path: "tmp2/bar/baz/qux/deep.txt", change_type: "modified" },
-        { path: "tmp2/foo.txt", change_type: "modified" },
+        {
+          path: "tmp2/bar/bar.txt",
+          change_type: "modified",
+          insertions: 5,
+          deletions: 2,
+        },
+        {
+          path: "tmp2/bar/baz/fox.txt",
+          change_type: "untracked",
+          insertions: 10,
+          deletions: 0,
+        },
+        {
+          path: "tmp2/bar/baz/qux/deep.txt",
+          change_type: "modified",
+          insertions: 3,
+          deletions: 1,
+        },
+        {
+          path: "tmp2/foo.txt",
+          change_type: "modified",
+          insertions: 0,
+          deletions: 0,
+        },
       ],
       staged_files: [
-        { path: "README.md", change_type: "added" },
-        { path: "src/main.ts", change_type: "modified" },
+        {
+          path: "README.md",
+          change_type: "added",
+          insertions: 20,
+          deletions: 0,
+        },
+        {
+          path: "src/main.ts",
+          change_type: "modified",
+          insertions: 8,
+          deletions: 4,
+        },
       ],
       ahead_count: 1,
       ahead_commits: [
@@ -952,5 +982,127 @@ describe("WorktreeGitStatusPanel", () => {
 
     expect(await screen.findByRole("button", { name: "Staged" })).toBeVisible();
     expect(screen.queryByText("README.md")).not.toBeInTheDocument();
+  });
+
+  it("shows per-file diff line stats in list view", async () => {
+    renderPanel();
+    await screen.findByRole("button", { name: "Unstaged" });
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
+    // bar.txt has +5 -2
+    expect(await screen.findByText("+5")).toBeInTheDocument();
+    expect(screen.getByText("-2")).toBeInTheDocument();
+    // fox.txt has +10, no deletions (zero hidden)
+    expect(screen.getByText("+10")).toBeInTheDocument();
+  });
+
+  it("hides stats when both insertions and deletions are zero", async () => {
+    renderPanel();
+    await screen.findByRole("button", { name: "Unstaged" });
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
+    // foo.txt has insertions: 0, deletions: 0 — no stats shown
+    await screen.findByText("foo.txt");
+    expect(screen.queryByText("+0")).not.toBeInTheDocument();
+    expect(screen.queryByText("-0")).not.toBeInTheDocument();
+  });
+
+  it("shows aggregate stats on section headers", async () => {
+    renderPanel();
+    // Unstaged aggregate: +5 +10 +3 +0 = +18, -2 -0 -1 -0 = -3
+    // Staged aggregate: +20 +8 = +28, -0 -4 = -4
+    expect(await screen.findByText("+18")).toBeInTheDocument();
+    expect(screen.getByText("-3")).toBeInTheDocument();
+    expect(screen.getByText("+28")).toBeInTheDocument();
+  });
+
+  it("updates aggregate stats after staging a file", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByRole("button", { name: "Unstaged" });
+    fireEvent.click(screen.getByRole("button", { name: "Show list view" }));
+
+    // Initial: unstaged +18 -3, staged +28 -4
+    expect(await screen.findByText("+18")).toBeInTheDocument();
+    expect(screen.getByText("+28")).toBeInTheDocument();
+
+    // After staging bar.txt (+5 -2): it moves from unstaged to staged
+    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+      source_ref: "main",
+      generation: 2,
+      unstaged_files: [
+        {
+          path: "tmp2/bar/baz/fox.txt",
+          change_type: "untracked",
+          insertions: 10,
+          deletions: 0,
+        },
+        {
+          path: "tmp2/bar/baz/qux/deep.txt",
+          change_type: "modified",
+          insertions: 3,
+          deletions: 1,
+        },
+        {
+          path: "tmp2/foo.txt",
+          change_type: "modified",
+          insertions: 0,
+          deletions: 0,
+        },
+      ],
+      staged_files: [
+        {
+          path: "README.md",
+          change_type: "added",
+          insertions: 20,
+          deletions: 0,
+        },
+        {
+          path: "src/main.ts",
+          change_type: "modified",
+          insertions: 8,
+          deletions: 4,
+        },
+        {
+          path: "tmp2/bar/bar.txt",
+          change_type: "modified",
+          insertions: 5,
+          deletions: 2,
+        },
+      ],
+      ahead_count: 1,
+      ahead_commits: [
+        {
+          id: "abcdef123456",
+          short_id: "abcdef1",
+          summary: "Ahead commit",
+        },
+      ],
+      comparison_available: true,
+      comparison_error: null,
+    });
+
+    fireEvent.contextMenu(screen.getByText("bar.txt"));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Stage bar.txt" }),
+    );
+
+    // Unstaged aggregate: +10 +3 +0 = +13, -0 -1 -0 = -1
+    // Staged aggregate: +20 +8 +5 = +33, -0 -4 -2 = -6
+    await waitFor(() => {
+      expect(screen.getByText("+13")).toBeInTheDocument();
+    });
+    // -1 appears on both the per-file deep.txt row and the unstaged header
+    expect(screen.getAllByText("-1")).toHaveLength(2);
+    expect(screen.getByText("+33")).toBeInTheDocument();
+    expect(screen.getByText("-6")).toBeInTheDocument();
+  });
+
+  it("keeps aggregate stats visible when section is collapsed", async () => {
+    renderPanel();
+    await screen.findByText("+28");
+    const stagedHeader = screen.getByRole("button", { name: "Staged" });
+    fireEvent.click(stagedHeader);
+    // Files hidden but aggregate stats still in header
+    expect(screen.queryByText("README.md")).not.toBeInTheDocument();
+    expect(screen.getByText("+28")).toBeInTheDocument();
   });
 });

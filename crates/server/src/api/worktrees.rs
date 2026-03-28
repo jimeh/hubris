@@ -95,7 +95,7 @@ struct ManagedWorktree {
     source_ref: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum GitFileChangeType {
     Added,
@@ -114,6 +114,10 @@ pub struct GitFileChange {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_path: Option<String>,
     pub change_type: GitFileChangeType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub insertions: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deletions: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]

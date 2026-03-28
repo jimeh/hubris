@@ -477,6 +477,8 @@ export interface components {
     GitDiffScope: "staged" | "unstaged";
     GitFileChange: {
       change_type: components["schemas"]["GitFileChangeType"];
+      deletions?: number | null;
+      insertions?: number | null;
       original_path?: string | null;
       path: string;
     };

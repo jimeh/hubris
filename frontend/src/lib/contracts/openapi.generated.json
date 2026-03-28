@@ -1710,6 +1710,14 @@
           "change_type": {
             "$ref": "#/components/schemas/GitFileChangeType"
           },
+          "deletions": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "insertions": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
           "original_path": {
             "type": ["string", "null"]
           },

@@ -19,6 +19,8 @@ import {
   type WorktreeGitCommitSummary,
   type WorktreeGitFileChange,
 } from "@/lib/api";
+import { DiffLineStats } from "@/components/DiffLineStats";
+import { computeAggregateStats } from "@/lib/diffLineStats";
 import {
   gitChangeTypeClass,
   gitChangeTypeLabel,
@@ -503,6 +505,10 @@ function FilePathRow({
                   <span aria-hidden="true" className="min-w-0 w-full" />
                 )}
               </span>
+              <DiffLineStats
+                insertions={change.insertions}
+                deletions={change.deletions}
+              />
             </>
           }
           actions={actions.map((action) => (
@@ -608,6 +614,10 @@ function TreeFileNode({
               <span className="truncate text-[13px] font-medium">
                 {node.name}
               </span>
+              <DiffLineStats
+                insertions={node.change.insertions}
+                deletions={node.change.deletions}
+              />
             </>
           }
           actions={actions.map((action) => (
@@ -809,6 +819,10 @@ function StatusFileSection({
   ) => void;
 }) {
   const tree = useMemo(() => buildWorktreeGitStatusTree(changes), [changes]);
+  const aggregateStats = useMemo(
+    () => computeAggregateStats(changes),
+    [changes],
+  );
   const [treeOpenState, setTreeOpenState] = useState<TreeOpenState>({});
 
   const handleNodeOpenChange = useCallback((path: string, open: boolean) => {
@@ -858,6 +872,10 @@ function StatusFileSection({
               >
                 {changes.length}
               </Badge>
+              <DiffLineStats
+                insertions={aggregateStats.insertions}
+                deletions={aggregateStats.deletions}
+              />
             </div>
           </button>
         </CollapsibleTrigger>
