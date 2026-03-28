@@ -82,7 +82,7 @@ export default defineConfig(async () => {
       globals: true,
       setupFiles: ["./src/test/setup.ts"],
       css: true,
-      include: ["src/**/*.{test,spec}.{ts,tsx}"],
+      include: ["src/**/*.{test,spec}.{ts,tsx}", "scripts/**/*.test.ts"],
       exclude: ["src/lib/components/**"],
       coverage: {
         reporter: ["text", "lcov"],

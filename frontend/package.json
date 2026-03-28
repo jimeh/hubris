@@ -15,6 +15,7 @@
     "test": "bun run test:unit",
     "test:all": "bun run test:unit && bun run test:e2e",
     "generate:contracts:rest": "bunx openapi-typescript src/lib/contracts/openapi.generated.json -o src/lib/contracts/rest.generated.ts && prettier --write src/lib/contracts/openapi.generated.json src/lib/contracts/rest.generated.ts src/lib/contracts/sse.generated.ts src/lib/contracts/ws.generated.ts",
+    "generate:monaco-languages": "bun run scripts/generate-monaco-language-registry.ts",
     "generate:theme-defaults": "bun run scripts/generate-theme-defaults.ts > src/lib/theme/defaults.generated.css && prettier --write src/lib/theme/defaults.generated.css",
     "generate:material-icons": "bun run scripts/generate-material-icon-theme.ts && prettier --write src/lib/materialIconTheme.generated.ts"
   },

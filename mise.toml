@@ -99,6 +99,7 @@ depends = ["generate:frontend"]
 run = [
   "cargo run -p hubris-server --bin generate_contracts",
   "cd frontend && bun run generate:contracts:rest",
+  "cd frontend && bun run generate:monaco-languages",
   "cd frontend && bun run generate:material-icons",
   "cd frontend && bun run generate:theme-defaults",
 ]

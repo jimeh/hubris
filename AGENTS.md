@@ -367,6 +367,17 @@ No periodic reconciliation — drift corrects on reconnect.
   with those global theme mutations and crash disposed editors. Apply theme
   idempotently from app-level code, and keep Monaco models alive across tab
   reorder churn with explicit cleanup only when tabs actually close.
+- **Monaco file associations are not all under `basic-languages`**:
+  Monaco `0.54.0` keeps JSON registration metadata in
+  `esm/vs/language/json/monaco.contribution.js`, not
+  `esm/vs/basic-languages/`. Any generator that mirrors Monaco file-extension
+  coverage must scan both roots or `.json` files will fall back to
+  `plaintext`.
+- **Monaco contribution files can register multiple languages**:
+  `cpp.contribution.js` registers both `c` and `cpp` from one file. The Monaco
+  registry generator must parse every `registerLanguage(...)` or
+  `languages.register(...)` block in a contribution file, not assume one
+  language id per file.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.

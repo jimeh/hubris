@@ -14,6 +14,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::errors::map_worktree_file_error;
+use crate::api::monaco_languages_generated::{
+    MONACO_EXTENSION_ASSOCIATIONS, MONACO_FILENAME_ASSOCIATIONS, MONACO_FIRST_LINE_ASSOCIATIONS,
+    MonacoFirstLineRule,
+};
 use crate::api::worktrees::{ResolvedWorktree, resolve_worktree};
 use crate::fs_sync::sync_parent_directory;
 use crate::git::{GitDiffBlobContent, GitDiffBlobSource};
@@ -490,7 +494,6 @@ pub async fn get_project_worktree_git_diff(
         .as_deref()
         .map(normalize_relative_path)
         .transpose()?;
-    let language = infer_language(&path);
     let left_path = original_path.clone().unwrap_or_else(|| path.clone());
     let right_path = path.clone();
 
@@ -531,6 +534,10 @@ pub async fn get_project_worktree_git_diff(
     let editable = matches!(params.scope, GitDiffScope::Unstaged)
         && unsupported_reason.is_none()
         && modified_version_token.is_some();
+    let language = infer_language(
+        &path,
+        preferred_diff_first_line(&right_content, &left_content),
+    );
 
     Ok(Json(WorktreeGitDiffResponse {
         path,
@@ -652,32 +659,110 @@ async fn resolve_existing_file_path(
     Ok((path, canonical))
 }
 
-fn infer_language(path: &str) -> String {
-    match Path::new(path).extension().and_then(|ext| ext.to_str()) {
-        Some("rs") => "rust",
-        Some("ts") => "typescript",
-        Some("tsx") => "typescript",
-        Some("js") => "javascript",
-        Some("jsx") => "javascript",
-        Some("json") => "json",
-        Some("md") => "markdown",
-        Some("toml") => "toml",
-        Some("yaml") | Some("yml") => "yaml",
-        Some("html") => "html",
-        Some("css") => "css",
-        Some("scss") => "scss",
-        Some("sh") | Some("bash") => "shell",
-        Some("py") => "python",
-        Some("go") => "go",
-        Some("java") => "java",
-        Some("sql") => "sql",
-        Some("xml") => "xml",
-        Some("c") => "c",
-        Some("h") => "cpp",
-        Some("cpp") | Some("cc") | Some("cxx") | Some("hpp") => "cpp",
-        _ => "plaintext",
+fn infer_language(path: &str, first_line: Option<&str>) -> String {
+    let lowercase_path = path.to_ascii_lowercase();
+    let filename = lowercase_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(lowercase_path.as_str());
+
+    if let Some(association) = MONACO_FILENAME_ASSOCIATIONS
+        .iter()
+        .find(|association| association.filename == filename)
+    {
+        return association.language.to_string();
     }
-    .to_string()
+
+    if let Some(association) = MONACO_EXTENSION_ASSOCIATIONS
+        .iter()
+        .find(|association| filename.ends_with(association.suffix))
+    {
+        return association.language.to_string();
+    }
+
+    if let Some(normalized_first_line) = normalize_first_line(first_line)
+        && let Some(association) = MONACO_FIRST_LINE_ASSOCIATIONS
+            .iter()
+            .find(|association| first_line_rule_matches(association.rule, normalized_first_line))
+    {
+        return association.language.to_string();
+    }
+
+    "plaintext".to_string()
+}
+
+fn normalize_first_line(first_line: Option<&str>) -> Option<&str> {
+    first_line
+        .map(|line| line.strip_prefix('\u{feff}').unwrap_or(line))
+        .filter(|line| !line.is_empty())
+}
+
+fn first_line_of_text(text: &str) -> Option<&str> {
+    if text.is_empty() {
+        return None;
+    }
+
+    Some(text.split('\n').next().unwrap_or(text))
+}
+
+fn diff_side_first_line(content: &DiffSideContent) -> Option<&str> {
+    match content {
+        DiffSideContent::Text(content) => first_line_of_text(content),
+        DiffSideContent::Unsupported(_) => None,
+    }
+}
+
+fn preferred_diff_first_line<'a>(
+    right_content: &'a DiffSideContent,
+    left_content: &'a DiffSideContent,
+) -> Option<&'a str> {
+    normalize_first_line(diff_side_first_line(right_content))
+        .or_else(|| normalize_first_line(diff_side_first_line(left_content)))
+}
+
+fn shebang_tokens(first_line: &str) -> Option<impl Iterator<Item = &str>> {
+    if !first_line.starts_with("#!") {
+        return None;
+    }
+
+    Some(first_line.split(|character: char| {
+        !character.is_ascii_alphanumeric()
+            && character != '.'
+            && character != '-'
+            && character != '_'
+    }))
+}
+
+fn matches_python_shebang_token(token: &str) -> bool {
+    if token == "python" {
+        return true;
+    }
+
+    token.strip_prefix("python").is_some_and(|suffix| {
+        !suffix.is_empty()
+            && suffix
+                .chars()
+                .all(|character| character.is_ascii_digit() || character == '.' || character == '-')
+    })
+}
+
+fn matches_node_shebang_token(token: &str) -> bool {
+    token.starts_with("node")
+}
+
+fn first_line_rule_matches(rule: MonacoFirstLineRule, first_line: &str) -> bool {
+    match rule {
+        MonacoFirstLineRule::NodeShebang => shebang_tokens(first_line)
+            .is_some_and(|mut tokens| tokens.any(matches_node_shebang_token)),
+        MonacoFirstLineRule::PythonShebang => shebang_tokens(first_line)
+            .is_some_and(|mut tokens| tokens.any(matches_python_shebang_token)),
+        MonacoFirstLineRule::XmlLike => {
+            let trimmed = first_line.trim_start();
+            trimmed.starts_with("<?xml")
+                || trimmed.starts_with("<svg")
+                || trimmed.starts_with("<!doctype svg")
+        }
+    }
 }
 
 fn version_token(bytes: &[u8], metadata: &std::fs::Metadata) -> String {
@@ -710,7 +795,7 @@ async fn load_text_file(path: &Path, relative_path: &str) -> Result<LoadedTextFi
         return Ok(LoadedTextFile {
             content: String::new(),
             version_token: version_token(&[], &metadata),
-            language: infer_language(relative_path),
+            language: infer_language(relative_path, None),
             read_only: true,
             unsupported_reason: Some("Files larger than 1 MiB are read-only.".to_string()),
         });
@@ -723,7 +808,7 @@ async fn load_text_file(path: &Path, relative_path: &str) -> Result<LoadedTextFi
             return Ok(LoadedTextFile {
                 content: String::new(),
                 version_token: version_token(&bytes, &metadata),
-                language: infer_language(relative_path),
+                language: infer_language(relative_path, None),
                 read_only: true,
                 unsupported_reason: Some("Binary files are read-only.".to_string()),
             });
@@ -731,9 +816,9 @@ async fn load_text_file(path: &Path, relative_path: &str) -> Result<LoadedTextFi
     };
 
     Ok(LoadedTextFile {
+        language: infer_language(relative_path, first_line_of_text(&content)),
         content,
         version_token: version_token(&bytes, &metadata),
-        language: infer_language(relative_path),
         read_only: false,
         unsupported_reason: None,
     })
@@ -953,4 +1038,84 @@ fn unsupported_file_error() -> FileApiError {
         StatusCode::BAD_REQUEST,
         "Only editable text files can be saved.",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::infer_language;
+
+    #[test]
+    fn infer_language_matches_monaco_extensions() {
+        assert_eq!(infer_language("notes.mdx", None), "mdx");
+        assert_eq!(infer_language("package.json", None), "json");
+        assert_eq!(infer_language("schema.proto", None), "proto");
+        assert_eq!(infer_language("script.ps1", None), "powershell");
+        assert_eq!(infer_language("main.tf", None), "hcl");
+        assert_eq!(infer_language("main.tfvars", None), "hcl");
+        assert_eq!(infer_language("header.h", None), "c");
+        assert_eq!(infer_language("main.c", None), "c");
+        assert_eq!(infer_language("main.cpp", None), "cpp");
+        assert_eq!(infer_language("main.cc", None), "cpp");
+        assert_eq!(infer_language("main.cxx", None), "cpp");
+        assert_eq!(infer_language("main.hpp", None), "cpp");
+        assert_eq!(infer_language("main.hh", None), "cpp");
+        assert_eq!(infer_language("main.hxx", None), "cpp");
+        assert_eq!(infer_language("app.rb", None), "ruby");
+        assert_eq!(infer_language("app.kt", None), "kotlin");
+        assert_eq!(infer_language("app.swift", None), "swift");
+        assert_eq!(infer_language("query.graphql", None), "graphql");
+        assert_eq!(infer_language("shader.wgsl", None), "wgsl");
+        assert_eq!(infer_language("config.dockerfile", None), "dockerfile");
+    }
+
+    #[test]
+    fn infer_language_matches_monaco_filenames() {
+        assert_eq!(infer_language("Dockerfile", None), "dockerfile");
+        assert_eq!(infer_language("Gemfile", None), "ruby");
+        assert_eq!(infer_language(".editorconfig", None), "ini");
+        assert_eq!(infer_language(".gitconfig", None), "ini");
+        assert_eq!(infer_language("jakefile", None), "javascript");
+    }
+
+    #[test]
+    fn infer_language_matches_monaco_first_line_rules() {
+        assert_eq!(
+            infer_language("script", Some("#!/usr/bin/env node")),
+            "javascript"
+        );
+        assert_eq!(
+            infer_language("script", Some("#!/usr/bin/env nodejs")),
+            "javascript"
+        );
+        assert_eq!(
+            infer_language("script", Some("#!/usr/bin/python3")),
+            "python"
+        );
+        assert_eq!(
+            infer_language("layout", Some("<?xml version=\"1.0\"")),
+            "xml"
+        );
+        assert_eq!(
+            infer_language("vector", Some("<svg viewBox=\"0 0 10 10\">")),
+            "xml"
+        );
+        assert_eq!(
+            infer_language("script", Some("#!/usr/bin/env antinode")),
+            "plaintext"
+        );
+        assert_eq!(
+            infer_language("script", Some("#!/usr/bin/env pythontool")),
+            "plaintext"
+        );
+    }
+
+    #[test]
+    fn infer_language_falls_back_to_plaintext() {
+        assert_eq!(infer_language("notes.unknown", None), "plaintext");
+    }
+
+    #[test]
+    fn infer_language_uses_last_registered_duplicate_suffix() {
+        assert_eq!(infer_language("policy.pp", None), "ruby");
+    }
 }
