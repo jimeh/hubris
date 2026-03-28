@@ -3,13 +3,12 @@ import fs from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import tailwindcss from "@tailwindcss/vite";
+import { handleDesktopBootstrapRequest } from "./viteDesktopBootstrap";
 
 const devId = process.env.HUBRIS_DEV_ID;
 const devTmp = process.env.HUBRIS_DEV_TMP;
 const desktopBootstrapToken = process.env.HUBRIS_DESKTOP_BOOTSTRAP_TOKEN;
 const desktopSessionToken = process.env.HUBRIS_DESKTOP_SESSION_TOKEN;
-const DESKTOP_BOOTSTRAP_PATH = "/_hubris/desktop/bootstrap";
-const DESKTOP_SESSION_COOKIE_NAME = "hubris_desktop_session";
 
 async function waitForBackendState(
   timeoutMs = 120_000,
@@ -34,38 +33,26 @@ async function waitForBackendState(
 }
 
 function devInstancePlugin(): Plugin {
-  let bootstrapSpent = false;
-
   return {
     name: "hubris-dev-instance",
     configureServer(server) {
       if (desktopBootstrapToken && desktopSessionToken) {
         server.middlewares.use((req, res, next) => {
-          const url = req.url ? new URL(req.url, "http://localhost") : null;
-          if (!url || url.pathname !== DESKTOP_BOOTSTRAP_PATH) {
+          const response = handleDesktopBootstrapRequest(
+            req.url,
+            desktopBootstrapToken,
+            desktopSessionToken,
+          );
+          if (!response) {
             next();
             return;
           }
 
-          if (
-            bootstrapSpent ||
-            url.searchParams.get("token") !== desktopBootstrapToken
-          ) {
-            res.statusCode = 401;
-            res.setHeader("Cache-Control", "no-store");
-            res.end("unauthorized");
-            return;
+          res.statusCode = response.statusCode;
+          for (const [name, value] of Object.entries(response.headers)) {
+            res.setHeader(name, value);
           }
-
-          bootstrapSpent = true;
-          res.statusCode = 302;
-          res.setHeader("Location", "/");
-          res.setHeader("Cache-Control", "no-store");
-          res.setHeader(
-            "Set-Cookie",
-            `${DESKTOP_SESSION_COOKIE_NAME}=${desktopSessionToken}; Path=/; HttpOnly; SameSite=Strict`,
-          );
-          res.end();
+          res.end(response.body);
         });
       }
 
