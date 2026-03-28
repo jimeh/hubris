@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   extraContributionFilesForRoot,
@@ -27,6 +27,10 @@ describe("Monaco language registry generator", () => {
     while (tempDirs.length > 0) {
       rmSync(tempDirs.pop()!, { recursive: true, force: true });
     }
+  });
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("recognizes both Monaco registration forms", () => {
@@ -59,5 +63,24 @@ describe("Monaco language registry generator", () => {
       registerLanguageFile,
       languageRegisterFile,
     ]);
+  });
+
+  it("does not read Monaco files when the generator entrypoint is imported", async () => {
+    vi.resetModules();
+    vi.doMock("node:fs", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs")>();
+
+      return {
+        default: actual,
+        ...actual,
+        readFileSync: vi.fn(() => {
+          throw new Error("readFileSync should not run at import time");
+        }),
+      };
+    });
+
+    await expect(
+      import("./generate-monaco-language-registry"),
+    ).resolves.toBeDefined();
   });
 });

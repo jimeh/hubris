@@ -19,27 +19,35 @@ type Contribution = {
 
 type FirstLineRule = "NodeShebang" | "PythonShebang" | "XmlLike";
 
-const monacoContributionFile = fileURLToPath(
-  new URL(
-    "../node_modules/monaco-editor/esm/vs/basic-languages/monaco.contribution.js",
-    import.meta.url,
-  ),
-);
-const languageRoot = fileURLToPath(
-  new URL("../node_modules/monaco-editor/esm/vs/language/", import.meta.url),
-);
-const generatedRustFile = fileURLToPath(
-  new URL(
-    "../../crates/server/src/api/monaco_languages.generated.rs",
-    import.meta.url,
-  ),
-);
-
 const FIRST_LINE_RULES = new Map<string, FirstLineRule>([
   ["^#!.*\\\\bnode", "NodeShebang"],
   ["^#!/.*\\\\bpython[0-9.-]*\\\\b", "PythonShebang"],
   ["(\\\\<\\\\?xml.*)|(\\\\<svg)|(\\\\<\\\\!doctype\\\\s+svg)", "XmlLike"],
 ]);
+
+function monacoContributionFile(): string {
+  return fileURLToPath(
+    new URL(
+      "../node_modules/monaco-editor/esm/vs/basic-languages/monaco.contribution.js",
+      import.meta.url,
+    ),
+  );
+}
+
+function languageRoot(): string {
+  return fileURLToPath(
+    new URL("../node_modules/monaco-editor/esm/vs/language/", import.meta.url),
+  );
+}
+
+function generatedRustFile(): string {
+  return fileURLToPath(
+    new URL(
+      "../../crates/server/src/api/monaco_languages.generated.rs",
+      import.meta.url,
+    ),
+  );
+}
 
 function parseStringArray(source: string, field: string): string[] {
   const block =
@@ -95,7 +103,7 @@ function parseContributions(file: string, orderBase: number): Contribution[] {
 }
 
 function orderedBasicContributionFiles(): string[] {
-  const source = readFileSync(monacoContributionFile, "utf8");
+  const source = readFileSync(monacoContributionFile(), "utf8");
 
   return [...source.matchAll(/\.\/([^/]+)\/[^"]+\.contribution\.js/g)].map(
     (match) =>
@@ -109,7 +117,7 @@ function orderedBasicContributionFiles(): string[] {
 }
 
 function extraContributionFiles(): string[] {
-  return extraContributionFilesForRoot(languageRoot);
+  return extraContributionFilesForRoot(languageRoot());
 }
 
 function rustString(value: string): string {
@@ -240,9 +248,9 @@ ${firstLineEntries
 ];
 `;
 
-  writeFileSync(generatedRustFile, body);
+  writeFileSync(generatedRustFile(), body);
 
-  const rustfmt = spawnSync("rustfmt", [generatedRustFile], {
+  const rustfmt = spawnSync("rustfmt", [generatedRustFile()], {
     stdio: "inherit",
   });
   if (rustfmt.status !== 0) {
@@ -250,12 +258,20 @@ ${firstLineEntries
   }
 }
 
-const contributionFiles = [
-  ...orderedBasicContributionFiles(),
-  ...extraContributionFiles(),
-];
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const contributions = contributionFiles.flatMap((file, index) => {
+function contributionFiles(): string[] {
+  return [...orderedBasicContributionFiles(), ...extraContributionFiles()];
+}
+
+function isMainModule(moduleUrl: string, argv1: string | undefined): boolean {
+  if (!argv1 || !moduleUrl.startsWith("file:")) {
+    return false;
+  }
+
+  return argv1 === fileURLToPath(moduleUrl);
+}
+
+if (isMainModule(import.meta.url, process.argv[1])) {
+  const contributions = contributionFiles().flatMap((file, index) => {
     const orderBase = index * 1000;
     return parseContributions(file, orderBase);
   });
