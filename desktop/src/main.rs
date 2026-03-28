@@ -69,7 +69,7 @@ fn start_embedded_server<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<Url, 
                 frontend,
                 access: ServerAccess::DesktopLocked(DesktopAccess::packaged(
                     session_token,
-                    bootstrap_token.clone(),
+                    bootstrap_token,
                 )),
             },
         )
