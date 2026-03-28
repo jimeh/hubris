@@ -4,8 +4,7 @@ use listenfd::ListenFd;
 use tracing_subscriber::EnvFilter;
 
 use hubris_server::{
-    DesktopAccess, FrontendAssets, ServerAccess, ServerOptions, resolve_data_dir, run_server,
-    select_listener,
+    DesktopAccess, ServerAccess, ServerOptions, resolve_data_dir, run_server, select_listener,
 };
 
 const DEFAULT_PORT: u16 = 3001;
@@ -81,8 +80,8 @@ async fn main() {
         listener,
         data_dir,
         ServerOptions {
-            frontend: FrontendAssets::default(),
             access,
+            ..ServerOptions::default()
         },
     )
     .await

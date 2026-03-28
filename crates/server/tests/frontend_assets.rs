@@ -69,6 +69,24 @@ fn rejects_missing_frontend_asset_directory() {
     );
 }
 
+#[cfg(feature = "embed-frontend")]
+#[test]
+fn server_options_default_uses_embedded_frontend_when_feature_enabled() {
+    assert!(matches!(
+        ServerOptions::default().frontend,
+        FrontendAssets::Embedded
+    ));
+}
+
+#[cfg(not(feature = "embed-frontend"))]
+#[test]
+fn server_options_default_disables_frontend_without_embed_feature() {
+    assert!(matches!(
+        ServerOptions::default().frontend,
+        FrontendAssets::Disabled
+    ));
+}
+
 #[tokio::test]
 async fn run_server_uses_existing_listener_port() {
     let temp = TempDir::new().unwrap();
