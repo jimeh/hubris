@@ -13,6 +13,7 @@ import WorktreeAllFilesPanel from "./WorktreeAllFilesPanel";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB } from "@/lib/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
+import { consumeClipboardItems } from "@/test/clipboard";
 
 const mockListProjectWorktreeFiles = vi.fn();
 const mockGetProjectWorktreeGitStatus = vi.fn();
@@ -63,20 +64,6 @@ function createDeferred<T>() {
     resolve = res;
   });
   return { promise, resolve };
-}
-
-function consumeClipboardItems(items: unknown[]): void {
-  for (const item of items) {
-    if (!item || typeof item !== "object" || !("items" in item)) {
-      continue;
-    }
-
-    for (const value of Object.values(
-      (item as { items: Record<string, Promise<unknown> | unknown> }).items,
-    )) {
-      Promise.resolve(value).catch(() => {});
-    }
-  }
 }
 
 async function renderPanel() {

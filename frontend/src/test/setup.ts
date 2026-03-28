@@ -1,24 +1,11 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
+import { consumeClipboardItems } from "@/test/clipboard";
 
 afterEach(() => {
   cleanup();
 });
-
-function consumeClipboardItems(items: unknown[]): void {
-  for (const item of items) {
-    if (!item || typeof item !== "object" || !("items" in item)) {
-      continue;
-    }
-
-    for (const value of Object.values(
-      (item as { items: Record<string, Promise<unknown> | unknown> }).items,
-    )) {
-      Promise.resolve(value).catch(() => {});
-    }
-  }
-}
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,
