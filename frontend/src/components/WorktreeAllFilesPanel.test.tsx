@@ -13,6 +13,7 @@ import WorktreeAllFilesPanel from "./WorktreeAllFilesPanel";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB } from "@/lib/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
+import { consumeClipboardItems } from "@/test/clipboard";
 
 const mockListProjectWorktreeFiles = vi.fn();
 const mockGetProjectWorktreeGitStatus = vi.fn();
@@ -184,7 +185,12 @@ describe("WorktreeAllFilesPanel", () => {
     Object.defineProperty(window.navigator, "clipboard", {
       configurable: true,
       value: {
+        write: vi.fn().mockImplementation(async (items: unknown[]) => {
+          consumeClipboardItems(items);
+        }),
+        read: vi.fn().mockResolvedValue([]),
         writeText: vi.fn().mockResolvedValue(undefined),
+        readText: vi.fn().mockResolvedValue(""),
       },
     });
   });
@@ -789,7 +795,14 @@ describe("WorktreeAllFilesPanel", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window.navigator, "clipboard", {
       configurable: true,
-      value: { writeText },
+      value: {
+        write: vi.fn().mockImplementation(async (items: unknown[]) => {
+          consumeClipboardItems(items);
+        }),
+        read: vi.fn().mockResolvedValue([]),
+        writeText,
+        readText: vi.fn().mockResolvedValue(""),
+      },
     });
 
     await renderPanel();

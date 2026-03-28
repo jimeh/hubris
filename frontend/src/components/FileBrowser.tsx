@@ -4,7 +4,7 @@ import {
   Eye,
   EyeOff,
   Folder,
-  FolderGit2,
+  FolderGit,
   House,
   RotateCcw,
 } from "lucide-react";
@@ -298,7 +298,7 @@ export default function FileBrowser({
                   type="button"
                 >
                   {entry.is_git_repo ? (
-                    <FolderGit2 className="h-4 w-4 shrink-0 text-primary" />
+                    <FolderGit className="h-4 w-4 shrink-0 text-primary" />
                   ) : (
                     <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                   )}

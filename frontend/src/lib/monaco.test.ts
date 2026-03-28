@@ -9,38 +9,13 @@ const monacoStub = {
   },
 };
 
-const sideEffectImports: string[] = [];
-
 vi.mock("@monaco-editor/react", () => ({
   loader: {
     config: (...args: unknown[]) => loaderConfig(...args),
   },
 }));
 
-vi.mock("monaco-editor/esm/vs/editor/editor.api", () => monacoStub);
-vi.mock("monaco-editor/esm/vs/basic-languages/monaco.contribution.js", () => {
-  sideEffectImports.push("basic");
-  return {};
-});
-vi.mock("monaco-editor/esm/vs/language/css/monaco.contribution.js", () => {
-  sideEffectImports.push("css");
-  return {};
-});
-vi.mock("monaco-editor/esm/vs/language/html/monaco.contribution.js", () => {
-  sideEffectImports.push("html");
-  return {};
-});
-vi.mock("monaco-editor/esm/vs/language/json/monaco.contribution.js", () => {
-  sideEffectImports.push("json");
-  return {};
-});
-vi.mock(
-  "monaco-editor/esm/vs/language/typescript/monaco.contribution.js",
-  () => {
-    sideEffectImports.push("typescript");
-    return {};
-  },
-);
+vi.mock("monaco-editor", () => monacoStub);
 
 vi.mock("monaco-editor/esm/vs/editor/editor.worker?worker", () => ({
   default: class EditorWorker {},
@@ -62,19 +37,10 @@ describe("configureMonaco", () => {
   beforeEach(() => {
     vi.resetModules();
     loaderConfig.mockReset();
-    sideEffectImports.length = 0;
   });
 
-  it("loads Monaco language contributions before configuring the loader", async () => {
+  it("configures the loader with the package-root Monaco instance", async () => {
     const mod = await import("./monaco");
-
-    expect(sideEffectImports).toEqual([
-      "basic",
-      "css",
-      "html",
-      "json",
-      "typescript",
-    ]);
 
     mod.configureMonaco();
     mod.configureMonaco();

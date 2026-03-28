@@ -380,6 +380,11 @@ No periodic reconciliation — drift corrects on reconnect.
   registry generator must parse every `registerLanguage(...)` or
   `languages.register(...)` block in a contribution file, not assume one
   language id per file.
+- **Monaco `0.55.x` package-root import restores basic syntax highlighting**:
+  `monaco-editor/esm/vs/basic-languages/_.contribution.js` no longer aggregates
+  the basic-language registrations. For runtime editor bootstrap, import
+  `monaco-editor` and keep only the Vite worker deep imports; otherwise many
+  basic languages such as Rust and Markdown fall back to plaintext.
 - **Dev task wrapper sets shared instance env only**:
   `.mise/tasks/dev` generates random `HUBRIS_DEV_ID`, sets
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.

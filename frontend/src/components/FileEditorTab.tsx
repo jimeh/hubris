@@ -6,7 +6,7 @@ import {
   type ComponentProps,
 } from "react";
 import Editor from "@monaco-editor/react";
-import { Loader2, RefreshCw, Save } from "lucide-react";
+import { LoaderCircle, RefreshCw, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { applyMonacoTheme, getFileModelPath } from "@/lib/monaco";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
@@ -85,7 +85,7 @@ function FileEditorTab({ projectId, worktreeId, tab, visible }: Props) {
   if (!session || session.loadStatus === "loading") {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
         Loading {tab.path}
       </div>
     );
@@ -170,7 +170,7 @@ function FileEditorTab({ projectId, worktreeId, tab, visible }: Props) {
             }
           >
             {session.saveStatus === "saving" ? (
-              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              <LoaderCircle className="mr-2 h-3.5 w-3.5 animate-spin" />
             ) : (
               <Save className="mr-2 h-3.5 w-3.5" />
             )}

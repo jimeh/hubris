@@ -8,7 +8,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { ChevronRight, Minus, Plus, Undo2 } from "lucide-react";
+import { ChevronRight, Minus, Plus, Undo } from "lucide-react";
 import { toast } from "sonner";
 import {
   discardProjectWorktreePath,
@@ -114,7 +114,7 @@ const LOADING_SKELETON_DELAY_MS = 150;
 const ACTION_ICONS = {
   stage: Plus,
   unstage: Minus,
-  discard: Undo2,
+  discard: Undo,
 } satisfies Record<GitAction, typeof Plus>;
 const EMPTY_COMMIT_DETAILS_STATE: CommitDetailsState = {
   status: "idle",

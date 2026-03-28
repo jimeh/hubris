@@ -7,6 +7,10 @@ import {
   extraContributionFilesForRoot,
   sourceHasRegistrationBlock,
 } from "./monaco-language-registry-generator";
+import {
+  monacoContributionManifestFile,
+  orderedBasicContributionFilesForManifest,
+} from "./generate-monaco-language-registry";
 
 function createContributionFile(
   root: string,
@@ -82,5 +86,52 @@ describe("Monaco language registry generator", () => {
     await expect(
       import("./generate-monaco-language-registry"),
     ).resolves.toBeDefined();
+  });
+
+  it("finds basic language contributions from the editor.main.js manifest", () => {
+    const root = mkdtempSync(join(tmpdir(), "monaco-editor-main-"));
+    tempDirs.push(root);
+
+    const editorDir = join(root, "editor");
+    const basicDir = join(root, "basic-languages");
+    mkdirSync(editorDir, { recursive: true });
+    mkdirSync(join(basicDir, "abap"), { recursive: true });
+    mkdirSync(join(basicDir, "cpp"), { recursive: true });
+
+    const manifest = join(editorDir, "editor.main.js");
+    writeFileSync(
+      manifest,
+      [
+        "import '../language/css/monaco.contribution.js';",
+        "import '../basic-languages/abap/abap.contribution.js';",
+        "import '../basic-languages/cpp/cpp.contribution.js';",
+      ].join("\n"),
+    );
+
+    expect(orderedBasicContributionFilesForManifest(manifest)).toEqual([
+      join(basicDir, "abap", "abap.contribution.js"),
+      join(basicDir, "cpp", "cpp.contribution.js"),
+    ]);
+  });
+
+  it("throws a descriptive error when no Monaco manifest exists", () => {
+    const root = mkdtempSync(join(tmpdir(), "monaco-manifest-missing-"));
+    tempDirs.push(root);
+
+    const missingBasicManifest = join(
+      root,
+      "basic-languages",
+      "monaco.contribution.js",
+    );
+    const missingEditorManifest = join(root, "editor", "editor.main.js");
+
+    expect(() =>
+      monacoContributionManifestFile([
+        missingBasicManifest,
+        missingEditorManifest,
+      ]),
+    ).toThrowError(
+      `Monaco manifest file not found. Checked: ${missingBasicManifest}, ${missingEditorManifest}`,
+    );
   });
 });
