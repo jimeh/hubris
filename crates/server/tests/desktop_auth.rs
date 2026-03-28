@@ -140,7 +140,10 @@ async fn create_tab(
     let response = client
         .post(format!("{base}/api/tabs"))
         .header(reqwest::header::COOKIE, cookie)
-        .json(&serde_json::json!({ "worktree_id": worktree_id }))
+        .json(&serde_json::json!({
+            "type": "terminal",
+            "worktree_id": worktree_id,
+        }))
         .send()
         .await
         .unwrap();
