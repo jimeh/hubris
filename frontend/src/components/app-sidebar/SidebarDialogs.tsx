@@ -1,8 +1,8 @@
 import AddProjectDialog from "@/components/AddProjectDialog";
 import AddWorktreeDialog from "@/components/AddWorktreeDialog";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import ImportedWorktreeRemoveDialog from "@/components/ImportedWorktreeRemoveDialog";
 import ProjectRemoveDialog from "@/components/ProjectRemoveDialog";
+import WorktreeRemoveDialog from "@/components/WorktreeRemoveDialog";
 import RenameProjectDialog from "@/components/RenameProjectDialog";
 import SettingsDialog from "@/components/SettingsDialog";
 import type { DeleteProjectOptions } from "@/lib/api";
@@ -192,11 +192,23 @@ export default function SidebarDialogs({
       ) : null}
 
       {dialogState.confirmRemoveWorktree ? (
-        <ConfirmDialog
-          title="Delete Worktree"
-          description={`Delete worktree ${dialogState.confirmRemoveWorktree.worktree.name}? This removes the worktree directory from disk.`}
-          confirmLabel="Delete"
-          onConfirm={() => {
+        <WorktreeRemoveDialog
+          worktreeName={dialogState.confirmRemoveWorktree.worktree.name}
+          isImported={dialogState.confirmRemoveWorktree.worktree.is_imported}
+          onUntrackOnly={() => {
+            const target = dialogState.confirmRemoveWorktree!;
+            setDialogState((state) => ({
+              ...state,
+              confirmRemoveWorktree: null,
+            }));
+            void onRemoveWorktree(
+              target.projectId,
+              target.worktree.id,
+              false,
+              true,
+            );
+          }}
+          onDeleteFromDisk={() => {
             const target = dialogState.confirmRemoveWorktree!;
             setDialogState((state) => ({
               ...state,
@@ -230,39 +242,6 @@ export default function SidebarDialogs({
             setDialogState((state) => ({
               ...state,
               confirmForceRemoveWorktree: null,
-            }))
-          }
-        />
-      ) : null}
-
-      {dialogState.confirmRemoveImportedWorktree ? (
-        <ImportedWorktreeRemoveDialog
-          worktreeName={dialogState.confirmRemoveImportedWorktree.worktree.name}
-          onUntrackOnly={() => {
-            const target = dialogState.confirmRemoveImportedWorktree!;
-            setDialogState((state) => ({
-              ...state,
-              confirmRemoveImportedWorktree: null,
-            }));
-            void onRemoveWorktree(
-              target.projectId,
-              target.worktree.id,
-              false,
-              true,
-            );
-          }}
-          onDeleteFromDisk={() => {
-            const target = dialogState.confirmRemoveImportedWorktree!;
-            setDialogState((state) => ({
-              ...state,
-              confirmRemoveImportedWorktree: null,
-            }));
-            void onRemoveWorktree(target.projectId, target.worktree.id);
-          }}
-          onClose={() =>
-            setDialogState((state) => ({
-              ...state,
-              confirmRemoveImportedWorktree: null,
             }))
           }
         />

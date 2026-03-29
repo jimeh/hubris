@@ -13,7 +13,7 @@ vi.mock("@/components/AddWorktreeDialog", () => ({
   default: () => null,
 }));
 
-vi.mock("@/components/ImportedWorktreeRemoveDialog", () => ({
+vi.mock("@/components/WorktreeRemoveDialog", () => ({
   default: () => null,
 }));
 
@@ -36,7 +36,6 @@ function makeDialogState(overrides: Partial<DialogState> = {}): DialogState {
     confirmRemoveWorktree: null,
     renameWorktree: null,
     confirmForceRemoveWorktree: null,
-    confirmRemoveImportedWorktree: null,
     actionError: null,
     ...overrides,
   };

@@ -209,19 +209,10 @@ export default function AppSidebarRoot() {
               setDialogState((state) => ({
                 ...state,
                 actionError: null,
-                ...(worktree.is_imported
-                  ? {
-                      confirmRemoveImportedWorktree: {
-                        projectId: project.id,
-                        worktree,
-                      },
-                    }
-                  : {
-                      confirmRemoveWorktree: {
-                        projectId: project.id,
-                        worktree,
-                      },
-                    }),
+                confirmRemoveWorktree: {
+                  projectId: project.id,
+                  worktree,
+                },
               }))
             }
             onReorderWorktrees={(project, orderedIds) =>

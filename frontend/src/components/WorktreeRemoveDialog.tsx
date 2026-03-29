@@ -1,4 +1,4 @@
-import { AlertTriangle, Folder, Trash2 } from "lucide-react";
+import { AlertTriangle, Folder, FolderX, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,13 +11,15 @@ import { Button } from "@/components/ui/button";
 
 type Props = {
   worktreeName: string;
+  isImported?: boolean;
   onUntrackOnly: () => void;
   onDeleteFromDisk: () => void;
   onClose: () => void;
 };
 
-export default function ImportedWorktreeRemoveDialog({
+export default function WorktreeRemoveDialog({
   worktreeName,
+  isImported = false,
   onUntrackOnly,
   onDeleteFromDisk,
   onClose,
@@ -27,16 +29,34 @@ export default function ImportedWorktreeRemoveDialog({
       <DialogContent className="sm:max-w-xl">
         <DialogHeader className="gap-3">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 rounded-xl border border-amber-500/20 bg-amber-500/8 p-2 text-amber-600">
-              <AlertTriangle className="h-4 w-4" />
+            <div className="mt-0.5 rounded-xl border border-destructive/20 bg-destructive/8 p-2 text-destructive">
+              {isImported ? (
+                <AlertTriangle className="h-4 w-4" />
+              ) : (
+                <FolderX className="h-4 w-4" />
+              )}
             </div>
             <div className="space-y-1">
-              <DialogTitle>Remove imported worktree</DialogTitle>
+              <DialogTitle>
+                {isImported ? "Remove imported worktree" : "Remove worktree"}
+              </DialogTitle>
               <DialogDescription>
-                <span className="font-medium text-foreground">
-                  {worktreeName}
-                </span>{" "}
-                was not created by Hubris. Choose how to remove it.
+                {isImported ? (
+                  <>
+                    <span className="font-medium text-foreground">
+                      {worktreeName}
+                    </span>{" "}
+                    was not created by Hubris. Choose how to remove it.
+                  </>
+                ) : (
+                  <>
+                    Choose how to remove{" "}
+                    <span className="font-medium text-foreground">
+                      {worktreeName}
+                    </span>
+                    .
+                  </>
+                )}
               </DialogDescription>
             </div>
           </div>
@@ -75,9 +95,9 @@ export default function ImportedWorktreeRemoveDialog({
                   Delete from disk
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Remove the worktree directory from disk via git. This worktree
-                  was not created by Hubris — other tools or scripts that manage
-                  it may get confused.
+                  {isImported
+                    ? "Remove the worktree directory from disk via git. This worktree was not created by Hubris \u2014 other tools or scripts that manage it may get confused."
+                    : "Remove the worktree directory from disk via git."}
                 </p>
               </div>
             </div>

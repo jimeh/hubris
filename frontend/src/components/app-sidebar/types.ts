@@ -17,10 +17,6 @@ export type DialogState = {
     projectId: string;
     worktree: Worktree;
   } | null;
-  confirmRemoveImportedWorktree: {
-    projectId: string;
-    worktree: Worktree;
-  } | null;
   actionError: string | null;
 };
 
@@ -34,6 +30,5 @@ export const initialDialogState: DialogState = {
   confirmForceRemoveProject: null,
   confirmRemoveWorktree: null,
   confirmForceRemoveWorktree: null,
-  confirmRemoveImportedWorktree: null,
   actionError: null,
 };
