@@ -1,7 +1,8 @@
-import { GitFork, Paintbrush, Terminal } from "lucide-react";
+import { Code2, GitFork, Paintbrush, Terminal } from "lucide-react";
 
 export const sections = [
   { name: "Appearance", icon: Paintbrush },
+  { name: "Editor", icon: Code2 },
   { name: "Terminal", icon: Terminal },
   { name: "Worktrees", icon: GitFork },
 ] as const;

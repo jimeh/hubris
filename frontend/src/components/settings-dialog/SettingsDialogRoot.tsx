@@ -31,6 +31,7 @@ import {
   SidebarProvider,
 } from "@/components/ui/sidebar";
 import AppearanceSettings from "./AppearanceSettings";
+import EditorSettings from "./EditorSettings";
 import TerminalSettings from "./TerminalSettings";
 import WorktreeSettings from "./WorktreeSettings";
 import {
@@ -128,6 +129,7 @@ export default function SettingsDialogRoot({
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4">
               <SettingsStatusNotice status={settingsStatus} variant="dialog" />
               {activeSection === "Appearance" ? <AppearanceSettings /> : null}
+              {activeSection === "Editor" ? <EditorSettings /> : null}
               {activeSection === "Terminal" ? <TerminalSettings /> : null}
               {activeSection === "Worktrees" ? <WorktreeSettings /> : null}
             </div>

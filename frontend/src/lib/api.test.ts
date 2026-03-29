@@ -747,6 +747,10 @@ describe("API client", () => {
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
           },
+          editor: {
+            lightEditorTheme: "hubris-light",
+            darkEditorTheme: "hubris-dark",
+          },
           worktree: {
             locationMode: "dataDir",
           },
@@ -794,6 +798,10 @@ describe("API client", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
+          },
+          editor: {
+            lightEditorTheme: "hubris-light",
+            darkEditorTheme: "hubris-dark",
           },
           worktree: {
             locationMode: "dataDir",
@@ -870,6 +878,10 @@ describe("API client", () => {
           bundledFont: "hack-nf",
           fontSize: 16,
         },
+        editor: {
+          lightEditorTheme: "hubris-light",
+          darkEditorTheme: "hubris-dark",
+        },
         worktree: {
           locationMode: "repoLocalDotHubris" as const,
         },
@@ -919,6 +931,10 @@ describe("API client", () => {
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
           },
+          editor: {
+            lightEditorTheme: "hubris-light",
+            darkEditorTheme: "hubris-dark",
+          },
           worktree: {
             locationMode: "dataDir",
           },
@@ -947,6 +963,10 @@ describe("API client", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
+          },
+          editor: {
+            lightEditorTheme: "hubris-light",
+            darkEditorTheme: "hubris-dark",
           },
           worktree: {
             locationMode: "dataDir",

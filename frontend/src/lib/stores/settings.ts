@@ -6,7 +6,13 @@ import {
   type ComputedThemeVars,
 } from "@/lib/theme/convert";
 import { builtinThemes } from "@/lib/theme/builtin";
-import { getSettings, patchSettings, resetApiStateForTests } from "@/lib/api";
+import {
+  getEditorTheme,
+  getSettings,
+  patchSettings,
+  resetApiStateForTests,
+  type VscodeThemeJson,
+} from "@/lib/api";
 import { getEventClient } from "@/lib/events";
 import {
   showSettingsInvalidFileToast,
@@ -16,6 +22,8 @@ import { DEFAULT_FONT_FAMILY, resolveFont } from "@/lib/terminal/fonts";
 import type {
   AppearanceSettings,
   AppearanceSettingsPatch,
+  EditorSettings,
+  EditorSettingsPatch,
   HubrisTheme,
   Settings,
   SettingsPatch,
@@ -43,6 +51,10 @@ const DEFAULT_SETTINGS: Settings = {
     systemFontFamily: "",
     bundledFont: "jetbrainsmono-nf",
     fontSize: 14,
+  },
+  editor: {
+    lightEditorTheme: "hubris-light",
+    darkEditorTheme: "hubris-dark",
   },
   worktree: {
     locationMode: "dataDir",
@@ -77,6 +89,8 @@ type SettingsStoreState = {
   activeTheme: HubrisTheme | null;
   themeVersion: number;
   terminalVersion: number;
+  editorThemeData: VscodeThemeJson | null;
+  editorThemeVersion: number;
   prefersLight: boolean;
   fontFamily: string;
   updateAppearance: (partial: AppearanceSettingsPatch) => void;
@@ -84,6 +98,7 @@ type SettingsStoreState = {
     partial: TerminalSettingsPatch,
     options?: SettingsUpdateOptions,
   ) => void;
+  updateEditor: (partial: EditorSettingsPatch) => void;
   updateWorktree: (partial: WorktreeSettingsPatch) => void;
 };
 
@@ -216,6 +231,35 @@ function normalizeTerminalSettings(candidate: unknown): {
   };
 }
 
+function normalizeEditorSettings(candidate: unknown): {
+  settings: EditorSettings;
+  changed: boolean;
+} {
+  const source = (candidate ?? {}) as Partial<EditorSettings>;
+  let changed = false;
+
+  const lightEditorTheme =
+    typeof source.lightEditorTheme === "string" && source.lightEditorTheme
+      ? source.lightEditorTheme
+      : DEFAULT_SETTINGS.editor.lightEditorTheme;
+  if (lightEditorTheme !== source.lightEditorTheme) {
+    changed = true;
+  }
+
+  const darkEditorTheme =
+    typeof source.darkEditorTheme === "string" && source.darkEditorTheme
+      ? source.darkEditorTheme
+      : DEFAULT_SETTINGS.editor.darkEditorTheme;
+  if (darkEditorTheme !== source.darkEditorTheme) {
+    changed = true;
+  }
+
+  return {
+    settings: { lightEditorTheme, darkEditorTheme },
+    changed,
+  };
+}
+
 function normalizeWorktreeSettings(candidate: unknown): {
   settings: WorktreeSettings;
   changed: boolean;
@@ -241,15 +285,21 @@ function normalizeSettings(candidate: unknown): {
   const source = (candidate ?? {}) as Partial<Settings>;
   const appearance = normalizeAppearanceSettings(source.appearance);
   const terminal = normalizeTerminalSettings(source.terminal);
+  const editor = normalizeEditorSettings(source.editor);
   const worktree = normalizeWorktreeSettings(source.worktree);
 
   return {
     settings: {
       appearance: appearance.settings,
       terminal: terminal.settings,
+      editor: editor.settings,
       worktree: worktree.settings,
     },
-    changed: appearance.changed || terminal.changed || worktree.changed,
+    changed:
+      appearance.changed ||
+      terminal.changed ||
+      editor.changed ||
+      worktree.changed,
   };
 }
 
@@ -353,6 +403,9 @@ function stripEmptyPatch(patch: SettingsPatch): SettingsPatch {
   if (patch.terminal && Object.keys(patch.terminal).length > 0) {
     next.terminal = patch.terminal;
   }
+  if (patch.editor && Object.keys(patch.editor).length > 0) {
+    next.editor = patch.editor;
+  }
   if (patch.worktree && Object.keys(patch.worktree).length > 0) {
     next.worktree = patch.worktree;
   }
@@ -366,6 +419,7 @@ function hasPatch(patch: SettingsPatch | null | undefined): boolean {
   return (
     stripped.appearance !== undefined ||
     stripped.terminal !== undefined ||
+    stripped.editor !== undefined ||
     stripped.worktree !== undefined
   );
 }
@@ -394,6 +448,10 @@ function applyPatchToSettings(
     terminal: {
       ...settings.terminal,
       ...(patch.terminal ?? {}),
+    },
+    editor: {
+      ...settings.editor,
+      ...(patch.editor ?? {}),
     },
     worktree: {
       ...settings.worktree,
@@ -477,6 +535,73 @@ function updateResolvedFont(settings: TerminalSettings): void {
   });
 }
 
+const LS_EDITOR_THEME_CACHE = "hubris-editor-theme-cache";
+let editorThemeFetchGeneration = 0;
+
+function getActiveEditorThemeId(
+  appearance: AppearanceSettings,
+  editor: EditorSettings,
+  prefersLight: boolean,
+): string {
+  const wantLight =
+    appearance.colorScheme === "light" ||
+    (appearance.colorScheme === "auto" && prefersLight);
+  return wantLight ? editor.lightEditorTheme : editor.darkEditorTheme;
+}
+
+function cacheEditorThemeData(id: string, data: VscodeThemeJson): void {
+  try {
+    localStorage.setItem(LS_EDITOR_THEME_CACHE, JSON.stringify({ id, data }));
+  } catch {
+    // localStorage full or unavailable.
+  }
+}
+
+function readCachedEditorThemeData(id: string): VscodeThemeJson | null {
+  try {
+    const raw = localStorage.getItem(LS_EDITOR_THEME_CACHE);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      id?: string;
+      data?: VscodeThemeJson;
+    };
+    if (parsed.id === id && parsed.data) {
+      return parsed.data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function fetchEditorThemeData(themeId: string): void {
+  editorThemeFetchGeneration += 1;
+  const requestId = editorThemeFetchGeneration;
+
+  // Try cache first for instant display.
+  const cached = readCachedEditorThemeData(themeId);
+  if (cached) {
+    useSettingsStore.setState((state) => ({
+      editorThemeData: cached,
+      editorThemeVersion: state.editorThemeVersion + 1,
+    }));
+  }
+
+  void getEditorTheme(themeId).then(
+    (data) => {
+      if (requestId !== editorThemeFetchGeneration) return;
+      cacheEditorThemeData(themeId, data);
+      useSettingsStore.setState((state) => ({
+        editorThemeData: data,
+        editorThemeVersion: state.editorThemeVersion + 1,
+      }));
+    },
+    () => {
+      // Keep cached/null data on fetch failure.
+    },
+  );
+}
+
 function equalAppearanceSettings(
   left: AppearanceSettings,
   right: AppearanceSettings,
@@ -500,6 +625,16 @@ function equalTerminalSettings(
   );
 }
 
+function equalEditorSettings(
+  left: EditorSettings,
+  right: EditorSettings,
+): boolean {
+  return (
+    left.lightEditorTheme === right.lightEditorTheme &&
+    left.darkEditorTheme === right.darkEditorTheme
+  );
+}
+
 function equalWorktreeSettings(
   left: WorktreeSettings,
   right: WorktreeSettings,
@@ -520,6 +655,9 @@ function stabilizeSettingsSections(
   const terminal = equalTerminalSettings(current.terminal, next.terminal)
     ? current.terminal
     : next.terminal;
+  const editor = equalEditorSettings(current.editor, next.editor)
+    ? current.editor
+    : next.editor;
   const worktree = equalWorktreeSettings(current.worktree, next.worktree)
     ? current.worktree
     : next.worktree;
@@ -527,6 +665,7 @@ function stabilizeSettingsSections(
   if (
     appearance === current.appearance &&
     terminal === current.terminal &&
+    editor === current.editor &&
     worktree === current.worktree
   ) {
     return current;
@@ -535,6 +674,7 @@ function stabilizeSettingsSections(
   return {
     appearance,
     terminal,
+    editor,
     worktree,
   };
 }
@@ -550,6 +690,7 @@ function commitSettings(
   let prefersLight = true;
   let shouldSyncTheme = false;
   let shouldResolveFont = false;
+  let shouldFetchEditorTheme = false;
 
   useSettingsStore.setState((state) => ({
     settings: (() => {
@@ -567,6 +708,10 @@ function commitSettings(
         ? getActiveTheme(nextSettings.appearance, prefersLight)
         : state.activeTheme;
       shouldResolveFont = nextSettings.terminal !== state.settings.terminal;
+      shouldFetchEditorTheme =
+        state.editorThemeData === null ||
+        nextSettings.editor !== state.settings.editor ||
+        nextSettings.appearance !== state.settings.appearance;
       return nextTheme;
     })(),
     themeVersion:
@@ -582,6 +727,15 @@ function commitSettings(
   }
   if (shouldResolveFont) {
     updateResolvedFont(nextSettings.terminal);
+  }
+  if (shouldFetchEditorTheme) {
+    fetchEditorThemeData(
+      getActiveEditorThemeId(
+        nextSettings.appearance,
+        nextSettings.editor,
+        prefersLight,
+      ),
+    );
   }
 }
 
@@ -705,9 +859,11 @@ function applyOptimisticPatch(
 function handleSystemColorSchemeChange(event: MediaQueryListEvent): void {
   let appearance: AppearanceSettings | null = null;
   let activeTheme: HubrisTheme | null = null;
+  let editorSettings: EditorSettings | null = null;
+  const prefersLight = !event.matches;
   useSettingsStore.setState((state) => {
-    const prefersLight = !event.matches;
     appearance = state.settings.appearance;
+    editorSettings = state.settings.editor;
     activeTheme = getActiveTheme(state.settings.appearance, prefersLight);
     return {
       prefersLight,
@@ -717,6 +873,11 @@ function handleSystemColorSchemeChange(event: MediaQueryListEvent): void {
   });
   if (appearance && activeTheme) {
     syncActiveTheme(activeTheme, appearance);
+  }
+  if (appearance && editorSettings) {
+    fetchEditorThemeData(
+      getActiveEditorThemeId(appearance, editorSettings, prefersLight),
+    );
   }
 }
 
@@ -742,6 +903,8 @@ export const useSettingsStore = create<SettingsStoreState>(() => ({
   activeTheme: null,
   themeVersion: 0,
   terminalVersion: 0,
+  editorThemeData: null,
+  editorThemeVersion: 0,
   prefersLight: readPrefersLight(),
   fontFamily: DEFAULT_FONT_FAMILY,
   updateAppearance(partial) {
@@ -749,6 +912,9 @@ export const useSettingsStore = create<SettingsStoreState>(() => ({
   },
   updateTerminal(partial, options) {
     applyOptimisticPatch({ terminal: partial }, options);
+  },
+  updateEditor(partial) {
+    applyOptimisticPatch({ editor: partial });
   },
   updateWorktree(partial) {
     applyOptimisticPatch({ worktree: partial });
@@ -813,6 +979,8 @@ export function resetSettingsStoreForTests(): void {
   }
   mediaListenerBound = false;
 
+  editorThemeFetchGeneration = 0;
+
   useSettingsStore.setState({
     settings: DEFAULT_SETTINGS,
     generation: "0",
@@ -820,6 +988,8 @@ export function resetSettingsStoreForTests(): void {
     activeTheme: null,
     themeVersion: 0,
     terminalVersion: 0,
+    editorThemeData: null,
+    editorThemeVersion: 0,
     prefersLight: readPrefersLight(),
     fontFamily: DEFAULT_FONT_FAMILY,
   });

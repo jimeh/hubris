@@ -1,6 +1,7 @@
 /target/
 /data/
-/crates/server/data/
+/crates/server/data/*
+!/crates/server/data/editor-themes/
 /tmp/
 /frontend/node_modules/
 /frontend/dist/

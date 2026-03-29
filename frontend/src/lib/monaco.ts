@@ -5,6 +5,8 @@ import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+import type { VscodeThemeJson } from "@/lib/api";
+import { convertVscodeThemeToMonaco } from "@/lib/editorTheme";
 import type { HubrisTheme } from "@/lib/theme/types";
 import type { FileTab, GitDiffTab, Tab } from "@/lib/types";
 
@@ -52,8 +54,43 @@ export function configureMonaco(): void {
   loader.config({ monaco });
 }
 
-export function applyMonacoTheme(theme: HubrisTheme | null): void {
+export function applyMonacoTheme(
+  theme: HubrisTheme | null,
+  editorThemeData: VscodeThemeJson | null = null,
+): void {
   configureMonaco();
+
+  if (editorThemeData) {
+    // Full VS Code theme with syntax highlighting rules.
+    const converted = convertVscodeThemeToMonaco(editorThemeData);
+
+    // Ensure diff editor colors are present as fallbacks.
+    if (!converted.colors["diffEditor.insertedTextBackground"]) {
+      converted.colors["diffEditor.insertedTextBackground"] = "#16a34a33";
+    }
+    if (!converted.colors["diffEditor.removedTextBackground"]) {
+      converted.colors["diffEditor.removedTextBackground"] = "#dc262633";
+    }
+
+    const signature = JSON.stringify({
+      base: converted.base,
+      colors: converted.colors,
+      ruleCount: converted.rules.length,
+      firstRule: converted.rules[0],
+    });
+
+    if (appliedThemeSignature === signature) {
+      return;
+    }
+    appliedThemeSignature = signature;
+
+    monaco.editor.defineTheme(HUBRIS_THEME_NAME, converted);
+    monaco.editor.setTheme(HUBRIS_THEME_NAME);
+    return;
+  }
+
+  // Fallback: derive chrome colors from Hubris UI theme, no
+  // syntax highlighting rules.
   const base = theme?.type === "light" ? "vs" : "vs-dark";
   const colors = {
     background: theme?.tokens["terminal-background"] ?? "#111827",

@@ -1,6 +1,9 @@
 use axum::Json;
 use utoipa::OpenApi;
 
+use crate::api::editor_themes::{
+    EditorThemeEntry, VscodeThemeJson, VscodeTokenColor, VscodeTokenColorSettings, VscodeTokenScope,
+};
 use crate::api::files::{
     ApiErrorResponse, DirEntry, ListFilesResponse, ListWorktreeFilesResponse,
     RenameWorktreeFileRequest, RenameWorktreeFileResponse, WorktreeFileContentParams,
@@ -11,9 +14,10 @@ use crate::api::projects::{
     AddProjectRequest, Project, ReorderProjectsRequest, UpdateProjectRequest,
 };
 use crate::api::settings::{
-    AppearanceSettings, AppearanceSettingsPatch, ColorScheme, Settings, SettingsPatch,
-    SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings,
-    TerminalSettingsPatch, WorktreeLocationMode, WorktreeSettings, WorktreeSettingsPatch,
+    AppearanceSettings, AppearanceSettingsPatch, ColorScheme, EditorSettings, EditorSettingsPatch,
+    Settings, SettingsPatch, SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource,
+    TerminalSettings, TerminalSettingsPatch, WorktreeLocationMode, WorktreeSettings,
+    WorktreeSettingsPatch,
 };
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
@@ -64,6 +68,10 @@ use crate::tab::{GitDiffScope, TabInfo};
         crate::api::settings::get_settings,
         crate::api::settings::put_settings,
         crate::api::settings::patch_settings,
+        crate::api::editor_themes::list_editor_themes,
+        crate::api::editor_themes::get_editor_theme,
+        crate::api::editor_themes::upload_editor_theme,
+        crate::api::editor_themes::delete_editor_theme,
     ),
     components(
         schemas(
@@ -116,6 +124,8 @@ use crate::tab::{GitDiffScope, TabInfo};
             AppearanceSettingsPatch,
             TerminalSettings,
             TerminalSettingsPatch,
+            EditorSettings,
+            EditorSettingsPatch,
             WorktreeSettings,
             WorktreeSettingsPatch,
             Settings,
@@ -123,6 +133,11 @@ use crate::tab::{GitDiffScope, TabInfo};
             SettingsStatusKind,
             SettingsStatus,
             SettingsState,
+            EditorThemeEntry,
+            VscodeThemeJson,
+            VscodeTokenColor,
+            VscodeTokenColorSettings,
+            VscodeTokenScope,
         )
     ),
     tags(

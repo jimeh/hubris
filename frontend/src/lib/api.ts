@@ -614,3 +614,70 @@ export async function replaceSettings(
   }
   return res.json();
 }
+
+// --- Editor Themes ---
+
+export type VscodeTokenColorSettings = {
+  foreground?: string;
+  fontStyle?: string;
+  background?: string;
+};
+
+export type VscodeTokenColor = {
+  name?: string;
+  scope?: string | string[];
+  settings: VscodeTokenColorSettings;
+};
+
+export type VscodeThemeJson = {
+  name: string;
+  type?: string;
+  colors: Record<string, string>;
+  tokenColors: VscodeTokenColor[];
+};
+
+export type EditorThemeEntry = {
+  id: string;
+  name: string;
+  type: string;
+  builtin: boolean;
+};
+
+export async function listEditorThemes(): Promise<EditorThemeEntry[]> {
+  const res = await fetch(`${BASE}/editor-themes`);
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+  return res.json();
+}
+
+export async function getEditorTheme(id: string): Promise<VscodeThemeJson> {
+  const res = await fetch(`${BASE}/editor-themes/${encodeURIComponent(id)}`);
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+  return res.json();
+}
+
+export async function uploadEditorTheme(
+  theme: VscodeThemeJson,
+): Promise<EditorThemeEntry> {
+  const res = await fetch(`${BASE}/editor-themes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(theme),
+  });
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+  return res.json();
+}
+
+export async function deleteEditorTheme(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/editor-themes/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+}

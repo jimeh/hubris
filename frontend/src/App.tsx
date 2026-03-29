@@ -190,6 +190,7 @@ export default function App() {
     (state) => state.worktreesByProject,
   );
   const activeTheme = useSettingsStore((state) => state.activeTheme);
+  const editorThemeData = useSettingsStore((state) => state.editorThemeData);
   const settingsStatus = useSettingsStore((state) => state.status);
   const isResizing = useSidebarWidthStore((state) => state.isResizing);
   const switchToWorktree = useTabStore((state) => state.switchToWorktree);
@@ -269,8 +270,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    applyMonacoTheme(activeTheme);
-  }, [activeTheme]);
+    applyMonacoTheme(activeTheme, editorThemeData);
+  }, [activeTheme, editorThemeData]);
 
   useEffect(() => {
     if (!selectedWorktreeId) {

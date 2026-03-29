@@ -26,9 +26,17 @@ const invalidStatus = {
 type HandlerMap = Map<string, Set<(payload: unknown) => void>>;
 const handlers: HandlerMap = new Map();
 
+const mockGetEditorTheme = vi.fn().mockResolvedValue({
+  name: "Hubris Dark",
+  type: "dark",
+  colors: {},
+  tokenColors: [],
+});
+
 vi.mock("@/lib/api", () => ({
   getSettings: (...args: unknown[]) => mockGetSettings(...args),
   patchSettings: (...args: unknown[]) => mockPatchSettings(...args),
+  getEditorTheme: (...args: unknown[]) => mockGetEditorTheme(...args),
   resetApiStateForTests: () => mockResetApiStateForTests(),
 }));
 
@@ -110,6 +118,10 @@ function createSettingsState(
       bundledFont: string;
       fontSize: number;
     }>;
+    editor: Partial<{
+      lightEditorTheme: string;
+      darkEditorTheme: string;
+    }>;
     worktree: Partial<{
       locationMode: "dataDir" | "repoLocalDotHubris";
     }>;
@@ -130,6 +142,11 @@ function createSettingsState(
         bundledFont: "jetbrainsmono-nf",
         fontSize: 14,
         ...(overrides?.terminal ?? {}),
+      },
+      editor: {
+        lightEditorTheme: "hubris-light",
+        darkEditorTheme: "hubris-dark",
+        ...(overrides?.editor ?? {}),
       },
       worktree: {
         locationMode: "dataDir" as const,
@@ -213,6 +230,10 @@ describe("settings store", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
+          },
+          editor: {
+            lightEditorTheme: "hubris-light",
+            darkEditorTheme: "hubris-dark",
           },
           worktree: {
             locationMode: "repoLocalDotHubris",

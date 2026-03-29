@@ -122,12 +122,16 @@ export type AppearanceSettings = RequiredFields<
 export type TerminalSettings = RequiredFields<
   NonNullable<RestSettings["terminal"]>
 >;
+export type EditorSettings = RequiredFields<
+  NonNullable<RestSettings["editor"]>
+>;
 export type WorktreeSettings = RequiredFields<
   NonNullable<RestSettings["worktree"]>
 >;
 export type Settings = {
   appearance: AppearanceSettings;
   terminal: TerminalSettings;
+  editor: EditorSettings;
   worktree: WorktreeSettings;
 };
 export type SettingsStatusKind = Exclude<
@@ -145,12 +149,16 @@ export type AppearanceSettingsPatch = NullableToOptional<
 export type TerminalSettingsPatch = NullableToOptional<
   NonNullable<RestSettingsPatch["terminal"]>
 >;
+export type EditorSettingsPatch = NullableToOptional<
+  NonNullable<RestSettingsPatch["editor"]>
+>;
 export type WorktreeSettingsPatch = NullableToOptional<
   NonNullable<RestSettingsPatch["worktree"]>
 >;
 export type SettingsPatch = {
   appearance?: AppearanceSettingsPatch;
   terminal?: TerminalSettingsPatch;
+  editor?: EditorSettingsPatch;
   worktree?: WorktreeSettingsPatch;
 };
 export type SettingsState = {
