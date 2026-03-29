@@ -9,6 +9,7 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import WorktreeRowContent from "./WorktreeRowContent";
+import VscodeWorkbenchIndicator from "./VscodeWorkbenchIndicator";
 
 export default function WorktreeRow({
   worktree,
@@ -51,6 +52,7 @@ export default function WorktreeRow({
       <WorktreeRowContent
         isSelected={isSelected}
         isSorting={isSorting}
+        leadingSlot={<VscodeWorkbenchIndicator worktreeId={worktree.id} />}
         contentSlot={
           <button
             className="flex min-w-0 flex-1 items-center text-left"

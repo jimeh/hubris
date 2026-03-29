@@ -23,12 +23,15 @@ import AppSidebar from "@/components/AppSidebar";
 import SettingsStatusNotice from "@/components/SettingsStatusNotice";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import ToastViewport from "@/components/ToastViewport";
+import VscodeWorkbenchPane from "@/components/VscodeWorkbenchPane";
 import WorktreeView from "@/components/WorktreeView";
 import { Button } from "@/components/ui/button";
 import { applyMonacoTheme } from "@/lib/monaco";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
+import { useTabStore } from "@/lib/stores/tabs";
+import { useVscodeWorkbenchStore } from "@/lib/stores/vscodeWorkbench";
 import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type { Worktree } from "@/lib/types";
@@ -188,8 +191,29 @@ export default function App() {
   const activeTheme = useSettingsStore((state) => state.activeTheme);
   const settingsStatus = useSettingsStore((state) => state.status);
   const isResizing = useSidebarWidthStore((state) => state.isResizing);
+  const switchToWorktree = useTabStore((state) => state.switchToWorktree);
+  const cachedVscodeWorktreeIds = useVscodeWorkbenchStore(
+    (state) => state.loadedWorktreeIds,
+  );
+  const markVscodeWorkbenchLoaded = useVscodeWorkbenchStore(
+    (state) => state.markLoaded,
+  );
+  const pruneMissingVscodeWorktrees = useVscodeWorkbenchStore(
+    (state) => state.pruneMissing,
+  );
   const appRootRef = useRef<HTMLDivElement | null>(null);
   const initialSidebarWidthRef = useRef(useSidebarWidthStore.getState().width);
+  const allWorktrees = useMemo(
+    () => Object.values(worktreesByProject).flat(),
+    [worktreesByProject],
+  );
+  const worktreesById = useMemo(
+    () =>
+      Object.fromEntries(
+        allWorktrees.map((worktree) => [worktree.id, worktree]),
+      ),
+    [allWorktrees],
+  );
 
   const selectedWorktree = useMemo(() => {
     if (!selectedWorktreeId) {
@@ -238,6 +262,46 @@ export default function App() {
     applyMonacoTheme(activeTheme);
   }, [activeTheme]);
 
+  useEffect(() => {
+    if (!selectedWorktreeId) {
+      return;
+    }
+
+    switchToWorktree(selectedWorktreeId);
+  }, [selectedWorktreeId, switchToWorktree]);
+
+  useEffect(() => {
+    pruneMissingVscodeWorktrees(allWorktrees.map((worktree) => worktree.id));
+  }, [allWorktrees, pruneMissingVscodeWorktrees]);
+
+  useEffect(() => {
+    if (selectedWorktree?.ui_mode !== "vscode") {
+      return;
+    }
+
+    markVscodeWorkbenchLoaded(selectedWorktree.id);
+  }, [markVscodeWorkbenchLoaded, selectedWorktree]);
+
+  const activeVscodeWorktreeId =
+    selectedWorktree?.ui_mode === "vscode" ? selectedWorktree.id : null;
+  const visibleVscodeWorktreeIds = useMemo(() => {
+    if (
+      activeVscodeWorktreeId &&
+      !cachedVscodeWorktreeIds.includes(activeVscodeWorktreeId)
+    ) {
+      return [...cachedVscodeWorktreeIds, activeVscodeWorktreeId];
+    }
+
+    return cachedVscodeWorktreeIds;
+  }, [activeVscodeWorktreeId, cachedVscodeWorktreeIds]);
+  const cachedVscodeWorktrees = useMemo(
+    () =>
+      visibleVscodeWorktreeIds
+        .map((worktreeId) => worktreesById[worktreeId] ?? null)
+        .filter((worktree): worktree is Worktree => worktree !== null),
+    [visibleVscodeWorktreeIds, worktreesById],
+  );
+
   return (
     <div ref={appRootRef}>
       <SidebarProvider
@@ -256,11 +320,27 @@ export default function App() {
             selectedWorktree={selectedWorktree}
           />
           <SettingsStatusNotice status={settingsStatus} />
-          <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="relative flex flex-1 overflow-hidden">
             {selectedWorktree ? (
-              <WorktreeView worktree={selectedWorktree} />
+              <>
+                {selectedWorktree.ui_mode === "hubris" ? (
+                  <div className="absolute inset-0">
+                    <WorktreeView worktree={selectedWorktree} />
+                  </div>
+                ) : null}
+                {cachedVscodeWorktrees.map((worktree) => (
+                  <VscodeWorkbenchPane
+                    key={worktree.id}
+                    worktree={worktree}
+                    active={
+                      worktree.id === selectedWorktree.id &&
+                      selectedWorktree.ui_mode === "vscode"
+                    }
+                  />
+                ))}
+              </>
             ) : (
-              <div className="flex h-full items-center justify-center text-muted-foreground">
+              <div className="flex flex-1 items-center justify-center text-muted-foreground">
                 <p>Select a worktree from the sidebar</p>
               </div>
             )}

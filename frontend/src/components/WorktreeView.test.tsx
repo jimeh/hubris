@@ -157,7 +157,6 @@ function deferred<T>() {
 describe("WorktreeView", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
-    vi.resetModules();
     terminalRenderSpy.mockClear();
     localStorage.clear();
     setMobile(false);
@@ -421,23 +420,15 @@ describe("WorktreeView", () => {
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
   });
 
-  it("renders a VS Code iframe and hides the right sidebar in vscode mode", async () => {
+  it("renders the right sidebar in hubris mode", async () => {
     const { default: WorktreeView } = await import("./WorktreeView");
-    const worktree = {
-      ...makeWorktree(),
-      name: "feature-a",
-      path: "/tmp/feature-a",
-      ui_mode: "vscode" as const,
-    };
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={makeWorktree()} />);
 
-    const iframe = screen.getByTitle("VS Code workbench for feature-a");
-    expect(iframe).toHaveAttribute("src", "/code/?folder=%2Ftmp%2Ffeature-a");
-    expect(screen.queryByRole("button", { name: "Resize right sidebar" })).toBe(
-      null,
-    );
-    expect(screen.queryByText("Files panel")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Resize right sidebar" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Files panel")).toBeInTheDocument();
   });
 
   it("does not rerender terminal tabs when file editor sessions change", async () => {

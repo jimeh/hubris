@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 type WorktreeRowContentProps = {
   isSelected: boolean;
   isSorting?: boolean;
+  leadingSlot?: ReactNode;
   contentSlot: ReactNode;
   actionSlot?: ReactNode;
   rowClassName?: string;
@@ -12,6 +13,7 @@ type WorktreeRowContentProps = {
 export default function WorktreeRowContent({
   isSelected,
   isSorting = false,
+  leadingSlot = <span className="size-3.5 shrink-0" aria-hidden="true" />,
   contentSlot,
   actionSlot = null,
   rowClassName,
@@ -30,7 +32,7 @@ export default function WorktreeRowContent({
           rowClassName,
         )}
       >
-        <span className="size-3.5 shrink-0" aria-hidden="true" />
+        {leadingSlot}
         {contentSlot}
       </div>
       {actionSlot}

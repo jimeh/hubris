@@ -14,6 +14,7 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import type { Worktree } from "@/lib/types";
+import VscodeWorkbenchIndicator from "./VscodeWorkbenchIndicator";
 import WorktreeDragOverlay from "./WorktreeDragOverlay";
 import WorktreeRowContent from "./WorktreeRowContent";
 import WorktreeRow from "./WorktreeRow";
@@ -77,6 +78,9 @@ export default function WorktreeList({
       {localWorktree ? (
         <WorktreeRowContent
           isSelected={selectedWorktreeId === localWorktree.id}
+          leadingSlot={
+            <VscodeWorkbenchIndicator worktreeId={localWorktree.id} />
+          }
           contentSlot={
             <button
               className="flex min-w-0 flex-1 items-center text-left"
