@@ -50,6 +50,7 @@ describe("WorktreeRowContent", () => {
             path: "/tmp/missing",
             branch: "feature-a",
             source_ref: null,
+            ui_mode: "hubris",
             name: "feature-a",
             position: 2,
             is_local: false,

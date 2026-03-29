@@ -41,6 +41,7 @@ use crate::tab::{GitDiffScope, TabInfo};
         crate::api::projects::reorder_projects,
         crate::api::projects::delete_project,
         crate::api::worktrees::list_project_worktrees,
+        crate::api::worktrees::update_project_worktree,
         crate::api::worktrees::create_project_worktree,
         crate::api::worktrees::list_project_worktree_start_points,
         crate::api::worktrees::reorder_project_worktrees,

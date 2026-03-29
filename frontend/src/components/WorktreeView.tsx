@@ -177,6 +177,10 @@ export default function WorktreeView({ worktree }: Props) {
     () => worktreeTabs.find((tab) => tab.id === pendingCloseTabId) ?? null,
     [pendingCloseTabId, worktreeTabs],
   );
+  const vscodeSrc = useMemo(() => {
+    const params = new URLSearchParams({ folder: worktree.path });
+    return `/code/?${params.toString()}`;
+  }, [worktree.path]);
 
   useEffect(() => {
     switchToWorktree(worktree.id);
@@ -254,58 +258,77 @@ export default function WorktreeView({ worktree }: Props) {
       }
     >
       <div className="flex min-w-0 flex-1 flex-col">
-        <TabBar
-          worktreeId={worktree.id}
-          tabs={worktreeTabs}
-          dirtyTabIds={dirtyTabIds}
-          lockedTabIds={lockedTabIds}
-          activeTabId={activeTabId}
-          onActivate={handleActivateTab}
-          onPin={handlePinTab}
-          onClose={handleCloseTab}
-          onAdd={handleAddTab}
-          onReorder={handleReorderTabs}
-        />
+        {worktree.ui_mode === "vscode" ? (
+          <div className="flex flex-1 overflow-hidden">
+            <iframe
+              title={`VS Code workbench for ${worktree.name}`}
+              src={vscodeSrc}
+              className="h-full w-full border-0 bg-background"
+              allow="clipboard-read; clipboard-write"
+            />
+          </div>
+        ) : (
+          <>
+            <TabBar
+              worktreeId={worktree.id}
+              tabs={worktreeTabs}
+              dirtyTabIds={dirtyTabIds}
+              lockedTabIds={lockedTabIds}
+              activeTabId={activeTabId}
+              onActivate={handleActivateTab}
+              onPin={handlePinTab}
+              onClose={handleCloseTab}
+              onAdd={handleAddTab}
+              onReorder={handleReorderTabs}
+            />
 
-        <div className="relative flex-1 overflow-hidden">
-          {panelTabs.map((tab) => (
-            <div
-              key={tab.id}
-              className={tab.id === activeTabId ? "absolute inset-0" : "hidden"}
-            >
-              {tab.type === "terminal" ? (
-                <TerminalTab
-                  tabId={tab.id}
-                  visible={tab.id === activeTabId}
-                  onClosed={handleTabClosed}
-                />
-              ) : tab.type === "file" ? (
-                <FileEditorTab
-                  projectId={worktree.project_id}
-                  worktreeId={worktree.id}
-                  tab={tab}
-                  visible={tab.id === activeTabId}
-                />
-              ) : tab.type === "git_diff" ? (
-                <GitDiffTab
-                  projectId={worktree.project_id}
-                  worktreeId={worktree.id}
-                  tab={tab}
-                  visible={tab.id === activeTabId}
-                />
+            <div className="relative flex-1 overflow-hidden">
+              {panelTabs.map((tab) => (
+                <div
+                  key={tab.id}
+                  className={
+                    tab.id === activeTabId ? "absolute inset-0" : "hidden"
+                  }
+                >
+                  {tab.type === "terminal" ? (
+                    <TerminalTab
+                      tabId={tab.id}
+                      visible={tab.id === activeTabId}
+                      onClosed={handleTabClosed}
+                    />
+                  ) : tab.type === "file" ? (
+                    <FileEditorTab
+                      projectId={worktree.project_id}
+                      worktreeId={worktree.id}
+                      tab={tab}
+                      visible={tab.id === activeTabId}
+                    />
+                  ) : tab.type === "git_diff" ? (
+                    <GitDiffTab
+                      projectId={worktree.project_id}
+                      worktreeId={worktree.id}
+                      tab={tab}
+                      visible={tab.id === activeTabId}
+                    />
+                  ) : null}
+                </div>
+              ))}
+
+              {worktreeTabs.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-muted-foreground">
+                  <p>
+                    Click + to open a terminal, or select a file to preview.
+                  </p>
+                </div>
               ) : null}
             </div>
-          ))}
-
-          {worktreeTabs.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              <p>Click + to open a terminal, or select a file to preview.</p>
-            </div>
-          ) : null}
-        </div>
+          </>
+        )}
       </div>
 
-      <WorktreeRightSidebar worktree={worktree} />
+      {worktree.ui_mode === "hubris" ? (
+        <WorktreeRightSidebar worktree={worktree} />
+      ) : null}
       <AlertDialog
         open={pendingCloseTabId !== null}
         onOpenChange={(open) => {

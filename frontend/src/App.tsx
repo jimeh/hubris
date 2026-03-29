@@ -31,13 +31,14 @@ import { useSettingsStore } from "@/lib/stores/settings";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
 import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
+import type { Worktree } from "@/lib/types";
 
 function AppHeader({
   selectedProject,
   selectedWorktree,
 }: {
   selectedProject: { name: string } | null;
-  selectedWorktree: { name: string } | null;
+  selectedWorktree: Worktree | null;
 }) {
   const sidebar = useSidebar();
   const isMobile = sidebar.isMobile;
@@ -53,10 +54,12 @@ function AppHeader({
   );
   const openTab = useWorktreeRightSidebarStore((state) => state.openTab);
   const activeTab = useWorktreeRightSidebarStore((state) => state.activeTab);
+  const updateUiMode = useWorktreeStore((state) => state.updateUiMode);
   const fileManagerVisible = isMobile ? mobileOpen : desktopOpen;
   const fileManagerLabel = fileManagerVisible
     ? "Hide file manager"
     : "Show file manager";
+  const isVscodeMode = selectedWorktree?.ui_mode === "vscode";
 
   return (
     <header className="flex shrink-0 items-center gap-2 border-b py-2 pl-3 pr-4 md:h-12 md:py-0">
@@ -110,25 +113,65 @@ function AppHeader({
         </Breadcrumb>
       </div>
       {selectedWorktree ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
+        <div className="flex items-center gap-2">
+          <div
+            className="inline-flex items-center rounded-md border border-border/80 bg-muted/35 p-1"
+            role="group"
+            aria-label="Worktree mode"
+          >
             <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={fileManagerLabel}
+              variant={isVscodeMode ? "ghost" : "secondary"}
+              size="sm"
+              className="h-7 px-3"
+              aria-pressed={!isVscodeMode}
               onClick={() => {
-                if (fileManagerVisible) {
-                  closeForViewport(isMobile);
-                } else {
-                  openTab(activeTab, isMobile);
-                }
+                void updateUiMode(
+                  selectedWorktree.project_id,
+                  selectedWorktree.id,
+                  "hubris",
+                );
               }}
             >
-              <PanelRight className="h-4 w-4" />
+              Hubris
             </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{fileManagerLabel}</TooltipContent>
-        </Tooltip>
+            <Button
+              variant={isVscodeMode ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-3"
+              aria-pressed={isVscodeMode}
+              onClick={() => {
+                void updateUiMode(
+                  selectedWorktree.project_id,
+                  selectedWorktree.id,
+                  "vscode",
+                );
+              }}
+            >
+              VS Code
+            </Button>
+          </div>
+          {!isVscodeMode ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={fileManagerLabel}
+                  onClick={() => {
+                    if (fileManagerVisible) {
+                      closeForViewport(isMobile);
+                    } else {
+                      openTab(activeTab, isMobile);
+                    }
+                  }}
+                >
+                  <PanelRight className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{fileManagerLabel}</TooltipContent>
+            </Tooltip>
+          ) : null}
+        </div>
       ) : null}
     </header>
   );

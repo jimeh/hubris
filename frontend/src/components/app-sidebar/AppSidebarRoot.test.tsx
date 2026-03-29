@@ -73,6 +73,7 @@ function makeWorktree(
     path: overrides.path ?? `/tmp/${overrides.name}`,
     branch: overrides.branch ?? overrides.name,
     source_ref: overrides.source_ref ?? null,
+    ui_mode: overrides.ui_mode ?? "hubris",
     is_local: overrides.is_local ?? false,
     missing_on_disk: overrides.missing_on_disk ?? false,
     position: overrides.position ?? 1,

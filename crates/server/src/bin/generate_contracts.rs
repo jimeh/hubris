@@ -8,7 +8,7 @@ use hubris_server::api::settings::{
     TerminalFontSource, TerminalSettings, WorktreeLocationMode, WorktreeSettings,
 };
 use hubris_server::api::terminal::{ClientControlMessage, ServerControlMessage};
-use hubris_server::api::worktrees::Worktree;
+use hubris_server::api::worktrees::{Worktree, WorktreeUiMode};
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
 use hubris_server::tab::{GitDiffScope, TabInfo};
@@ -61,6 +61,7 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<GitDiffScope>(&mut sse, &cfg)?;
     push_ts_export::<TabInfo>(&mut sse, &cfg)?;
     push_ts_export::<Project>(&mut sse, &cfg)?;
+    push_ts_export::<WorktreeUiMode>(&mut sse, &cfg)?;
     push_ts_export::<Worktree>(&mut sse, &cfg)?;
     push_ts_export::<ColorScheme>(&mut sse, &cfg)?;
     push_ts_export::<TerminalFontSource>(&mut sse, &cfg)?;

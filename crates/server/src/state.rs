@@ -5,6 +5,7 @@ use std::sync::atomic::AtomicU32;
 use dashmap::DashMap;
 
 use crate::api::projects::Project;
+use crate::code_server::CodeServerManager;
 use crate::events::EventBus;
 use crate::pty::live_tab::LiveTab;
 use crate::settings_manager::SettingsManager;
@@ -20,6 +21,7 @@ pub struct AppState {
     pub events: Arc<EventBus>,
     pub next_tab_num: Arc<AtomicU32>,
     pub data_dir: PathBuf,
+    pub code_server: Arc<CodeServerManager>,
     pub settings: Arc<SettingsManager>,
     pub worktree_files: Arc<WorktreeFilesService>,
 }
@@ -39,6 +41,7 @@ impl AppState {
             terminal_tabs: Arc::new(DashMap::new()),
             events: events.clone(),
             next_tab_num: Arc::new(AtomicU32::new(1)),
+            code_server: Arc::new(CodeServerManager::new(data_dir.join("code"))),
             data_dir,
             settings,
             worktree_files: Arc::new(WorktreeFilesService::new(events.clone())),

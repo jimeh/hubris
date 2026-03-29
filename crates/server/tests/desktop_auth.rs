@@ -189,6 +189,12 @@ async fn packaged_desktop_blocks_unauthenticated_requests() {
     let frontend = client.get(&base).send().await.unwrap();
     assert_eq!(frontend.status(), StatusCode::UNAUTHORIZED);
 
+    let code = client.get(format!("{base}/code")).send().await.unwrap();
+    assert_eq!(code.status(), StatusCode::UNAUTHORIZED);
+
+    let code_slash = client.get(format!("{base}/code/")).send().await.unwrap();
+    assert_eq!(code_slash.status(), StatusCode::UNAUTHORIZED);
+
     let api = client
         .get(format!("{base}/api/projects"))
         .send()

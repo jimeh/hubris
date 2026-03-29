@@ -70,6 +70,16 @@ async fn create_worktree(
     res.json().await.unwrap()
 }
 
+async fn list_worktrees(client: &reqwest::Client, base: &str, project_id: &str) -> Value {
+    let res = client
+        .get(format!("{}/api/projects/{}/worktrees", base, project_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    res.json().await.unwrap()
+}
+
 fn find_sse_separator(buffer: &[u8]) -> Option<usize> {
     buffer
         .windows(2)
@@ -260,6 +270,38 @@ async fn test_reorder_projects() {
     let body: Vec<Value> = res.json().await.unwrap();
     assert_eq!(body[0]["id"], p2_id);
     assert_eq!(body[1]["id"], p1_id);
+}
+
+#[tokio::test]
+async fn test_worktree_ui_mode_defaults_to_hubris_and_persists_patch() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let project_id = project["id"].as_str().unwrap();
+
+    let listed = list_worktrees(&client, &base, project_id).await;
+    let local = &listed["worktrees"][0];
+    assert_eq!(local["ui_mode"], "hubris");
+
+    let res = client
+        .patch(format!(
+            "{}/api/projects/{}/worktrees/{}",
+            base,
+            project_id,
+            local["id"].as_str().unwrap()
+        ))
+        .json(&serde_json::json!({ "ui_mode": "vscode" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let updated: Value = res.json().await.unwrap();
+    assert_eq!(updated["ui_mode"], "vscode");
+
+    let listed = list_worktrees(&client, &base, project_id).await;
+    assert_eq!(listed["worktrees"][0]["ui_mode"], "vscode");
 }
 
 #[tokio::test]

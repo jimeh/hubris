@@ -40,6 +40,7 @@ function makeWorktree(): Worktree {
     path: "/tmp/feature-a",
     branch: "feature-a",
     source_ref: "main",
+    ui_mode: "hubris",
     is_local: false,
     missing_on_disk: false,
     position: 2,

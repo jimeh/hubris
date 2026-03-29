@@ -80,6 +80,7 @@ function makeWorktree(): Worktree {
     path: "/tmp/devbox",
     branch: "main",
     source_ref: null,
+    ui_mode: "hubris",
     is_local: true,
     missing_on_disk: false,
     position: 1,
@@ -418,6 +419,25 @@ describe("WorktreeView", () => {
       viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
     ).toBe("484px");
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+  });
+
+  it("renders a VS Code iframe and hides the right sidebar in vscode mode", async () => {
+    const { default: WorktreeView } = await import("./WorktreeView");
+    const worktree = {
+      ...makeWorktree(),
+      name: "feature-a",
+      path: "/tmp/feature-a",
+      ui_mode: "vscode" as const,
+    };
+
+    render(<WorktreeView worktree={worktree} />);
+
+    const iframe = screen.getByTitle("VS Code workbench for feature-a");
+    expect(iframe).toHaveAttribute("src", "/code/?folder=%2Ftmp%2Ffeature-a");
+    expect(screen.queryByRole("button", { name: "Resize right sidebar" })).toBe(
+      null,
+    );
+    expect(screen.queryByText("Files panel")).toBeNull();
   });
 
   it("does not rerender terminal tabs when file editor sessions change", async () => {

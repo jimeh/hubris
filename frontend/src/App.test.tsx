@@ -83,6 +83,7 @@ describe("App", () => {
             path: "/tmp/devbox",
             branch: "main",
             source_ref: null,
+            ui_mode: "hubris",
             is_local: true,
             missing_on_disk: false,
             position: 1,
@@ -94,6 +95,7 @@ describe("App", () => {
             path: "/tmp/devbox-feature",
             branch: "feature-a",
             source_ref: null,
+            ui_mode: "hubris",
             is_local: false,
             missing_on_disk: false,
             position: 2,
@@ -220,5 +222,28 @@ describe("App", () => {
     expect(
       screen.getByText(/expected a \] while parsing settings\.toml/i),
     ).toBeInTheDocument();
+  });
+
+  it("hides the file manager control in vscode mode", async () => {
+    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+    useWorktreeStore.setState((state) => ({
+      worktreesByProject: {
+        ...state.worktreesByProject,
+        p1: (state.worktreesByProject.p1 ?? []).map((worktree) =>
+          worktree.id === "w-local"
+            ? { ...worktree, ui_mode: "vscode" }
+            : worktree,
+        ),
+      },
+    }));
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: "Hubris" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "VS Code" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /file manager/i }),
+    ).not.toBeInTheDocument();
   });
 });
