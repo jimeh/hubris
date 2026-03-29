@@ -79,6 +79,44 @@ function AppHeader({
           orientation="vertical"
           className="shrink-0 data-[orientation=vertical]:h-4"
         />
+        {selectedWorktree ? (
+          <div
+            className="ml-1 inline-flex items-center rounded-md border border-border/80 bg-muted/35 p-1"
+            role="group"
+            aria-label="Worktree mode"
+          >
+            <Button
+              variant={isVscodeMode ? "ghost" : "secondary"}
+              size="sm"
+              className="h-7 px-3"
+              aria-pressed={!isVscodeMode}
+              onClick={() => {
+                void updateUiMode(
+                  selectedWorktree.project_id,
+                  selectedWorktree.id,
+                  "hubris",
+                );
+              }}
+            >
+              Hubris
+            </Button>
+            <Button
+              variant={isVscodeMode ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-3"
+              aria-pressed={isVscodeMode}
+              onClick={() => {
+                void updateUiMode(
+                  selectedWorktree.project_id,
+                  selectedWorktree.id,
+                  "vscode",
+                );
+              }}
+            >
+              VS Code
+            </Button>
+          </div>
+        ) : null}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
@@ -116,65 +154,27 @@ function AppHeader({
         </Breadcrumb>
       </div>
       {selectedWorktree ? (
-        <div className="flex items-center gap-2">
-          <div
-            className="inline-flex items-center rounded-md border border-border/80 bg-muted/35 p-1"
-            role="group"
-            aria-label="Worktree mode"
-          >
-            <Button
-              variant={isVscodeMode ? "ghost" : "secondary"}
-              size="sm"
-              className="h-7 px-3"
-              aria-pressed={!isVscodeMode}
-              onClick={() => {
-                void updateUiMode(
-                  selectedWorktree.project_id,
-                  selectedWorktree.id,
-                  "hubris",
-                );
-              }}
-            >
-              Hubris
-            </Button>
-            <Button
-              variant={isVscodeMode ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 px-3"
-              aria-pressed={isVscodeMode}
-              onClick={() => {
-                void updateUiMode(
-                  selectedWorktree.project_id,
-                  selectedWorktree.id,
-                  "vscode",
-                );
-              }}
-            >
-              VS Code
-            </Button>
-          </div>
-          {!isVscodeMode ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={fileManagerLabel}
-                  onClick={() => {
-                    if (fileManagerVisible) {
-                      closeForViewport(isMobile);
-                    } else {
-                      openTab(activeTab, isMobile);
-                    }
-                  }}
-                >
-                  <PanelRight className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{fileManagerLabel}</TooltipContent>
-            </Tooltip>
-          ) : null}
-        </div>
+        !isVscodeMode ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={fileManagerLabel}
+                onClick={() => {
+                  if (fileManagerVisible) {
+                    closeForViewport(isMobile);
+                  } else {
+                    openTab(activeTab, isMobile);
+                  }
+                }}
+              >
+                <PanelRight className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{fileManagerLabel}</TooltipContent>
+          </Tooltip>
+        ) : null
       ) : null}
     </header>
   );

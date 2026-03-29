@@ -295,6 +295,20 @@ describe("App", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("renders the mode switcher before the title block", async () => {
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    const modeSwitcher = screen.getByRole("group", { name: "Worktree mode" });
+    const projectTitle = screen.getAllByText("Devbox")[0];
+
+    expect(
+      modeSwitcher.compareDocumentPosition(projectTitle) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
   it("keeps VS Code panes mounted across worktree switches and mode toggles", async () => {
     const { useWorktreeStore } = await import("@/lib/stores/worktrees");
     useWorktreeStore.setState((state) => ({
