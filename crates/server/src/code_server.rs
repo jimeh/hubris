@@ -113,7 +113,7 @@ impl fmt::Debug for CodeServerManager {
 enum ManagerState {
     Idle,
     Starting,
-    Running(RunningCodeServer),
+    Running(Box<RunningCodeServer>),
 }
 
 #[derive(Debug)]
@@ -262,7 +262,7 @@ impl CodeServerManager {
             let outcome = match result {
                 Ok(server) => {
                     let connection = server.connection.clone();
-                    *state = ManagerState::Running(server);
+                    *state = ManagerState::Running(Box::new(server));
                     Ok(connection)
                 }
                 Err(error) => {
