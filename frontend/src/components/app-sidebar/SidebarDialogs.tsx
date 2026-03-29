@@ -2,6 +2,7 @@ import AddProjectDialog from "@/components/AddProjectDialog";
 import AddWorktreeDialog from "@/components/AddWorktreeDialog";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import ProjectRemoveDialog from "@/components/ProjectRemoveDialog";
+import WorktreeRemoveDialog from "@/components/WorktreeRemoveDialog";
 import RenameProjectDialog from "@/components/RenameProjectDialog";
 import SettingsDialog from "@/components/SettingsDialog";
 import type { DeleteProjectOptions } from "@/lib/api";
@@ -19,7 +20,13 @@ type SidebarDialogsProps = {
     startPoint?: string,
     sourceRef?: string,
   ) => Promise<unknown>;
+  onImportWorktree: (projectId: string, path: string) => Promise<unknown>;
   onRenameProject: (projectId: string, name: string) => Promise<unknown>;
+  onRenameWorktree: (
+    projectId: string,
+    worktreeId: string,
+    name: string,
+  ) => Promise<void>;
   onRemoveProject: (
     projectId: string,
     options?: DeleteProjectOptions,
@@ -28,6 +35,7 @@ type SidebarDialogsProps = {
     projectId: string,
     worktreeId: string,
     force?: boolean,
+    untrackOnly?: boolean,
   ) => Promise<void>;
 };
 
@@ -37,7 +45,9 @@ export default function SidebarDialogs({
   setDialogState,
   onAddProject,
   onAddWorktree,
+  onImportWorktree,
   onRenameProject,
+  onRenameWorktree,
   onRemoveProject,
   onRemoveWorktree,
 }: SidebarDialogsProps) {
@@ -68,6 +78,10 @@ export default function SidebarDialogs({
             );
             setDialogState((state) => ({ ...state, addWorktree: null }));
           }}
+          onImport={async (path) => {
+            await onImportWorktree(dialogState.addWorktree!.projectId, path);
+            setDialogState((state) => ({ ...state, addWorktree: null }));
+          }}
           onClose={() =>
             setDialogState((state) => ({ ...state, addWorktree: null }))
           }
@@ -82,6 +96,23 @@ export default function SidebarDialogs({
           }}
           onClose={() =>
             setDialogState((state) => ({ ...state, renameProject: null }))
+          }
+        />
+      ) : null}
+
+      {dialogState.renameWorktree ? (
+        <RenameProjectDialog
+          currentName={dialogState.renameWorktree.currentName}
+          title="Rename Worktree"
+          description="Update the worktree display name."
+          placeholder="Worktree name"
+          onRename={async (name): Promise<void> => {
+            const { projectId, worktreeId } = dialogState.renameWorktree!;
+            await onRenameWorktree(projectId, worktreeId, name);
+            setDialogState((state) => ({ ...state, renameWorktree: null }));
+          }}
+          onClose={() =>
+            setDialogState((state) => ({ ...state, renameWorktree: null }))
           }
         />
       ) : null}
@@ -161,11 +192,23 @@ export default function SidebarDialogs({
       ) : null}
 
       {dialogState.confirmRemoveWorktree ? (
-        <ConfirmDialog
-          title="Delete Worktree"
-          description={`Delete worktree ${dialogState.confirmRemoveWorktree.worktree.name}? This removes the worktree directory from disk.`}
-          confirmLabel="Delete"
-          onConfirm={() => {
+        <WorktreeRemoveDialog
+          worktreeName={dialogState.confirmRemoveWorktree.worktree.name}
+          isImported={dialogState.confirmRemoveWorktree.worktree.is_imported}
+          onUntrackOnly={() => {
+            const target = dialogState.confirmRemoveWorktree!;
+            setDialogState((state) => ({
+              ...state,
+              confirmRemoveWorktree: null,
+            }));
+            void onRemoveWorktree(
+              target.projectId,
+              target.worktree.id,
+              false,
+              true,
+            );
+          }}
+          onDeleteFromDisk={() => {
             const target = dialogState.confirmRemoveWorktree!;
             setDialogState((state) => ({
               ...state,

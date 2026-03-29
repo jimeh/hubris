@@ -28,6 +28,7 @@ export type ProjectRowProps = {
   onAddWorktree: () => void;
   onRenameProject: () => void;
   onRemoveProject: () => void;
+  onRenameWorktree: (worktree: Worktree) => void;
   onRemoveWorktree: (worktree: Worktree) => void;
   onReorderWorktrees: (orderedIds: string[]) => void;
 };
@@ -46,6 +47,7 @@ export default function ProjectRow({
   onAddWorktree,
   onRenameProject,
   onRemoveProject,
+  onRenameWorktree,
   onRemoveWorktree,
   onReorderWorktrees,
 }: ProjectRowProps) {
@@ -139,6 +141,7 @@ export default function ProjectRow({
               projectError={currentProjectError}
               selectedWorktreeId={selectedWorktreeId}
               onSelectWorktree={onSelectWorktree}
+              onRenameWorktree={onRenameWorktree}
               onRemoveWorktree={onRemoveWorktree}
               onReorder={onReorderWorktrees}
             />

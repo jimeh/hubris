@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   createProjectWorktree,
   deleteProjectWorktree,
+  importProjectWorktree,
   reorderProjectWorktrees,
   updateProjectWorktree,
 } from "@/lib/api";
@@ -21,10 +22,17 @@ type WorktreesState = {
     startPoint?: string,
     sourceRef?: string,
   ) => Promise<Worktree>;
+  importWorktree: (projectId: string, path: string) => Promise<Worktree>;
+  rename: (
+    projectId: string,
+    worktreeId: string,
+    name: string,
+  ) => Promise<void>;
   remove: (
     projectId: string,
     worktreeId: string,
     force?: boolean,
+    untrackOnly?: boolean,
   ) => Promise<void>;
   reorder: (projectId: string, orderedIds: string[]) => Promise<void>;
   updateUiMode: (
@@ -161,7 +169,43 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
     });
     return worktree;
   },
-  async remove(projectId, worktreeId, force = false) {
+  async importWorktree(projectId, path) {
+    const worktree = await importProjectWorktree(projectId, path);
+    set((state) => {
+      const list = state.worktreesByProject[projectId] ?? [];
+      const local = list.find((candidate) => candidate.is_local);
+      const nonLocal = list.filter(
+        (candidate) => !candidate.is_local && candidate.id !== worktree.id,
+      );
+      const next = [
+        ...(local ? [{ ...local, position: 1 }] : []),
+        { ...worktree, position: 2 },
+        ...nonLocal,
+      ].map((candidate, index) => ({
+        ...candidate,
+        position: index + 1,
+      }));
+
+      lsSet(LS_SELECTED, worktree.id);
+      return {
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          [projectId]: next,
+        },
+        selectedWorktreeId: worktree.id,
+      };
+    });
+    return worktree;
+  },
+  async rename(projectId, worktreeId, name) {
+    const updated = await updateProjectWorktree(projectId, worktreeId, {
+      name,
+    });
+    set((state) => ({
+      worktreesByProject: upsertWorktree(state.worktreesByProject, updated),
+    }));
+  },
+  async remove(projectId, worktreeId, force = false, untrackOnly = false) {
     const before = get().worktreesByProject[projectId] ?? [];
     set((state) => {
       const worktreesByProject = {
@@ -180,7 +224,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
     });
 
     try {
-      await deleteProjectWorktree(projectId, worktreeId, force);
+      await deleteProjectWorktree(projectId, worktreeId, force, untrackOnly);
     } catch (error) {
       set((state) => {
         const worktreesByProject = {

@@ -13,6 +13,10 @@ vi.mock("@/components/AddWorktreeDialog", () => ({
   default: () => null,
 }));
 
+vi.mock("@/components/WorktreeRemoveDialog", () => ({
+  default: () => null,
+}));
+
 vi.mock("@/components/RenameProjectDialog", () => ({
   default: () => null,
 }));
@@ -30,6 +34,7 @@ function makeDialogState(overrides: Partial<DialogState> = {}): DialogState {
     confirmRemoveProject: null,
     confirmForceRemoveProject: null,
     confirmRemoveWorktree: null,
+    renameWorktree: null,
     confirmForceRemoveWorktree: null,
     actionError: null,
     ...overrides,
@@ -55,7 +60,9 @@ function renderSidebarDialogs(dialogState: DialogState) {
       setDialogState={vi.fn()}
       onAddProject={vi.fn()}
       onAddWorktree={vi.fn()}
+      onImportWorktree={vi.fn()}
       onRenameProject={vi.fn()}
+      onRenameWorktree={vi.fn()}
       onRemoveProject={onRemoveProject}
       onRemoveWorktree={vi.fn()}
     />,

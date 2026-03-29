@@ -67,6 +67,7 @@ export type Worktree = {
   source_ref: string | null;
   ui_mode: WorktreeUiMode;
   is_local: boolean;
+  is_imported: boolean;
   missing_on_disk: boolean;
   position: number;
 };

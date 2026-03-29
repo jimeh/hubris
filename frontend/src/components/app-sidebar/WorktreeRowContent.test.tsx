@@ -74,6 +74,7 @@ describe("WorktreeRowContent", () => {
           isSelected={false}
           isSorting={false}
           onSelect={() => {}}
+          onRename={() => {}}
           onRemove={() => {}}
         />
       </TooltipProvider>,

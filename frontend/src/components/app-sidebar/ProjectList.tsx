@@ -31,6 +31,7 @@ type ProjectListProps = {
   onAddWorktree: (project: Project) => void;
   onRenameProject: (project: Project) => void;
   onRemoveProject: (project: Project) => void;
+  onRenameWorktree: (project: Project, worktree: Worktree) => void;
   onRemoveWorktree: (project: Project, worktree: Worktree) => void;
   onReorderWorktrees: (project: Project, orderedIds: string[]) => void;
 };
@@ -47,6 +48,7 @@ export default function ProjectList({
   onAddWorktree,
   onRenameProject,
   onRemoveProject,
+  onRenameWorktree,
   onRemoveWorktree,
   onReorderWorktrees,
 }: ProjectListProps) {
@@ -175,6 +177,9 @@ export default function ProjectList({
               onAddWorktree={() => onAddWorktree(project)}
               onRenameProject={() => onRenameProject(project)}
               onRemoveProject={() => onRemoveProject(project)}
+              onRenameWorktree={(worktree) =>
+                onRenameWorktree(project, worktree)
+              }
               onRemoveWorktree={(worktree) =>
                 onRemoveWorktree(project, worktree)
               }

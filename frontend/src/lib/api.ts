@@ -46,6 +46,10 @@ type RenameWorktreeFileRequest =
 type WorktreeGitPathActionRequest =
   components["schemas"]["WorktreeGitPathActionRequest"];
 type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
+type ListImportableWorktreesResponse =
+  components["schemas"]["ListImportableWorktreesResponse"];
+type ImportWorktreeRequest = components["schemas"]["ImportWorktreeRequest"];
+type UpdateWorktreeRequest = components["schemas"]["UpdateWorktreeRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
@@ -188,6 +192,48 @@ export async function createProjectWorktree(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export type ImportableWorktree =
+  ListImportableWorktreesResponse["importable_worktrees"][number];
+
+export async function listImportableWorktrees(
+  projectId: string,
+): Promise<ListImportableWorktreesResponse> {
+  const res = await fetch(`${BASE}/projects/${projectId}/worktrees/importable`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function importProjectWorktree(
+  projectId: string,
+  path: string,
+): Promise<Worktree> {
+  const body: ImportWorktreeRequest = { path };
+  const res = await fetch(`${BASE}/projects/${projectId}/worktrees/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function updateProjectWorktree(
+  projectId: string,
+  worktreeId: string,
+  updates: UpdateWorktreeRequest,
+): Promise<Worktree> {
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    },
+  );
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
@@ -433,9 +479,11 @@ export async function deleteProjectWorktree(
   projectId: string,
   worktreeId: string,
   force = false,
+  untrackOnly = false,
 ): Promise<void> {
   const params = new URLSearchParams();
   if (force) params.set("force", "true");
+  if (untrackOnly) params.set("untrack_only", "true");
   const qs = params.toString();
   const res = await fetch(
     `${BASE}/projects/${projectId}/worktrees/${worktreeId}${qs ? `?${qs}` : ""}`,
@@ -444,23 +492,6 @@ export async function deleteProjectWorktree(
     },
   );
   if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
-}
-
-export async function updateProjectWorktree(
-  projectId: string,
-  worktreeId: string,
-  updates: { ui_mode?: Worktree["ui_mode"] },
-): Promise<Worktree> {
-  const res = await fetch(
-    `${BASE}/projects/${projectId}/worktrees/${worktreeId}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
-    },
-  );
-  if (!res.ok) throw new Error(`${res.status}`);
-  return res.json();
 }
 
 export async function listFiles(

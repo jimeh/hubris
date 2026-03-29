@@ -117,6 +117,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{id}/worktrees/import": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["import_project_worktree"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/projects/{id}/worktrees/importable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_importable_worktrees"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/projects/{id}/worktrees/reorder": {
     parameters: {
       query?: never;
@@ -492,6 +524,14 @@ export interface components {
       | "deleted"
       | "typechange"
       | "untracked";
+    ImportWorktreeRequest: {
+      path: string;
+    };
+    ImportableWorktree: {
+      branch?: string | null;
+      id: string;
+      path: string;
+    };
     ListFilesResponse: {
       /** @description Subdirectories within `path`. */
       entries: components["schemas"]["DirEntry"][];
@@ -499,6 +539,10 @@ export interface components {
       home_dir?: string | null;
       /** @description Canonical absolute path of the listed directory. */
       path: string;
+    };
+    ListImportableWorktreesResponse: {
+      git_error?: string | null;
+      importable_worktrees: components["schemas"]["ImportableWorktree"][];
     };
     ListWorktreeFilesResponse: {
       entries: components["schemas"]["WorktreeFileEntry"][];
@@ -667,11 +711,13 @@ export interface components {
       preview?: boolean | null;
     };
     UpdateWorktreeRequest: {
+      name?: string | null;
       ui_mode?: null | components["schemas"]["WorktreeUiMode"];
     };
     Worktree: {
       branch: string;
       id: string;
+      is_imported?: boolean;
       is_local: boolean;
       missing_on_disk?: boolean;
       name: string;
@@ -1148,6 +1194,98 @@ export interface operations {
       };
     };
   };
+  import_project_worktree: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ImportWorktreeRequest"];
+      };
+    };
+    responses: {
+      /** @description Worktree imported */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Worktree"];
+        };
+      };
+      /** @description Invalid request or path is not a worktree */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Project not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Worktree already managed */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  list_importable_worktrees: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Importable worktrees */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ListImportableWorktreesResponse"];
+        };
+      };
+      /** @description Project not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   reorder_project_worktrees: {
     parameters: {
       query?: never;
@@ -1237,6 +1375,7 @@ export interface operations {
     parameters: {
       query?: {
         force?: boolean;
+        untrack_only?: boolean;
       };
       header?: never;
       path: {

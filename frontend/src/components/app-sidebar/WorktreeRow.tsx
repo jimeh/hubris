@@ -5,9 +5,10 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Worktree } from "@/lib/types";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import WorktreeActionMenu from "./WorktreeActionMenu";
 import WorktreeRowContent from "./WorktreeRowContent";
 import VscodeWorkbenchIndicator from "./VscodeWorkbenchIndicator";
 
@@ -16,12 +17,14 @@ export default function WorktreeRow({
   isSelected,
   isSorting,
   onSelect,
+  onRename,
   onRemove,
 }: {
   worktree: Worktree;
   isSelected: boolean;
   isSorting: boolean;
   onSelect: () => void;
+  onRename: () => void;
   onRemove: () => void;
 }) {
   const {
@@ -79,28 +82,16 @@ export default function WorktreeRow({
           </button>
         }
         actionSlot={
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className={cn(
-                  "pointer-events-none absolute top-1/2 right-1 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center text-sidebar-foreground/55 transition-[opacity,color]",
-                  isSorting
-                    ? "opacity-0"
-                    : "opacity-0 group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-70 hover:opacity-100 hover:text-sidebar-foreground",
-                )}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onRemove();
-                }}
-                type="button"
-                aria-label="Delete worktree"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Delete worktree</TooltipContent>
-          </Tooltip>
+          <div
+            className={cn(
+              "pointer-events-none absolute top-1/2 right-1 z-10 -translate-y-1/2 transition-opacity",
+              isSorting
+                ? "opacity-0"
+                : "opacity-0 group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-70 hover:opacity-100",
+            )}
+          >
+            <WorktreeActionMenu onRename={onRename} onRemove={onRemove} />
+          </div>
         }
       />
     </div>

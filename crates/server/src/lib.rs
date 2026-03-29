@@ -37,9 +37,10 @@ use api::tabs::{create_tab, delete_tab, list_tabs, reorder_tabs, update_tab};
 use api::terminal::ws_handler;
 use api::worktrees::{
     create_project_worktree, delete_project_worktree, discard_project_worktree_path,
-    get_project_worktree_commit_details, get_project_worktree_git_status,
-    list_project_worktree_start_points, list_project_worktrees, reorder_project_worktrees,
-    stage_project_worktree_path, unstage_project_worktree_path, update_project_worktree,
+    get_project_worktree_commit_details, get_project_worktree_git_status, import_project_worktree,
+    list_importable_worktrees, list_project_worktree_start_points, list_project_worktrees,
+    reorder_project_worktrees, stage_project_worktree_path, unstage_project_worktree_path,
+    update_project_worktree,
 };
 use code_server::proxy_code_request;
 pub use frontend::FrontendAssets;
@@ -209,6 +210,14 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route(
             "/projects/{id}/worktrees/reorder",
             put(reorder_project_worktrees),
+        )
+        .route(
+            "/projects/{id}/worktrees/importable",
+            get(list_importable_worktrees),
+        )
+        .route(
+            "/projects/{id}/worktrees/import",
+            post(import_project_worktree),
         )
         .route(
             "/projects/{id}/worktrees/{worktree_id}",
