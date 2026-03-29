@@ -1,5 +1,6 @@
 mod access;
 pub mod api;
+mod code_server;
 pub mod events;
 mod frontend;
 mod fs_sync;
@@ -16,7 +17,7 @@ use axum::Router;
 use axum::http::Method;
 use axum::http::header::CONTENT_TYPE;
 use axum::middleware;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{any, delete, get, post, put};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -38,8 +39,9 @@ use api::worktrees::{
     create_project_worktree, delete_project_worktree, discard_project_worktree_path,
     get_project_worktree_commit_details, get_project_worktree_git_status,
     list_project_worktree_start_points, list_project_worktrees, reorder_project_worktrees,
-    stage_project_worktree_path, unstage_project_worktree_path,
+    stage_project_worktree_path, unstage_project_worktree_path, update_project_worktree,
 };
+use code_server::proxy_code_request;
 pub use frontend::FrontendAssets;
 use frontend::apply_frontend_fallback;
 pub use state::AppState;
@@ -210,7 +212,7 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         )
         .route(
             "/projects/{id}/worktrees/{worktree_id}",
-            delete(delete_project_worktree),
+            delete(delete_project_worktree).patch(update_project_worktree),
         )
         .route(
             "/projects/{id}/worktrees/{worktree_id}/git-status",
@@ -271,7 +273,12 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
             .allow_headers([CONTENT_TYPE])
     };
 
-    let mut router = Router::new().nest("/api", api).with_state(state);
+    let mut router = Router::new()
+        .route("/code", any(proxy_code_request))
+        .route("/code/", any(proxy_code_request))
+        .route("/code/{*path}", any(proxy_code_request))
+        .nest("/api", api)
+        .with_state(state);
 
     if access
         .desktop()
@@ -315,10 +322,17 @@ pub async fn run_server(
     data_dir: std::path::PathBuf,
     options: ServerOptions,
 ) -> std::io::Result<()> {
-    let app = build_router_with_options(create_app_state(data_dir).await?, options);
-    axum::serve(listener, app)
+    let state = create_app_state(data_dir).await?;
+    let app = build_router_with_options(state.clone(), options);
+    let result = axum::serve(listener, app)
         .await
-        .map_err(std::io::Error::other)
+        .map_err(std::io::Error::other);
+
+    if let Err(error) = state.code_server.shutdown().await {
+        tracing::warn!("failed to shut down shared code server: {error}");
+    }
+
+    result
 }
 
 pub fn openapi_spec() -> utoipa::openapi::OpenApi {

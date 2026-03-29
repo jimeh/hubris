@@ -79,7 +79,10 @@ impl DesktopAccess {
     }
 
     fn requires_session(&self, path: &str) -> bool {
-        self.protect_frontend || path.starts_with("/api")
+        self.protect_frontend
+            || path.starts_with("/api")
+            || path == "/code"
+            || path.starts_with("/code/")
     }
 
     fn is_bootstrap_path(&self, path: &str) -> bool {

@@ -504,6 +504,58 @@
             "description": "Internal server error"
           }
         }
+      },
+      "patch": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "update_project_worktree",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorktreeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Worktree updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Worktree"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project or worktree not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
       }
     },
     "/api/projects/{id}/worktrees/{worktree_id}/files": {
@@ -2295,6 +2347,21 @@
           }
         }
       },
+      "UpdateWorktreeRequest": {
+        "type": "object",
+        "properties": {
+          "ui_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorktreeUiMode"
+              }
+            ]
+          }
+        }
+      },
       "Worktree": {
         "type": "object",
         "required": [
@@ -2303,6 +2370,7 @@
           "name",
           "path",
           "branch",
+          "ui_mode",
           "is_local",
           "position"
         ],
@@ -2334,6 +2402,9 @@
           },
           "source_ref": {
             "type": ["string", "null"]
+          },
+          "ui_mode": {
+            "$ref": "#/components/schemas/WorktreeUiMode"
           }
         }
       },
@@ -2553,6 +2624,10 @@
             ]
           }
         }
+      },
+      "WorktreeUiMode": {
+        "type": "string",
+        "enum": ["hubris", "vscode"]
       },
       "WriteWorktreeFileContentRequest": {
         "type": "object",

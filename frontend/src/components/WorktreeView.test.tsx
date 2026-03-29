@@ -80,6 +80,7 @@ function makeWorktree(): Worktree {
     path: "/tmp/devbox",
     branch: "main",
     source_ref: null,
+    ui_mode: "hubris",
     is_local: true,
     missing_on_disk: false,
     position: 1,
@@ -156,7 +157,6 @@ function deferred<T>() {
 describe("WorktreeView", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
-    vi.resetModules();
     terminalRenderSpy.mockClear();
     localStorage.clear();
     setMobile(false);
@@ -418,6 +418,17 @@ describe("WorktreeView", () => {
       viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
     ).toBe("484px");
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+  });
+
+  it("renders the right sidebar in hubris mode", async () => {
+    const { default: WorktreeView } = await import("./WorktreeView");
+
+    render(<WorktreeView worktree={makeWorktree()} />);
+
+    expect(
+      screen.getByRole("button", { name: "Resize right sidebar" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Files panel")).toBeInTheDocument();
   });
 
   it("does not rerender terminal tabs when file editor sessions change", async () => {

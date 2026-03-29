@@ -7,6 +7,7 @@ vi.mock("@/lib/api", () => ({
   createProjectWorktree: vi.fn(),
   deleteProjectWorktree: vi.fn(),
   reorderProjectWorktrees: vi.fn(),
+  updateProjectWorktree: vi.fn(),
 }));
 
 class MockEventClient {
@@ -59,6 +60,7 @@ function makeWorktree(
     path: overrides.path ?? "/tmp/worktree",
     branch: overrides.branch ?? "main",
     source_ref: overrides.source_ref ?? null,
+    ui_mode: overrides.ui_mode ?? "hubris",
     is_local: overrides.is_local ?? false,
     missing_on_disk: overrides.missing_on_disk ?? false,
     position: overrides.position ?? 1,
@@ -166,5 +168,37 @@ describe("Worktree store", () => {
     store.resetWorktreeStoreForTests();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(0);
+  });
+
+  it("optimistically updates and persists worktree ui mode", async () => {
+    const { updateProjectWorktree } = await import("@/lib/api");
+    vi.mocked(updateProjectWorktree).mockResolvedValue(
+      makeWorktree({
+        id: "w1",
+        project_id: "p1",
+        ui_mode: "vscode",
+      }),
+    );
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({
+            id: "w1",
+            project_id: "p1",
+          }),
+        ],
+      },
+      project_errors: {},
+    });
+
+    await store.useWorktreeStore.getState().updateUiMode("p1", "w1", "vscode");
+
+    expect(vi.mocked(updateProjectWorktree)).toHaveBeenCalledWith("p1", "w1", {
+      ui_mode: "vscode",
+    });
+    expect(
+      store.useWorktreeStore.getState().worktreesByProject.p1?.[0]?.ui_mode,
+    ).toBe("vscode");
   });
 });

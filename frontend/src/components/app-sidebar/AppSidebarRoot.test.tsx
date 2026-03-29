@@ -73,6 +73,7 @@ function makeWorktree(
     path: overrides.path ?? `/tmp/${overrides.name}`,
     branch: overrides.branch ?? overrides.name,
     source_ref: overrides.source_ref ?? null,
+    ui_mode: overrides.ui_mode ?? "hubris",
     is_local: overrides.is_local ?? false,
     missing_on_disk: overrides.missing_on_disk ?? false,
     position: overrides.position ?? 1,
@@ -82,11 +83,13 @@ function makeWorktree(
 async function renderSidebar() {
   const projectStore = await import("@/lib/stores/projects");
   const worktreeStore = await import("@/lib/stores/worktrees");
+  const vscodeWorkbenchStore = await import("@/lib/stores/vscodeWorkbench");
   const { SidebarProvider } = await import("@/components/ui/sidebar");
   const { default: AppSidebarRoot } = await import("./AppSidebarRoot");
 
   projectStore.resetProjectStoreForTests();
   worktreeStore.resetWorktreeStoreForTests();
+  vscodeWorkbenchStore.resetVscodeWorkbenchStoreForTests();
   projectStore.initializeProjectStore();
   worktreeStore.initializeWorktreeStore();
 
@@ -208,5 +211,44 @@ describe("AppSidebarRoot", () => {
 
     expect(sidebarContainer).toHaveClass("z-40");
     expect(sidebarContainer).toHaveClass("md:z-10");
+  });
+
+  it("shows a blue-dot indicator for retained VS Code workbenches", async () => {
+    const { useVscodeWorkbenchStore } =
+      await import("@/lib/stores/vscodeWorkbench");
+    const local = makeWorktree({
+      id: "w-local",
+      project_id: "p1",
+      name: "local",
+      is_local: true,
+      position: 1,
+    });
+
+    await renderSidebar();
+
+    act(() => {
+      useVscodeWorkbenchStore.getState().markLoaded("w-feature");
+      mockEvents.emit("snapshot", {
+        projects: [makeProject({ id: "p1", name: "Devbox" })],
+        worktrees: {
+          p1: [
+            local,
+            makeWorktree({
+              id: "w-feature",
+              project_id: "p1",
+              name: "feature-a",
+              position: 2,
+            }),
+          ],
+        },
+        project_errors: {},
+      });
+    });
+
+    expect(await screen.findByText("feature-a")).toBeInTheDocument();
+    expect(screen.getByLabelText("VS Code workbench loaded")).toBeVisible();
+    expect(screen.getAllByLabelText("VS Code workbench loaded")).toHaveLength(
+      1,
+    );
   });
 });

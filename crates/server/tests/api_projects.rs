@@ -70,6 +70,16 @@ async fn create_worktree(
     res.json().await.unwrap()
 }
 
+async fn list_worktrees(client: &reqwest::Client, base: &str, project_id: &str) -> Value {
+    let res = client
+        .get(format!("{}/api/projects/{}/worktrees", base, project_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    res.json().await.unwrap()
+}
+
 fn find_sse_separator(buffer: &[u8]) -> Option<usize> {
     buffer
         .windows(2)
@@ -260,6 +270,126 @@ async fn test_reorder_projects() {
     let body: Vec<Value> = res.json().await.unwrap();
     assert_eq!(body[0]["id"], p2_id);
     assert_eq!(body[1]["id"], p1_id);
+}
+
+#[tokio::test]
+async fn test_worktree_ui_mode_defaults_to_hubris_and_persists_patch() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let project_id = project["id"].as_str().unwrap();
+
+    let listed = list_worktrees(&client, &base, project_id).await;
+    let local = &listed["worktrees"][0];
+    assert_eq!(local["ui_mode"], "hubris");
+
+    let res = client
+        .patch(format!(
+            "{}/api/projects/{}/worktrees/{}",
+            base,
+            project_id,
+            local["id"].as_str().unwrap()
+        ))
+        .json(&serde_json::json!({ "ui_mode": "vscode" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let updated: Value = res.json().await.unwrap();
+    assert_eq!(updated["ui_mode"], "vscode");
+
+    let listed = list_worktrees(&client, &base, project_id).await;
+    assert_eq!(listed["worktrees"][0]["ui_mode"], "vscode");
+}
+
+#[tokio::test]
+async fn test_worktree_ui_mode_normalization_prunes_stale_entries() {
+    let (base, tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let project_id = project["id"].as_str().unwrap();
+
+    let listed = list_worktrees(&client, &base, project_id).await;
+    let local_id = listed["worktrees"][0]["id"].as_str().unwrap();
+
+    let managed = create_worktree(&client, &base, project_id, "feature-prune-ui-mode").await;
+    let managed_id = managed["id"].as_str().unwrap();
+
+    let response = client
+        .patch(format!(
+            "{}/api/projects/{}/worktrees/{}",
+            base, project_id, managed_id
+        ))
+        .json(&serde_json::json!({ "ui_mode": "vscode" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let meta_path = tmp
+        .path()
+        .join("project-meta")
+        .join(format!("{project_id}.json"));
+    std::fs::write(
+        &meta_path,
+        serde_json::to_string_pretty(&serde_json::json!({
+            "managed_worktrees": [{
+                "id": managed_id,
+                "path": managed["path"],
+                "branch": managed["branch"],
+                "name": managed["name"],
+                "source_ref": managed["source_ref"],
+            }],
+            "worktree_order": [managed_id],
+            "worktree_ui_modes": {
+                local_id: "hubris",
+                managed_id: "vscode",
+                "stale-worktree": "vscode",
+            },
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let response = client
+        .patch(format!(
+            "{}/api/projects/{}/worktrees/{}",
+            base, project_id, local_id
+        ))
+        .json(&serde_json::json!({ "ui_mode": "hubris" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let meta: Value = serde_json::from_str(&std::fs::read_to_string(&meta_path).unwrap()).unwrap();
+    let ui_modes = meta["worktree_ui_modes"].as_object().unwrap();
+    assert_eq!(
+        ui_modes.get(local_id),
+        Some(&Value::String("hubris".into()))
+    );
+    assert_eq!(
+        ui_modes.get(managed_id),
+        Some(&Value::String("vscode".into()))
+    );
+    assert!(!ui_modes.contains_key("stale-worktree"));
+
+    let listed = list_worktrees(&client, &base, project_id).await;
+    let worktrees = listed["worktrees"].as_array().unwrap();
+    let local = worktrees
+        .iter()
+        .find(|worktree| worktree["id"] == local_id)
+        .unwrap();
+    let managed = worktrees
+        .iter()
+        .find(|worktree| worktree["id"] == managed_id)
+        .unwrap();
+    assert_eq!(local["ui_mode"], "hubris");
+    assert_eq!(managed["ui_mode"], "vscode");
 }
 
 #[tokio::test]

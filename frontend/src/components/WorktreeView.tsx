@@ -65,7 +65,6 @@ export default function WorktreeView({ worktree }: Props) {
     useWorktreeRightSidebarWidthStore.getState().width,
   );
   const activeTabId = useTabStore((state) => state.activeTabId);
-  const switchToWorktree = useTabStore((state) => state.switchToWorktree);
   const addTerminal = useTabStore((state) => state.addTerminal);
   const reorder = useTabStore((state) => state.reorder);
   const activate = useTabStore((state) => state.activate);
@@ -177,10 +176,6 @@ export default function WorktreeView({ worktree }: Props) {
     () => worktreeTabs.find((tab) => tab.id === pendingCloseTabId) ?? null,
     [pendingCloseTabId, worktreeTabs],
   );
-
-  useEffect(() => {
-    switchToWorktree(worktree.id);
-  }, [switchToWorktree, worktree.id]);
 
   useEffect(() => {
     if (!activeTab || activeTab.worktree_id !== worktree.id) {

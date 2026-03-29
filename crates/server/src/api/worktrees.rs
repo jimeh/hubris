@@ -25,10 +25,19 @@ pub struct Worktree {
     pub branch: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_ref: Option<String>,
+    pub ui_mode: WorktreeUiMode,
     pub is_local: bool,
     #[serde(default)]
     pub missing_on_disk: bool,
     pub position: f64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WorktreeUiMode {
+    #[default]
+    Hubris,
+    Vscode,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -68,6 +77,12 @@ pub struct CreateWorktreeRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ReorderWorktreesRequest {
     pub worktree_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateWorktreeRequest {
+    #[serde(default)]
+    pub ui_mode: Option<WorktreeUiMode>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -181,6 +196,8 @@ struct ProjectMeta {
     worktree_order: Vec<String>,
     #[serde(default)]
     managed_worktrees: Vec<ManagedWorktree>,
+    #[serde(default)]
+    worktree_ui_modes: HashMap<String, WorktreeUiMode>,
 }
 
 async fn load_meta(state: &AppState, project_id: &str) -> ProjectMeta {
@@ -278,13 +295,29 @@ fn sort_non_local(mut non_local: Vec<Worktree>, order: &[String]) -> Vec<Worktre
     ordered
 }
 
-fn normalize_meta(meta: &mut ProjectMeta) {
+fn local_worktree_id(project: &Project) -> String {
+    git::worktree_id(PathBuf::from(&project.path).as_path())
+}
+
+fn normalize_meta(meta: &mut ProjectMeta, local_worktree_id: &str) {
     let managed_ids: HashSet<String> = meta
         .managed_worktrees
         .iter()
         .map(|wt| wt.id.clone())
         .collect();
     meta.worktree_order.retain(|id| managed_ids.contains(id));
+
+    let mut valid_ui_mode_ids = managed_ids;
+    valid_ui_mode_ids.insert(local_worktree_id.to_string());
+    meta.worktree_ui_modes
+        .retain(|id, _| valid_ui_mode_ids.contains(id));
+}
+
+fn worktree_ui_mode(meta: &ProjectMeta, worktree_id: &str) -> WorktreeUiMode {
+    meta.worktree_ui_modes
+        .get(worktree_id)
+        .copied()
+        .unwrap_or_default()
 }
 
 fn is_missing_worktree_error(message: &str) -> bool {
@@ -300,17 +333,19 @@ pub async fn list_worktrees_for_project(
     project: &Project,
 ) -> Result<Vec<Worktree>, String> {
     let mut meta = load_meta(state, &project.id).await;
-    normalize_meta(&mut meta);
+    let local_id = local_worktree_id(project);
+    normalize_meta(&mut meta, &local_id);
 
     let local_path_buf = PathBuf::from(&project.path);
     let local_path = local_path_buf.to_string_lossy().to_string();
     let local = Worktree {
-        id: git::worktree_id(&local_path_buf),
+        id: local_id.clone(),
         project_id: project.id.clone(),
         name: "local".to_string(),
         path: local_path,
         branch: "local".to_string(),
         source_ref: None,
+        ui_mode: worktree_ui_mode(&meta, &local_id),
         is_local: true,
         missing_on_disk: tokio::fs::metadata(&local_path_buf).await.is_err(),
         position: 0.0,
@@ -329,6 +364,7 @@ pub async fn list_worktrees_for_project(
             path: managed.path.clone(),
             branch: managed.branch.clone(),
             source_ref: managed.source_ref.clone(),
+            ui_mode: worktree_ui_mode(&meta, &managed.id),
             is_local: false,
             missing_on_disk: tokio::fs::metadata(&path_buf).await.is_err(),
             position: 0.0,
@@ -434,6 +470,67 @@ pub async fn list_project_worktrees(
 }
 
 #[utoipa::path(
+    patch,
+    path = "/api/projects/{id}/worktrees/{worktree_id}",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+    ),
+    request_body = UpdateWorktreeRequest,
+    responses(
+        (status = 200, description = "Worktree updated", body = Worktree),
+        (status = 404, description = "Project or worktree not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn update_project_worktree(
+    State(state): State<AppState>,
+    Path((project_id, worktree_id)): Path<(String, String)>,
+    Json(req): Json<UpdateWorktreeRequest>,
+) -> Result<Json<Worktree>, StatusCode> {
+    let projects = state
+        .load_projects()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let project = projects
+        .iter()
+        .find(|project| project.id == project_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let local_worktree_id = local_worktree_id(project);
+
+    let worktrees = list_worktrees_for_project(&state, project)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !worktrees.iter().any(|worktree| worktree.id == worktree_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let mut meta = load_meta(&state, &project.id).await;
+    if let Some(ui_mode) = req.ui_mode {
+        meta.worktree_ui_modes.insert(worktree_id.clone(), ui_mode);
+    }
+    normalize_meta(&mut meta, &local_worktree_id);
+    save_meta(&state, &project.id, &meta).await?;
+
+    let updated_worktrees = list_worktrees_for_project(&state, project)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let updated_worktree = updated_worktrees
+        .iter()
+        .find(|worktree| worktree.id == worktree_id)
+        .cloned()
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    state.events.emit(EventKind::ProjectWorktreesUpdated {
+        project_id: project.id.clone(),
+        worktrees: updated_worktrees,
+        git_error: None,
+    });
+
+    Ok(Json(updated_worktree))
+}
+
+#[utoipa::path(
     post,
     path = "/api/projects/{id}/worktrees",
     params(
@@ -499,6 +596,7 @@ pub async fn create_project_worktree(
         path: created_path.clone(),
         branch: branch.to_string(),
         source_ref: source_ref.clone(),
+        ui_mode: WorktreeUiMode::default(),
         is_local: false,
         missing_on_disk: false,
         position: 0.0,
@@ -515,7 +613,7 @@ pub async fn create_project_worktree(
     });
     meta.worktree_order.retain(|id| id != &created.id);
     meta.worktree_order.insert(0, created.id.clone());
-    normalize_meta(&mut meta);
+    normalize_meta(&mut meta, &local_worktree_id(project));
     save_meta(&state, &project.id, &meta).await?;
 
     let list = list_worktrees_for_project(&state, project)
@@ -959,7 +1057,7 @@ pub async fn reorder_project_worktrees(
 
     let mut meta = load_meta(&state, &project.id).await;
     meta.worktree_order = req.worktree_ids.clone();
-    normalize_meta(&mut meta);
+    normalize_meta(&mut meta, &local_worktree_id(project));
     save_meta(&state, &project.id, &meta).await?;
 
     let reordered = list_worktrees_for_project(&state, project)
@@ -1044,7 +1142,8 @@ pub async fn delete_project_worktree(
     let mut meta = load_meta(&state, &project.id).await;
     meta.managed_worktrees.retain(|wt| wt.id != worktree_id);
     meta.worktree_order.retain(|id| id != &worktree_id);
-    normalize_meta(&mut meta);
+    meta.worktree_ui_modes.remove(&worktree_id);
+    normalize_meta(&mut meta, &local_worktree_id(project));
     if save_meta(&state, &project.id, &meta).await.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR;
     }

@@ -98,6 +98,10 @@ export default defineConfig(async () => {
           target: `http://localhost:${backendPort}`,
           ws: true,
         },
+        "/code": {
+          target: `http://localhost:${backendPort}`,
+          ws: true,
+        },
       },
     },
     test: {

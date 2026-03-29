@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
 
 let worktreeViewRenderCount = 0;
+const vscodePaneMountCounts: Record<string, number> = {};
+const vscodePaneUnmountCounts: Record<string, number> = {};
 
 vi.mock("@/components/SidebarResizeHandle", () => ({
   default: () => null,
@@ -47,25 +49,71 @@ vi.mock("@/components/WorktreeView", () => ({
     })(),
 }));
 
+vi.mock("@/components/VscodeWorkbenchPane", async () => {
+  const { useEffect } = await vi.importActual<typeof import("react")>("react");
+
+  function MockVscodeWorkbenchPane({
+    worktree,
+    active,
+  }: {
+    worktree: { id: string; name: string };
+    active: boolean;
+  }) {
+    useEffect(() => {
+      vscodePaneMountCounts[worktree.id] =
+        (vscodePaneMountCounts[worktree.id] ?? 0) + 1;
+
+      return () => {
+        vscodePaneUnmountCounts[worktree.id] =
+          (vscodePaneUnmountCounts[worktree.id] ?? 0) + 1;
+      };
+    }, [worktree.id]);
+
+    return (
+      <div
+        data-testid={`vscode-pane-${worktree.id}`}
+        data-active={active ? "true" : "false"}
+      >
+        VS Code pane: {worktree.name}
+      </div>
+    );
+  }
+
+  return {
+    default: MockVscodeWorkbenchPane,
+  };
+});
+
 describe("App", () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
     localStorage.clear();
     worktreeViewRenderCount = 0;
+    for (const key of Object.keys(vscodePaneMountCounts)) {
+      delete vscodePaneMountCounts[key];
+    }
+    for (const key of Object.keys(vscodePaneUnmountCounts)) {
+      delete vscodePaneUnmountCounts[key];
+    }
     setMobile(false);
 
     const { useProjectStore } = await import("@/lib/stores/projects");
     const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+    const { resetTabStoreForTests } = await import("@/lib/stores/tabs");
     const { resetSidebarWidthStoreForTests, useSidebarWidthStore } =
       await import("@/lib/stores/sidebarWidth");
     const { resetWorktreeRightSidebarStoreForTests } =
       await import("@/lib/stores/worktreeRightSidebar");
     const { resetSettingsStoreForTests } =
       await import("@/lib/stores/settings");
+    const { resetVscodeWorkbenchStoreForTests } =
+      await import("@/lib/stores/vscodeWorkbench");
 
+    resetTabStoreForTests();
     resetSidebarWidthStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     resetSettingsStoreForTests();
+    resetVscodeWorkbenchStoreForTests();
 
     useProjectStore.setState({
       projects: [
@@ -83,6 +131,7 @@ describe("App", () => {
             path: "/tmp/devbox",
             branch: "main",
             source_ref: null,
+            ui_mode: "hubris",
             is_local: true,
             missing_on_disk: false,
             position: 1,
@@ -94,6 +143,7 @@ describe("App", () => {
             path: "/tmp/devbox-feature",
             branch: "feature-a",
             source_ref: null,
+            ui_mode: "hubris",
             is_local: false,
             missing_on_disk: false,
             position: 2,
@@ -220,5 +270,196 @@ describe("App", () => {
     expect(
       screen.getByText(/expected a \] while parsing settings\.toml/i),
     ).toBeInTheDocument();
+  });
+
+  it("hides the file manager control in vscode mode", async () => {
+    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+    useWorktreeStore.setState((state) => ({
+      worktreesByProject: {
+        ...state.worktreesByProject,
+        p1: (state.worktreesByProject.p1 ?? []).map((worktree) =>
+          worktree.id === "w-local"
+            ? { ...worktree, ui_mode: "vscode" }
+            : worktree,
+        ),
+      },
+    }));
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: "Hubris" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "VS Code" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /file manager/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the mode switcher before the title block", async () => {
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    const modeSwitcher = screen.getByRole("group", { name: "Worktree mode" });
+    const projectTitle = screen.getAllByText("Devbox")[0];
+
+    expect(
+      modeSwitcher.compareDocumentPosition(projectTitle) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
+  it("keeps VS Code panes mounted across worktree switches and mode toggles", async () => {
+    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+    useWorktreeStore.setState((state) => ({
+      worktreesByProject: {
+        ...state.worktreesByProject,
+        p1: (state.worktreesByProject.p1 ?? []).map((worktree) => ({
+          ...worktree,
+          ui_mode: "vscode" as const,
+        })),
+      },
+    }));
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    expect(screen.getByTestId("vscode-pane-w-local")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(vscodePaneMountCounts["w-local"]).toBe(1);
+
+    act(() => {
+      useWorktreeStore.getState().select("w-feature");
+    });
+
+    expect(screen.getByTestId("vscode-pane-w-local")).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+    expect(screen.getByTestId("vscode-pane-w-feature")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(vscodePaneMountCounts["w-local"]).toBe(1);
+    expect(vscodePaneMountCounts["w-feature"]).toBe(1);
+
+    act(() => {
+      useWorktreeStore.setState((state) => ({
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          p1: (state.worktreesByProject.p1 ?? []).map((worktree) =>
+            worktree.id === "w-local"
+              ? { ...worktree, ui_mode: "hubris" as const }
+              : worktree,
+          ),
+        },
+      }));
+      useWorktreeStore.getState().select("w-local");
+    });
+
+    expect(screen.getByText("Active worktree: local")).toBeInTheDocument();
+    expect(screen.getByTestId("vscode-pane-w-local")).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+
+    act(() => {
+      useWorktreeStore.setState((state) => ({
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          p1: (state.worktreesByProject.p1 ?? []).map((worktree) =>
+            worktree.id === "w-local"
+              ? { ...worktree, ui_mode: "vscode" as const }
+              : worktree,
+          ),
+        },
+      }));
+    });
+
+    expect(screen.getByTestId("vscode-pane-w-local")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(vscodePaneMountCounts["w-local"]).toBe(1);
+    expect(vscodePaneUnmountCounts["w-local"] ?? 0).toBe(0);
+  });
+
+  it("removes cached VS Code panes when the worktree disappears", async () => {
+    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+    useWorktreeStore.setState((state) => ({
+      worktreesByProject: {
+        ...state.worktreesByProject,
+        p1: (state.worktreesByProject.p1 ?? []).map((worktree) =>
+          worktree.id === "w-local"
+            ? { ...worktree, ui_mode: "vscode" as const }
+            : worktree,
+        ),
+      },
+    }));
+    const { default: App } = await import("./App");
+
+    render(<App />);
+    expect(screen.getByTestId("vscode-pane-w-local")).toBeInTheDocument();
+
+    act(() => {
+      useWorktreeStore.setState((state) => ({
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          p1: (state.worktreesByProject.p1 ?? []).filter(
+            (worktree) => worktree.id !== "w-local",
+          ),
+        },
+        selectedWorktreeId: "w-feature",
+      }));
+    });
+
+    expect(screen.queryByTestId("vscode-pane-w-local")).not.toBeInTheDocument();
+    expect(vscodePaneUnmountCounts["w-local"]).toBe(1);
+  });
+
+  it("switches the active Hubris tab when the selected worktree changes", async () => {
+    const { useTabStore } = await import("@/lib/stores/tabs");
+    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+    useTabStore.setState({
+      tabs: [
+        {
+          id: "tab-local",
+          label: "local",
+          position: 1,
+          worktree_id: "w-local",
+          session_id: "default",
+          type: "terminal",
+          created_at: 0,
+          preview: false,
+        },
+        {
+          id: "tab-feature",
+          label: "feature",
+          position: 2,
+          worktree_id: "w-feature",
+          session_id: "default",
+          type: "terminal",
+          created_at: 1,
+          preview: false,
+        },
+      ],
+      activeTabId: "tab-local",
+      activeTabByWorktree: {
+        "w-local": "tab-local",
+        "w-feature": "tab-feature",
+      },
+    });
+    const { default: App } = await import("./App");
+
+    render(<App />);
+    expect(useTabStore.getState().activeTabId).toBe("tab-local");
+
+    act(() => {
+      useWorktreeStore.getState().select("w-feature");
+    });
+
+    expect(useTabStore.getState().activeTabId).toBe("tab-feature");
   });
 });

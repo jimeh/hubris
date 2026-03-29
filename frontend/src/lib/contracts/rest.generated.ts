@@ -162,7 +162,7 @@ export interface paths {
     delete: operations["delete_project_worktree"];
     options?: never;
     head?: never;
-    patch?: never;
+    patch: operations["update_project_worktree"];
     trace?: never;
   };
   "/api/projects/{id}/worktrees/{worktree_id}/files": {
@@ -666,6 +666,9 @@ export interface components {
       position?: number | null;
       preview?: boolean | null;
     };
+    UpdateWorktreeRequest: {
+      ui_mode?: null | components["schemas"]["WorktreeUiMode"];
+    };
     Worktree: {
       branch: string;
       id: string;
@@ -677,6 +680,7 @@ export interface components {
       position: number;
       project_id: string;
       source_ref?: string | null;
+      ui_mode: components["schemas"]["WorktreeUiMode"];
     };
     WorktreeFileContentParams: {
       /** @description Relative path from the worktree root. */
@@ -743,6 +747,8 @@ export interface components {
     WorktreeSettingsPatch: {
       locationMode?: null | components["schemas"]["WorktreeLocationMode"];
     };
+    /** @enum {string} */
+    WorktreeUiMode: "hubris" | "vscode";
     WriteWorktreeFileContentRequest: {
       content: string;
       expected_version_token: string;
@@ -1266,6 +1272,49 @@ export interface operations {
       };
       /** @description Worktree has uncommitted changes */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  update_project_worktree: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateWorktreeRequest"];
+      };
+    };
+    responses: {
+      /** @description Worktree updated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Worktree"];
+        };
+      };
+      /** @description Project or worktree not found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

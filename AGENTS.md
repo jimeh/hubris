@@ -335,6 +335,15 @@ No periodic reconciliation — drift corrects on reconnect.
   do not pass raw branch shorthands like `feature/foo` into
   `repo.worktree(...)`. Use a filesystem-safe name derived from the target
   path; keep the branch/ref selection separate in the worktree add options.
+- **`code serve-web` cold start is not immediately ready**:
+  a fresh server can return `202 Accepted` with a download/startup page before
+  the workbench is usable, and the readiness probe must use authenticated
+  `GET /code`, not `HEAD`, because ready instances can reject `HEAD`. Hubris'
+  reverse proxy should inject the `vscode-tkn` auth cookie upstream and accept
+  browser `vscode-tkn` cookies on proxied `/code` requests. Stripping the
+  upstream `Set-Cookie: vscode-tkn=...` breaks the stable websocket handshake:
+  the browser-side workbench needs that token to send the initial `auth`
+  control message that `code serve-web` validates before the connection opens.
 - **Prefer `git2` for runtime git operations**:
   repository inspection like status, refs, branch/default-start-point lookup,
   commit history/details, worktree enumeration/lifecycle, root resolution,

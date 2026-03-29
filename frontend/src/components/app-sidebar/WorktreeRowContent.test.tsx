@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { resetVscodeWorkbenchStoreForTests } from "@/lib/stores/vscodeWorkbench";
 import WorktreeRowContent from "./WorktreeRowContent";
 import WorktreeRow from "./WorktreeRow";
 
@@ -18,6 +19,20 @@ vi.mock("@dnd-kit/sortable", () => ({
 }));
 
 describe("WorktreeRowContent", () => {
+  it("renders a custom leading slot when provided", () => {
+    resetVscodeWorkbenchStoreForTests();
+
+    render(
+      <WorktreeRowContent
+        isSelected={false}
+        leadingSlot={<span aria-label="custom leading" />}
+        contentSlot={<span>feature-a</span>}
+      />,
+    );
+
+    expect(screen.getByLabelText("custom leading")).toBeInTheDocument();
+  });
+
   it("does not apply the hover background class to selected rows", () => {
     render(<WorktreeRowContent isSelected contentSlot={<span>local</span>} />);
 
@@ -50,6 +65,7 @@ describe("WorktreeRowContent", () => {
             path: "/tmp/missing",
             branch: "feature-a",
             source_ref: null,
+            ui_mode: "hubris",
             name: "feature-a",
             position: 2,
             is_local: false,

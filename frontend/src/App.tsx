@@ -23,21 +23,25 @@ import AppSidebar from "@/components/AppSidebar";
 import SettingsStatusNotice from "@/components/SettingsStatusNotice";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import ToastViewport from "@/components/ToastViewport";
+import VscodeWorkbenchPane from "@/components/VscodeWorkbenchPane";
 import WorktreeView from "@/components/WorktreeView";
 import { Button } from "@/components/ui/button";
 import { applyMonacoTheme } from "@/lib/monaco";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
+import { useTabStore } from "@/lib/stores/tabs";
+import { useVscodeWorkbenchStore } from "@/lib/stores/vscodeWorkbench";
 import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
+import type { Worktree } from "@/lib/types";
 
 function AppHeader({
   selectedProject,
   selectedWorktree,
 }: {
   selectedProject: { name: string } | null;
-  selectedWorktree: { name: string } | null;
+  selectedWorktree: Worktree | null;
 }) {
   const sidebar = useSidebar();
   const isMobile = sidebar.isMobile;
@@ -53,10 +57,12 @@ function AppHeader({
   );
   const openTab = useWorktreeRightSidebarStore((state) => state.openTab);
   const activeTab = useWorktreeRightSidebarStore((state) => state.activeTab);
+  const updateUiMode = useWorktreeStore((state) => state.updateUiMode);
   const fileManagerVisible = isMobile ? mobileOpen : desktopOpen;
   const fileManagerLabel = fileManagerVisible
     ? "Hide file manager"
     : "Show file manager";
+  const isVscodeMode = selectedWorktree?.ui_mode === "vscode";
 
   return (
     <header className="flex shrink-0 items-center gap-2 border-b py-2 pl-3 pr-4 md:h-12 md:py-0">
@@ -73,6 +79,44 @@ function AppHeader({
           orientation="vertical"
           className="shrink-0 data-[orientation=vertical]:h-4"
         />
+        {selectedWorktree ? (
+          <div
+            className="ml-1 inline-flex items-center rounded-md border border-border/80 bg-muted/35 p-1"
+            role="group"
+            aria-label="Worktree mode"
+          >
+            <Button
+              variant={isVscodeMode ? "ghost" : "secondary"}
+              size="sm"
+              className="h-7 px-3"
+              aria-pressed={!isVscodeMode}
+              onClick={() => {
+                void updateUiMode(
+                  selectedWorktree.project_id,
+                  selectedWorktree.id,
+                  "hubris",
+                );
+              }}
+            >
+              Hubris
+            </Button>
+            <Button
+              variant={isVscodeMode ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 px-3"
+              aria-pressed={isVscodeMode}
+              onClick={() => {
+                void updateUiMode(
+                  selectedWorktree.project_id,
+                  selectedWorktree.id,
+                  "vscode",
+                );
+              }}
+            >
+              VS Code
+            </Button>
+          </div>
+        ) : null}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
@@ -110,25 +154,27 @@ function AppHeader({
         </Breadcrumb>
       </div>
       {selectedWorktree ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={fileManagerLabel}
-              onClick={() => {
-                if (fileManagerVisible) {
-                  closeForViewport(isMobile);
-                } else {
-                  openTab(activeTab, isMobile);
-                }
-              }}
-            >
-              <PanelRight className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{fileManagerLabel}</TooltipContent>
-        </Tooltip>
+        !isVscodeMode ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={fileManagerLabel}
+                onClick={() => {
+                  if (fileManagerVisible) {
+                    closeForViewport(isMobile);
+                  } else {
+                    openTab(activeTab, isMobile);
+                  }
+                }}
+              >
+                <PanelRight className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{fileManagerLabel}</TooltipContent>
+          </Tooltip>
+        ) : null
       ) : null}
     </header>
   );
@@ -145,8 +191,29 @@ export default function App() {
   const activeTheme = useSettingsStore((state) => state.activeTheme);
   const settingsStatus = useSettingsStore((state) => state.status);
   const isResizing = useSidebarWidthStore((state) => state.isResizing);
+  const switchToWorktree = useTabStore((state) => state.switchToWorktree);
+  const cachedVscodeWorktreeIds = useVscodeWorkbenchStore(
+    (state) => state.loadedWorktreeIds,
+  );
+  const markVscodeWorkbenchLoaded = useVscodeWorkbenchStore(
+    (state) => state.markLoaded,
+  );
+  const pruneMissingVscodeWorktrees = useVscodeWorkbenchStore(
+    (state) => state.pruneMissing,
+  );
   const appRootRef = useRef<HTMLDivElement | null>(null);
   const initialSidebarWidthRef = useRef(useSidebarWidthStore.getState().width);
+  const allWorktrees = useMemo(
+    () => Object.values(worktreesByProject).flat(),
+    [worktreesByProject],
+  );
+  const worktreesById = useMemo(
+    () =>
+      Object.fromEntries(
+        allWorktrees.map((worktree) => [worktree.id, worktree]),
+      ),
+    [allWorktrees],
+  );
 
   const selectedWorktree = useMemo(() => {
     if (!selectedWorktreeId) {
@@ -195,6 +262,46 @@ export default function App() {
     applyMonacoTheme(activeTheme);
   }, [activeTheme]);
 
+  useEffect(() => {
+    if (!selectedWorktreeId) {
+      return;
+    }
+
+    switchToWorktree(selectedWorktreeId);
+  }, [selectedWorktreeId, switchToWorktree]);
+
+  useEffect(() => {
+    pruneMissingVscodeWorktrees(allWorktrees.map((worktree) => worktree.id));
+  }, [allWorktrees, pruneMissingVscodeWorktrees]);
+
+  useEffect(() => {
+    if (selectedWorktree?.ui_mode !== "vscode") {
+      return;
+    }
+
+    markVscodeWorkbenchLoaded(selectedWorktree.id);
+  }, [markVscodeWorkbenchLoaded, selectedWorktree]);
+
+  const activeVscodeWorktreeId =
+    selectedWorktree?.ui_mode === "vscode" ? selectedWorktree.id : null;
+  const visibleVscodeWorktreeIds = useMemo(() => {
+    if (
+      activeVscodeWorktreeId &&
+      !cachedVscodeWorktreeIds.includes(activeVscodeWorktreeId)
+    ) {
+      return [...cachedVscodeWorktreeIds, activeVscodeWorktreeId];
+    }
+
+    return cachedVscodeWorktreeIds;
+  }, [activeVscodeWorktreeId, cachedVscodeWorktreeIds]);
+  const cachedVscodeWorktrees = useMemo(
+    () =>
+      visibleVscodeWorktreeIds
+        .map((worktreeId) => worktreesById[worktreeId] ?? null)
+        .filter((worktree): worktree is Worktree => worktree !== null),
+    [visibleVscodeWorktreeIds, worktreesById],
+  );
+
   return (
     <div ref={appRootRef}>
       <SidebarProvider
@@ -213,11 +320,27 @@ export default function App() {
             selectedWorktree={selectedWorktree}
           />
           <SettingsStatusNotice status={settingsStatus} />
-          <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="relative flex flex-1 overflow-hidden">
             {selectedWorktree ? (
-              <WorktreeView worktree={selectedWorktree} />
+              <>
+                {selectedWorktree.ui_mode === "hubris" ? (
+                  <div className="absolute inset-0">
+                    <WorktreeView worktree={selectedWorktree} />
+                  </div>
+                ) : null}
+                {cachedVscodeWorktrees.map((worktree) => (
+                  <VscodeWorkbenchPane
+                    key={worktree.id}
+                    worktree={worktree}
+                    active={
+                      worktree.id === selectedWorktree.id &&
+                      selectedWorktree.ui_mode === "vscode"
+                    }
+                  />
+                ))}
+              </>
             ) : (
-              <div className="flex h-full items-center justify-center text-muted-foreground">
+              <div className="flex flex-1 items-center justify-center text-muted-foreground">
                 <p>Select a worktree from the sidebar</p>
               </div>
             )}

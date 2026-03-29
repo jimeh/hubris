@@ -3,6 +3,7 @@ import {
   createProjectWorktree,
   deleteProjectWorktree,
   reorderProjectWorktrees,
+  updateProjectWorktree,
 } from "@/lib/api";
 import { getEventClient } from "@/lib/events";
 import type { Worktree } from "@/lib/types";
@@ -26,6 +27,11 @@ type WorktreesState = {
     force?: boolean,
   ) => Promise<void>;
   reorder: (projectId: string, orderedIds: string[]) => Promise<void>;
+  updateUiMode: (
+    projectId: string,
+    worktreeId: string,
+    uiMode: Worktree["ui_mode"],
+  ) => Promise<void>;
 };
 
 function lsGet(key: string): string | null {
@@ -228,6 +234,37 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
     });
 
     await reorderProjectWorktrees(projectId, orderedIds);
+  },
+  async updateUiMode(projectId, worktreeId, uiMode) {
+    const before = get().worktreesByProject[projectId] ?? [];
+    set((state) => ({
+      worktreesByProject: {
+        ...state.worktreesByProject,
+        [projectId]: (state.worktreesByProject[projectId] ?? []).map(
+          (worktree) =>
+            worktree.id === worktreeId
+              ? { ...worktree, ui_mode: uiMode }
+              : worktree,
+        ),
+      },
+    }));
+
+    try {
+      const updated = await updateProjectWorktree(projectId, worktreeId, {
+        ui_mode: uiMode,
+      });
+      set((state) => ({
+        worktreesByProject: upsertWorktree(state.worktreesByProject, updated),
+      }));
+    } catch (error) {
+      set((state) => ({
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          [projectId]: before,
+        },
+      }));
+      throw error;
+    }
   },
 }));
 
