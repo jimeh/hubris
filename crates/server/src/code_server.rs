@@ -7,7 +7,11 @@ use std::time::Duration;
 use axum::body::{Body, to_bytes};
 use axum::extract::ws::{Message as AxumWsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Request, State};
-use axum::http::header::{CONNECTION, COOKIE, HOST, SEC_WEBSOCKET_PROTOCOL, UPGRADE};
+use axum::http::HeaderName;
+use axum::http::header::{
+    CONNECTION, COOKIE, HOST, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION, SEC_WEBSOCKET_PROTOCOL, TE,
+    TRAILER, TRANSFER_ENCODING, UPGRADE,
+};
 use axum::http::{HeaderMap, HeaderValue, Method as HttpMethod, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures_util::future::BoxFuture;
@@ -122,11 +126,21 @@ struct RunningCodeServer {
     process: RunningCodeServerProcess,
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone)]
+struct TestProcessProbe {
+    alive: Arc<std::sync::atomic::AtomicBool>,
+    shutdowns: Arc<std::sync::atomic::AtomicUsize>,
+    drop_kills: Arc<std::sync::atomic::AtomicUsize>,
+}
+
 #[derive(Debug)]
 enum RunningCodeServerProcess {
     Child(Child),
     #[cfg(test)]
     External,
+    #[cfg(test)]
+    TestProbe(TestProcessProbe),
 }
 
 enum UpgradeOutcome {
@@ -234,15 +248,30 @@ impl CodeServerManager {
         &self.client
     }
 
+    /// Stop the shared `code serve-web` process if one is running.
+    pub async fn shutdown(&self) -> Result<(), CodeServerError> {
+        let previous = {
+            let mut state = self.inner.lock().await;
+            let previous = std::mem::replace(&mut *state, ManagerState::Idle);
+            self.notify.notify_waiters();
+            previous
+        };
+
+        match previous {
+            ManagerState::Running(mut server) => server.shutdown().await,
+            ManagerState::Idle | ManagerState::Starting => Ok(()),
+        }
+    }
+
     pub async fn ensure_ready(&self) -> Result<CodeServerConnection, CodeServerError> {
         loop {
             let mut state = self.inner.lock().await;
-            match &mut *state {
+            let should_launch = match &mut *state {
                 ManagerState::Running(server) => {
                     if server.is_alive()? {
                         return Ok(server.connection.clone());
                     }
-                    *state = ManagerState::Idle;
+                    true
                 }
                 ManagerState::Starting => {
                     let notified = self.notify.notified();
@@ -250,9 +279,10 @@ impl CodeServerManager {
                     notified.await;
                     continue;
                 }
-                ManagerState::Idle => {
-                    *state = ManagerState::Starting;
-                }
+                ManagerState::Idle => true,
+            };
+            if should_launch {
+                *state = ManagerState::Starting;
             }
             drop(state);
 
@@ -278,10 +308,69 @@ impl CodeServerManager {
 
 impl RunningCodeServer {
     fn is_alive(&mut self) -> Result<bool, CodeServerError> {
-        match &mut self.process {
-            RunningCodeServerProcess::Child(child) => Ok(child.try_wait()?.is_none()),
+        self.process.is_alive()
+    }
+
+    async fn shutdown(&mut self) -> Result<(), CodeServerError> {
+        self.process.shutdown().await
+    }
+}
+
+impl RunningCodeServerProcess {
+    fn is_alive(&mut self) -> Result<bool, CodeServerError> {
+        match self {
+            Self::Child(child) => Ok(child.try_wait()?.is_none()),
             #[cfg(test)]
-            RunningCodeServerProcess::External => Ok(true),
+            Self::External => Ok(true),
+            #[cfg(test)]
+            Self::TestProbe(probe) => Ok(probe.alive.load(std::sync::atomic::Ordering::Relaxed)),
+        }
+    }
+
+    async fn shutdown(&mut self) -> Result<(), CodeServerError> {
+        match self {
+            Self::Child(child) => {
+                if child.try_wait()?.is_none() {
+                    child.start_kill()?;
+                    let _ = child.wait().await?;
+                }
+                Ok(())
+            }
+            #[cfg(test)]
+            Self::External => Ok(()),
+            #[cfg(test)]
+            Self::TestProbe(probe) => {
+                probe
+                    .shutdowns
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                probe
+                    .alive
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+                Ok(())
+            }
+        }
+    }
+}
+
+impl Drop for RunningCodeServerProcess {
+    fn drop(&mut self) {
+        match self {
+            Self::Child(child) => {
+                let _ = child.start_kill();
+            }
+            #[cfg(test)]
+            Self::External => {}
+            #[cfg(test)]
+            Self::TestProbe(probe) => {
+                if probe
+                    .alive
+                    .swap(false, std::sync::atomic::Ordering::Relaxed)
+                {
+                    probe
+                        .drop_kills
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
         }
     }
 }
@@ -419,11 +508,22 @@ fn copy_request_headers(
 
 fn copy_response_headers(target: &mut HeaderMap, source: &HeaderMap) {
     for (name, value) in source {
-        if *name == CONNECTION {
+        if is_hop_by_hop_header(name) {
             continue;
         }
         target.append(name, value.clone());
     }
+}
+
+fn is_hop_by_hop_header(name: &axum::http::HeaderName) -> bool {
+    *name == CONNECTION
+        || *name == HeaderName::from_static("keep-alive")
+        || *name == PROXY_AUTHENTICATE
+        || *name == PROXY_AUTHORIZATION
+        || *name == TE
+        || *name == TRAILER
+        || *name == TRANSFER_ENCODING
+        || *name == UPGRADE
 }
 
 fn copy_websocket_headers(
@@ -614,7 +714,7 @@ async fn wait_for_ready(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use axum::extract::Request as AxumRequest;
     use axum::routing::any;
@@ -622,6 +722,28 @@ mod tests {
 
     use super::*;
     use crate::{AppState, build_router};
+
+    #[cfg(test)]
+    #[derive(Debug, Clone)]
+    enum TestProcessState {
+        Alive,
+        Dead,
+    }
+
+    #[cfg(test)]
+    impl TestProcessProbe {
+        fn new(state: TestProcessState) -> Self {
+            Self {
+                alive: Arc::new(AtomicBool::new(matches!(state, TestProcessState::Alive))),
+                shutdowns: Arc::new(AtomicUsize::new(0)),
+                drop_kills: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn process(&self) -> RunningCodeServerProcess {
+            RunningCodeServerProcess::TestProbe(self.clone())
+        }
+    }
 
     #[test]
     fn build_launch_request_uses_hubris_code_dirs() {
@@ -644,6 +766,56 @@ mod tests {
         let cookie = build_upstream_cookie(&headers, "good");
 
         assert_eq!(cookie, "theme=dark; sidebar=open; vscode-tkn=good");
+    }
+
+    #[test]
+    fn copy_response_headers_strips_hop_by_hop_headers() {
+        let mut source = HeaderMap::new();
+        source.insert(CONNECTION, HeaderValue::from_static("keep-alive"));
+        source.insert(
+            HeaderName::from_static("keep-alive"),
+            HeaderValue::from_static("timeout=5"),
+        );
+        source.insert(
+            PROXY_AUTHENTICATE,
+            HeaderValue::from_static("Basic realm=test"),
+        );
+        source.insert(
+            PROXY_AUTHORIZATION,
+            HeaderValue::from_static("Basic secret"),
+        );
+        source.insert(TE, HeaderValue::from_static("trailers"));
+        source.insert(TRAILER, HeaderValue::from_static("x-trace"));
+        source.insert(TRANSFER_ENCODING, HeaderValue::from_static("chunked"));
+        source.insert(UPGRADE, HeaderValue::from_static("websocket"));
+        source.insert(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_static("text/plain"),
+        );
+        source.append(
+            axum::http::header::SET_COOKIE,
+            HeaderValue::from_static("vscode-tkn=secret; Max-Age=60"),
+        );
+
+        let mut target = HeaderMap::new();
+        copy_response_headers(&mut target, &source);
+
+        assert!(!target.contains_key(CONNECTION));
+        assert!(!target.contains_key(HeaderName::from_static("keep-alive")));
+        assert!(!target.contains_key(PROXY_AUTHENTICATE));
+        assert!(!target.contains_key(PROXY_AUTHORIZATION));
+        assert!(!target.contains_key(TE));
+        assert!(!target.contains_key(TRAILER));
+        assert!(!target.contains_key(TRANSFER_ENCODING));
+        assert!(!target.contains_key(UPGRADE));
+        assert_eq!(
+            target.get(axum::http::header::CONTENT_TYPE),
+            Some(&HeaderValue::from_static("text/plain"))
+        );
+        assert_eq!(
+            target.get(axum::http::header::SET_COOKIE),
+            Some(&HeaderValue::from_static("vscode-tkn=secret; Max-Age=60"))
+        );
     }
 
     #[tokio::test]
@@ -671,6 +843,84 @@ mod tests {
         assert!(first.is_ok());
         assert!(second.is_ok());
         assert_eq!(launches.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn ensure_ready_relaunches_dead_process_without_double_start() {
+        let launches = Arc::new(AtomicUsize::new(0));
+        let launches_clone = launches.clone();
+        let launch: LaunchFn = Arc::new(move |request| {
+            let launches = launches_clone.clone();
+            Box::pin(async move {
+                launches.fetch_add(1, Ordering::Relaxed);
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                Ok(RunningCodeServer {
+                    connection: CodeServerConnection {
+                        base_url: format!("http://{}:{}", request.host, request.port),
+                        token: request.token,
+                    },
+                    process: RunningCodeServerProcess::External,
+                })
+            })
+        });
+        let manager = CodeServerManager::with_launch(PathBuf::from("/tmp/hubris/code"), launch);
+        let dead_probe = TestProcessProbe::new(TestProcessState::Dead);
+
+        {
+            let mut state = manager.inner.lock().await;
+            *state = ManagerState::Running(Box::new(RunningCodeServer {
+                connection: CodeServerConnection {
+                    base_url: "http://127.0.0.1:1234".into(),
+                    token: "stale-token".into(),
+                },
+                process: dead_probe.process(),
+            }));
+        }
+
+        let (first, second) = tokio::join!(manager.ensure_ready(), manager.ensure_ready());
+
+        assert_eq!(launches.load(Ordering::Relaxed), 1);
+        assert_eq!(first.unwrap(), second.unwrap());
+        assert_eq!(dead_probe.shutdowns.load(Ordering::Relaxed), 0);
+        assert_eq!(dead_probe.drop_kills.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn shutdown_stops_running_process_and_resets_state() {
+        let manager = CodeServerManager::with_launch(
+            PathBuf::from("/tmp/hubris/code"),
+            Arc::new(|_| {
+                Box::pin(async {
+                    Ok(RunningCodeServer {
+                        connection: CodeServerConnection {
+                            base_url: "http://127.0.0.1:1234".into(),
+                            token: "unused".into(),
+                        },
+                        process: RunningCodeServerProcess::External,
+                    })
+                })
+            }),
+        );
+        let probe = TestProcessProbe::new(TestProcessState::Alive);
+
+        {
+            let mut state = manager.inner.lock().await;
+            *state = ManagerState::Running(Box::new(RunningCodeServer {
+                connection: CodeServerConnection {
+                    base_url: "http://127.0.0.1:1234".into(),
+                    token: "test-token".into(),
+                },
+                process: probe.process(),
+            }));
+        }
+
+        manager.shutdown().await.unwrap();
+
+        assert_eq!(probe.shutdowns.load(Ordering::Relaxed), 1);
+        assert_eq!(probe.drop_kills.load(Ordering::Relaxed), 0);
+
+        let state = manager.inner.lock().await;
+        assert!(matches!(&*state, ManagerState::Idle));
     }
 
     #[tokio::test]
@@ -734,6 +984,7 @@ mod tests {
                         "vscode-tkn=upstream-secret; Max-Age=60",
                     )
                     .header(axum::http::header::SET_COOKIE, "other-cookie=ok; Path=/")
+                    .header(axum::http::header::CONTENT_TYPE, "text/plain")
                     .body(Body::from(format!(
                         "{path}\n{cookie}\n{}",
                         request
@@ -787,6 +1038,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(axum::http::header::CONTENT_TYPE),
+            Some(&HeaderValue::from_static("text/plain"))
+        );
         let set_cookies = response.headers().get_all(axum::http::header::SET_COOKIE);
         let set_cookie_values = set_cookies
             .iter()

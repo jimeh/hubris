@@ -322,10 +322,17 @@ pub async fn run_server(
     data_dir: std::path::PathBuf,
     options: ServerOptions,
 ) -> std::io::Result<()> {
-    let app = build_router_with_options(create_app_state(data_dir).await?, options);
-    axum::serve(listener, app)
+    let state = create_app_state(data_dir).await?;
+    let app = build_router_with_options(state.clone(), options);
+    let result = axum::serve(listener, app)
         .await
-        .map_err(std::io::Error::other)
+        .map_err(std::io::Error::other);
+
+    if let Err(error) = state.code_server.shutdown().await {
+        tracing::warn!("failed to shut down shared code server: {error}");
+    }
+
+    result
 }
 
 pub fn openapi_spec() -> utoipa::openapi::OpenApi {
