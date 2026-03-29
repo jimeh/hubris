@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun run:*)",
+      "Bash(cargo check:*)",
+      "Bash(git diff-tree:*)",
+      "Bash(mise check)",
+      "Bash(mise format)",
+      "Bash(mise generate)",
+      "Bash(mise run check)",
+      "Bash(mise run check:*)",
+      "Bash(mise run format)",
+      "Bash(mise run generate)",
+      "Bash(mise run generate*)",
+      "Bash(mise run generate:*)",
+      "Bash(mise run test*)",
+      "Bash(mise run test:*)",
+      "Bash(mise tasks ls:*)",
+      "Bash(mise tasks:*)",
+      "WebFetch(domain:shadcn-svelte.com)"
+    ]
+  }
+}
