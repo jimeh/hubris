@@ -28,6 +28,8 @@ pub struct Worktree {
     pub ui_mode: WorktreeUiMode,
     pub is_local: bool,
     #[serde(default)]
+    pub is_imported: bool,
+    #[serde(default)]
     pub missing_on_disk: bool,
     pub position: f64,
 }
@@ -74,6 +76,25 @@ pub struct CreateWorktreeRequest {
     pub source_ref: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ImportableWorktree {
+    pub id: String,
+    pub path: String,
+    pub branch: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ListImportableWorktreesResponse {
+    pub importable_worktrees: Vec<ImportableWorktree>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_error: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ImportWorktreeRequest {
+    pub path: String,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ReorderWorktreesRequest {
     pub worktree_ids: Vec<String>,
@@ -81,6 +102,8 @@ pub struct ReorderWorktreesRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateWorktreeRequest {
+    #[serde(default)]
+    pub name: Option<String>,
     #[serde(default)]
     pub ui_mode: Option<WorktreeUiMode>,
 }
@@ -90,6 +113,8 @@ pub struct UpdateWorktreeRequest {
 pub struct DeleteWorktreeParams {
     #[serde(default)]
     pub force: bool,
+    #[serde(default)]
+    pub untrack_only: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +133,8 @@ struct ManagedWorktree {
     name: Option<String>,
     #[serde(default)]
     source_ref: Option<String>,
+    #[serde(default)]
+    imported: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, TS)]
@@ -347,6 +374,7 @@ pub async fn list_worktrees_for_project(
         source_ref: None,
         ui_mode: worktree_ui_mode(&meta, &local_id),
         is_local: true,
+        is_imported: false,
         missing_on_disk: tokio::fs::metadata(&local_path_buf).await.is_err(),
         position: 0.0,
     };
@@ -366,6 +394,7 @@ pub async fn list_worktrees_for_project(
             source_ref: managed.source_ref.clone(),
             ui_mode: worktree_ui_mode(&meta, &managed.id),
             is_local: false,
+            is_imported: managed.imported,
             missing_on_disk: tokio::fs::metadata(&path_buf).await.is_err(),
             position: 0.0,
         });
@@ -506,6 +535,15 @@ pub async fn update_project_worktree(
     }
 
     let mut meta = load_meta(&state, &project.id).await;
+    if let Some(name) = &req.name {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        if let Some(managed) = meta.managed_worktrees.iter_mut().find(|wt| wt.id == worktree_id) {
+            managed.name = Some(trimmed.to_string());
+        }
+    }
     if let Some(ui_mode) = req.ui_mode {
         meta.worktree_ui_modes.insert(worktree_id.clone(), ui_mode);
     }
@@ -598,6 +636,7 @@ pub async fn create_project_worktree(
         source_ref: source_ref.clone(),
         ui_mode: WorktreeUiMode::default(),
         is_local: false,
+        is_imported: false,
         missing_on_disk: false,
         position: 0.0,
     };
@@ -610,6 +649,7 @@ pub async fn create_project_worktree(
         branch: created.branch.clone(),
         name: Some(created.name.clone()),
         source_ref,
+        imported: false,
     });
     meta.worktree_order.retain(|id| id != &created.id);
     meta.worktree_order.insert(0, created.id.clone());
@@ -1073,6 +1113,206 @@ pub async fn reorder_project_worktrees(
 }
 
 #[utoipa::path(
+    get,
+    path = "/api/projects/{id}/worktrees/importable",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+    ),
+    responses(
+        (status = 200, description = "Importable worktrees", body = ListImportableWorktreesResponse),
+        (status = 404, description = "Project not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn list_importable_worktrees(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+) -> Result<Json<ListImportableWorktreesResponse>, StatusCode> {
+    let projects = state
+        .load_projects()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await {
+        Ok(root) => root,
+        Err(err) => {
+            return Ok(Json(ListImportableWorktreesResponse {
+                importable_worktrees: vec![],
+                git_error: Some(err.message),
+            }));
+        }
+    };
+
+    let git_worktrees = match git::list_worktrees(&local_root).await {
+        Ok(list) => list,
+        Err(err) => {
+            return Ok(Json(ListImportableWorktreesResponse {
+                importable_worktrees: vec![],
+                git_error: Some(err.message),
+            }));
+        }
+    };
+
+    let meta = load_meta(&state, &project.id).await;
+    let local_path = PathBuf::from(&project.path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(&project.path));
+    let managed_paths: HashSet<PathBuf> = meta
+        .managed_worktrees
+        .iter()
+        .map(|wt| {
+            PathBuf::from(&wt.path)
+                .canonicalize()
+                .unwrap_or_else(|_| PathBuf::from(&wt.path))
+        })
+        .collect();
+
+    let mut importable = Vec::new();
+    for git_wt in &git_worktrees {
+        let canonical = git_wt
+            .path
+            .canonicalize()
+            .unwrap_or_else(|_| git_wt.path.clone());
+        if canonical == local_path || managed_paths.contains(&canonical) {
+            continue;
+        }
+        importable.push(ImportableWorktree {
+            id: git::worktree_id(&canonical),
+            path: canonical.to_string_lossy().to_string(),
+            branch: git_wt.branch.clone(),
+        });
+    }
+
+    Ok(Json(ListImportableWorktreesResponse {
+        importable_worktrees: importable,
+        git_error: None,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/projects/{id}/worktrees/import",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+    ),
+    request_body = ImportWorktreeRequest,
+    responses(
+        (status = 201, description = "Worktree imported", body = Worktree),
+        (status = 400, description = "Invalid request or path is not a worktree"),
+        (status = 404, description = "Project not found"),
+        (status = 409, description = "Worktree already managed"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn import_project_worktree(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+    Json(req): Json<ImportWorktreeRequest>,
+) -> Result<(StatusCode, Json<Worktree>), StatusCode> {
+    let path = req.path.trim();
+    if path.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let projects = state
+        .load_projects()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let canonical = tokio::fs::canonicalize(path)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    // Reject if path is the local worktree.
+    let local_canonical = tokio::fs::canonicalize(&project.path)
+        .await
+        .unwrap_or_else(|_| PathBuf::from(&project.path));
+    if canonical == local_canonical {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Validate the path is a known git worktree for this project.
+    let local_root = git::resolve_local_root(PathBuf::from(&project.path).as_path())
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let git_worktrees = git::list_worktrees(&local_root)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let matched = git_worktrees
+        .iter()
+        .find(|wt| wt.path.canonicalize().unwrap_or_else(|_| wt.path.clone()) == canonical);
+    let git_wt = matched.ok_or(StatusCode::BAD_REQUEST)?;
+
+    // Check not already managed.
+    let mut meta = load_meta(&state, &project.id).await;
+    let wt_id = git::worktree_id(&canonical);
+    if meta.managed_worktrees.iter().any(|wt| wt.id == wt_id) {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    let branch = git_wt.branch.clone().unwrap_or_else(|| {
+        canonical
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    });
+    let name = branch.clone();
+    let canonical_str = canonical.to_string_lossy().to_string();
+
+    let imported = Worktree {
+        id: wt_id.clone(),
+        project_id: project.id.clone(),
+        name: name.clone(),
+        path: canonical_str.clone(),
+        branch: branch.clone(),
+        source_ref: None,
+        ui_mode: WorktreeUiMode::default(),
+        is_local: false,
+        is_imported: true,
+        missing_on_disk: false,
+        position: 0.0,
+    };
+
+    meta.managed_worktrees.retain(|wt| wt.id != wt_id);
+    meta.managed_worktrees.push(ManagedWorktree {
+        id: wt_id.clone(),
+        path: canonical_str,
+        branch,
+        name: Some(name),
+        source_ref: None,
+        imported: true,
+    });
+    meta.worktree_order.retain(|id| id != &wt_id);
+    meta.worktree_order.insert(0, wt_id);
+    let lwt_id = local_worktree_id(project);
+    normalize_meta(&mut meta, &lwt_id);
+    save_meta(&state, &project.id, &meta).await?;
+
+    let list = list_worktrees_for_project(&state, project)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    state
+        .events
+        .emit(EventKind::WorktreeCreated(imported.clone()));
+    state.events.emit(EventKind::ProjectWorktreesUpdated {
+        project_id: project.id.clone(),
+        worktrees: list,
+        git_error: None,
+    });
+
+    Ok((StatusCode::CREATED, Json(imported)))
+}
+
+#[utoipa::path(
     delete,
     path = "/api/projects/{id}/worktrees/{worktree_id}",
     params(
@@ -1116,7 +1356,7 @@ pub async fn delete_project_worktree(
         return StatusCode::BAD_REQUEST;
     }
 
-    if !worktree.missing_on_disk {
+    if !params.untrack_only && !worktree.missing_on_disk {
         let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await
         {
             Ok(root) => root,

@@ -30,6 +30,7 @@ describe("AddWorktreeDialog", () => {
         projectId="project-1"
         projectName="Devbox"
         onAdd={vi.fn(async () => {})}
+        onImport={vi.fn(async () => {})}
         onClose={vi.fn()}
       />,
     );
@@ -62,13 +63,15 @@ describe("AddWorktreeDialog", () => {
         projectId="project-1"
         projectName="Devbox"
         onAdd={onAdd}
+        onImport={vi.fn(async () => {})}
         onClose={vi.fn()}
       />,
     );
 
     await screen.findByText("origin/main");
 
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    const createButtons = screen.getAllByRole("button", { name: "Create" });
+    await userEvent.click(createButtons[createButtons.length - 1]);
 
     await waitFor(() => {
       expect(onAdd).toHaveBeenCalledWith(
@@ -86,6 +89,7 @@ describe("AddWorktreeDialog", () => {
         projectId="project-1"
         projectName="Devbox"
         onAdd={onAdd}
+        onImport={vi.fn(async () => {})}
         onClose={vi.fn()}
       />,
     );
@@ -96,7 +100,8 @@ describe("AddWorktreeDialog", () => {
     await userEvent.click(screen.getByText("Custom ref…"));
     const textboxes = screen.getAllByRole("textbox");
     await userEvent.type(textboxes[textboxes.length - 1], "origin/release");
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    const createButtons = screen.getAllByRole("button", { name: "Create" });
+    await userEvent.click(createButtons[createButtons.length - 1]);
 
     await waitFor(() => {
       expect(onAdd).toHaveBeenCalledWith(

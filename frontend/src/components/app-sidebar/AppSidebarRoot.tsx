@@ -38,6 +38,7 @@ export default function AppSidebarRoot() {
   const projectErrors = useWorktreeStore((state) => state.projectErrors);
   const selectWorktree = useWorktreeStore((state) => state.select);
   const createWorktree = useWorktreeStore((state) => state.create);
+  const importWorktree = useWorktreeStore((state) => state.importWorktree);
   const removeWorktree = useWorktreeStore((state) => state.remove);
   const reorderWorktrees = useWorktreeStore((state) => state.reorder);
 
@@ -74,9 +75,10 @@ export default function AppSidebarRoot() {
     projectId: string,
     worktreeId: string,
     force = false,
+    untrackOnly = false,
   ): Promise<void> {
     try {
-      await removeWorktree(projectId, worktreeId, force);
+      await removeWorktree(projectId, worktreeId, force, untrackOnly);
       setDialogState((state) => ({ ...state, actionError: null }));
     } catch (error) {
       const message = (error as Error).message;
@@ -195,10 +197,19 @@ export default function AppSidebarRoot() {
               setDialogState((state) => ({
                 ...state,
                 actionError: null,
-                confirmRemoveWorktree: {
-                  projectId: project.id,
-                  worktree,
-                },
+                ...(worktree.is_imported
+                  ? {
+                      confirmRemoveImportedWorktree: {
+                        projectId: project.id,
+                        worktree,
+                      },
+                    }
+                  : {
+                      confirmRemoveWorktree: {
+                        projectId: project.id,
+                        worktree,
+                      },
+                    }),
               }))
             }
             onReorderWorktrees={(project, orderedIds) =>
@@ -234,6 +245,7 @@ export default function AppSidebarRoot() {
         setDialogState={setDialogState}
         onAddProject={addProject}
         onAddWorktree={createWorktree}
+        onImportWorktree={importWorktree}
         onRenameProject={renameProject}
         onRemoveProject={handleRemoveProject}
         onRemoveWorktree={handleRemoveWorktree}

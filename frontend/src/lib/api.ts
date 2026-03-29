@@ -46,6 +46,9 @@ type RenameWorktreeFileRequest =
 type WorktreeGitPathActionRequest =
   components["schemas"]["WorktreeGitPathActionRequest"];
 type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
+type ListImportableWorktreesResponse =
+  components["schemas"]["ListImportableWorktreesResponse"];
+type ImportWorktreeRequest = components["schemas"]["ImportWorktreeRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
@@ -184,6 +187,31 @@ export async function createProjectWorktree(
     body.source_ref = sourceRef;
   }
   const res = await fetch(`${BASE}/projects/${projectId}/worktrees`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export type ImportableWorktree =
+  ListImportableWorktreesResponse["importable_worktrees"][number];
+
+export async function listImportableWorktrees(
+  projectId: string,
+): Promise<ListImportableWorktreesResponse> {
+  const res = await fetch(`${BASE}/projects/${projectId}/worktrees/importable`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function importProjectWorktree(
+  projectId: string,
+  path: string,
+): Promise<Worktree> {
+  const body: ImportWorktreeRequest = { path };
+  const res = await fetch(`${BASE}/projects/${projectId}/worktrees/import`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -433,9 +461,11 @@ export async function deleteProjectWorktree(
   projectId: string,
   worktreeId: string,
   force = false,
+  untrackOnly = false,
 ): Promise<void> {
   const params = new URLSearchParams();
   if (force) params.set("force", "true");
+  if (untrackOnly) params.set("untrack_only", "true");
   const qs = params.toString();
   const res = await fetch(
     `${BASE}/projects/${projectId}/worktrees/${worktreeId}${qs ? `?${qs}` : ""}`,

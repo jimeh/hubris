@@ -369,6 +369,92 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/import": {
+      "post": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "import_project_worktree",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportWorktreeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Worktree imported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Worktree"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or path is not a worktree"
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "409": {
+            "description": "Worktree already managed"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/worktrees/importable": {
+      "get": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "list_importable_worktrees",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Importable worktrees",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListImportableWorktreesResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/projects/{id}/worktrees/reorder": {
       "put": {
         "tags": ["crate::api::worktrees"],
@@ -480,6 +566,14 @@
           },
           {
             "name": "force",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "untrack_only",
             "in": "query",
             "required": false,
             "schema": {
@@ -1791,6 +1885,30 @@
           "untracked"
         ]
       },
+      "ImportWorktreeRequest": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "ImportableWorktree": {
+        "type": "object",
+        "required": ["id", "path"],
+        "properties": {
+          "branch": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
       "ListFilesResponse": {
         "type": "object",
         "required": ["path", "entries"],
@@ -1809,6 +1927,21 @@
           "path": {
             "type": "string",
             "description": "Canonical absolute path of the listed directory."
+          }
+        }
+      },
+      "ListImportableWorktreesResponse": {
+        "type": "object",
+        "required": ["importable_worktrees"],
+        "properties": {
+          "git_error": {
+            "type": ["string", "null"]
+          },
+          "importable_worktrees": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportableWorktree"
+            }
           }
         }
       },
@@ -2380,6 +2513,9 @@
           },
           "id": {
             "type": "string"
+          },
+          "is_imported": {
+            "type": "boolean"
           },
           "is_local": {
             "type": "boolean"
