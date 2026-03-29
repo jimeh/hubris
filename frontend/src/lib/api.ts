@@ -494,23 +494,6 @@ export async function deleteProjectWorktree(
   if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
 }
 
-export async function updateProjectWorktree(
-  projectId: string,
-  worktreeId: string,
-  updates: { ui_mode?: Worktree["ui_mode"] },
-): Promise<Worktree> {
-  const res = await fetch(
-    `${BASE}/projects/${projectId}/worktrees/${worktreeId}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
-    },
-  );
-  if (!res.ok) throw new Error(`${res.status}`);
-  return res.json();
-}
-
 export async function listFiles(
   path?: string,
   showHidden = false,

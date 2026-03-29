@@ -105,6 +105,7 @@ export default function SidebarDialogs({
           currentName={dialogState.renameWorktree.currentName}
           title="Rename Worktree"
           description="Update the worktree display name."
+          placeholder="Worktree name"
           onRename={async (name): Promise<void> => {
             const { projectId, worktreeId } = dialogState.renameWorktree!;
             await onRenameWorktree(projectId, worktreeId, name);

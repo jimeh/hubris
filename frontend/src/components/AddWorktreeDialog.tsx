@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertTriangle,
   ChevronsUpDown,
@@ -147,21 +154,20 @@ function TabButton({
   );
 }
 
-function CreatePanel({
-  projectId,
-  submitting,
-  onSubmit,
-  onSubmitReady,
-}: {
-  projectId: string;
-  submitting: boolean;
-  onSubmit: (
-    branch: string,
-    startPoint?: string,
-    sourceRef?: string,
-  ) => Promise<void>;
-  onSubmitReady: (fn: () => void) => void;
-}) {
+type CreatePanelHandle = { submit: () => void };
+
+const CreatePanel = forwardRef<
+  CreatePanelHandle,
+  {
+    projectId: string;
+    submitting: boolean;
+    onSubmit: (
+      branch: string,
+      startPoint?: string,
+      sourceRef?: string,
+    ) => Promise<void>;
+  }
+>(function CreatePanel({ projectId, submitting, onSubmit }, ref) {
   const themeVersion = useThemeSettings((state) => state.version);
   const [branch, setBranch] = useState("");
   const [suggestedBranch, setSuggestedBranch] = useState(
@@ -285,9 +291,7 @@ function CreatePanel({
     }
   }
 
-  useEffect(() => {
-    onSubmitReady(() => void submit());
-  });
+  useImperativeHandle(ref, () => ({ submit: () => void submit() }));
 
   return (
     <>
@@ -524,7 +528,7 @@ function CreatePanel({
       </div>
     </>
   );
-}
+});
 
 function ImportPanel({
   projectId,
@@ -646,12 +650,8 @@ export default function AddWorktreeDialog({
   onClose,
 }: Props) {
   const [activeTab, setActiveTab] = useState<ActiveTab>("create");
-  const createSubmitRef = useRef<(() => void) | null>(null);
+  const createPanelRef = useRef<CreatePanelHandle | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmitReady = useCallback((fn: () => void) => {
-    createSubmitRef.current = fn;
-  }, []);
   const [importSelectedPath, setImportSelectedPath] = useState<string | null>(
     null,
   );
@@ -714,10 +714,10 @@ export default function AddWorktreeDialog({
 
         {activeTab === "create" ? (
           <CreatePanel
+            ref={createPanelRef}
             projectId={projectId}
             submitting={submitting}
             onSubmit={handleCreate}
-            onSubmitReady={handleSubmitReady}
           />
         ) : (
           <>
@@ -740,7 +740,7 @@ export default function AddWorktreeDialog({
           {activeTab === "create" ? (
             <Button
               disabled={submitting}
-              onClick={() => createSubmitRef.current?.()}
+              onClick={() => createPanelRef.current?.submit()}
             >
               Create
             </Button>

@@ -643,9 +643,6 @@
               }
             }
           },
-          "400": {
-            "description": "Invalid request"
-          },
           "404": {
             "description": "Project or worktree not found"
           },
@@ -2488,6 +2485,16 @@
         "properties": {
           "name": {
             "type": ["string", "null"]
+          },
+          "ui_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorktreeUiMode"
+              }
+            ]
           }
         }
       },
@@ -2499,6 +2506,7 @@
           "name",
           "path",
           "branch",
+          "ui_mode",
           "is_local",
           "position"
         ],
@@ -2533,6 +2541,9 @@
           },
           "source_ref": {
             "type": ["string", "null"]
+          },
+          "ui_mode": {
+            "$ref": "#/components/schemas/WorktreeUiMode"
           }
         }
       },
@@ -2752,6 +2763,10 @@
             ]
           }
         }
+      },
+      "WorktreeUiMode": {
+        "type": "string",
+        "enum": ["hubris", "vscode"]
       },
       "WriteWorktreeFileContentRequest": {
         "type": "object",

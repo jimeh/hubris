@@ -14,6 +14,7 @@ type Props = {
   currentName: string;
   title?: string;
   description?: string;
+  placeholder?: string;
   onRename: (name: string) => Promise<void>;
   onClose: () => void;
 };
@@ -22,6 +23,7 @@ export default function RenameProjectDialog({
   currentName,
   title = "Rename Project",
   description = "Update the project display name.",
+  placeholder = "Project name",
   onRename,
   onClose,
 }: Props) {
@@ -58,7 +60,7 @@ export default function RenameProjectDialog({
           <Input
             type="text"
             value={name}
-            placeholder="Project name"
+            placeholder={placeholder}
             disabled={submitting}
             onChange={(event) => setName(event.currentTarget.value)}
             onKeyDown={(event) => {

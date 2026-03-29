@@ -712,6 +712,7 @@ export interface components {
     };
     UpdateWorktreeRequest: {
       name?: string | null;
+      ui_mode?: null | components["schemas"]["WorktreeUiMode"];
     };
     Worktree: {
       branch: string;
@@ -725,6 +726,7 @@ export interface components {
       position: number;
       project_id: string;
       source_ref?: string | null;
+      ui_mode: components["schemas"]["WorktreeUiMode"];
     };
     WorktreeFileContentParams: {
       /** @description Relative path from the worktree root. */
@@ -791,6 +793,8 @@ export interface components {
     WorktreeSettingsPatch: {
       locationMode?: null | components["schemas"]["WorktreeLocationMode"];
     };
+    /** @enum {string} */
+    WorktreeUiMode: "hubris" | "vscode";
     WriteWorktreeFileContentRequest: {
       content: string;
       expected_version_token: string;
@@ -1447,13 +1451,6 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["Worktree"];
         };
-      };
-      /** @description Invalid request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
       };
       /** @description Project or worktree not found */
       404: {
