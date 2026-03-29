@@ -95,6 +95,12 @@ pub struct ImportWorktreeRequest {
     pub path: String,
 }
 
+#[derive(Debug, Deserialize, ToSchema, TS)]
+pub struct UpdateWorktreeRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ReorderWorktreesRequest {
     pub worktree_ids: Vec<String>,
@@ -1310,6 +1316,72 @@ pub async fn import_project_worktree(
     });
 
     Ok((StatusCode::CREATED, Json(imported)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/projects/{id}/worktrees/{worktree_id}",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+    ),
+    request_body = UpdateWorktreeRequest,
+    responses(
+        (status = 200, description = "Worktree updated", body = Worktree),
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Project or worktree not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn update_project_worktree(
+    State(state): State<AppState>,
+    Path((project_id, worktree_id)): Path<(String, String)>,
+    Json(req): Json<UpdateWorktreeRequest>,
+) -> Result<Json<Worktree>, StatusCode> {
+    let projects = state
+        .load_projects()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let mut meta = load_meta(&state, &project.id).await;
+    let managed = meta
+        .managed_worktrees
+        .iter_mut()
+        .find(|wt| wt.id == worktree_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    if let Some(name) = &req.name {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        managed.name = Some(trimmed.to_string());
+    }
+
+    normalize_meta(&mut meta);
+    save_meta(&state, &project.id, &meta).await?;
+
+    let list = list_worktrees_for_project(&state, project)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let updated = list
+        .iter()
+        .find(|wt| wt.id == worktree_id)
+        .cloned()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    state.events.emit(EventKind::ProjectWorktreesUpdated {
+        project_id: project.id.clone(),
+        worktrees: list,
+        git_error: None,
+    });
+
+    Ok(Json(updated))
 }
 
 #[utoipa::path(

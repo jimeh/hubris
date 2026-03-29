@@ -12,12 +12,16 @@ import { Input } from "@/components/ui/input";
 
 type Props = {
   currentName: string;
+  title?: string;
+  description?: string;
   onRename: (name: string) => Promise<void>;
   onClose: () => void;
 };
 
 export default function RenameProjectDialog({
   currentName,
+  title = "Rename Project",
+  description = "Update the project display name.",
   onRename,
   onClose,
 }: Props) {
@@ -47,10 +51,8 @@ export default function RenameProjectDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Rename Project</DialogTitle>
-          <DialogDescription>
-            Update the project display name.
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
           <Input

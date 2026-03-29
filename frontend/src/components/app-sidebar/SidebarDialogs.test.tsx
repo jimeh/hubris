@@ -34,6 +34,7 @@ function makeDialogState(overrides: Partial<DialogState> = {}): DialogState {
     confirmRemoveProject: null,
     confirmForceRemoveProject: null,
     confirmRemoveWorktree: null,
+    renameWorktree: null,
     confirmForceRemoveWorktree: null,
     confirmRemoveImportedWorktree: null,
     actionError: null,
@@ -62,6 +63,7 @@ function renderSidebarDialogs(dialogState: DialogState) {
       onAddWorktree={vi.fn()}
       onImportWorktree={vi.fn()}
       onRenameProject={vi.fn()}
+      onRenameWorktree={vi.fn()}
       onRemoveProject={onRemoveProject}
       onRemoveWorktree={vi.fn()}
     />,

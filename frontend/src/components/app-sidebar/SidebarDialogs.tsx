@@ -22,6 +22,11 @@ type SidebarDialogsProps = {
   ) => Promise<unknown>;
   onImportWorktree: (projectId: string, path: string) => Promise<unknown>;
   onRenameProject: (projectId: string, name: string) => Promise<unknown>;
+  onRenameWorktree: (
+    projectId: string,
+    worktreeId: string,
+    name: string,
+  ) => Promise<void>;
   onRemoveProject: (
     projectId: string,
     options?: DeleteProjectOptions,
@@ -42,6 +47,7 @@ export default function SidebarDialogs({
   onAddWorktree,
   onImportWorktree,
   onRenameProject,
+  onRenameWorktree,
   onRemoveProject,
   onRemoveWorktree,
 }: SidebarDialogsProps) {
@@ -90,6 +96,22 @@ export default function SidebarDialogs({
           }}
           onClose={() =>
             setDialogState((state) => ({ ...state, renameProject: null }))
+          }
+        />
+      ) : null}
+
+      {dialogState.renameWorktree ? (
+        <RenameProjectDialog
+          currentName={dialogState.renameWorktree.currentName}
+          title="Rename Worktree"
+          description="Update the worktree display name."
+          onRename={async (name): Promise<void> => {
+            const { projectId, worktreeId } = dialogState.renameWorktree!;
+            await onRenameWorktree(projectId, worktreeId, name);
+            setDialogState((state) => ({ ...state, renameWorktree: null }));
+          }}
+          onClose={() =>
+            setDialogState((state) => ({ ...state, renameWorktree: null }))
           }
         />
       ) : null}

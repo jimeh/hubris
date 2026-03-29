@@ -49,6 +49,7 @@ type ReorderWorktreesRequest = components["schemas"]["ReorderWorktreesRequest"];
 type ListImportableWorktreesResponse =
   components["schemas"]["ListImportableWorktreesResponse"];
 type ImportWorktreeRequest = components["schemas"]["ImportWorktreeRequest"];
+type UpdateWorktreeRequest = components["schemas"]["UpdateWorktreeRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
@@ -216,6 +217,23 @@ export async function importProjectWorktree(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function updateProjectWorktree(
+  projectId: string,
+  worktreeId: string,
+  updates: UpdateWorktreeRequest,
+): Promise<Worktree> {
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    },
+  );
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }

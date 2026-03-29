@@ -39,6 +39,7 @@ export default function AppSidebarRoot() {
   const selectWorktree = useWorktreeStore((state) => state.select);
   const createWorktree = useWorktreeStore((state) => state.create);
   const importWorktree = useWorktreeStore((state) => state.importWorktree);
+  const renameWorktree = useWorktreeStore((state) => state.rename);
   const removeWorktree = useWorktreeStore((state) => state.remove);
   const reorderWorktrees = useWorktreeStore((state) => state.reorder);
 
@@ -193,6 +194,17 @@ export default function AppSidebarRoot() {
                 confirmRemoveProject: project.id,
               }))
             }
+            onRenameWorktree={(project, worktree) =>
+              setDialogState((state) => ({
+                ...state,
+                actionError: null,
+                renameWorktree: {
+                  projectId: project.id,
+                  worktreeId: worktree.id,
+                  currentName: worktree.name,
+                },
+              }))
+            }
             onRemoveWorktree={(project, worktree) =>
               setDialogState((state) => ({
                 ...state,
@@ -247,6 +259,7 @@ export default function AppSidebarRoot() {
         onAddWorktree={createWorktree}
         onImportWorktree={importWorktree}
         onRenameProject={renameProject}
+        onRenameWorktree={renameWorktree}
         onRemoveProject={handleRemoveProject}
         onRemoveWorktree={handleRemoveWorktree}
       />

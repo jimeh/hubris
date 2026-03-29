@@ -25,6 +25,7 @@ type WorktreeListProps = {
   projectError: string | null;
   selectedWorktreeId: string | null;
   onSelectWorktree: (id: string) => void;
+  onRenameWorktree: (worktree: Worktree) => void;
   onRemoveWorktree: (worktree: Worktree) => void;
   onReorder: (orderedIds: string[]) => void;
 };
@@ -35,6 +36,7 @@ export default function WorktreeList({
   projectError: currentProjectError,
   selectedWorktreeId,
   onSelectWorktree,
+  onRenameWorktree,
   onRemoveWorktree,
   onReorder,
 }: WorktreeListProps) {
@@ -124,6 +126,7 @@ export default function WorktreeList({
                 isSelected={selectedWorktreeId === worktree.id}
                 isSorting={activeWorktreeDragId !== null}
                 onSelect={() => onSelectWorktree(worktree.id)}
+                onRename={() => onRenameWorktree(worktree)}
                 onRemove={() => onRemoveWorktree(worktree)}
               />
             ))}

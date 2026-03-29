@@ -23,6 +23,11 @@ type WorktreesState = {
     sourceRef?: string,
   ) => Promise<Worktree>;
   importWorktree: (projectId: string, path: string) => Promise<Worktree>;
+  rename: (
+    projectId: string,
+    worktreeId: string,
+    name: string,
+  ) => Promise<void>;
   remove: (
     projectId: string,
     worktreeId: string,
@@ -191,6 +196,14 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
       };
     });
     return worktree;
+  },
+  async rename(projectId, worktreeId, name) {
+    const updated = await updateProjectWorktree(projectId, worktreeId, {
+      name,
+    });
+    set((state) => ({
+      worktreesByProject: upsertWorktree(state.worktreesByProject, updated),
+    }));
   },
   async remove(projectId, worktreeId, force = false, untrackOnly = false) {
     const before = get().worktreesByProject[projectId] ?? [];

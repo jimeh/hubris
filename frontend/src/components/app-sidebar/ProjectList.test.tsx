@@ -111,6 +111,7 @@ function renderProjectList(
       onAddWorktree={vi.fn()}
       onRenameProject={vi.fn()}
       onRemoveProject={vi.fn()}
+      onRenameWorktree={vi.fn()}
       onRemoveWorktree={vi.fn()}
       onReorderWorktrees={vi.fn()}
       {...overrides}
