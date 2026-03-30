@@ -75,8 +75,7 @@ export function applyMonacoTheme(
     const signature = JSON.stringify({
       base: converted.base,
       colors: converted.colors,
-      ruleCount: converted.rules.length,
-      firstRule: converted.rules[0],
+      rules: converted.rules,
     });
 
     if (appliedThemeSignature === signature) {

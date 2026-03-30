@@ -258,7 +258,9 @@ fn strip_jsonc_comments(input: &str) -> String {
             while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
                 i += 1;
             }
-            i += 2; // skip */
+            if i + 1 < len {
+                i += 2; // skip */
+            }
             continue;
         }
 
@@ -307,6 +309,14 @@ fn parse_jsonc_value(contents: &str) -> Result<serde_json::Value, serde_json::Er
 
 fn editor_themes_dir(state: &AppState) -> std::path::PathBuf {
     state.data_dir.join("editor-themes")
+}
+
+/// Reject IDs containing path separators or traversal components.
+fn validate_theme_id(id: &str) -> Result<(), StatusCode> {
+    if id.is_empty() || id.contains('/') || id.contains('\\') || id.contains("..") || id == "." {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(())
 }
 
 fn slugify(name: &str) -> String {
@@ -553,32 +563,6 @@ async fn ensure_themes_dir(state: &AppState) -> Result<std::path::PathBuf, Statu
     Ok(dir)
 }
 
-/// Write a theme to disk by re-serializing the parsed struct.
-/// Used for file uploads where we only have the parsed struct.
-async fn write_theme_to_disk(
-    state: &AppState,
-    theme: &VscodeThemeJson,
-    overwrite_id: Option<&str>,
-) -> Result<EditorThemeEntry, StatusCode> {
-    let dir = ensure_themes_dir(state).await?;
-    let slug = match overwrite_id {
-        Some(id) => id.to_string(),
-        None => resolve_slug(&dir, &theme.name)?,
-    };
-
-    let path = dir.join(format!("{slug}.json"));
-    let json_bytes =
-        serde_json::to_string_pretty(theme).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    tokio::fs::write(&path, json_bytes.as_bytes())
-        .await
-        .map_err(|e| {
-            tracing::error!("write editor theme: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    Ok(entry_from_json(&slug, theme, false))
-}
-
 /// Write theme JSON to disk, preserving unknown fields from the
 /// source but patching `name` and `type` to match the resolved values.
 async fn write_raw_theme_to_disk(
@@ -662,6 +646,8 @@ pub async fn get_editor_theme(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<VscodeThemeJson>, StatusCode> {
+    validate_theme_id(&id)?;
+
     // Check built-in first.
     if let Some(json_str) = builtin_json(&id) {
         let theme: VscodeThemeJson = serde_json::from_str(json_str).map_err(|e| {
@@ -694,12 +680,18 @@ pub async fn get_editor_theme(
 )]
 pub async fn upload_editor_theme(
     State(state): State<AppState>,
-    Json(theme): Json<VscodeThemeJson>,
+    body: String,
 ) -> Result<(StatusCode, Json<EditorThemeEntry>), StatusCode> {
+    // Parse through VscodeThemeJson for validation, but write the
+    // raw JSON to preserve unknown fields like semanticHighlighting,
+    // semanticTokenColors, and $schema.
+    let clean = strip_jsonc_comments(&body);
+    let theme: VscodeThemeJson =
+        serde_json::from_str(&clean).map_err(|_| StatusCode::BAD_REQUEST)?;
     if theme.token_colors.is_empty() && theme.colors.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let entry = write_theme_to_disk(&state, &theme, None).await?;
+    let entry = write_raw_theme_to_disk(&state, &clean, &theme, None).await?;
     Ok((StatusCode::CREATED, Json(entry)))
 }
 
@@ -900,6 +892,8 @@ pub async fn delete_editor_theme(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
+    validate_theme_id(&id)?;
+
     if is_builtin(&id) {
         return Err(StatusCode::FORBIDDEN);
     }
