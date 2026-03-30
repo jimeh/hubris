@@ -573,7 +573,10 @@ async fn write_raw_theme_to_disk(
 ) -> Result<EditorThemeEntry, StatusCode> {
     let dir = ensure_themes_dir(state).await?;
     let slug = match overwrite_id {
-        Some(id) => id.to_string(),
+        Some(id) => {
+            validate_theme_id(id)?;
+            id.to_string()
+        }
         None => resolve_slug(&dir, &theme.name)?,
     };
 
