@@ -660,12 +660,12 @@ export async function getEditorTheme(id: string): Promise<VscodeThemeJson> {
 }
 
 export async function uploadEditorTheme(
-  theme: VscodeThemeJson,
+  rawText: string,
 ): Promise<EditorThemeEntry> {
   const res = await fetch(`${BASE}/editor-themes`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(theme),
+    body: rawText,
   });
   if (!res.ok) {
     throwStatusError(res.status);

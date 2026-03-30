@@ -20,11 +20,17 @@ export function convertVscodeThemeToMonaco(
 
   const rules: TokenRule[] = [];
   for (const tokenColor of theme.tokenColors) {
-    const scopes = Array.isArray(tokenColor.scope)
+    // VS Code themes may express scopes as comma-separated strings
+    // (e.g. "markup.bold, markup.italic"). Monaco expects individual
+    // scope selectors, so split and trim them.
+    const rawScopes = Array.isArray(tokenColor.scope)
       ? tokenColor.scope
       : tokenColor.scope
         ? [tokenColor.scope]
         : [""];
+    const scopes = rawScopes.flatMap((s) =>
+      s.includes(",") ? s.split(",").map((p) => p.trim()) : [s],
+    );
 
     for (const scope of scopes) {
       const rule: TokenRule = { token: scope };

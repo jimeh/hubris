@@ -9,6 +9,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -32,7 +33,6 @@ import {
   type DiscoveredExtension,
   type DiscoveredTheme,
   type EditorThemeEntry,
-  type VscodeThemeJson,
 } from "@/lib/api";
 
 const settingsRowClass =
@@ -77,15 +77,9 @@ export default function EditorSettings() {
       if (!file) return;
       const reader = new FileReader();
       reader.onload = () => {
-        try {
-          const parsed = JSON.parse(reader.result as string) as VscodeThemeJson;
-          if (
-            !parsed.tokenColors?.length &&
-            !Object.keys(parsed.colors ?? {}).length
-          ) {
-            return;
-          }
-          void uploadEditorTheme(parsed).then((entry) => {
+        const rawText = reader.result as string;
+        void uploadEditorTheme(rawText)
+          .then((entry) => {
             refreshThemes();
             const isLight = entry.type === "light";
             updateEditor(
@@ -93,10 +87,10 @@ export default function EditorSettings() {
                 ? { lightEditorTheme: entry.id }
                 : { darkEditorTheme: entry.id },
             );
+          })
+          .catch(() => {
+            toast.error("Failed to import theme file");
           });
-        } catch {
-          // Invalid JSON — silently ignore.
-        }
       };
       reader.readAsText(file);
       e.target.value = "";
