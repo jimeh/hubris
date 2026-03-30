@@ -429,6 +429,10 @@ async fn read_installed_themes(state: &AppState) -> HashMap<String, serde_json::
 }
 
 /// Find an extension in a specific editor's extensions directory.
+///
+/// When multiple versions of the same extension are installed (common
+/// during editor updates), returns the highest semver to stay
+/// consistent with `dedup_extensions` in the discovery flow.
 async fn find_extension_in_editor(
     home: &StdPath,
     dot_dir: &str,
@@ -438,6 +442,7 @@ async fn find_extension_in_editor(
     let Ok(mut read_dir) = tokio::fs::read_dir(&ext_dir).await else {
         return None;
     };
+    let mut best: Option<(ExtensionPackageJson, PathBuf)> = None;
     while let Ok(Some(entry)) = read_dir.next_entry().await {
         let is_dir = entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false);
         if !is_dir {
@@ -456,10 +461,15 @@ async fn find_extension_in_editor(
         }
         let id = format!("{}.{}", pkg.publisher, pkg.name);
         if id == extension_id {
-            return Some((pkg, path));
+            let dominated = best
+                .as_ref()
+                .is_some_and(|(b, _)| parse_version(&b.version) >= parse_version(&pkg.version));
+            if !dominated {
+                best = Some((pkg, path));
+            }
         }
     }
-    None
+    best
 }
 
 // ── Shared write logic ──────────────────────────────────────────────
