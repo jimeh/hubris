@@ -2,7 +2,8 @@ use axum::Json;
 use utoipa::OpenApi;
 
 use crate::api::editor_themes::{
-    EditorThemeEntry, VscodeThemeJson, VscodeTokenColor, VscodeTokenColorSettings, VscodeTokenScope,
+    DiscoveredExtension, DiscoveredTheme, EditorThemeEntry, ImportThemeRequest, VscodeThemeJson,
+    VscodeTokenColor, VscodeTokenColorSettings, VscodeTokenScope,
 };
 use crate::api::files::{
     ApiErrorResponse, DirEntry, ListFilesResponse, ListWorktreeFilesResponse,
@@ -72,6 +73,8 @@ use crate::tab::{GitDiffScope, TabInfo};
         crate::api::editor_themes::get_editor_theme,
         crate::api::editor_themes::upload_editor_theme,
         crate::api::editor_themes::delete_editor_theme,
+        crate::api::editor_themes::discover_editor_themes,
+        crate::api::editor_themes::import_extension_theme,
     ),
     components(
         schemas(
@@ -138,6 +141,9 @@ use crate::tab::{GitDiffScope, TabInfo};
             VscodeTokenColor,
             VscodeTokenColorSettings,
             VscodeTokenScope,
+            DiscoveredTheme,
+            DiscoveredExtension,
+            ImportThemeRequest,
         )
     ),
     tags(

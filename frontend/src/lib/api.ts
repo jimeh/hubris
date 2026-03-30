@@ -681,3 +681,51 @@ export async function deleteEditorTheme(id: string): Promise<void> {
     throwStatusError(res.status);
   }
 }
+
+// --- Extension Theme Discovery ---
+
+export type DiscoveredTheme = {
+  label: string;
+  type: string;
+  installedId: string | null;
+  differs: boolean;
+};
+
+export type DiscoveredExtension = {
+  extensionId: string;
+  displayName: string;
+  version: string;
+  sourceEditor: string;
+  themes: DiscoveredTheme[];
+};
+
+export type ImportThemeRequest = {
+  extensionId: string;
+  themeIndex: number;
+  sourceEditor: string;
+  overwriteId?: string;
+};
+
+export async function discoverExtensionThemes(): Promise<
+  DiscoveredExtension[]
+> {
+  const res = await fetch(`${BASE}/editor-themes/discover`);
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+  return res.json();
+}
+
+export async function importExtensionTheme(
+  req: ImportThemeRequest,
+): Promise<EditorThemeEntry> {
+  const res = await fetch(`${BASE}/editor-themes/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+  return res.json();
+}

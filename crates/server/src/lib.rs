@@ -26,7 +26,8 @@ pub use access::{
 };
 use access::{desktop_auth_middleware, desktop_bootstrap_handler};
 use api::editor_themes::{
-    delete_editor_theme, get_editor_theme, list_editor_themes, upload_editor_theme,
+    delete_editor_theme, discover_editor_themes, get_editor_theme, import_extension_theme,
+    list_editor_themes, upload_editor_theme,
 };
 use api::events::event_stream;
 use api::files::{
@@ -275,6 +276,8 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
             "/editor-themes",
             get(list_editor_themes).post(upload_editor_theme),
         )
+        .route("/editor-themes/discover", get(discover_editor_themes))
+        .route("/editor-themes/import", post(import_extension_theme))
         .route(
             "/editor-themes/{id}",
             get(get_editor_theme).delete(delete_editor_theme),
