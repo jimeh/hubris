@@ -11,13 +11,65 @@ use crate::state::AppState;
 
 // ── Built-in theme data ──────────────────────────────────────────────
 
-const BUILTIN_DARK: &str = include_str!("../../data/editor-themes/hubris-dark.json");
-const BUILTIN_LIGHT: &str = include_str!("../../data/editor-themes/hubris-light.json");
+// Hubris themes
+const HUBRIS_DARK: &str = include_str!("../../data/editor-themes/hubris-dark.json");
+const HUBRIS_LIGHT: &str = include_str!("../../data/editor-themes/hubris-light.json");
+
+// VS Code built-in themes
+const VSCODE_ABYSS: &str = include_str!("../../data/editor-themes/vscode/abyss.json");
+const VSCODE_DARK: &str = include_str!("../../data/editor-themes/vscode/dark.json");
+const VSCODE_DARK_MODERN: &str = include_str!("../../data/editor-themes/vscode/dark-modern.json");
+const VSCODE_DEFAULT_HC: &str =
+    include_str!("../../data/editor-themes/vscode/default-high-contrast.json");
+const VSCODE_DEFAULT_HC_LIGHT: &str =
+    include_str!("../../data/editor-themes/vscode/default-high-contrast-light.json");
+const VSCODE_KIMBIE_DARK: &str = include_str!("../../data/editor-themes/vscode/kimbie-dark.json");
+const VSCODE_LIGHT: &str = include_str!("../../data/editor-themes/vscode/light.json");
+const VSCODE_LIGHT_MODERN: &str = include_str!("../../data/editor-themes/vscode/light-modern.json");
+const VSCODE_MONOKAI: &str = include_str!("../../data/editor-themes/vscode/monokai.json");
+const VSCODE_MONOKAI_DIMMED: &str =
+    include_str!("../../data/editor-themes/vscode/monokai-dimmed.json");
+const VSCODE_QUIET_LIGHT: &str = include_str!("../../data/editor-themes/vscode/quiet-light.json");
+const VSCODE_RED: &str = include_str!("../../data/editor-themes/vscode/red.json");
+const VSCODE_SOLARIZED_DARK: &str =
+    include_str!("../../data/editor-themes/vscode/solarized-dark.json");
+const VSCODE_SOLARIZED_LIGHT: &str =
+    include_str!("../../data/editor-themes/vscode/solarized-light.json");
+const VSCODE_TOMORROW_NIGHT_BLUE: &str =
+    include_str!("../../data/editor-themes/vscode/tomorrow-night-blue.json");
+const VSCODE_VS_DARK: &str =
+    include_str!("../../data/editor-themes/vscode/visual-studio-dark.json");
+const VSCODE_VS_LIGHT: &str =
+    include_str!("../../data/editor-themes/vscode/visual-studio-light.json");
+const VSCODE_2026_DARK: &str = include_str!("../../data/editor-themes/vscode/vs-code-dark.json");
+const VSCODE_2026_LIGHT: &str = include_str!("../../data/editor-themes/vscode/vs-code-light.json");
 
 fn builtin_themes() -> &'static [(&'static str, &'static str)] {
     &[
-        ("hubris-dark", BUILTIN_DARK),
-        ("hubris-light", BUILTIN_LIGHT),
+        // Hubris
+        ("hubris-dark", HUBRIS_DARK),
+        ("hubris-light", HUBRIS_LIGHT),
+        // VS Code defaults
+        ("dark-modern", VSCODE_DARK_MODERN),
+        ("dark-plus", VSCODE_DARK),
+        ("light-modern", VSCODE_LIGHT_MODERN),
+        ("light-plus", VSCODE_LIGHT),
+        ("visual-studio-dark", VSCODE_VS_DARK),
+        ("visual-studio-light", VSCODE_VS_LIGHT),
+        ("vs-code-dark", VSCODE_2026_DARK),
+        ("vs-code-light", VSCODE_2026_LIGHT),
+        ("high-contrast", VSCODE_DEFAULT_HC),
+        ("high-contrast-light", VSCODE_DEFAULT_HC_LIGHT),
+        // VS Code community
+        ("abyss", VSCODE_ABYSS),
+        ("kimbie-dark", VSCODE_KIMBIE_DARK),
+        ("monokai", VSCODE_MONOKAI),
+        ("monokai-dimmed", VSCODE_MONOKAI_DIMMED),
+        ("quiet-light", VSCODE_QUIET_LIGHT),
+        ("red", VSCODE_RED),
+        ("solarized-dark", VSCODE_SOLARIZED_DARK),
+        ("solarized-light", VSCODE_SOLARIZED_LIGHT),
+        ("tomorrow-night-blue", VSCODE_TOMORROW_NIGHT_BLUE),
     ]
 }
 
