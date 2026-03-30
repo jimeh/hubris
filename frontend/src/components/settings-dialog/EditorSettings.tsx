@@ -100,15 +100,19 @@ export default function EditorSettings() {
 
   const handleDelete = useCallback(
     (id: string) => {
-      void deleteEditorTheme(id).then(() => {
-        refreshThemes();
-        if (editorSettings.lightEditorTheme === id) {
-          updateEditor({ lightEditorTheme: "hubris-light" });
-        }
-        if (editorSettings.darkEditorTheme === id) {
-          updateEditor({ darkEditorTheme: "hubris-dark" });
-        }
-      });
+      void deleteEditorTheme(id)
+        .then(() => {
+          refreshThemes();
+          if (editorSettings.lightEditorTheme === id) {
+            updateEditor({ lightEditorTheme: "hubris-light" });
+          }
+          if (editorSettings.darkEditorTheme === id) {
+            updateEditor({ darkEditorTheme: "hubris-dark" });
+          }
+        })
+        .catch(() => {
+          toast.error("Failed to delete theme");
+        });
     },
     [
       refreshThemes,
@@ -130,9 +134,10 @@ export default function EditorSettings() {
       const key = `${ext.extensionId}-${themeIdx}`;
       setImporting(key);
       void importExtensionTheme({
-        extensionId: ext.extensionId,
-        themeIndex: themeIdx,
         sourceEditor: ext.sourceEditor,
+        sourcePath: theme.sourcePath,
+        label: theme.label,
+        type: theme.type,
         overwriteId: theme.installedId ?? undefined,
       })
         .then((entry) => {
@@ -147,6 +152,9 @@ export default function EditorSettings() {
           return discoverExtensionThemes();
         })
         .then(setExtensions)
+        .catch(() => {
+          toast.error("Failed to import theme");
+        })
         .finally(() => setImporting(null));
     },
     [refreshThemes, updateEditor],

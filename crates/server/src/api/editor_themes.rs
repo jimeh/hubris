@@ -133,7 +133,7 @@ pub struct VscodeThemeJson {
 }
 
 fn default_theme_type() -> Option<String> {
-    Some("dark".to_string())
+    None
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -154,6 +154,9 @@ pub struct DiscoveredTheme {
     pub label: String,
     #[serde(rename = "type")]
     pub theme_type: String,
+    /// Path to the theme JSON file, relative to the editor's extensions
+    /// directory (e.g. "publisher.ext-1.0.0/themes/dark.json").
+    pub source_path: String,
     pub installed_id: Option<String>,
     pub differs: bool,
 }
@@ -171,9 +174,15 @@ pub struct DiscoveredExtension {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportThemeRequest {
-    pub extension_id: String,
-    pub theme_index: usize,
     pub source_editor: String,
+    /// Path to the theme JSON file, relative to the editor's extensions
+    /// directory. Must match a `source_path` from the discover response.
+    pub source_path: String,
+    /// Display name for the imported theme.
+    pub label: String,
+    /// Theme type: "light" or "dark".
+    #[serde(rename = "type")]
+    pub theme_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overwrite_id: Option<String>,
 }
@@ -428,50 +437,6 @@ async fn read_installed_themes(state: &AppState) -> HashMap<String, serde_json::
     map
 }
 
-/// Find an extension in a specific editor's extensions directory.
-///
-/// When multiple versions of the same extension are installed (common
-/// during editor updates), returns the highest semver to stay
-/// consistent with `dedup_extensions` in the discovery flow.
-async fn find_extension_in_editor(
-    home: &StdPath,
-    dot_dir: &str,
-    extension_id: &str,
-) -> Option<(ExtensionPackageJson, PathBuf)> {
-    let ext_dir = home.join(dot_dir).join("extensions");
-    let Ok(mut read_dir) = tokio::fs::read_dir(&ext_dir).await else {
-        return None;
-    };
-    let mut best: Option<(ExtensionPackageJson, PathBuf)> = None;
-    while let Ok(Some(entry)) = read_dir.next_entry().await {
-        let is_dir = entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false);
-        if !is_dir {
-            continue;
-        }
-        let path = entry.path();
-        let pkg_path = path.join("package.json");
-        let Ok(contents) = tokio::fs::read_to_string(&pkg_path).await else {
-            continue;
-        };
-        let Ok(pkg) = serde_json::from_str::<ExtensionPackageJson>(&contents) else {
-            continue;
-        };
-        if pkg.publisher.is_empty() {
-            continue;
-        }
-        let id = format!("{}.{}", pkg.publisher, pkg.name);
-        if id == extension_id {
-            let dominated = best
-                .as_ref()
-                .is_some_and(|(b, _)| parse_version(&b.version) >= parse_version(&pkg.version));
-            if !dominated {
-                best = Some((pkg, path));
-            }
-        }
-    }
-    best
-}
-
 // ── Shared write logic ──────────────────────────────────────────────
 
 /// Slugs that would shadow static API routes.
@@ -709,6 +674,13 @@ pub async fn discover_editor_themes(
             ext.pkg.display_name.clone()
         };
 
+        // Extension directory name (e.g. "publisher.ext-1.0.0").
+        let ext_dir_name = ext
+            .root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+
         let mut themes = Vec::new();
         for contrib in &ext.pkg.contributes.themes {
             if contrib.path.is_empty() {
@@ -720,6 +692,7 @@ pub async fn discover_editor_themes(
             } else {
                 contrib.label.clone()
             };
+            let source_path = format!("{ext_dir_name}/{}", contrib.path);
 
             // Check if this theme is already installed. Look up the
             // base slug first, then fall back to collision-suffixed
@@ -767,6 +740,7 @@ pub async fn discover_editor_themes(
             themes.push(DiscoveredTheme {
                 label,
                 theme_type,
+                source_path,
                 installed_id,
                 differs,
             });
@@ -808,7 +782,20 @@ pub async fn import_extension_theme(
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     };
 
-    // Find the editor's dot_dir from the source_editor name.
+    // Validate source_path against path traversal.
+    if req.source_path.is_empty()
+        || req.source_path.contains("..")
+        || req.source_path.starts_with('/')
+        || req.source_path.starts_with('\\')
+    {
+        tracing::warn!(
+            source_path = %req.source_path,
+            "import: invalid source path"
+        );
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Resolve the editor's extensions directory.
     let dot_dir = known_editors()
         .iter()
         .find(|(name, _)| *name == req.source_editor)
@@ -821,31 +808,8 @@ pub async fn import_extension_theme(
             StatusCode::BAD_REQUEST
         })?;
 
-    // Find the extension.
-    let (pkg, ext_root) = find_extension_in_editor(&home, dot_dir, &req.extension_id)
-        .await
-        .ok_or_else(|| {
-            tracing::warn!(
-                source_editor = %req.source_editor,
-                extension_id = %req.extension_id,
-                "import: extension not found"
-            );
-            StatusCode::NOT_FOUND
-        })?;
-
-    // Get the theme contribution.
-    let contrib = pkg.contributes.themes.get(req.theme_index).ok_or_else(|| {
-        tracing::warn!(
-            extension_id = %req.extension_id,
-            theme_index = req.theme_index,
-            theme_count = pkg.contributes.themes.len(),
-            "import: theme index out of range"
-        );
-        StatusCode::BAD_REQUEST
-    })?;
-
-    // Read the theme file.
-    let theme_path = ext_root.join(&contrib.path);
+    // Read the theme file directly from the path provided by discover.
+    let theme_path = home.join(dot_dir).join("extensions").join(&req.source_path);
     let raw_contents = tokio::fs::read_to_string(&theme_path).await.map_err(|e| {
         tracing::warn!(
             path = %theme_path.display(),
@@ -856,12 +820,10 @@ pub async fn import_extension_theme(
     })?;
 
     // Parse JSONC into a generic Value (preserves all fields) and a
-    // typed struct (for validation / name resolution).
+    // typed struct (for validation).
     let value: serde_json::Value = parse_jsonc_value(&raw_contents).map_err(|e| {
         tracing::warn!(
-            extension_id = %req.extension_id,
-            theme_index = req.theme_index,
-            path = %theme_path.display(),
+            source_path = %req.source_path,
             error = %e,
             "import: failed to parse theme JSONC"
         );
@@ -869,33 +831,17 @@ pub async fn import_extension_theme(
     })?;
     let mut theme: VscodeThemeJson = serde_json::from_value(value.clone()).map_err(|e| {
         tracing::warn!(
-            extension_id = %req.extension_id,
-            theme_index = req.theme_index,
-            path = %theme_path.display(),
+            source_path = %req.source_path,
             error = %e,
             "import: theme JSON does not match expected schema"
         );
         StatusCode::BAD_REQUEST
     })?;
 
-    // Always prefer the contribution label as the theme name. Multiple
-    // themes in the same extension often share the same internal `name`
-    // field (e.g. all One Dark Pro variants are named "One Dark Pro"),
-    // so the contribution label is the only unique identifier.
-    let label = if contrib.label.is_empty() {
-        if theme.name.is_empty() {
-            pkg.display_name.clone()
-        } else {
-            theme.name.clone()
-        }
-    } else {
-        contrib.label.clone()
-    };
-    theme.name = label;
-
-    if theme.theme_type.is_none() {
-        theme.theme_type = Some(ui_theme_to_type(&contrib.ui_theme).to_string());
-    }
+    // Use the label and type from the request (already resolved by
+    // the discover endpoint from the extension's package.json).
+    theme.name = req.label.clone();
+    theme.theme_type = Some(req.theme_type.clone());
 
     // Serialize the parsed Value to clean JSON for storage (preserves
     // unknown fields like semanticHighlighting, semanticTokenColors).

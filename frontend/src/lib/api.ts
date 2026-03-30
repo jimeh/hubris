@@ -687,6 +687,7 @@ export async function deleteEditorTheme(id: string): Promise<void> {
 export type DiscoveredTheme = {
   label: string;
   type: string;
+  sourcePath: string;
   installedId: string | null;
   differs: boolean;
 };
@@ -700,9 +701,10 @@ export type DiscoveredExtension = {
 };
 
 export type ImportThemeRequest = {
-  extensionId: string;
-  themeIndex: number;
   sourceEditor: string;
+  sourcePath: string;
+  label: string;
+  type: string;
   overwriteId?: string;
 };
 

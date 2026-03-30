@@ -61,6 +61,63 @@
         }
       }
     },
+    "/api/editor-themes/discover": {
+      "get": {
+        "tags": ["crate::api::editor_themes"],
+        "summary": "GET /api/editor-themes/discover — scan local editors for theme extensions.",
+        "operationId": "discover_editor_themes",
+        "responses": {
+          "200": {
+            "description": "Discovered extension themes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DiscoveredExtension"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/editor-themes/import": {
+      "post": {
+        "tags": ["crate::api::editor_themes"],
+        "summary": "POST /api/editor-themes/import — import a theme from an extension.",
+        "operationId": "import_extension_theme",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportThemeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Theme imported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorThemeEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Extension or theme not found"
+          }
+        }
+      }
+    },
     "/api/editor-themes/{id}": {
       "get": {
         "tags": ["crate::api::editor_themes"],
@@ -1889,6 +1946,58 @@
           }
         }
       },
+      "DiscoveredExtension": {
+        "type": "object",
+        "required": [
+          "extensionId",
+          "displayName",
+          "version",
+          "sourceEditor",
+          "themes"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "extensionId": {
+            "type": "string"
+          },
+          "sourceEditor": {
+            "type": "string"
+          },
+          "themes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredTheme"
+            }
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "DiscoveredTheme": {
+        "type": "object",
+        "required": ["label", "type", "sourcePath", "differs"],
+        "properties": {
+          "differs": {
+            "type": "boolean"
+          },
+          "installedId": {
+            "type": ["string", "null"]
+          },
+          "label": {
+            "type": "string"
+          },
+          "sourcePath": {
+            "type": "string",
+            "description": "Path to the theme JSON file, relative to the editor's extensions\ndirectory (e.g. \"publisher.ext-1.0.0/themes/dark.json\")."
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
       "EditorSettings": {
         "type": "object",
         "properties": {
@@ -2036,6 +2145,30 @@
           "typechange",
           "untracked"
         ]
+      },
+      "ImportThemeRequest": {
+        "type": "object",
+        "required": ["sourceEditor", "sourcePath", "label", "type"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Display name for the imported theme."
+          },
+          "overwriteId": {
+            "type": ["string", "null"]
+          },
+          "sourceEditor": {
+            "type": "string"
+          },
+          "sourcePath": {
+            "type": "string",
+            "description": "Path to the theme JSON file, relative to the editor's extensions\ndirectory. Must match a `source_path` from the discover response."
+          },
+          "type": {
+            "type": "string",
+            "description": "Theme type: \"light\" or \"dark\"."
+          }
+        }
       },
       "ImportWorktreeRequest": {
         "type": "object",
@@ -2665,7 +2798,6 @@
       },
       "VscodeThemeJson": {
         "type": "object",
-        "required": ["name"],
         "properties": {
           "colors": {
             "type": "object",

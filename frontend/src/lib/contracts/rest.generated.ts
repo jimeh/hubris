@@ -22,6 +22,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/editor-themes/discover": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /api/editor-themes/discover — scan local editors for theme extensions. */
+    get: operations["discover_editor_themes"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/editor-themes/import": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /api/editor-themes/import — import a theme from an extension. */
+    post: operations["import_extension_theme"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/editor-themes/{id}": {
     parameters: {
       query?: never;
@@ -522,6 +556,24 @@ export interface components {
       is_git_repo: boolean;
       name: string;
     };
+    DiscoveredExtension: {
+      displayName: string;
+      extensionId: string;
+      sourceEditor: string;
+      themes: components["schemas"]["DiscoveredTheme"][];
+      version: string;
+    };
+    DiscoveredTheme: {
+      differs: boolean;
+      installedId?: string | null;
+      label: string;
+      /**
+       * @description Path to the theme JSON file, relative to the editor's extensions
+       *     directory (e.g. "publisher.ext-1.0.0/themes/dark.json").
+       */
+      sourcePath: string;
+      type: string;
+    };
     EditorSettings: {
       darkEditorTheme?: string;
       lightEditorTheme?: string;
@@ -574,6 +626,19 @@ export interface components {
       | "deleted"
       | "typechange"
       | "untracked";
+    ImportThemeRequest: {
+      /** @description Display name for the imported theme. */
+      label: string;
+      overwriteId?: string | null;
+      sourceEditor: string;
+      /**
+       * @description Path to the theme JSON file, relative to the editor's extensions
+       *     directory. Must match a `source_path` from the discover response.
+       */
+      sourcePath: string;
+      /** @description Theme type: "light" or "dark". */
+      type: string;
+    };
     ImportWorktreeRequest: {
       path: string;
     };
@@ -770,7 +835,7 @@ export interface components {
       colors?: {
         [key: string]: string;
       };
-      name: string;
+      name?: string;
       tokenColors?: components["schemas"]["VscodeTokenColor"][];
       type?: string | null;
     };
@@ -929,6 +994,64 @@ export interface operations {
       };
       /** @description Invalid theme JSON */
       400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  discover_editor_themes: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Discovered extension themes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DiscoveredExtension"][];
+        };
+      };
+    };
+  };
+  import_extension_theme: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ImportThemeRequest"];
+      };
+    };
+    responses: {
+      /** @description Theme imported */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EditorThemeEntry"];
+        };
+      };
+      /** @description Invalid request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Extension or theme not found */
+      404: {
         headers: {
           [name: string]: unknown;
         };
