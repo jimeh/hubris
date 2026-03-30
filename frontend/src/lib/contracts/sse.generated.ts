@@ -16,6 +16,7 @@ export type TabInfo =
       position: number;
       created_at: number;
       preview: boolean;
+      has_notification?: boolean;
     }
   | {
       type: "file";

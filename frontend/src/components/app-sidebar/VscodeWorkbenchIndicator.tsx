@@ -1,3 +1,4 @@
+import { Code } from "lucide-react";
 import { useVscodeWorkbenchStore } from "@/lib/stores/vscodeWorkbench";
 
 type Props = {
@@ -10,14 +11,12 @@ export default function VscodeWorkbenchIndicator({ worktreeId }: Props) {
     state.loadedWorktreeIds.includes(worktreeId),
   );
 
+  if (!loaded) return null;
+
   return (
-    <span
-      className="inline-flex size-3.5 shrink-0 items-center justify-center"
-      aria-label={loaded ? "VS Code workbench loaded" : undefined}
-    >
-      {loaded ? (
-        <span className="size-2 rounded-full bg-sky-500" aria-hidden="true" />
-      ) : null}
-    </span>
+    <Code
+      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+      aria-label="VS Code workbench loaded"
+    />
   );
 }

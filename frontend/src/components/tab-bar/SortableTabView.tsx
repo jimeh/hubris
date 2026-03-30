@@ -24,6 +24,7 @@ const SortableTabView = memo(
       isActive,
       preview = false,
       dirty = false,
+      notification = false,
       locked = false,
       dragging = false,
       isOverlay = false,
@@ -118,6 +119,11 @@ const SortableTabView = memo(
         {dirty ? (
           <span
             className="h-2 w-2 shrink-0 rounded-full bg-sky-400"
+            aria-hidden="true"
+          />
+        ) : notification ? (
+          <span
+            className="h-2 w-2 shrink-0 rounded-full bg-notification-dot"
             aria-hidden="true"
           />
         ) : null}

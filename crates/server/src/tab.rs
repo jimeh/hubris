@@ -21,6 +21,8 @@ pub enum TabInfo {
         #[ts(type = "number")]
         created_at: u64,
         preview: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        has_notification: bool,
     },
     File {
         id: String,
@@ -108,6 +110,16 @@ impl TabInfo {
         matches!(self, Self::Terminal { .. })
     }
 
+    pub fn has_notification(&self) -> bool {
+        matches!(
+            self,
+            Self::Terminal {
+                has_notification: true,
+                ..
+            }
+        )
+    }
+
     pub fn set_position(&mut self, next: f64) {
         match self {
             Self::Terminal { position, .. }
@@ -129,6 +141,15 @@ impl TabInfo {
             Self::Terminal { label, .. }
             | Self::File { label, .. }
             | Self::GitDiff { label, .. } => *label = next,
+        }
+    }
+
+    pub fn set_has_notification(&mut self, next: bool) {
+        if let Self::Terminal {
+            has_notification, ..
+        } = self
+        {
+            *has_notification = next;
         }
     }
 }

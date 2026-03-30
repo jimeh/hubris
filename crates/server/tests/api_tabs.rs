@@ -462,6 +462,7 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
             position: 1.0,
             created_at: 0,
             preview: false,
+            has_notification: false,
         },
     );
     state.tabs.insert(
@@ -474,6 +475,7 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
             position: 2.0,
             created_at: 0,
             preview: false,
+            has_notification: false,
         },
     );
 

@@ -16,6 +16,7 @@ import {
 import type { Worktree } from "@/lib/types";
 import VscodeWorkbenchIndicator from "./VscodeWorkbenchIndicator";
 import WorktreeDragOverlay from "./WorktreeDragOverlay";
+import WorktreeIndicator from "./WorktreeIndicator";
 import WorktreeRowContent from "./WorktreeRowContent";
 import WorktreeRow from "./WorktreeRow";
 
@@ -80,7 +81,8 @@ export default function WorktreeList({
       {localWorktree ? (
         <WorktreeRowContent
           isSelected={selectedWorktreeId === localWorktree.id}
-          leadingSlot={
+          leadingSlot={<WorktreeIndicator worktreeId={localWorktree.id} />}
+          trailingSlot={
             <VscodeWorkbenchIndicator worktreeId={localWorktree.id} />
           }
           contentSlot={

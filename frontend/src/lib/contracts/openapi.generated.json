@@ -2644,6 +2644,9 @@
                 "format": "int64",
                 "minimum": 0
               },
+              "has_notification": {
+                "type": "boolean"
+              },
               "id": {
                 "type": "string"
               },
@@ -2832,6 +2835,9 @@
       "UpdateTabRequest": {
         "type": "object",
         "properties": {
+          "has_notification": {
+            "type": ["boolean", "null"]
+          },
           "label": {
             "type": ["string", "null"]
           },

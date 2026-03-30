@@ -781,6 +781,7 @@ export interface components {
       | {
           /** Format: int64 */
           created_at: number;
+          has_notification?: boolean;
           id: string;
           label: string;
           /** Format: double */
@@ -841,6 +842,7 @@ export interface components {
       name?: string | null;
     };
     UpdateTabRequest: {
+      has_notification?: boolean | null;
       label?: string | null;
       /** Format: double */
       position?: number | null;

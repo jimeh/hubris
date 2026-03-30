@@ -6,6 +6,7 @@ type WorktreeRowContentProps = {
   isSorting?: boolean;
   leadingSlot?: ReactNode;
   contentSlot: ReactNode;
+  trailingSlot?: ReactNode;
   actionSlot?: ReactNode;
   rowClassName?: string;
 };
@@ -15,6 +16,7 @@ export default function WorktreeRowContent({
   isSorting = false,
   leadingSlot = <span className="size-3.5 shrink-0" aria-hidden="true" />,
   contentSlot,
+  trailingSlot = null,
   actionSlot = null,
   rowClassName,
 }: WorktreeRowContentProps) {
@@ -34,6 +36,7 @@ export default function WorktreeRowContent({
       >
         {leadingSlot}
         {contentSlot}
+        {trailingSlot}
       </div>
       {actionSlot}
     </>

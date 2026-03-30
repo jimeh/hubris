@@ -97,6 +97,7 @@ function tabKey(tab: Tab): string {
         tab.worktree_id,
         tab.preview,
         tab.type,
+        tab.has_notification ?? false,
       ].join("|");
     case "file":
       return [
@@ -482,6 +483,26 @@ export const useTabStore = create<TabsState>((set, get) => ({
 
 let initialized = false;
 let eventUnsubscribers: Array<() => void> = [];
+let notificationDismissTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearNotificationDismissTimer(): void {
+  if (notificationDismissTimer !== null) {
+    clearTimeout(notificationDismissTimer);
+    notificationDismissTimer = null;
+  }
+}
+
+/** Derives the tab ID that needs notification dismissal. */
+function notifiedActiveTerminalTabId(state: TabsState): string | null {
+  if (!state.activeTabId) return null;
+  const tab = state.tabs.find(
+    (t) =>
+      t.id === state.activeTabId &&
+      t.type === "terminal" &&
+      !!t.has_notification,
+  );
+  return tab ? tab.id : null;
+}
 
 export function initializeTabStore(): void {
   if (initialized) return;
@@ -562,9 +583,35 @@ export function initializeTabStore(): void {
       });
     }),
   ];
+
+  // Auto-dismiss terminal notification after a short delay
+  // when the notified tab becomes active.
+  let prevNotifiedId: string | null = null;
+  const unsubscribeNotification = useTabStore.subscribe((state) => {
+    const nextId = notifiedActiveTerminalTabId(state);
+    if (nextId === prevNotifiedId) return;
+    prevNotifiedId = nextId;
+
+    clearNotificationDismissTimer();
+    if (!nextId) return;
+
+    notificationDismissTimer = setTimeout(() => {
+      notificationDismissTimer = null;
+      useTabStore.setState((s) => ({
+        tabs: s.tabs.map((t) =>
+          t.id === nextId && t.type === "terminal"
+            ? { ...t, has_notification: false }
+            : t,
+        ),
+      }));
+      void updateTab(nextId, { has_notification: false });
+    }, 1500);
+  });
+  eventUnsubscribers.push(unsubscribeNotification);
 }
 
 export function resetTabStoreForTests(): void {
+  clearNotificationDismissTimer();
   for (const unsubscribe of eventUnsubscribers) {
     unsubscribe();
   }

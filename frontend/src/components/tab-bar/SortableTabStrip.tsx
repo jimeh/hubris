@@ -140,6 +140,7 @@ export default function SortableTabStrip({
               isActive={tab.id === activeTabId}
               preview={tab.preview}
               dirty={dirtyTabIdSet.has(tab.id)}
+              notification={tab.type === "terminal" && !!tab.has_notification}
               locked={lockedTabIdSet.has(tab.id)}
               dragging={dragging}
               onActivateTab={onActivate}
@@ -169,6 +170,10 @@ export default function SortableTabStrip({
             isActive={activeDragTab.id === activeTabId}
             preview={activeDragTab.preview}
             dirty={dirtyTabIdSet.has(activeDragTab.id)}
+            notification={
+              activeDragTab.type === "terminal" &&
+              !!activeDragTab.has_notification
+            }
             locked={lockedTabIdSet.has(activeDragTab.id)}
             isOverlay
             width={activeDragWidth}

@@ -47,6 +47,7 @@ pub struct UpdateTabRequest {
     pub label: Option<String>,
     pub position: Option<f64>,
     pub preview: Option<bool>,
+    pub has_notification: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -103,6 +104,7 @@ fn build_tab_info(
             position,
             created_at,
             preview: false,
+            has_notification: false,
         },
         CreateTabRequest::File {
             worktree_id,
@@ -173,6 +175,69 @@ fn spawn_terminal_runtime(
     let close_rx = live_tab.close_tx.subscribe();
     let tab = Arc::new(live_tab);
     Ok((tab, close_rx))
+}
+
+type TerminalNotificationReceiver = tokio::sync::broadcast::Receiver<()>;
+
+fn spawn_terminal_notification_task(
+    state: &AppState,
+    id: String,
+    mut notification_rx: TerminalNotificationReceiver,
+    mut close_rx: TerminalCloseReceiver,
+) {
+    let tabs = state.tabs.clone();
+    let terminal_tabs = state.terminal_tabs.clone();
+    let events = state.events.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                result = notification_rx.recv() => {
+                    match result {
+                        Ok(()) => {}
+                        Err(
+                            tokio::sync::broadcast::error
+                                ::RecvError::Lagged(_),
+                        ) => continue,
+                        Err(
+                            tokio::sync::broadcast::error
+                                ::RecvError::Closed,
+                        ) => break,
+                    }
+
+                    // Only emit if transitioning false→true
+                    let Some(mut tab) =
+                        tabs.get_mut(&id)
+                    else {
+                        break;
+                    };
+                    if tab.has_notification() {
+                        continue;
+                    }
+                    tab.set_has_notification(true);
+                    let updated = tab.clone();
+                    drop(tab);
+
+                    // Also update LiveTab's internal copy
+                    if let Some(lt) =
+                        terminal_tabs.get(&id)
+                    {
+                        lt.update_info(|info| {
+                            info.set_has_notification(true);
+                            info.clone()
+                        });
+                    }
+
+                    events.emit(EventKind::TabUpdated {
+                        session_id: updated
+                            .session_id()
+                            .to_string(),
+                        tab: updated,
+                    });
+                }
+                _ = close_rx.recv() => break,
+            }
+        }
+    });
 }
 
 fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: TerminalCloseReceiver) {
@@ -274,8 +339,15 @@ pub async fn create_tab(
         session_id: info.session_id().to_string(),
         tab: info.clone(),
     });
-    if let Some((_, close_rx)) = terminal_runtime {
-        spawn_terminal_cleanup_task(&state, info.id().to_string(), close_rx);
+    if let Some((runtime, close_rx)) = terminal_runtime {
+        let tab_id = info.id().to_string();
+        spawn_terminal_notification_task(
+            &state,
+            tab_id.clone(),
+            runtime.notification_tx.subscribe(),
+            runtime.close_tx.subscribe(),
+        );
+        spawn_terminal_cleanup_task(&state, tab_id, close_rx);
     }
 
     Ok((StatusCode::CREATED, Json(info)))
@@ -340,9 +412,24 @@ pub async fn update_tab(
         {
             tab.set_label(label);
         }
+        if let Some(has_notification) = req.has_notification
+            && matches!(&*tab, TabInfo::Terminal { .. })
+        {
+            tab.set_has_notification(has_notification);
+        }
 
         tab.clone()
     };
+
+    // Sync notification state to LiveTab's internal info
+    if req.has_notification.is_some()
+        && let Some(lt) = state.terminal_tabs.get(&id)
+    {
+        lt.update_info(|info| {
+            info.set_has_notification(updated.has_notification());
+            info.clone()
+        });
+    }
 
     state.events.emit(EventKind::TabUpdated {
         session_id: updated.session_id().to_string(),
