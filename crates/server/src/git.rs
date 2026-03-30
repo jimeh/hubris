@@ -1052,6 +1052,32 @@ pub async fn create_worktree(
     })?
 }
 
+fn rename_branch_git2(worktree_path: &Path, new_name: &str) -> Result<String, GitError> {
+    let repo = open_repo(worktree_path)?;
+    let head = repo.head().map_err(to_git_error)?;
+    let current_branch_name = head
+        .shorthand()
+        .ok_or_else(|| GitError {
+            message: "HEAD is detached".to_string(),
+        })?
+        .to_string();
+    let mut branch = repo
+        .find_branch(&current_branch_name, BranchType::Local)
+        .map_err(to_git_error)?;
+    branch.rename(new_name, false).map_err(to_git_error)?;
+    Ok(new_name.to_string())
+}
+
+pub async fn rename_branch(worktree_path: &Path, new_name: &str) -> Result<String, GitError> {
+    let worktree_path = worktree_path.to_path_buf();
+    let new_name = new_name.to_string();
+    tokio::task::spawn_blocking(move || rename_branch_git2(&worktree_path, &new_name))
+        .await
+        .map_err(|_| GitError {
+            message: "failed to join rename branch task".to_string(),
+        })?
+}
+
 fn commit_timestamp_for_reference(
     reference: &Reference<'_>,
 ) -> Result<(String, String, i64), GitError> {

@@ -43,8 +43,8 @@ use api::worktrees::{
     create_project_worktree, delete_project_worktree, discard_project_worktree_path,
     get_project_worktree_commit_details, get_project_worktree_git_status, import_project_worktree,
     list_importable_worktrees, list_project_worktree_start_points, list_project_worktrees,
-    reorder_project_worktrees, stage_project_worktree_path, unstage_project_worktree_path,
-    update_project_worktree,
+    rename_worktree_branch, reorder_project_worktrees, stage_project_worktree_path,
+    unstage_project_worktree_path, update_project_worktree,
 };
 use code_server::proxy_code_request;
 pub use frontend::FrontendAssets;
@@ -246,6 +246,10 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route(
             "/projects/{id}/worktrees/{worktree_id}/git/discard",
             post(discard_project_worktree_path),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/git/rename-branch",
+            post(rename_worktree_branch),
         )
         .route(
             "/projects/{id}/worktrees/{worktree_id}/files",

@@ -26,8 +26,8 @@ use crate::api::worktrees::{
     CreateWorktreeRequest, GitCommitDetailsResponse, GitCommitPerson, GitCommitSummary,
     GitFileChange, GitFileChangeType, ImportWorktreeRequest, ImportableWorktree,
     ListImportableWorktreesResponse, ListWorktreeStartPointsResponse, ListWorktreesResponse,
-    ReorderWorktreesRequest, StartPoint, UpdateWorktreeRequest, Worktree,
-    WorktreeGitPathActionRequest, WorktreeGitStatusResponse,
+    RenameWorktreeBranchRequest, ReorderWorktreesRequest, StartPoint, UpdateWorktreeRequest,
+    Worktree, WorktreeGitPathActionRequest, WorktreeGitStatusResponse,
 };
 use crate::tab::{GitDiffScope, TabInfo};
 
@@ -59,6 +59,7 @@ use crate::tab::{GitDiffScope, TabInfo};
         crate::api::worktrees::stage_project_worktree_path,
         crate::api::worktrees::unstage_project_worktree_path,
         crate::api::worktrees::discard_project_worktree_path,
+        crate::api::worktrees::rename_worktree_branch,
         crate::api::tabs::list_tabs,
         crate::api::tabs::create_tab,
         crate::api::tabs::update_tab,
@@ -113,6 +114,7 @@ use crate::tab::{GitDiffScope, TabInfo};
             GitCommitDetailsResponse,
             WorktreeGitStatusResponse,
             WorktreeGitPathActionRequest,
+            RenameWorktreeBranchRequest,
             GitDiffScope,
             TabInfo,
             CreateTabRequest,

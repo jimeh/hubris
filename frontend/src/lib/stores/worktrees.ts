@@ -3,6 +3,7 @@ import {
   createProjectWorktree,
   deleteProjectWorktree,
   importProjectWorktree,
+  renameWorktreeBranch,
   reorderProjectWorktrees,
   updateProjectWorktree,
 } from "@/lib/api";
@@ -39,6 +40,16 @@ type WorktreesState = {
     projectId: string,
     worktreeId: string,
     uiMode: Worktree["ui_mode"],
+  ) => Promise<void>;
+  updateSourceRef: (
+    projectId: string,
+    worktreeId: string,
+    sourceRef: string | null,
+  ) => Promise<void>;
+  renameBranch: (
+    projectId: string,
+    worktreeId: string,
+    newBranch: string,
   ) => Promise<void>;
 };
 
@@ -309,6 +320,47 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
       }));
       throw error;
     }
+  },
+  async updateSourceRef(projectId, worktreeId, sourceRef) {
+    const before = get().worktreesByProject[projectId] ?? [];
+    set((state) => ({
+      worktreesByProject: {
+        ...state.worktreesByProject,
+        [projectId]: (state.worktreesByProject[projectId] ?? []).map(
+          (worktree) =>
+            worktree.id === worktreeId
+              ? { ...worktree, source_ref: sourceRef }
+              : worktree,
+        ),
+      },
+    }));
+
+    try {
+      const updated = await updateProjectWorktree(projectId, worktreeId, {
+        source_ref: sourceRef ?? "",
+      });
+      set((state) => ({
+        worktreesByProject: upsertWorktree(state.worktreesByProject, updated),
+      }));
+    } catch (error) {
+      set((state) => ({
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          [projectId]: before,
+        },
+      }));
+      throw error;
+    }
+  },
+  async renameBranch(projectId, worktreeId, newBranch) {
+    const updated = await renameWorktreeBranch(
+      projectId,
+      worktreeId,
+      newBranch,
+    );
+    set((state) => ({
+      worktreesByProject: upsertWorktree(state.worktreesByProject, updated),
+    }));
   },
 }));
 

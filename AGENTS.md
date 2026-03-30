@@ -97,12 +97,6 @@ No periodic reconciliation — drift corrects on reconnect.
   `components/terminal/useTerminalConnection.ts`
 - Theme engine: native Hubris theme definitions in
   `src/lib/theme/builtin.ts`, converted by `src/lib/theme/convert.ts`
-- Editor themes: VS Code JSON themes for Monaco syntax highlighting,
-  served via `GET/POST/DELETE /api/editor-themes`. Built-in themes
-  embedded from `crates/server/data/editor-themes/`, custom themes
-  stored in `data_dir/editor-themes/`. Conversion in
-  `src/lib/editorTheme.ts`, settings in `editor.lightEditorTheme` /
-  `editor.darkEditorTheme`
 - FOUC prevention: inline script in `index.html` reads
   `hubris-settings` to choose light/dark mode and
   `hubris-theme-cache` to apply cached CSS vars before first paint
@@ -377,14 +371,6 @@ No periodic reconciliation — drift corrects on reconnect.
   status. The right-sidebar visibility coordinator should use
   `loadDirectory("")`, `preloadVisibleDirectories()`, and `loadGitStatus()`
   for normal tab-open hydration, or it can spin on already-fresh state.
-- **Editor themes are independent from Hubris UI themes**:
-  UI themes control CSS vars for the app shell (sidebar, tab bar,
-  terminal). Editor themes control Monaco syntax highlighting and editor
-  chrome via VS Code JSON format. Settings store separate IDs for each
-  (`appearance.lightTheme` vs `editor.lightEditorTheme`). The
-  `applyMonacoTheme` function takes both the Hubris theme (fallback
-  chrome colors) and optional editor theme data (full VS Code colors +
-  tokenColors).
 - **Monaco theme/model ownership must stay global, not per-tab**:
   file/diff tabs should not each call `defineTheme`/`setTheme` from mount
   effects. Reordering tabs under React StrictMode can overlap Monaco cleanup
@@ -437,7 +423,7 @@ No periodic reconciliation — drift corrects on reconnect.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **text-editor-themes** (2832 symbols, 8811 relationships, 235 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **change-target-branch** (2685 symbols, 8414 relationships, 222 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -453,7 +439,7 @@ This project is indexed by GitNexus as **text-editor-themes** (2832 symbols, 881
 
 1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
 2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/text-editor-themes/process/{processName}` — trace the full execution flow step by step
+3. `READ gitnexus://repo/change-target-branch/process/{processName}` — trace the full execution flow step by step
 4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
 
 ## When Refactoring
@@ -492,10 +478,10 @@ This project is indexed by GitNexus as **text-editor-themes** (2832 symbols, 881
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/text-editor-themes/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/text-editor-themes/clusters` | All functional areas |
-| `gitnexus://repo/text-editor-themes/processes` | All execution flows |
-| `gitnexus://repo/text-editor-themes/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/change-target-branch/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/change-target-branch/clusters` | All functional areas |
+| `gitnexus://repo/change-target-branch/processes` | All execution flows |
+| `gitnexus://repo/change-target-branch/process/{name}` | Step-by-step execution trace |
 
 ## Self-Check Before Finishing
 

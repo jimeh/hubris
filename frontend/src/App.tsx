@@ -20,6 +20,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import AppSidebar from "@/components/AppSidebar";
+import BranchInfo from "@/components/BranchInfo";
 import SettingsStatusNotice from "@/components/SettingsStatusNotice";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import ToastViewport from "@/components/ToastViewport";
@@ -154,6 +155,16 @@ function AppHeader({
           </BreadcrumbList>
         </Breadcrumb>
       </div>
+      {selectedWorktree && !selectedWorktree.is_local ? (
+        <div className="hidden shrink-0 md:block">
+          <BranchInfo
+            projectId={selectedWorktree.project_id}
+            worktreeId={selectedWorktree.id}
+            branch={selectedWorktree.branch}
+            sourceRef={selectedWorktree.source_ref ?? null}
+          />
+        </div>
+      ) : null}
       {selectedWorktree ? (
         !isVscodeMode ? (
           <Tooltip>

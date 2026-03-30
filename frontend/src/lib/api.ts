@@ -50,6 +50,8 @@ type ListImportableWorktreesResponse =
   components["schemas"]["ListImportableWorktreesResponse"];
 type ImportWorktreeRequest = components["schemas"]["ImportWorktreeRequest"];
 type UpdateWorktreeRequest = components["schemas"]["UpdateWorktreeRequest"];
+type RenameWorktreeBranchRequest =
+  components["schemas"]["RenameWorktreeBranchRequest"];
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
@@ -232,6 +234,26 @@ export async function updateProjectWorktree(
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
+    },
+  );
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function renameWorktreeBranch(
+  projectId: string,
+  worktreeId: string,
+  newBranch: string,
+): Promise<Worktree> {
+  const body: RenameWorktreeBranchRequest = {
+    new_branch: newBranch,
+  };
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git/rename-branch`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     },
   );
   if (!res.ok) throw new Error(`${res.status}`);

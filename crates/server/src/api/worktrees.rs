@@ -105,7 +105,14 @@ pub struct UpdateWorktreeRequest {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
+    pub source_ref: Option<String>,
+    #[serde(default)]
     pub ui_mode: Option<WorktreeUiMode>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RenameWorktreeBranchRequest {
+    pub new_branch: String,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -548,6 +555,21 @@ pub async fn update_project_worktree(
             managed.name = Some(trimmed.to_string());
         }
     }
+    if let Some(source_ref) = &req.source_ref {
+        if let Some(managed) = meta
+            .managed_worktrees
+            .iter_mut()
+            .find(|wt| wt.id == worktree_id)
+        {
+            let trimmed = source_ref.trim();
+            managed.source_ref = if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            };
+            state.worktree_files.evict_tracker(&worktree_id);
+        }
+    }
     if let Some(ui_mode) = req.ui_mode {
         meta.worktree_ui_modes.insert(worktree_id.clone(), ui_mode);
     }
@@ -871,6 +893,89 @@ pub async fn discard_project_worktree_path(
         GitPathAction::Discard,
     )
     .await
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/git/rename-branch",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+    ),
+    request_body = RenameWorktreeBranchRequest,
+    responses(
+        (status = 200, description = "Branch renamed", body = Worktree),
+        (status = 400, description = "Invalid branch name"),
+        (status = 404, description = "Project or worktree not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn rename_worktree_branch(
+    State(state): State<AppState>,
+    Path((project_id, worktree_id)): Path<(String, String)>,
+    Json(req): Json<RenameWorktreeBranchRequest>,
+) -> Result<Json<Worktree>, StatusCode> {
+    let new_branch = req.new_branch.trim().to_string();
+    if !validate_branch(&new_branch) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let projects = state
+        .load_projects()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let local_worktree_id = local_worktree_id(project);
+
+    let worktrees = list_worktrees_for_project(&state, project)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let worktree = worktrees
+        .iter()
+        .find(|w| w.id == worktree_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    if worktree.is_local {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let worktree_path = PathBuf::from(&worktree.path);
+    git::rename_branch(&worktree_path, &new_branch)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut meta = load_meta(&state, &project.id).await;
+    if let Some(managed) = meta
+        .managed_worktrees
+        .iter_mut()
+        .find(|wt| wt.id == worktree_id)
+    {
+        managed.branch = new_branch;
+    }
+    normalize_meta(&mut meta, &local_worktree_id);
+    save_meta(&state, &project.id, &meta).await?;
+
+    state.worktree_files.evict_tracker(&worktree_id);
+
+    let updated_worktrees = list_worktrees_for_project(&state, project)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let updated_worktree = updated_worktrees
+        .iter()
+        .find(|w| w.id == worktree_id)
+        .cloned()
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    state.events.emit(EventKind::ProjectWorktreesUpdated {
+        project_id: project.id.clone(),
+        worktrees: updated_worktrees,
+        git_error: None,
+    });
+
+    Ok(Json(updated_worktree))
 }
 
 async fn perform_git_path_action(
