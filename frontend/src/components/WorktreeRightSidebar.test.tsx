@@ -200,7 +200,7 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
 
     expect(screen.getByText("Files panel body")).toBeInTheDocument();
     expect(
@@ -220,7 +220,7 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
       headerWidth: 280,
       tabsWidth: 150,
@@ -246,7 +246,7 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
       headerWidth: 220,
       tabsWidth: 150,
@@ -304,7 +304,7 @@ describe("WorktreeRightSidebar", () => {
       return 0;
     });
 
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
 
     expect(
       document
@@ -322,7 +322,7 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
       headerWidth: 250,
       tabsWidth: 150,
@@ -342,7 +342,7 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
 
     fireEvent.click(screen.getByRole("button", { name: /Changes/ }));
 
@@ -367,7 +367,7 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
       headerWidth: 248,
       tabsWidth: 150,
@@ -441,7 +441,7 @@ describe("WorktreeRightSidebar", () => {
 
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
 
     expect(screen.getByRole("button", { name: /Changes/ })).toHaveTextContent(
       "Changes3",
@@ -491,7 +491,7 @@ describe("WorktreeRightSidebar", () => {
 
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
       headerWidth: 220,
       tabsWidth: 165,
@@ -518,7 +518,7 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
 
     const host = document.querySelector<HTMLElement>(
       "[data-worktree-right-sidebar-wrapper]",
@@ -553,7 +553,7 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Files panel body")).toBeInTheDocument();
@@ -580,7 +580,7 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    render(<WorktreeRightSidebar worktree={worktree} />);
+    render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
       headerWidth: 220,
       tabsWidth: 150,
@@ -606,14 +606,18 @@ describe("WorktreeRightSidebar", () => {
     const { default: WorktreeRightSidebar } =
       await import("./WorktreeRightSidebar");
 
-    const { rerender } = render(<WorktreeRightSidebar worktree={worktree} />);
+    const { rerender } = render(
+      <WorktreeRightSidebar worktree={worktree} active />,
+    );
     setHeaderMetrics({
       headerWidth: 280,
       tabsWidth: 150,
       actionsWidth: 80,
     });
 
-    rerender(<WorktreeRightSidebar worktree={{ ...worktree, id: "w2" }} />);
+    rerender(
+      <WorktreeRightSidebar worktree={{ ...worktree, id: "w2" }} active />,
+    );
     setHeaderMetrics({
       headerWidth: 220,
       tabsWidth: 150,

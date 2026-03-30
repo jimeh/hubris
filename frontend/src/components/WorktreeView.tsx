@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   worktree: Worktree;
+  active: boolean;
 };
 
 function comparePanelOrder(a: Tab, b: Tab): number {
@@ -53,7 +54,7 @@ function comparePanelOrder(a: Tab, b: Tab): number {
   return a.id.localeCompare(b.id);
 }
 
-export default function WorktreeView({ worktree }: Props) {
+export default function WorktreeView({ worktree, active }: Props) {
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(
     null,
   );
@@ -238,8 +239,10 @@ export default function WorktreeView({ worktree }: Props) {
     <div
       ref={viewRef}
       data-worktree-view
+      data-state={active ? "active" : "inactive"}
       className={cn(
         "flex h-full overflow-hidden",
+        !active && "invisible pointer-events-none",
         isRightSidebarResizing && "worktree-right-sidebar-resizing",
       )}
       style={
@@ -300,7 +303,7 @@ export default function WorktreeView({ worktree }: Props) {
         </div>
       </div>
 
-      <WorktreeRightSidebar worktree={worktree} />
+      <WorktreeRightSidebar worktree={worktree} active={active} />
       <AlertDialog
         open={pendingCloseTabId !== null}
         onOpenChange={(open) => {

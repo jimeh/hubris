@@ -118,7 +118,7 @@ impl OutputState {
     fn build_attach_payload(&self, resume_from: Option<u64>) -> (Vec<u8>, bool, bool) {
         match resume_from {
             None if self.total_bytes == 0 => (Vec::new(), false, false),
-            None => (self.snapshot_state(), true, false),
+            None => (self.scrollback_and_snapshot(), true, false),
             Some(pos) if pos >= self.total_bytes => (Vec::new(), false, false),
             Some(pos) => {
                 let missed = (self.total_bytes - pos) as usize;
@@ -130,10 +130,24 @@ impl OutputState {
                         false,
                     )
                 } else {
-                    (self.snapshot_state(), true, true)
+                    (self.scrollback_and_snapshot(), true, true)
                 }
             }
         }
+    }
+
+    /// Returns the full scrollback buffer followed by the VT100 screen
+    /// snapshot. Replaying the raw scrollback bytes through xterm.js
+    /// populates its scrollback buffer; the trailing snapshot then
+    /// overwrites the visible screen to the correct current state.
+    fn scrollback_and_snapshot(&self) -> Vec<u8> {
+        let snapshot = self.snapshot_state();
+        let mut payload = Vec::with_capacity(self.scrollback.len() + snapshot.len());
+        let (front, back) = self.scrollback.as_slices();
+        payload.extend_from_slice(front);
+        payload.extend_from_slice(back);
+        payload.extend(snapshot);
+        payload
     }
 
     fn snapshot_state(&self) -> Vec<u8> {

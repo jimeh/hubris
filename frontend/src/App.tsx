@@ -31,6 +31,7 @@ import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
 import { useTabStore } from "@/lib/stores/tabs";
+import { useHubrisWorkbenchStore } from "@/lib/stores/hubrisWorkbench";
 import { useVscodeWorkbenchStore } from "@/lib/stores/vscodeWorkbench";
 import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
@@ -192,6 +193,15 @@ export default function App() {
   const settingsStatus = useSettingsStore((state) => state.status);
   const isResizing = useSidebarWidthStore((state) => state.isResizing);
   const switchToWorktree = useTabStore((state) => state.switchToWorktree);
+  const cachedHubrisWorktreeIds = useHubrisWorkbenchStore(
+    (state) => state.loadedWorktreeIds,
+  );
+  const markHubrisWorkbenchLoaded = useHubrisWorkbenchStore(
+    (state) => state.markLoaded,
+  );
+  const pruneMissingHubrisWorktrees = useHubrisWorkbenchStore(
+    (state) => state.pruneMissing,
+  );
   const cachedVscodeWorktreeIds = useVscodeWorkbenchStore(
     (state) => state.loadedWorktreeIds,
   );
@@ -271,16 +281,38 @@ export default function App() {
   }, [selectedWorktreeId, switchToWorktree]);
 
   useEffect(() => {
-    pruneMissingVscodeWorktrees(allWorktrees.map((worktree) => worktree.id));
-  }, [allWorktrees, pruneMissingVscodeWorktrees]);
+    const ids = allWorktrees.map((worktree) => worktree.id);
+    pruneMissingHubrisWorktrees(ids);
+    pruneMissingVscodeWorktrees(ids);
+  }, [allWorktrees, pruneMissingHubrisWorktrees, pruneMissingVscodeWorktrees]);
 
   useEffect(() => {
-    if (selectedWorktree?.ui_mode !== "vscode") {
-      return;
+    if (selectedWorktree?.ui_mode === "hubris") {
+      markHubrisWorkbenchLoaded(selectedWorktree.id);
+    } else if (selectedWorktree?.ui_mode === "vscode") {
+      markVscodeWorkbenchLoaded(selectedWorktree.id);
+    }
+  }, [markHubrisWorkbenchLoaded, markVscodeWorkbenchLoaded, selectedWorktree]);
+
+  const activeHubrisWorktreeId =
+    selectedWorktree?.ui_mode === "hubris" ? selectedWorktree.id : null;
+  const visibleHubrisWorktreeIds = useMemo(() => {
+    if (
+      activeHubrisWorktreeId &&
+      !cachedHubrisWorktreeIds.includes(activeHubrisWorktreeId)
+    ) {
+      return [...cachedHubrisWorktreeIds, activeHubrisWorktreeId];
     }
 
-    markVscodeWorkbenchLoaded(selectedWorktree.id);
-  }, [markVscodeWorkbenchLoaded, selectedWorktree]);
+    return cachedHubrisWorktreeIds;
+  }, [activeHubrisWorktreeId, cachedHubrisWorktreeIds]);
+  const cachedHubrisWorktrees = useMemo(
+    () =>
+      visibleHubrisWorktreeIds
+        .map((worktreeId) => worktreesById[worktreeId] ?? null)
+        .filter((worktree): worktree is Worktree => worktree !== null),
+    [visibleHubrisWorktreeIds, worktreesById],
+  );
 
   const activeVscodeWorktreeId =
     selectedWorktree?.ui_mode === "vscode" ? selectedWorktree.id : null;
@@ -323,11 +355,17 @@ export default function App() {
           <div className="relative flex flex-1 overflow-hidden">
             {selectedWorktree ? (
               <>
-                {selectedWorktree.ui_mode === "hubris" ? (
-                  <div className="absolute inset-0">
-                    <WorktreeView worktree={selectedWorktree} />
+                {cachedHubrisWorktrees.map((worktree) => (
+                  <div key={worktree.id} className="absolute inset-0">
+                    <WorktreeView
+                      worktree={worktree}
+                      active={
+                        worktree.id === selectedWorktree.id &&
+                        selectedWorktree.ui_mode === "hubris"
+                      }
+                    />
                   </div>
-                ) : null}
+                ))}
                 {cachedVscodeWorktrees.map((worktree) => (
                   <VscodeWorkbenchPane
                     key={worktree.id}
