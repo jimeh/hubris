@@ -29,7 +29,7 @@ listenfd = "1"
 vt100 = "0.16"
 git2 = { version = "0.20.4", default-features = false, features = ["vendored-libgit2"] }
 notify = "8"
-jsonc-to-json = "0.1"
+jsonc-parser = { version = "0.32", features = ["serde"] }
 toml = "0.8"
 toml_edit = "0.22"
 libc = "0.2"

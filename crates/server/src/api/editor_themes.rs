@@ -212,19 +212,28 @@ struct ExtensionThemeContribution {
 
 // ── JSONC support ───────────────────────────────────────────────────
 
-/// Strip JSONC comments and trailing commas, returning valid JSON.
-fn strip_jsonc(input: &str) -> String {
-    jsonc_to_json::jsonc_to_json(input).into_owned()
+/// Default JSONC parse options: comments, trailing commas, etc.
+fn jsonc_options() -> jsonc_parser::ParseOptions {
+    Default::default()
+}
+
+/// Parse a JSONC string into any deserializable type.
+fn parse_jsonc<T: serde::de::DeserializeOwned>(
+    contents: &str,
+) -> Result<T, jsonc_parser::errors::ParseError> {
+    jsonc_parser::parse_to_serde_value(contents, &jsonc_options())
 }
 
 /// Parse a VS Code theme JSON file that may contain JSONC comments.
-fn parse_theme_jsonc(contents: &str) -> Result<VscodeThemeJson, serde_json::Error> {
-    serde_json::from_str(&strip_jsonc(contents))
+fn parse_theme_jsonc(contents: &str) -> Result<VscodeThemeJson, jsonc_parser::errors::ParseError> {
+    parse_jsonc(contents)
 }
 
 /// Parse a VS Code theme file into a generic JSON Value (JSONC-aware).
-fn parse_jsonc_value(contents: &str) -> Result<serde_json::Value, serde_json::Error> {
-    serde_json::from_str(&strip_jsonc(contents))
+fn parse_jsonc_value(
+    contents: &str,
+) -> Result<serde_json::Value, jsonc_parser::errors::ParseError> {
+    parse_jsonc(contents)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -505,6 +514,10 @@ async fn write_raw_theme_to_disk(
         Some(id) => {
             validate_theme_id(id)?;
             if is_builtin(id) || is_reserved_slug(id) {
+                tracing::warn!(
+                    overwrite_id = %id,
+                    "write theme: overwrite_id is builtin or reserved"
+                );
                 return Err(StatusCode::BAD_REQUEST);
             }
             id.to_string()
@@ -514,8 +527,10 @@ async fn write_raw_theme_to_disk(
 
     // Patch name/type in the parsed Value so they match the resolved
     // values while preserving all other fields and ordering.
-    let mut value: serde_json::Value =
-        serde_json::from_str(raw_json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut value: serde_json::Value = serde_json::from_str(raw_json).map_err(|e| {
+        tracing::error!(error = %e, "write theme: re-parse raw JSON");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     if let Some(obj) = value.as_object_mut() {
         obj.insert(
             "name".to_string(),
@@ -527,8 +542,10 @@ async fn write_raw_theme_to_disk(
     }
 
     let path = dir.join(format!("{slug}.json"));
-    let patched =
-        serde_json::to_string_pretty(&value).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let patched = serde_json::to_string_pretty(&value).map_err(|e| {
+        tracing::error!(error = %e, "write theme: serialize patched JSON");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     tokio::fs::write(&path, patched.as_bytes())
         .await
         .map_err(|e| {
@@ -596,11 +613,14 @@ pub async fn get_editor_theme(
     // (semanticHighlighting, semanticTokenColors, etc.) that
     // VscodeThemeJson would drop.
     let path = editor_themes_dir(&state).join(format!("{id}.json"));
-    let contents = tokio::fs::read_to_string(&path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    let value: serde_json::Value =
-        parse_jsonc_value(&contents).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let contents = tokio::fs::read_to_string(&path).await.map_err(|e| {
+        tracing::warn!(id = %id, error = %e, "get theme: file not found");
+        StatusCode::NOT_FOUND
+    })?;
+    let value: serde_json::Value = parse_jsonc_value(&contents).map_err(|e| {
+        tracing::error!(id = %id, error = %e, "get theme: parse error");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     Ok(Json(value))
 }
 
@@ -622,12 +642,22 @@ pub async fn upload_editor_theme(
     // Parse through VscodeThemeJson for validation, but write the
     // raw JSON to preserve unknown fields like semanticHighlighting,
     // semanticTokenColors, and $schema.
-    let clean = strip_jsonc(&body);
-    let theme: VscodeThemeJson =
-        serde_json::from_str(&clean).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let value: serde_json::Value = parse_jsonc_value(&body).map_err(|e| {
+        tracing::warn!(error = %e, "upload: failed to parse theme JSONC");
+        StatusCode::BAD_REQUEST
+    })?;
+    let theme: VscodeThemeJson = serde_json::from_value(value.clone()).map_err(|e| {
+        tracing::warn!(error = %e, "upload: failed to parse theme JSON");
+        StatusCode::BAD_REQUEST
+    })?;
     if theme.token_colors.is_empty() && theme.colors.is_empty() {
+        tracing::warn!("upload: theme has no tokenColors and no colors");
         return Err(StatusCode::BAD_REQUEST);
     }
+    let clean = serde_json::to_string(&value).map_err(|e| {
+        tracing::error!(error = %e, "upload: serialize theme value");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     let entry = write_raw_theme_to_disk(&state, &clean, &theme, None).await?;
     Ok((StatusCode::CREATED, Json(entry)))
 }
@@ -773,30 +803,70 @@ pub async fn import_extension_theme(
         .iter()
         .find(|(name, _)| *name == req.source_editor)
         .map(|(_, dir)| *dir)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+        .ok_or_else(|| {
+            tracing::warn!(
+                source_editor = %req.source_editor,
+                "import: unknown source editor"
+            );
+            StatusCode::BAD_REQUEST
+        })?;
 
     // Find the extension.
     let (pkg, ext_root) = find_extension_in_editor(&home, dot_dir, &req.extension_id)
         .await
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| {
+            tracing::warn!(
+                source_editor = %req.source_editor,
+                extension_id = %req.extension_id,
+                "import: extension not found"
+            );
+            StatusCode::NOT_FOUND
+        })?;
 
     // Get the theme contribution.
-    let contrib = pkg
-        .contributes
-        .themes
-        .get(req.theme_index)
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let contrib = pkg.contributes.themes.get(req.theme_index).ok_or_else(|| {
+        tracing::warn!(
+            extension_id = %req.extension_id,
+            theme_index = req.theme_index,
+            theme_count = pkg.contributes.themes.len(),
+            "import: theme index out of range"
+        );
+        StatusCode::BAD_REQUEST
+    })?;
 
     // Read the theme file.
     let theme_path = ext_root.join(&contrib.path);
-    let raw_contents = tokio::fs::read_to_string(&theme_path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let raw_contents = tokio::fs::read_to_string(&theme_path).await.map_err(|e| {
+        tracing::warn!(
+            path = %theme_path.display(),
+            error = %e,
+            "import: cannot read theme file"
+        );
+        StatusCode::NOT_FOUND
+    })?;
 
-    // Strip JSONC comments for parsing, but keep clean JSON for storage.
-    let clean_json = strip_jsonc(&raw_contents);
-    let mut theme: VscodeThemeJson =
-        serde_json::from_str(&clean_json).map_err(|_| StatusCode::BAD_REQUEST)?;
+    // Parse JSONC into a generic Value (preserves all fields) and a
+    // typed struct (for validation / name resolution).
+    let value: serde_json::Value = parse_jsonc_value(&raw_contents).map_err(|e| {
+        tracing::warn!(
+            extension_id = %req.extension_id,
+            theme_index = req.theme_index,
+            path = %theme_path.display(),
+            error = %e,
+            "import: failed to parse theme JSONC"
+        );
+        StatusCode::BAD_REQUEST
+    })?;
+    let mut theme: VscodeThemeJson = serde_json::from_value(value.clone()).map_err(|e| {
+        tracing::warn!(
+            extension_id = %req.extension_id,
+            theme_index = req.theme_index,
+            path = %theme_path.display(),
+            error = %e,
+            "import: theme JSON does not match expected schema"
+        );
+        StatusCode::BAD_REQUEST
+    })?;
 
     // Always prefer the contribution label as the theme name. Multiple
     // themes in the same extension often share the same internal `name`
@@ -817,8 +887,12 @@ pub async fn import_extension_theme(
         theme.theme_type = Some(ui_theme_to_type(&contrib.ui_theme).to_string());
     }
 
-    // Store the clean (comment-stripped) JSON to preserve original
-    // field order and unknown fields for accurate diff detection.
+    // Serialize the parsed Value to clean JSON for storage (preserves
+    // unknown fields like semanticHighlighting, semanticTokenColors).
+    let clean_json = serde_json::to_string(&value).map_err(|e| {
+        tracing::error!(error = %e, "import: serialize theme value");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     let entry =
         write_raw_theme_to_disk(&state, &clean_json, &theme, req.overwrite_id.as_deref()).await?;
     Ok((StatusCode::CREATED, Json(entry)))
@@ -853,5 +927,77 @@ pub async fn delete_editor_theme(
             tracing::error!("delete editor theme: {e}");
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_jsonc_trailing_comma_in_object() {
+        let input = r#"{"a": 1, "b": 2,}"#;
+        let _: serde_json::Value = parse_jsonc_value(input).unwrap();
+    }
+
+    #[test]
+    fn parse_jsonc_trailing_comma_in_array() {
+        let _: serde_json::Value = parse_jsonc_value("[1, 2, 3,]").unwrap();
+    }
+
+    #[test]
+    fn parse_jsonc_comma_between_objects_in_array() {
+        // This pattern broke with the old jsonc-to-json crate which
+        // treated `{` as a closing delimiter and stripped commas before it.
+        let input =
+            r##"[{"settings": {"foreground": "#FFF"}}, {"settings": {"foreground": "#000"}}]"##;
+        let v: serde_json::Value = parse_jsonc_value(input).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn parse_jsonc_line_comment() {
+        let input = "{\n  // comment\n  \"a\": 1\n}";
+        let _: serde_json::Value = parse_jsonc_value(input).unwrap();
+    }
+
+    #[test]
+    fn parse_jsonc_block_comment() {
+        let input = r#"{"a": /* comment */ 1}"#;
+        let _: serde_json::Value = parse_jsonc_value(input).unwrap();
+    }
+
+    #[test]
+    fn parse_jsonc_realistic_theme() {
+        // Mimics the mermaid theme structure that was failing: objects
+        // in a tokenColors array plus trailing commas in an object.
+        let input = r##"{
+  "name": "Test Theme",
+  "tokenColors": [
+    {"name": "Functions", "scope": ["entity.name"], "settings": {"foreground": "#DCDCAA"}},
+    {"scope": "keyword", "settings": {"foreground": "#9650c8", "fontStyle": "bold"}}
+  ],
+  "semanticTokenColors": {
+    "newOperator": "#C586C0",
+    "numberLiteral": "#b5cea8",
+  }
+}"##;
+        let v: serde_json::Value = parse_jsonc_value(input).unwrap();
+        assert_eq!(v["tokenColors"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn parse_jsonc_as_theme_struct() {
+        let input = r##"{
+  "name": "My Theme",
+  "type": "dark",
+  "colors": {"editor.background": "#1e1e1e"},
+  "tokenColors": [
+    {"scope": "comment", "settings": {"foreground": "#6A9955"}}
+  ]
+}"##;
+        let theme: VscodeThemeJson = parse_theme_jsonc(input).unwrap();
+        assert_eq!(theme.name, "My Theme");
+        assert_eq!(theme.token_colors.len(), 1);
     }
 }
