@@ -42,6 +42,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "any-lexer"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8c5d31d0f7572b6c4e9bc8430be7be02dfd196b114db010d1a60d897aab1611"
+dependencies = [
+ "text-scanner",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -418,6 +427,12 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
+name = "char-ranges"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21eb25e26d7f0447e5334df6cd8800bb1b97512dc0b7af6867123ffe76cfebe6"
 
 [[package]]
 name = "chrono"
@@ -1590,6 +1605,7 @@ dependencies = [
  "dirs",
  "futures-util",
  "git2",
+ "jsonc-to-json",
  "libc",
  "listenfd",
  "notify",
@@ -1996,6 +2012,15 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "jsonc-to-json"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1eeb1c47c1ee0d119db2a9bf44e3c7cc4c2671584441a14e56e87568a72215d8"
+dependencies = [
+ "any-lexer",
 ]
 
 [[package]]
@@ -4443,6 +4468,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "text-scanner"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aab806faa4214a5370a1d26efa1762aef0863c9cee3b187bfe4815c7db66956"
+dependencies = [
+ "char-ranges",
 ]
 
 [[package]]

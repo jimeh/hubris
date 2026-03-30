@@ -212,97 +212,19 @@ struct ExtensionThemeContribution {
 
 // ── JSONC support ───────────────────────────────────────────────────
 
-/// Strip single-line (`// ...`) and block (`/* ... */`) comments from
-/// JSONC content so it can be parsed by a strict JSON parser. Also
-/// strips trailing commas before `]` and `}`.
-fn strip_jsonc_comments(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let bytes = input.as_bytes();
-    let len = bytes.len();
-    let mut i = 0;
-
-    while i < len {
-        // Inside a string literal — pass through including escapes.
-        if bytes[i] == b'"' {
-            out.push('"');
-            i += 1;
-            while i < len {
-                if bytes[i] == b'\\' && i + 1 < len {
-                    out.push(bytes[i] as char);
-                    out.push(bytes[i + 1] as char);
-                    i += 2;
-                } else if bytes[i] == b'"' {
-                    out.push('"');
-                    i += 1;
-                    break;
-                } else {
-                    out.push(bytes[i] as char);
-                    i += 1;
-                }
-            }
-            continue;
-        }
-
-        // Line comment.
-        if i + 1 < len && bytes[i] == b'/' && bytes[i + 1] == b'/' {
-            i += 2;
-            while i < len && bytes[i] != b'\n' {
-                i += 1;
-            }
-            continue;
-        }
-
-        // Block comment.
-        if i + 1 < len && bytes[i] == b'/' && bytes[i + 1] == b'*' {
-            i += 2;
-            while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            if i + 1 < len {
-                i += 2; // skip */
-            }
-            continue;
-        }
-
-        out.push(bytes[i] as char);
-        i += 1;
-    }
-
-    // Strip trailing commas before ] and }.
-    let mut result = String::with_capacity(out.len());
-    let out_bytes = out.as_bytes();
-    let out_len = out_bytes.len();
-    i = 0;
-    while i < out_len {
-        if out_bytes[i] == b',' {
-            // Look ahead past whitespace for ] or }.
-            let mut j = i + 1;
-            while j < out_len && out_bytes[j].is_ascii_whitespace() {
-                j += 1;
-            }
-            if j < out_len && (out_bytes[j] == b']' || out_bytes[j] == b'}') {
-                // Skip the trailing comma.
-                i += 1;
-                continue;
-            }
-        }
-        result.push(out_bytes[i] as char);
-        i += 1;
-    }
-
-    result
+/// Strip JSONC comments and trailing commas, returning valid JSON.
+fn strip_jsonc(input: &str) -> String {
+    jsonc_to_json::jsonc_to_json(input).into_owned()
 }
 
 /// Parse a VS Code theme JSON file that may contain JSONC comments.
 fn parse_theme_jsonc(contents: &str) -> Result<VscodeThemeJson, serde_json::Error> {
-    let clean = strip_jsonc_comments(contents);
-    serde_json::from_str(&clean)
+    serde_json::from_str(&strip_jsonc(contents))
 }
 
 /// Parse a VS Code theme file into a generic JSON Value (JSONC-aware).
 fn parse_jsonc_value(contents: &str) -> Result<serde_json::Value, serde_json::Error> {
-    let clean = strip_jsonc_comments(contents);
-    serde_json::from_str(&clean)
+    serde_json::from_str(&strip_jsonc(contents))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -531,6 +453,11 @@ async fn find_extension_in_editor(
 
 // ── Shared write logic ──────────────────────────────────────────────
 
+/// Slugs that would shadow static API routes.
+fn is_reserved_slug(slug: &str) -> bool {
+    matches!(slug, "discover" | "import")
+}
+
 fn resolve_slug(dir: &StdPath, name: &str) -> Result<String, StatusCode> {
     let base_slug = slugify(name);
     if base_slug.is_empty() {
@@ -539,7 +466,7 @@ fn resolve_slug(dir: &StdPath, name: &str) -> Result<String, StatusCode> {
     let mut slug = base_slug.clone();
     let mut counter = 1u32;
     loop {
-        if is_builtin(&slug) {
+        if is_builtin(&slug) || is_reserved_slug(&slug) {
             slug = format!("{base_slug}-{counter}");
             counter += 1;
             continue;
@@ -648,26 +575,28 @@ pub async fn list_editor_themes(State(state): State<AppState>) -> Json<Vec<Edito
 pub async fn get_editor_theme(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<VscodeThemeJson>, StatusCode> {
+) -> Result<Json<serde_json::Value>, StatusCode> {
     validate_theme_id(&id)?;
 
     // Check built-in first.
     if let Some(json_str) = builtin_json(&id) {
-        let theme: VscodeThemeJson = serde_json::from_str(json_str).map_err(|e| {
+        let value: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
             tracing::error!("built-in theme parse error: {e}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-        return Ok(Json(theme));
+        return Ok(Json(value));
     }
 
-    // Check custom on disk.
+    // Custom themes: parse as generic Value to preserve all fields
+    // (semanticHighlighting, semanticTokenColors, etc.) that
+    // VscodeThemeJson would drop.
     let path = editor_themes_dir(&state).join(format!("{id}.json"));
     let contents = tokio::fs::read_to_string(&path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
-    let theme: VscodeThemeJson =
-        parse_theme_jsonc(&contents).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(theme))
+    let value: serde_json::Value =
+        parse_jsonc_value(&contents).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(value))
 }
 
 /// POST /api/editor-themes — upload a custom VS Code theme.
@@ -688,7 +617,7 @@ pub async fn upload_editor_theme(
     // Parse through VscodeThemeJson for validation, but write the
     // raw JSON to preserve unknown fields like semanticHighlighting,
     // semanticTokenColors, and $schema.
-    let clean = strip_jsonc_comments(&body);
+    let clean = strip_jsonc(&body);
     let theme: VscodeThemeJson =
         serde_json::from_str(&clean).map_err(|_| StatusCode::BAD_REQUEST)?;
     if theme.token_colors.is_empty() && theme.colors.is_empty() {
@@ -850,7 +779,7 @@ pub async fn import_extension_theme(
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
     // Strip JSONC comments for parsing, but keep clean JSON for storage.
-    let clean_json = strip_jsonc_comments(&raw_contents);
+    let clean_json = strip_jsonc(&raw_contents);
     let mut theme: VscodeThemeJson =
         serde_json::from_str(&clean_json).map_err(|_| StatusCode::BAD_REQUEST)?;
 
