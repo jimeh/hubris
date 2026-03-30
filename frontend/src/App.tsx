@@ -356,15 +356,14 @@ export default function App() {
             {selectedWorktree ? (
               <>
                 {cachedHubrisWorktrees.map((worktree) => (
-                  <div key={worktree.id} className="absolute inset-0">
-                    <WorktreeView
-                      worktree={worktree}
-                      active={
-                        worktree.id === selectedWorktree.id &&
-                        selectedWorktree.ui_mode === "hubris"
-                      }
-                    />
-                  </div>
+                  <WorktreeView
+                    key={worktree.id}
+                    worktree={worktree}
+                    active={
+                      worktree.id === selectedWorktree.id &&
+                      selectedWorktree.ui_mode === "hubris"
+                    }
+                  />
                 ))}
                 {cachedVscodeWorktrees.map((worktree) => (
                   <VscodeWorkbenchPane

@@ -241,7 +241,7 @@ export default function WorktreeView({ worktree, active }: Props) {
       data-worktree-view
       data-state={active ? "active" : "inactive"}
       className={cn(
-        "flex h-full overflow-hidden",
+        "absolute inset-0 flex overflow-hidden",
         !active && "invisible pointer-events-none",
         isRightSidebarResizing && "worktree-right-sidebar-resizing",
       )}
