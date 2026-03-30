@@ -344,10 +344,11 @@ async fn scan_editor_extensions(
         return results;
     };
     while let Ok(Some(entry)) = read_dir.next_entry().await {
-        let path = entry.path();
-        if !path.is_dir() {
+        let is_dir = entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false);
+        if !is_dir {
             continue;
         }
+        let path = entry.path();
         let pkg_path = path.join("package.json");
         let Ok(contents) = tokio::fs::read_to_string(&pkg_path).await else {
             continue;
@@ -429,10 +430,11 @@ async fn find_extension_in_editor(
         return None;
     };
     while let Ok(Some(entry)) = read_dir.next_entry().await {
-        let path = entry.path();
-        if !path.is_dir() {
+        let is_dir = entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false);
+        if !is_dir {
             continue;
         }
+        let path = entry.path();
         let pkg_path = path.join("package.json");
         let Ok(contents) = tokio::fs::read_to_string(&pkg_path).await else {
             continue;
@@ -458,7 +460,7 @@ fn is_reserved_slug(slug: &str) -> bool {
     matches!(slug, "discover" | "import")
 }
 
-fn resolve_slug(dir: &StdPath, name: &str) -> Result<String, StatusCode> {
+async fn resolve_slug(dir: &StdPath, name: &str) -> Result<String, StatusCode> {
     let base_slug = slugify(name);
     if base_slug.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
@@ -472,7 +474,7 @@ fn resolve_slug(dir: &StdPath, name: &str) -> Result<String, StatusCode> {
             continue;
         }
         let path = dir.join(format!("{slug}.json"));
-        if !path.exists() {
+        if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
             break;
         }
         slug = format!("{base_slug}-{counter}");
@@ -502,9 +504,12 @@ async fn write_raw_theme_to_disk(
     let slug = match overwrite_id {
         Some(id) => {
             validate_theme_id(id)?;
+            if is_builtin(id) || is_reserved_slug(id) {
+                return Err(StatusCode::BAD_REQUEST);
+            }
             id.to_string()
         }
-        None => resolve_slug(&dir, &theme.name)?,
+        None => resolve_slug(&dir, &theme.name).await?,
     };
 
     // Patch name/type in the parsed Value so they match the resolved
@@ -676,10 +681,20 @@ pub async fn discover_editor_themes(
                 contrib.label.clone()
             };
 
-            // Check if this theme is already installed.
+            // Check if this theme is already installed. Look up the
+            // base slug first, then fall back to collision-suffixed
+            // variants (`{slug}-1`, `{slug}-2`, ...) that resolve_slug
+            // may have generated during import.
             let candidate_slug = slugify(&label);
+            let matched_entry = installed.get_key_value(&candidate_slug).or_else(|| {
+                installed.iter().find(|(k, _)| {
+                    k.strip_prefix(&candidate_slug)
+                        .and_then(|rest| rest.strip_prefix('-'))
+                        .is_some_and(|n| n.parse::<u32>().is_ok())
+                })
+            });
             let (installed_id, differs) =
-                if let Some(installed_value) = installed.get(&candidate_slug) {
+                if let Some((matched_slug, installed_value)) = matched_entry {
                     // Read the source theme file and compare via parsed JSON
                     // values. Patch name/type in the source to match what the
                     // import would write, so name corrections don't cause
@@ -704,7 +719,7 @@ pub async fn discover_editor_themes(
                         },
                         Err(_) => false,
                     };
-                    (Some(candidate_slug.clone()), !source_matches)
+                    (Some(matched_slug.clone()), !source_matches)
                 } else {
                     (None, false)
                 };
