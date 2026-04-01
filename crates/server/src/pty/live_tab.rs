@@ -43,6 +43,102 @@ impl TerminalSize {
     }
 }
 
+/// Scans raw PTY output for notification signals:
+/// standalone BEL (0x07), OSC 9, and OSC 777.
+///
+/// Distinguishes standalone BEL from BEL used as a string
+/// sequence terminator by tracking whether we're inside an
+/// OSC, DCS, PM, or APC sequence.
+struct NotificationScanner {
+    state: ScanState,
+    /// Number of the current OSC sequence being parsed
+    /// (e.g. 9 for OSC 9, 777 for OSC 777). Only valid
+    /// while `state` is `Osc` or `OscNumber`.
+    osc_number: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScanState {
+    /// Not inside any escape sequence.
+    Normal,
+    /// Saw ESC (0x1b), waiting for next byte.
+    Esc,
+    /// Inside an OSC sequence number (digits after `]`).
+    OscNumber,
+    /// Inside a string sequence body (OSC payload after
+    /// `;`, or DCS/PM/APC body). BEL here is a terminator,
+    /// not a bell.
+    Osc,
+}
+
+impl NotificationScanner {
+    fn new() -> Self {
+        Self {
+            state: ScanState::Normal,
+            osc_number: 0,
+        }
+    }
+
+    /// Scan a chunk of PTY output. Returns `true` if any
+    /// notification signal was detected in this chunk.
+    fn scan(&mut self, data: &[u8]) -> bool {
+        let mut notified = false;
+        for &byte in data {
+            match self.state {
+                ScanState::Normal => match byte {
+                    0x07 => notified = true,
+                    0x1b => self.state = ScanState::Esc,
+                    _ => {}
+                },
+                ScanState::Esc => match byte {
+                    b']' => {
+                        self.state = ScanState::OscNumber;
+                        self.osc_number = 0;
+                    }
+                    // DCS, PM, APC — string sequences where
+                    // BEL is a terminator, not a bell.
+                    b'P' | b'^' | b'_' => {
+                        self.state = ScanState::Osc;
+                    }
+                    _ => self.state = ScanState::Normal,
+                },
+                ScanState::OscNumber => match byte {
+                    b'0'..=b'9' => {
+                        self.osc_number = self
+                            .osc_number
+                            .wrapping_mul(10)
+                            .wrapping_add((byte - b'0') as u32);
+                    }
+                    b';' => {
+                        if self.osc_number == 9 || self.osc_number == 777 {
+                            notified = true;
+                        }
+                        self.state = ScanState::Osc;
+                    }
+                    0x07 => {
+                        // BEL terminates OSC before payload
+                        self.state = ScanState::Normal;
+                    }
+                    0x1b => {
+                        // ESC may start ST or a new sequence
+                        self.state = ScanState::Esc;
+                    }
+                    _ => self.state = ScanState::Osc,
+                },
+                ScanState::Osc => match byte {
+                    // BEL terminates OSC — NOT a bell
+                    0x07 => self.state = ScanState::Normal,
+                    // ESC starts ST (\x1b\\) — back to
+                    // Normal either way
+                    0x1b => self.state = ScanState::Esc,
+                    _ => {}
+                },
+            }
+        }
+        notified
+    }
+}
+
 /// A live terminal tab with its PTY, scrollback buffer,
 /// and broadcast channels for output fan-out and close
 /// notification.
@@ -55,6 +151,7 @@ pub struct LiveTab {
     pub output_tx: broadcast::Sender<Vec<u8>>,
     pty_size_tx: broadcast::Sender<TerminalSize>,
     pub close_tx: broadcast::Sender<()>,
+    pub notification_tx: broadcast::Sender<()>,
     next_attachment_id: AtomicU64,
     attachments: Mutex<AttachmentRegistry>,
     resize_update_lock: Mutex<()>,
@@ -182,18 +279,24 @@ impl LiveTab {
         let (output_tx, _) = broadcast::channel(64);
         let (pty_size_tx, _) = broadcast::channel(16);
         let (close_tx, _) = broadcast::channel(1);
+        let (notification_tx, _) = broadcast::channel(16);
 
         let output_state_clone = output_state.clone();
         let tx = output_tx.clone();
         let ctx = close_tx.clone();
+        let ntx = notification_tx.clone();
 
         let reader_handle = tokio::task::spawn_blocking(move || {
             let mut buf = [0u8; 4096];
+            let mut scanner = NotificationScanner::new();
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
                         let data = buf[..n].to_vec();
+                        if scanner.scan(&data) {
+                            let _ = ntx.send(());
+                        }
                         {
                             let mut output_state = output_state_clone.lock().unwrap();
                             output_state.record_output(&data, scrollback_size);
@@ -216,6 +319,7 @@ impl LiveTab {
             output_tx,
             pty_size_tx,
             close_tx,
+            notification_tx,
             next_attachment_id: AtomicU64::new(1),
             attachments: Mutex::new(AttachmentRegistry::new(initial_size)),
             resize_update_lock: Mutex::new(()),
@@ -498,8 +602,101 @@ mod tests {
 
     use super::{
         AttachmentRegistry, DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS, DEFAULT_SCROLLBACK, LiveTab,
-        TabInfo, TerminalSize,
+        NotificationScanner, TabInfo, TerminalSize,
     };
+
+    #[test]
+    fn scanner_detects_standalone_bel() {
+        let mut s = NotificationScanner::new();
+        assert!(s.scan(b"hello\x07world"));
+    }
+
+    #[test]
+    fn scanner_ignores_bel_as_osc_terminator() {
+        let mut s = NotificationScanner::new();
+        // OSC 52 (clipboard) terminated by BEL — not a bell
+        assert!(!s.scan(b"\x1b]52;c;dGVzdA==\x07"));
+    }
+
+    #[test]
+    fn scanner_detects_osc_9() {
+        let mut s = NotificationScanner::new();
+        assert!(s.scan(b"\x1b]9;2;task done\x07"));
+    }
+
+    #[test]
+    fn scanner_detects_osc_777() {
+        let mut s = NotificationScanner::new();
+        assert!(s.scan(b"\x1b]777;notify;title;body\x07"));
+    }
+
+    #[test]
+    fn scanner_ignores_unrelated_osc() {
+        let mut s = NotificationScanner::new();
+        assert!(!s.scan(b"\x1b]0;window title\x07"));
+    }
+
+    #[test]
+    fn scanner_handles_osc_with_st_terminator() {
+        let mut s = NotificationScanner::new();
+        assert!(s.scan(b"\x1b]9;2;done\x1b\\"));
+    }
+
+    #[test]
+    fn scanner_handles_split_chunks() {
+        let mut s = NotificationScanner::new();
+        // ESC in first chunk, ] in second
+        assert!(!s.scan(b"output\x1b"));
+        assert!(s.scan(b"]9;task done\x07"));
+    }
+
+    #[test]
+    fn scanner_handles_split_osc_number() {
+        let mut s = NotificationScanner::new();
+        assert!(!s.scan(b"\x1b]77"));
+        assert!(s.scan(b"7;notify;title;body\x07"));
+    }
+
+    #[test]
+    fn scanner_no_false_positive_on_plain_text() {
+        let mut s = NotificationScanner::new();
+        assert!(!s.scan(b"just some regular terminal output\r\n"));
+    }
+
+    #[test]
+    fn scanner_ignores_bel_as_dcs_terminator() {
+        let mut s = NotificationScanner::new();
+        // DCS sequence terminated by BEL — not a bell
+        assert!(!s.scan(b"\x1bPq#0;2;0;0;0#1;2;100;100;0\x07"));
+    }
+
+    #[test]
+    fn scanner_ignores_bel_as_pm_terminator() {
+        let mut s = NotificationScanner::new();
+        // PM sequence terminated by BEL — not a bell
+        assert!(!s.scan(b"\x1b^some private message\x07"));
+    }
+
+    #[test]
+    fn scanner_ignores_bel_as_apc_terminator() {
+        let mut s = NotificationScanner::new();
+        // APC sequence terminated by BEL — not a bell
+        assert!(!s.scan(b"\x1b_Gf=100,a=T;payload\x07"));
+    }
+
+    #[test]
+    fn scanner_detects_bel_after_dcs_ends() {
+        let mut s = NotificationScanner::new();
+        // DCS terminated by ST, then standalone BEL
+        assert!(s.scan(b"\x1bPq#0\x1b\\\x07"));
+    }
+
+    #[test]
+    fn scanner_esc_in_osc_number_starts_new_sequence() {
+        let mut s = NotificationScanner::new();
+        // Malformed OSC interrupted by ESC starting new OSC 9
+        assert!(s.scan(b"\x1b]12\x1b]9;bell\x07"));
+    }
 
     fn spawn_test_live_tab() -> Arc<LiveTab> {
         let pty_system = NativePtySystem::default();
@@ -524,6 +721,7 @@ mod tests {
                 position: 1.0,
                 created_at: 0,
                 preview: false,
+                has_notification: false,
             },
             pair.master,
             child,

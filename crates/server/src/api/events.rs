@@ -176,6 +176,7 @@ mod tests {
             position: 1.0,
             created_at: 0,
             preview: false,
+            has_notification: false,
         }
     }
 

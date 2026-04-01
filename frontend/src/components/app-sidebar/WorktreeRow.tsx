@@ -8,9 +8,10 @@ import type { Worktree } from "@/lib/types";
 import { AlertTriangle } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import WorktreeActionMenu from "./WorktreeActionMenu";
-import WorktreeRowContent from "./WorktreeRowContent";
 import VscodeWorkbenchIndicator from "./VscodeWorkbenchIndicator";
+import WorktreeActionMenu from "./WorktreeActionMenu";
+import WorktreeIndicator from "./WorktreeIndicator";
+import WorktreeRowContent from "./WorktreeRowContent";
 
 export default function WorktreeRow({
   worktree,
@@ -55,7 +56,8 @@ export default function WorktreeRow({
       <WorktreeRowContent
         isSelected={isSelected}
         isSorting={isSorting}
-        leadingSlot={<VscodeWorkbenchIndicator worktreeId={worktree.id} />}
+        leadingSlot={<WorktreeIndicator worktreeId={worktree.id} />}
+        trailingSlot={<VscodeWorkbenchIndicator worktreeId={worktree.id} />}
         contentSlot={
           <button
             className="flex min-w-0 flex-1 items-center text-left"

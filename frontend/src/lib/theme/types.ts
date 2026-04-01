@@ -45,6 +45,7 @@ export const UI_THEME_TOKENS = [
   "tab-inactive-foreground",
   "tab-border",
   "tab-active-border",
+  "notification-dot",
 ] as const;
 
 export const TERMINAL_THEME_TOKENS = [

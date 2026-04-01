@@ -1,5 +1,7 @@
 import { AlertTriangle, Trash2 } from "lucide-react";
 import type { Worktree } from "@/lib/types";
+import VscodeWorkbenchIndicator from "./VscodeWorkbenchIndicator";
+import WorktreeIndicator from "./WorktreeIndicator";
 import WorktreeRowContent from "./WorktreeRowContent";
 
 export default function WorktreeDragOverlay({
@@ -18,6 +20,8 @@ export default function WorktreeDragOverlay({
     >
       <WorktreeRowContent
         isSelected={isSelected}
+        leadingSlot={<WorktreeIndicator worktreeId={worktree.id} />}
+        trailingSlot={<VscodeWorkbenchIndicator worktreeId={worktree.id} />}
         contentSlot={
           <div className="flex min-w-0 flex-1 items-center text-left">
             <span className="truncate">{worktree.name}</span>

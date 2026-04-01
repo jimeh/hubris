@@ -4,6 +4,7 @@ import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import type { Project, Worktree } from "@/lib/types";
 import ProjectHeaderRow from "./ProjectHeaderRow";
 import VscodeWorkbenchIndicator from "./VscodeWorkbenchIndicator";
+import WorktreeIndicator from "./WorktreeIndicator";
 import WorktreeRowContent from "./WorktreeRowContent";
 
 type ProjectPreviewProps = {
@@ -81,7 +82,8 @@ function ProjectPreviewWorktreeList({
       {localWorktree ? (
         <WorktreeRowContent
           isSelected={selectedWorktreeId === localWorktree.id}
-          leadingSlot={
+          leadingSlot={<WorktreeIndicator worktreeId={localWorktree.id} />}
+          trailingSlot={
             <VscodeWorkbenchIndicator worktreeId={localWorktree.id} />
           }
           contentSlot={
@@ -97,7 +99,8 @@ function ProjectPreviewWorktreeList({
           <div key={worktree.id} className="group/worktree-item relative">
             <WorktreeRowContent
               isSelected={selectedWorktreeId === worktree.id}
-              leadingSlot={
+              leadingSlot={<WorktreeIndicator worktreeId={worktree.id} />}
+              trailingSlot={
                 <VscodeWorkbenchIndicator worktreeId={worktree.id} />
               }
               contentSlot={
