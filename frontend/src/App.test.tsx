@@ -53,8 +53,10 @@ vi.mock("@/components/WorktreeView", async () => {
     worktree: { id: string; name: string };
     active: boolean;
   }) {
+    // eslint-disable-next-line react-hooks/globals
+    worktreeViewRenderCount += 1;
+
     useEffect(() => {
-      worktreeViewRenderCount += 1;
       hubrisViewMountCounts[worktree.id] =
         (hubrisViewMountCounts[worktree.id] ?? 0) + 1;
 

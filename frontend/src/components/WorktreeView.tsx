@@ -305,7 +305,7 @@ export default function WorktreeView({ worktree, active }: Props) {
 
       <WorktreeRightSidebar worktree={worktree} active={active} />
       <AlertDialog
-        open={pendingCloseTabId !== null}
+        open={active && pendingCloseTabId !== null}
         onOpenChange={(open) => {
           if (!open && isPendingCloseSaving) {
             return;
