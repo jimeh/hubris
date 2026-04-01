@@ -17,7 +17,11 @@
       "Bash(mise run test:*)",
       "Bash(mise tasks ls:*)",
       "Bash(mise tasks:*)",
-      "WebFetch(domain:shadcn-svelte.com)"
+      "Skill(shadcn)",
+      "WebFetch(domain:shadcn-svelte.com)",
+      "mcp__plugin_gitnexus_gitnexus__impact",
+      "mcp__plugin_gitnexus_gitnexus__query",
+      "mcp__plugin_gitnexus_gitnexus__context"
     ]
   }
 }

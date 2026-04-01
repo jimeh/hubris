@@ -135,6 +135,10 @@ impl WorktreeFilesService {
         tracker.invalidate_relative_paths(&self.events, paths)
     }
 
+    pub fn evict_tracker(&self, worktree_id: &str) {
+        self.trackers.remove(worktree_id);
+    }
+
     pub async fn record_git_rewrite_hint(
         &self,
         resolved: &ResolvedWorktree,

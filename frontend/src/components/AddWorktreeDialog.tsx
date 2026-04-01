@@ -21,7 +21,7 @@ import {
   listImportableWorktrees,
   listProjectWorktreeStartPoints,
 } from "@/lib/api";
-import { deterministicTagStyle } from "@/lib/theme/deterministicTagColor";
+import { tagStyle } from "@/lib/theme/tagStyle";
 import { generateWorktreeBranchName } from "@/lib/worktreeName";
 import { useThemeSettings } from "@/lib/stores/theme";
 import { Badge } from "@/components/ui/badge";
@@ -85,47 +85,6 @@ function DialogScopedPopoverContent({
       />
     </PopoverPrimitive.Portal>
   );
-}
-
-function tagStyle(
-  ref: string,
-  kind: "local" | "remote" = "local",
-): React.CSSProperties {
-  const trimmed = ref.trim();
-  const stableKey = (() => {
-    if (!trimmed) {
-      return "default";
-    }
-    if (trimmed.startsWith("refs/heads/")) {
-      return trimmed.slice("refs/heads/".length);
-    }
-    if (trimmed.startsWith("refs/remotes/")) {
-      const remainder = trimmed.slice("refs/remotes/".length);
-      const slashIndex = remainder.indexOf("/");
-      return slashIndex === -1 ? remainder : remainder.slice(slashIndex + 1);
-    }
-    if (kind === "remote") {
-      const slashIndex = trimmed.indexOf("/");
-      if (slashIndex > 0) {
-        return trimmed.slice(slashIndex + 1);
-      }
-    }
-    return trimmed;
-  })();
-
-  return Object.fromEntries(
-    deterministicTagStyle(stableKey, {
-      profile: "balanced",
-      surfaceVar: "--popover",
-    })
-      .split(";")
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .map((entry) => {
-        const [key, value] = entry.split(":");
-        return [key.trim(), value.trim()];
-      }),
-  ) as React.CSSProperties;
 }
 
 function TabButton({

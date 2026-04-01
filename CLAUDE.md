@@ -3,7 +3,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **text-editor-themes** (2832 symbols, 8811 relationships, 235 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **change-target-branch** (2685 symbols, 8414 relationships, 222 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -19,7 +19,7 @@ This project is indexed by GitNexus as **text-editor-themes** (2832 symbols, 881
 
 1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
 2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/text-editor-themes/process/{processName}` — trace the full execution flow step by step
+3. `READ gitnexus://repo/change-target-branch/process/{processName}` — trace the full execution flow step by step
 4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
 
 ## When Refactoring
@@ -58,10 +58,10 @@ This project is indexed by GitNexus as **text-editor-themes** (2832 symbols, 881
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/text-editor-themes/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/text-editor-themes/clusters` | All functional areas |
-| `gitnexus://repo/text-editor-themes/processes` | All execution flows |
-| `gitnexus://repo/text-editor-themes/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/change-target-branch/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/change-target-branch/clusters` | All functional areas |
+| `gitnexus://repo/change-target-branch/processes` | All execution flows |
+| `gitnexus://repo/change-target-branch/process/{name}` | Step-by-step execution trace |
 
 ## Self-Check Before Finishing
 

@@ -1380,6 +1380,63 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/{worktree_id}/git/rename-branch": {
+      "post": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "rename_worktree_branch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameWorktreeBranchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Branch renamed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Worktree"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid branch name"
+          },
+          "404": {
+            "description": "Project or worktree not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/projects/{id}/worktrees/{worktree_id}/git/stage": {
       "post": {
         "tags": ["crate::api::worktrees"],
@@ -2306,6 +2363,15 @@
           }
         }
       },
+      "RenameWorktreeBranchRequest": {
+        "type": "object",
+        "required": ["new_branch"],
+        "properties": {
+          "new_branch": {
+            "type": "string"
+          }
+        }
+      },
       "RenameWorktreeFileRequest": {
         "type": "object",
         "required": ["path", "new_name"],
@@ -2782,6 +2848,9 @@
         "type": "object",
         "properties": {
           "name": {
+            "type": ["string", "null"]
+          },
+          "source_ref": {
             "type": ["string", "null"]
           },
           "ui_mode": {

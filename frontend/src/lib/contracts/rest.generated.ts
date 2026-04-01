@@ -379,6 +379,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{id}/worktrees/{worktree_id}/git/rename-branch": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["rename_worktree_branch"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/projects/{id}/worktrees/{worktree_id}/git/stage": {
     parameters: {
       query?: never;
@@ -683,6 +699,9 @@ export interface components {
       /** Format: double */
       position?: number;
     };
+    RenameWorktreeBranchRequest: {
+      new_branch: string;
+    };
     RenameWorktreeFileRequest: {
       /** @description New basename for the file or directory. */
       new_name: string;
@@ -829,6 +848,7 @@ export interface components {
     };
     UpdateWorktreeRequest: {
       name?: string | null;
+      source_ref?: string | null;
       ui_mode?: null | components["schemas"]["WorktreeUiMode"];
     };
     VscodeThemeJson: {
@@ -2224,6 +2244,56 @@ export interface operations {
         content?: never;
       };
       /** @description Project, worktree, or path not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  rename_worktree_branch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RenameWorktreeBranchRequest"];
+      };
+    };
+    responses: {
+      /** @description Branch renamed */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Worktree"];
+        };
+      };
+      /** @description Invalid branch name */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Project or worktree not found */
       404: {
         headers: {
           [name: string]: unknown;
