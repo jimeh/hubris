@@ -200,7 +200,7 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: "a" },
     });
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={worktree} active />);
 
     expect(getTerminalRenderCounts()).toEqual({ a: 1, b: 1 });
 
@@ -227,7 +227,7 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: "a", w2: "x" },
     });
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={worktree} active />);
 
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
 
@@ -256,7 +256,7 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: "a" },
     });
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={worktree} active />);
 
     expect(getTerminalRenderCounts()).toEqual({ a: 1, b: 1 });
 
@@ -290,7 +290,7 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: "a" },
     });
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={worktree} active />);
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
     expect(screen.getByText("Files panel")).toBeInTheDocument();
 
@@ -423,7 +423,7 @@ describe("WorktreeView", () => {
   it("renders the right sidebar in hubris mode", async () => {
     const { default: WorktreeView } = await import("./WorktreeView");
 
-    render(<WorktreeView worktree={makeWorktree()} />);
+    render(<WorktreeView worktree={makeWorktree()} active />);
 
     expect(
       screen.getByRole("button", { name: "Resize right sidebar" }),
@@ -443,7 +443,7 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: "a" },
     });
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={worktree} active />);
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
 
     act(() => {
@@ -512,7 +512,7 @@ describe("WorktreeView", () => {
       save: saveSpy,
     }));
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={worktree} active />);
 
     fireEvent.click(
       screen.getByRole("button", { name: `Close ${fileTab.id}` }),
@@ -606,7 +606,7 @@ describe("WorktreeView", () => {
       save: saveSpy,
     }));
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={worktree} active />);
 
     fireEvent.click(
       screen.getByRole("button", { name: `Close ${diffTab.id}` }),
@@ -686,7 +686,7 @@ describe("WorktreeView", () => {
       save: saveSpy,
     }));
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={worktree} active />);
 
     fireEvent.click(
       screen.getByRole("button", { name: `Close ${fileTab.id}` }),
@@ -774,7 +774,7 @@ describe("WorktreeView", () => {
       save: saveSpy,
     }));
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={worktree} active />);
 
     fireEvent.click(
       screen.getByRole("button", { name: `Close ${fileTab.id}` }),
@@ -850,7 +850,7 @@ describe("WorktreeView", () => {
       },
     }));
 
-    render(<WorktreeView worktree={worktree} />);
+    render(<WorktreeView worktree={worktree} active />);
 
     act(() => {
       useTabStore.setState((state) => ({

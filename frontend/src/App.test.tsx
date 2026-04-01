@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
 
 let worktreeViewRenderCount = 0;
+const hubrisViewMountCounts: Record<string, number> = {};
+const hubrisViewUnmountCounts: Record<string, number> = {};
 const vscodePaneMountCounts: Record<string, number> = {};
 const vscodePaneUnmountCounts: Record<string, number> = {};
 
@@ -41,13 +43,41 @@ vi.mock("@/components/AppSidebar", async () => {
   return { default: MockSidebar };
 });
 
-vi.mock("@/components/WorktreeView", () => ({
-  default: ({ worktree }: { worktree: { name: string } }) =>
-    (() => {
-      worktreeViewRenderCount += 1;
-      return <div>Active worktree: {worktree.name}</div>;
-    })(),
-}));
+vi.mock("@/components/WorktreeView", async () => {
+  const { useEffect } = await vi.importActual<typeof import("react")>("react");
+
+  function MockWorktreeView({
+    worktree,
+    active,
+  }: {
+    worktree: { id: string; name: string };
+    active: boolean;
+  }) {
+    // eslint-disable-next-line react-hooks/globals
+    worktreeViewRenderCount += 1;
+
+    useEffect(() => {
+      hubrisViewMountCounts[worktree.id] =
+        (hubrisViewMountCounts[worktree.id] ?? 0) + 1;
+
+      return () => {
+        hubrisViewUnmountCounts[worktree.id] =
+          (hubrisViewUnmountCounts[worktree.id] ?? 0) + 1;
+      };
+    }, [worktree.id]);
+
+    return (
+      <div
+        data-testid={`hubris-view-${worktree.id}`}
+        data-active={active ? "true" : "false"}
+      >
+        Active worktree: {worktree.name}
+      </div>
+    );
+  }
+
+  return { default: MockWorktreeView };
+});
 
 vi.mock("@/components/VscodeWorkbenchPane", async () => {
   const { useEffect } = await vi.importActual<typeof import("react")>("react");
@@ -89,6 +119,12 @@ describe("App", () => {
     vi.restoreAllMocks();
     localStorage.clear();
     worktreeViewRenderCount = 0;
+    for (const key of Object.keys(hubrisViewMountCounts)) {
+      delete hubrisViewMountCounts[key];
+    }
+    for (const key of Object.keys(hubrisViewUnmountCounts)) {
+      delete hubrisViewUnmountCounts[key];
+    }
     for (const key of Object.keys(vscodePaneMountCounts)) {
       delete vscodePaneMountCounts[key];
     }
@@ -106,6 +142,8 @@ describe("App", () => {
       await import("@/lib/stores/worktreeRightSidebar");
     const { resetSettingsStoreForTests } =
       await import("@/lib/stores/settings");
+    const { resetHubrisWorkbenchStoreForTests } =
+      await import("@/lib/stores/hubrisWorkbench");
     const { resetVscodeWorkbenchStoreForTests } =
       await import("@/lib/stores/vscodeWorkbench");
 
@@ -113,6 +151,7 @@ describe("App", () => {
     resetSidebarWidthStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     resetSettingsStoreForTests();
+    resetHubrisWorkbenchStoreForTests();
     resetVscodeWorkbenchStoreForTests();
 
     useProjectStore.setState({
@@ -165,13 +204,23 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(screen.getByText("Active worktree: local")).toBeInTheDocument();
+    expect(screen.getByTestId("hubris-view-w-local")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
 
     act(() => {
       useWorktreeStore.getState().select("w-feature");
     });
 
-    expect(screen.getByText("Active worktree: feature-a")).toBeInTheDocument();
+    expect(screen.getByTestId("hubris-view-w-local")).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+    expect(screen.getByTestId("hubris-view-w-feature")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
   }, 10_000);
 
   it("updates sidebar width via DOM subscription without rerendering the main pane", async () => {
@@ -359,7 +408,10 @@ describe("App", () => {
       useWorktreeStore.getState().select("w-local");
     });
 
-    expect(screen.getByText("Active worktree: local")).toBeInTheDocument();
+    expect(screen.getByTestId("hubris-view-w-local")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
     expect(screen.getByTestId("vscode-pane-w-local")).toHaveAttribute(
       "data-active",
       "false",
@@ -417,6 +469,73 @@ describe("App", () => {
 
     expect(screen.queryByTestId("vscode-pane-w-local")).not.toBeInTheDocument();
     expect(vscodePaneUnmountCounts["w-local"]).toBe(1);
+  });
+
+  it("keeps Hubris worktree views mounted across worktree switches", async () => {
+    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    expect(screen.getByTestId("hubris-view-w-local")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(hubrisViewMountCounts["w-local"]).toBe(1);
+
+    act(() => {
+      useWorktreeStore.getState().select("w-feature");
+    });
+
+    expect(screen.getByTestId("hubris-view-w-local")).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+    expect(screen.getByTestId("hubris-view-w-feature")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(hubrisViewMountCounts["w-local"]).toBe(1);
+    expect(hubrisViewMountCounts["w-feature"]).toBe(1);
+
+    act(() => {
+      useWorktreeStore.getState().select("w-local");
+    });
+
+    expect(screen.getByTestId("hubris-view-w-local")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(screen.getByTestId("hubris-view-w-feature")).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+    expect(hubrisViewMountCounts["w-local"]).toBe(1);
+    expect(hubrisViewUnmountCounts["w-local"] ?? 0).toBe(0);
+  });
+
+  it("removes cached Hubris views when the worktree disappears", async () => {
+    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
+    const { default: App } = await import("./App");
+
+    render(<App />);
+
+    expect(screen.getByTestId("hubris-view-w-local")).toBeInTheDocument();
+
+    act(() => {
+      useWorktreeStore.setState((state) => ({
+        worktreesByProject: {
+          ...state.worktreesByProject,
+          p1: (state.worktreesByProject.p1 ?? []).filter(
+            (worktree) => worktree.id !== "w-local",
+          ),
+        },
+        selectedWorktreeId: "w-feature",
+      }));
+    });
+
+    expect(screen.queryByTestId("hubris-view-w-local")).not.toBeInTheDocument();
+    expect(hubrisViewUnmountCounts["w-local"]).toBe(1);
   });
 
   it("switches the active Hubris tab when the selected worktree changes", async () => {

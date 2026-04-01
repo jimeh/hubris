@@ -72,6 +72,7 @@ const RIGHT_SIDEBAR_TABS: Record<
 
 type Props = {
   worktree: Worktree;
+  active: boolean;
 };
 
 const HEADER_TAB_ACTIONS_GAP_PX = 8;
@@ -259,7 +260,7 @@ function RightSidebarHeader({
   );
 }
 
-export default function WorktreeRightSidebar({ worktree }: Props) {
+export default function WorktreeRightSidebar({ worktree, active }: Props) {
   const isMobile = useWorktreeRightSidebarStore(
     (state) => state.isMobileViewport,
   );
@@ -378,7 +379,7 @@ export default function WorktreeRightSidebar({ worktree }: Props) {
 
   if (isMobile) {
     return (
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+      <Sheet open={active && mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent
           side="right"
           showCloseButton={false}

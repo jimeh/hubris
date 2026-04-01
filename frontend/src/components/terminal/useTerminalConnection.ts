@@ -225,9 +225,7 @@ export function useTerminalConnection({
     }
 
     let url = terminalWsUrl(tabId);
-    if (bytePositionRef.current > 0) {
-      url += `&resume_from=${bytePositionRef.current}`;
-    }
+    url += `&resume_from=${bytePositionRef.current}`;
 
     const generation = connectionGenerationRef.current + 1;
     connectionGenerationRef.current = generation;
