@@ -53,9 +53,7 @@ describe("convertVscodeThemeToMonaco", () => {
   it("passes through foreground without #", () => {
     const result = convertVscodeThemeToMonaco(
       makeTheme({
-        tokenColors: [
-          { scope: "keyword", settings: { foreground: "C586C0" } },
-        ],
+        tokenColors: [{ scope: "keyword", settings: { foreground: "C586C0" } }],
       }),
     );
     expect(result.rules[0].foreground).toBe("C586C0");
@@ -136,8 +134,11 @@ describe("convertVscodeThemeToMonaco", () => {
   });
 
   it("handles undefined tokenColors gracefully", () => {
-    const theme = { name: "Colors Only", type: "dark", colors: {} } as
-      VscodeThemeJson;
+    const theme = {
+      name: "Colors Only",
+      type: "dark",
+      colors: {},
+    } as VscodeThemeJson;
     const result = convertVscodeThemeToMonaco(theme);
     expect(result.rules).toEqual([]);
   });
