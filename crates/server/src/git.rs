@@ -1054,11 +1054,16 @@ pub async fn create_worktree(
 
 fn rename_branch_git2(worktree_path: &Path, new_name: &str) -> Result<String, GitError> {
     let repo = open_repo(worktree_path)?;
+    if repo.head_detached().map_err(to_git_error)? {
+        return Err(GitError {
+            message: "HEAD is detached".to_string(),
+        });
+    }
     let head = repo.head().map_err(to_git_error)?;
     let current_branch_name = head
         .shorthand()
         .ok_or_else(|| GitError {
-            message: "HEAD is detached".to_string(),
+            message: "could not determine current branch name".to_string(),
         })?
         .to_string();
     let mut branch = repo
