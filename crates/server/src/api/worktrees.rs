@@ -952,6 +952,9 @@ pub async fn rename_worktree_branch(
         .iter_mut()
         .find(|wt| wt.id == worktree_id)
     {
+        if managed.name.as_deref() == Some(managed.branch.as_str()) {
+            managed.name = Some(new_branch.clone());
+        }
         managed.branch = new_branch;
     }
     normalize_meta(&mut meta, &local_worktree_id);
