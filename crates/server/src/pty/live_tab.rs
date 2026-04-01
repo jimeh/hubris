@@ -46,9 +46,9 @@ impl TerminalSize {
 /// Scans raw PTY output for notification signals:
 /// standalone BEL (0x07), OSC 9, and OSC 777.
 ///
-/// Distinguishes standalone BEL from BEL used as an OSC
-/// string terminator by tracking whether we're inside an
-/// OSC sequence.
+/// Distinguishes standalone BEL from BEL used as a string
+/// sequence terminator by tracking whether we're inside an
+/// OSC, DCS, PM, or APC sequence.
 struct NotificationScanner {
     state: ScanState,
     /// Number of the current OSC sequence being parsed
@@ -65,7 +65,9 @@ enum ScanState {
     Esc,
     /// Inside an OSC sequence number (digits after `]`).
     OscNumber,
-    /// Inside an OSC sequence payload (after `;`).
+    /// Inside a string sequence body (OSC payload after
+    /// `;`, or DCS/PM/APC body). BEL here is a terminator,
+    /// not a bell.
     Osc,
 }
 
@@ -92,6 +94,11 @@ impl NotificationScanner {
                     b']' => {
                         self.state = ScanState::OscNumber;
                         self.osc_number = 0;
+                    }
+                    // DCS, PM, APC — string sequences where
+                    // BEL is a terminator, not a bell.
+                    b'P' | b'^' | b'_' => {
+                        self.state = ScanState::Osc;
                     }
                     _ => self.state = ScanState::Normal,
                 },
@@ -654,6 +661,34 @@ mod tests {
     fn scanner_no_false_positive_on_plain_text() {
         let mut s = NotificationScanner::new();
         assert!(!s.scan(b"just some regular terminal output\r\n"));
+    }
+
+    #[test]
+    fn scanner_ignores_bel_as_dcs_terminator() {
+        let mut s = NotificationScanner::new();
+        // DCS sequence terminated by BEL — not a bell
+        assert!(!s.scan(b"\x1bPq#0;2;0;0;0#1;2;100;100;0\x07"));
+    }
+
+    #[test]
+    fn scanner_ignores_bel_as_pm_terminator() {
+        let mut s = NotificationScanner::new();
+        // PM sequence terminated by BEL — not a bell
+        assert!(!s.scan(b"\x1b^some private message\x07"));
+    }
+
+    #[test]
+    fn scanner_ignores_bel_as_apc_terminator() {
+        let mut s = NotificationScanner::new();
+        // APC sequence terminated by BEL — not a bell
+        assert!(!s.scan(b"\x1b_Gf=100,a=T;payload\x07"));
+    }
+
+    #[test]
+    fn scanner_detects_bel_after_dcs_ends() {
+        let mut s = NotificationScanner::new();
+        // DCS terminated by ST, then standalone BEL
+        assert!(s.scan(b"\x1bPq#0\x1b\\\x07"));
     }
 
     #[test]
