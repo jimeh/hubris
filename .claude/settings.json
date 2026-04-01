@@ -4,22 +4,21 @@
       "Bash(bun run:*)",
       "Bash(cargo check:*)",
       "Bash(git diff-tree:*)",
-      "Bash(mise check)",
-      "Bash(mise format)",
-      "Bash(mise generate)",
+      "Bash(mise check*)",
+      "Bash(mise format*)",
+      "Bash(mise generate*)",
       "Bash(mise run check*)",
-      "Bash(mise run format)",
-      "Bash(mise run generate)",
+      "Bash(mise run format*)",
       "Bash(mise run generate*)",
       "Bash(mise run test*)",
-      "Bash(mise run test:*)",
       "Bash(mise tasks ls:*)",
       "Bash(mise tasks:*)",
+      "Bash(mise test*)",
       "Skill(shadcn)",
       "WebFetch(domain:shadcn-svelte.com)",
+      "mcp__plugin_gitnexus_gitnexus__context",
       "mcp__plugin_gitnexus_gitnexus__impact",
-      "mcp__plugin_gitnexus_gitnexus__query",
-      "mcp__plugin_gitnexus_gitnexus__context"
+      "mcp__plugin_gitnexus_gitnexus__query"
     ]
   }
 }
