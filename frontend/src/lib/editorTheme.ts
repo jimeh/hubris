@@ -19,7 +19,7 @@ export function convertVscodeThemeToMonaco(
     theme.type === "light" ? "vs" : "vs-dark";
 
   const rules: TokenRule[] = [];
-  for (const tokenColor of theme.tokenColors) {
+  for (const tokenColor of theme.tokenColors ?? []) {
     // VS Code themes may express scopes as comma-separated strings
     // (e.g. "markup.bold, markup.italic"). Monaco expects individual
     // scope selectors, so split and trim them.
