@@ -94,6 +94,14 @@ fn default_dark_theme() -> String {
     "hubris-dark".to_string()
 }
 
+fn default_light_editor_theme() -> String {
+    "hubris-light".to_string()
+}
+
+fn default_dark_editor_theme() -> String {
+    "hubris-dark".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalSettings {
@@ -126,6 +134,24 @@ fn default_font_size() -> u32 {
     14
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorSettings {
+    #[serde(default = "default_light_editor_theme")]
+    pub light_editor_theme: String,
+    #[serde(default = "default_dark_editor_theme")]
+    pub dark_editor_theme: String,
+}
+
+impl Default for EditorSettings {
+    fn default() -> Self {
+        Self {
+            light_editor_theme: default_light_editor_theme(),
+            dark_editor_theme: default_dark_editor_theme(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeSettings {
@@ -139,6 +165,8 @@ pub struct Settings {
     pub appearance: AppearanceSettings,
     #[serde(default)]
     pub terminal: TerminalSettings,
+    #[serde(default)]
+    pub editor: EditorSettings,
     #[serde(default)]
     pub worktree: WorktreeSettings,
 }
@@ -169,6 +197,15 @@ pub struct TerminalSettingsPatch {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct EditorSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub light_editor_theme: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dark_editor_theme: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct WorktreeSettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location_mode: Option<WorktreeLocationMode>,
@@ -180,6 +217,8 @@ pub struct SettingsPatch {
     pub appearance: Option<AppearanceSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal: Option<TerminalSettingsPatch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<EditorSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<WorktreeSettingsPatch>,
 }

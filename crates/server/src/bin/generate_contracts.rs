@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 
 use hubris_server::api::projects::Project;
 use hubris_server::api::settings::{
-    AppearanceSettings, ColorScheme, Settings, SettingsState, SettingsStatus, SettingsStatusKind,
-    TerminalFontSource, TerminalSettings, WorktreeLocationMode, WorktreeSettings,
+    AppearanceSettings, ColorScheme, EditorSettings, EditorSettingsPatch, Settings, SettingsState,
+    SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings, WorktreeLocationMode,
+    WorktreeSettings,
 };
 use hubris_server::api::terminal::{ClientControlMessage, ServerControlMessage};
 use hubris_server::api::worktrees::{Worktree, WorktreeUiMode};
@@ -68,6 +69,8 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<WorktreeLocationMode>(&mut sse, &cfg)?;
     push_ts_export::<AppearanceSettings>(&mut sse, &cfg)?;
     push_ts_export::<TerminalSettings>(&mut sse, &cfg)?;
+    push_ts_export::<EditorSettings>(&mut sse, &cfg)?;
+    push_ts_export::<EditorSettingsPatch>(&mut sse, &cfg)?;
     push_ts_export::<WorktreeSettings>(&mut sse, &cfg)?;
     push_ts_export::<Settings>(&mut sse, &cfg)?;
     push_ts_export::<SettingsStatusKind>(&mut sse, &cfg)?;

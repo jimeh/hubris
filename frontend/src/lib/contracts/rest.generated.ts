@@ -4,6 +4,76 @@
  */
 
 export interface paths {
+  "/api/editor-themes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /api/editor-themes — list all available editor themes. */
+    get: operations["list_editor_themes"];
+    put?: never;
+    /** POST /api/editor-themes — upload a custom VS Code theme. */
+    post: operations["upload_editor_theme"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/editor-themes/discover": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /api/editor-themes/discover — scan local editors for theme extensions. */
+    get: operations["discover_editor_themes"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/editor-themes/import": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** POST /api/editor-themes/import — import a theme from an extension. */
+    post: operations["import_extension_theme"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/editor-themes/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /api/editor-themes/{id} — full theme data. */
+    get: operations["get_editor_theme"];
+    put?: never;
+    post?: never;
+    /** DELETE /api/editor-themes/{id} — delete a custom theme. */
+    delete: operations["delete_editor_theme"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/events": {
     parameters: {
       query?: never;
@@ -486,6 +556,38 @@ export interface components {
       is_git_repo: boolean;
       name: string;
     };
+    DiscoveredExtension: {
+      displayName: string;
+      extensionId: string;
+      sourceEditor: string;
+      themes: components["schemas"]["DiscoveredTheme"][];
+      version: string;
+    };
+    DiscoveredTheme: {
+      differs: boolean;
+      installedId?: string | null;
+      label: string;
+      /**
+       * @description Path to the theme JSON file, relative to the editor's extensions
+       *     directory (e.g. "publisher.ext-1.0.0/themes/dark.json").
+       */
+      sourcePath: string;
+      type: string;
+    };
+    EditorSettings: {
+      darkEditorTheme?: string;
+      lightEditorTheme?: string;
+    };
+    EditorSettingsPatch: {
+      darkEditorTheme?: string | null;
+      lightEditorTheme?: string | null;
+    };
+    EditorThemeEntry: {
+      builtin: boolean;
+      id: string;
+      name: string;
+      type: string;
+    };
     GitCommitDetailsResponse: {
       author: components["schemas"]["GitCommitPerson"];
       committer: components["schemas"]["GitCommitPerson"];
@@ -524,6 +626,19 @@ export interface components {
       | "deleted"
       | "typechange"
       | "untracked";
+    ImportThemeRequest: {
+      /** @description Display name for the imported theme. */
+      label: string;
+      overwriteId?: string | null;
+      sourceEditor: string;
+      /**
+       * @description Path to the theme JSON file, relative to the editor's extensions
+       *     directory. Must match a `source_path` from the discover response.
+       */
+      sourcePath: string;
+      /** @description Theme type: "light" or "dark". */
+      type: string;
+    };
     ImportWorktreeRequest: {
       path: string;
     };
@@ -615,11 +730,13 @@ export interface components {
         };
     Settings: {
       appearance?: components["schemas"]["AppearanceSettings"];
+      editor?: components["schemas"]["EditorSettings"];
       terminal?: components["schemas"]["TerminalSettings"];
       worktree?: components["schemas"]["WorktreeSettings"];
     };
     SettingsPatch: {
       appearance?: null | components["schemas"]["AppearanceSettingsPatch"];
+      editor?: null | components["schemas"]["EditorSettingsPatch"];
       terminal?: null | components["schemas"]["TerminalSettingsPatch"];
       worktree?: null | components["schemas"]["WorktreeSettingsPatch"];
     };
@@ -714,6 +831,26 @@ export interface components {
       name?: string | null;
       ui_mode?: null | components["schemas"]["WorktreeUiMode"];
     };
+    VscodeThemeJson: {
+      colors?: {
+        [key: string]: string;
+      };
+      name?: string;
+      tokenColors?: components["schemas"]["VscodeTokenColor"][];
+      type?: string | null;
+    };
+    VscodeTokenColor: {
+      name?: string | null;
+      scope?: null | components["schemas"]["VscodeTokenScope"];
+      settings: components["schemas"]["VscodeTokenColorSettings"];
+    };
+    VscodeTokenColorSettings: {
+      background?: string | null;
+      fontStyle?: string | null;
+      foreground?: string | null;
+    };
+    /** @description A scope can be a single string or an array of strings. */
+    VscodeTokenScope: string | string[];
     Worktree: {
       branch: string;
       id: string;
@@ -813,6 +950,180 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  list_editor_themes: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Editor theme list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EditorThemeEntry"][];
+        };
+      };
+    };
+  };
+  upload_editor_theme: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["VscodeThemeJson"];
+      };
+    };
+    responses: {
+      /** @description Theme created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EditorThemeEntry"];
+        };
+      };
+      /** @description Invalid theme JSON */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  discover_editor_themes: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Discovered extension themes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DiscoveredExtension"][];
+        };
+      };
+    };
+  };
+  import_extension_theme: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ImportThemeRequest"];
+      };
+    };
+    responses: {
+      /** @description Theme imported */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EditorThemeEntry"];
+        };
+      };
+      /** @description Invalid request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Extension or theme not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  get_editor_theme: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Theme ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Theme data */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VscodeThemeJson"];
+        };
+      };
+      /** @description Theme not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  delete_editor_theme: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Theme ID */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Theme deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Cannot delete built-in theme */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Theme not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   event_stream: {
     parameters: {
       query?: {

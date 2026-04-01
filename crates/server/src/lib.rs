@@ -25,6 +25,10 @@ pub use access::{
     DESKTOP_BOOTSTRAP_PATH, DESKTOP_SESSION_COOKIE_NAME, DesktopAccess, ServerAccess,
 };
 use access::{desktop_auth_middleware, desktop_bootstrap_handler};
+use api::editor_themes::{
+    delete_editor_theme, discover_editor_themes, get_editor_theme, import_extension_theme,
+    list_editor_themes, upload_editor_theme,
+};
 use api::events::event_stream;
 use api::files::{
     get_project_worktree_file_content, get_project_worktree_git_diff, list_files,
@@ -267,6 +271,16 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route(
             "/settings",
             get(get_settings).put(put_settings).patch(patch_settings),
+        )
+        .route(
+            "/editor-themes",
+            get(list_editor_themes).post(upload_editor_theme),
+        )
+        .route("/editor-themes/discover", get(discover_editor_themes))
+        .route("/editor-themes/import", post(import_extension_theme))
+        .route(
+            "/editor-themes/{id}",
+            get(get_editor_theme).delete(delete_editor_theme),
         );
 
     let cors = if cfg!(debug_assertions) && !access.is_desktop_locked() {

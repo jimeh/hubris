@@ -13,8 +13,8 @@ use tokio::sync::RwLock;
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 use crate::api::settings::{
-    AppearanceSettingsPatch, Settings, SettingsPatch, SettingsState, SettingsStatus,
-    TerminalSettingsPatch, WorktreeSettingsPatch,
+    AppearanceSettingsPatch, EditorSettingsPatch, Settings, SettingsPatch, SettingsState,
+    SettingsStatus, TerminalSettingsPatch, WorktreeSettingsPatch,
 };
 use crate::events::{EventBus, EventKind};
 use crate::fs_sync::sync_parent_directory;
@@ -374,6 +374,9 @@ fn apply_patch_to_settings(settings: &mut Settings, patch: &SettingsPatch) {
     if let Some(terminal) = &patch.terminal {
         apply_terminal_patch(&mut settings.terminal, terminal);
     }
+    if let Some(editor) = &patch.editor {
+        apply_editor_patch(&mut settings.editor, editor);
+    }
     if let Some(worktree) = &patch.worktree {
         apply_worktree_patch(&mut settings.worktree, worktree);
     }
@@ -409,6 +412,18 @@ fn apply_terminal_patch(
     }
     if let Some(font_size) = patch.font_size {
         settings.font_size = font_size;
+    }
+}
+
+fn apply_editor_patch(
+    settings: &mut crate::api::settings::EditorSettings,
+    patch: &EditorSettingsPatch,
+) {
+    if let Some(light_editor_theme) = &patch.light_editor_theme {
+        settings.light_editor_theme = light_editor_theme.clone();
+    }
+    if let Some(dark_editor_theme) = &patch.dark_editor_theme {
+        settings.dark_editor_theme = dark_editor_theme.clone();
     }
 }
 
@@ -463,6 +478,16 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
         }
     }
 
+    if let Some(editor) = &patch.editor {
+        let table = ensure_table(document, "editor");
+        if let Some(light_editor_theme) = &editor.light_editor_theme {
+            table.insert("lightEditorTheme", value(light_editor_theme.as_str()));
+        }
+        if let Some(dark_editor_theme) = &editor.dark_editor_theme {
+            table.insert("darkEditorTheme", value(dark_editor_theme.as_str()));
+        }
+    }
+
     if let Some(worktree) = &patch.worktree {
         let table = ensure_table(document, "worktree");
         if let Some(location_mode) = worktree.location_mode {
@@ -494,6 +519,16 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
         value(settings.terminal.bundled_font.as_str()),
     );
     terminal.insert("fontSize", value(i64::from(settings.terminal.font_size)));
+
+    let editor = ensure_table(document, "editor");
+    editor.insert(
+        "lightEditorTheme",
+        value(settings.editor.light_editor_theme.as_str()),
+    );
+    editor.insert(
+        "darkEditorTheme",
+        value(settings.editor.dark_editor_theme.as_str()),
+    );
 
     let worktree = ensure_table(document, "worktree");
     worktree.insert(

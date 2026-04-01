@@ -9,6 +9,175 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/editor-themes": {
+      "get": {
+        "tags": ["crate::api::editor_themes"],
+        "summary": "GET /api/editor-themes — list all available editor themes.",
+        "operationId": "list_editor_themes",
+        "responses": {
+          "200": {
+            "description": "Editor theme list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EditorThemeEntry"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["crate::api::editor_themes"],
+        "summary": "POST /api/editor-themes — upload a custom VS Code theme.",
+        "operationId": "upload_editor_theme",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VscodeThemeJson"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Theme created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorThemeEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid theme JSON"
+          }
+        }
+      }
+    },
+    "/api/editor-themes/discover": {
+      "get": {
+        "tags": ["crate::api::editor_themes"],
+        "summary": "GET /api/editor-themes/discover — scan local editors for theme extensions.",
+        "operationId": "discover_editor_themes",
+        "responses": {
+          "200": {
+            "description": "Discovered extension themes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DiscoveredExtension"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/editor-themes/import": {
+      "post": {
+        "tags": ["crate::api::editor_themes"],
+        "summary": "POST /api/editor-themes/import — import a theme from an extension.",
+        "operationId": "import_extension_theme",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportThemeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Theme imported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditorThemeEntry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Extension or theme not found"
+          }
+        }
+      }
+    },
+    "/api/editor-themes/{id}": {
+      "get": {
+        "tags": ["crate::api::editor_themes"],
+        "summary": "GET /api/editor-themes/{id} — full theme data.",
+        "operationId": "get_editor_theme",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Theme data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VscodeThemeJson"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Theme not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["crate::api::editor_themes"],
+        "summary": "DELETE /api/editor-themes/{id} — delete a custom theme.",
+        "operationId": "delete_editor_theme",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Theme ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Theme deleted"
+          },
+          "403": {
+            "description": "Cannot delete built-in theme"
+          },
+          "404": {
+            "description": "Theme not found"
+          }
+        }
+      }
+    },
     "/api/events": {
       "get": {
         "tags": ["crate::api::events"],
@@ -1777,6 +1946,98 @@
           }
         }
       },
+      "DiscoveredExtension": {
+        "type": "object",
+        "required": [
+          "extensionId",
+          "displayName",
+          "version",
+          "sourceEditor",
+          "themes"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "extensionId": {
+            "type": "string"
+          },
+          "sourceEditor": {
+            "type": "string"
+          },
+          "themes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredTheme"
+            }
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "DiscoveredTheme": {
+        "type": "object",
+        "required": ["label", "type", "sourcePath", "differs"],
+        "properties": {
+          "differs": {
+            "type": "boolean"
+          },
+          "installedId": {
+            "type": ["string", "null"]
+          },
+          "label": {
+            "type": "string"
+          },
+          "sourcePath": {
+            "type": "string",
+            "description": "Path to the theme JSON file, relative to the editor's extensions\ndirectory (e.g. \"publisher.ext-1.0.0/themes/dark.json\")."
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "EditorSettings": {
+        "type": "object",
+        "properties": {
+          "darkEditorTheme": {
+            "type": "string"
+          },
+          "lightEditorTheme": {
+            "type": "string"
+          }
+        }
+      },
+      "EditorSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "darkEditorTheme": {
+            "type": ["string", "null"]
+          },
+          "lightEditorTheme": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "EditorThemeEntry": {
+        "type": "object",
+        "required": ["id", "name", "type", "builtin"],
+        "properties": {
+          "builtin": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
       "GitCommitDetailsResponse": {
         "type": "object",
         "required": [
@@ -1884,6 +2145,30 @@
           "typechange",
           "untracked"
         ]
+      },
+      "ImportThemeRequest": {
+        "type": "object",
+        "required": ["sourceEditor", "sourcePath", "label", "type"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Display name for the imported theme."
+          },
+          "overwriteId": {
+            "type": ["string", "null"]
+          },
+          "sourceEditor": {
+            "type": "string"
+          },
+          "sourcePath": {
+            "type": "string",
+            "description": "Path to the theme JSON file, relative to the editor's extensions\ndirectory. Must match a `source_path` from the discover response."
+          },
+          "type": {
+            "type": "string",
+            "description": "Theme type: \"light\" or \"dark\"."
+          }
+        }
       },
       "ImportWorktreeRequest": {
         "type": "object",
@@ -2162,6 +2447,9 @@
           "appearance": {
             "$ref": "#/components/schemas/AppearanceSettings"
           },
+          "editor": {
+            "$ref": "#/components/schemas/EditorSettings"
+          },
           "terminal": {
             "$ref": "#/components/schemas/TerminalSettings"
           },
@@ -2180,6 +2468,16 @@
               },
               {
                 "$ref": "#/components/schemas/AppearanceSettingsPatch"
+              }
+            ]
+          },
+          "editor": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EditorSettingsPatch"
               }
             ]
           },
@@ -2497,6 +2795,82 @@
             ]
           }
         }
+      },
+      "VscodeThemeJson": {
+        "type": "object",
+        "properties": {
+          "colors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "tokenColors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VscodeTokenColor"
+            }
+          },
+          "type": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "VscodeTokenColor": {
+        "type": "object",
+        "required": ["settings"],
+        "properties": {
+          "name": {
+            "type": ["string", "null"]
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VscodeTokenScope"
+              }
+            ]
+          },
+          "settings": {
+            "$ref": "#/components/schemas/VscodeTokenColorSettings"
+          }
+        }
+      },
+      "VscodeTokenColorSettings": {
+        "type": "object",
+        "properties": {
+          "background": {
+            "type": ["string", "null"]
+          },
+          "fontStyle": {
+            "type": ["string", "null"]
+          },
+          "foreground": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "VscodeTokenScope": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "A scope can be a single string or an array of strings."
       },
       "Worktree": {
         "type": "object",

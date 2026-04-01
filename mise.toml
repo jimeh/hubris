@@ -121,6 +121,10 @@ description = "Generate frontend contracts and theme defaults"
 run = "frontend/scripts/download-bundled-fonts.sh"
 description = "Download bundled Nerd Font woff2 files"
 
+[tasks."download:vscode-themes"]
+run = "bun run scripts/download-vscode-themes.ts"
+description = "Download and resolve VS Code built-in themes"
+
 [tasks."clean:frontend"]
 run = "rm -rf frontend/dist frontend/node_modules"
 description = "Remove frontend build artifacts"

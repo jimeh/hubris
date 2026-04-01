@@ -60,7 +60,8 @@ function GitDiffTab({ projectId, worktreeId, tab, visible }: Props) {
     [fontFamily, fontSize, session?.readOnly],
   );
   const handleBeforeMount = useCallback(() => {
-    applyMonacoTheme(useSettingsStore.getState().activeTheme);
+    const state = useSettingsStore.getState();
+    applyMonacoTheme(state.activeTheme, state.editorThemeData);
   }, []);
   const changeDisposableRef = useRef<{ dispose: () => void } | null>(null);
 
