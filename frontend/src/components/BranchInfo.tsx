@@ -5,6 +5,7 @@ import {
   listProjectWorktreeStartPoints,
 } from "@/lib/api";
 import { tagStyle } from "@/lib/theme/tagStyle";
+import { useThemeSettings } from "@/lib/stores/theme";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -182,12 +183,16 @@ function BranchRenameButton({
   const inputRef = useRef<HTMLInputElement>(null);
   const renameBranch = useWorktreeStore((state) => state.renameBranch);
 
-  useEffect(() => {
-    if (open) {
-      setValue(branch);
-      setError("");
-    }
-  }, [open, branch]);
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (nextOpen) {
+        setValue(branch);
+        setError("");
+      }
+    },
+    [branch],
+  );
 
   useEffect(() => {
     if (open) {
@@ -217,7 +222,7 @@ function BranchRenameButton({
   }, [value, branch, projectId, worktreeId, renameBranch]);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -273,8 +278,13 @@ export default function BranchInfo({
   branch: string;
   sourceRef: string | null;
 }) {
+  const themeVersion = useThemeSettings((state) => state.version);
+
   return (
-    <div className="flex items-center gap-0.5">
+    <div
+      className="flex items-center gap-0.5"
+      data-theme-version={themeVersion}
+    >
       <SourceRefPicker
         projectId={projectId}
         worktreeId={worktreeId}

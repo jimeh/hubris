@@ -555,20 +555,19 @@ pub async fn update_project_worktree(
             managed.name = Some(trimmed.to_string());
         }
     }
-    if let Some(source_ref) = &req.source_ref {
-        if let Some(managed) = meta
+    if let Some(source_ref) = &req.source_ref
+        && let Some(managed) = meta
             .managed_worktrees
             .iter_mut()
             .find(|wt| wt.id == worktree_id)
-        {
-            let trimmed = source_ref.trim();
-            managed.source_ref = if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            };
-            state.worktree_files.evict_tracker(&worktree_id);
-        }
+    {
+        let trimmed = source_ref.trim();
+        managed.source_ref = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        state.worktree_files.evict_tracker(&worktree_id);
     }
     if let Some(ui_mode) = req.ui_mode {
         meta.worktree_ui_modes.insert(worktree_id.clone(), ui_mode);
