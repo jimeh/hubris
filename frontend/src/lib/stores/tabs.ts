@@ -604,7 +604,7 @@ export function initializeTabStore(): void {
             : t,
         ),
       }));
-      void updateTab(nextId, { has_notification: false });
+      void updateTab(nextId, { has_notification: false }).catch(() => {});
     }, 1500);
   });
   eventUnsubscribers.push(unsubscribeNotification);
