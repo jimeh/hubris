@@ -22,7 +22,13 @@ function baseName(path: string): string {
   return path.split("/").filter(Boolean).at(-1) ?? path;
 }
 
-function formatGitDiffScope(scope: "staged" | "unstaged"): string {
+function formatGitDiffScope(
+  scope: "staged" | "unstaged" | "commit",
+  commitId?: string | null,
+): string {
+  if (scope === "commit") {
+    return commitId ? commitId.slice(0, 7) : "Commit";
+  }
   return scope === "staged" ? "Index" : "Working Tree";
 }
 
@@ -46,7 +52,7 @@ function gitDiffChange(
   tab: Extract<Tab, { type: "git_diff" }>,
   gitStatus: WorktreeGitStatus | null,
 ): WorktreeGitFileChange | null {
-  if (!gitStatus) {
+  if (!gitStatus || tab.scope === "commit") {
     return null;
   }
 
@@ -84,7 +90,7 @@ export function presentTab(
 
   const change = gitDiffChange(tab, gitStatus);
   const statusLabel = change ? gitChangeTypeLabel(change.change_type) : null;
-  const scopeLabel = `(${formatGitDiffScope(tab.scope)})`;
+  const scopeLabel = `(${formatGitDiffScope(tab.scope, tab.commit_id)})`;
   const label = baseName(tab.path);
   const title = `${tab.path} ${scopeLabel}${
     statusLabel ? ` ${statusLabel}` : ""

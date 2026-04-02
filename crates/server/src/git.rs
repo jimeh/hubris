@@ -477,6 +477,137 @@ pub async fn read_diff_blob(
     })?
 }
 
+/// Which side of a commit diff to load.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitDiffSide {
+    /// First parent of the commit (empty if initial commit).
+    Parent,
+    /// The commit itself.
+    This,
+}
+
+fn load_commit_blob<'repo>(
+    repo: &'repo Repository,
+    commit_id: &str,
+    relative_path: &str,
+) -> Result<Option<git2::Blob<'repo>>, GitError> {
+    let object = repo.revparse_single(commit_id).map_err(to_git_error)?;
+    let commit = object.peel_to_commit().map_err(to_git_error)?;
+    let tree = commit.tree().map_err(to_git_error)?;
+    let entry = match tree.get_path(Path::new(relative_path)) {
+        Ok(entry) => entry,
+        Err(err) if err.code() == ErrorCode::NotFound => return Ok(None),
+        Err(err) => return Err(to_git_error(err)),
+    };
+    let object = entry.to_object(repo).map_err(to_git_error)?;
+    if object.kind() != Some(git2::ObjectType::Blob) {
+        return Ok(None);
+    }
+    object.peel_to_blob().map(Some).map_err(to_git_error)
+}
+
+fn load_parent_commit_blob<'repo>(
+    repo: &'repo Repository,
+    commit_id: &str,
+    relative_path: &str,
+) -> Result<Option<git2::Blob<'repo>>, GitError> {
+    let object = repo.revparse_single(commit_id).map_err(to_git_error)?;
+    let commit = object.peel_to_commit().map_err(to_git_error)?;
+    if commit.parent_count() == 0 {
+        return Ok(None);
+    }
+    let parent = commit.parent(0).map_err(to_git_error)?;
+    let tree = parent.tree().map_err(to_git_error)?;
+    let entry = match tree.get_path(Path::new(relative_path)) {
+        Ok(entry) => entry,
+        Err(err) if err.code() == ErrorCode::NotFound => return Ok(None),
+        Err(err) => return Err(to_git_error(err)),
+    };
+    let object = entry.to_object(repo).map_err(to_git_error)?;
+    if object.kind() != Some(git2::ObjectType::Blob) {
+        return Ok(None);
+    }
+    object.peel_to_blob().map(Some).map_err(to_git_error)
+}
+
+fn read_commit_diff_blob_git2(
+    worktree_path: &Path,
+    commit_id: &str,
+    relative_path: &str,
+    side: CommitDiffSide,
+    max_bytes: u64,
+) -> Result<GitDiffBlobContent, GitError> {
+    let repo = open_repo(worktree_path)?;
+    let relative_path = normalize_relative_git_path(relative_path).map_err(|_| GitError {
+        message: format!("invalid relative git path: {relative_path}"),
+    })?;
+    let blob = match side {
+        CommitDiffSide::Parent => load_parent_commit_blob(&repo, commit_id, &relative_path)?,
+        CommitDiffSide::This => load_commit_blob(&repo, commit_id, &relative_path)?,
+    };
+    let Some(blob) = blob else {
+        return Ok(GitDiffBlobContent::Missing);
+    };
+    if blob.size() as u64 > max_bytes {
+        return Ok(GitDiffBlobContent::Unsupported(format!(
+            "Diffs larger than {} are read-only.",
+            format_diff_size_limit(max_bytes)
+        )));
+    }
+    match std::str::from_utf8(blob.content()) {
+        Ok(content) => Ok(GitDiffBlobContent::Text(content.to_string())),
+        Err(_) => Ok(GitDiffBlobContent::Unsupported(
+            "Binary diffs are not supported.".to_string(),
+        )),
+    }
+}
+
+/// Load blob content from a specific commit for diff tabs.
+pub async fn read_commit_diff_blob(
+    worktree_path: &Path,
+    commit_id: &str,
+    relative_path: &str,
+    side: CommitDiffSide,
+    max_bytes: u64,
+) -> Result<GitDiffBlobContent, GitError> {
+    let worktree_path = worktree_path.to_path_buf();
+    let commit_id = commit_id.to_string();
+    let relative_path = relative_path.to_string();
+    tokio::task::spawn_blocking(move || {
+        read_commit_diff_blob_git2(&worktree_path, &commit_id, &relative_path, side, max_bytes)
+    })
+    .await
+    .map_err(|_| GitError {
+        message: "failed to join commit diff blob task".to_string(),
+    })?
+}
+
+/// Return `(parent_short_id_or_empty, commit_short_id)` for diff labels.
+pub async fn commit_diff_labels(
+    worktree_path: &Path,
+    commit_id: &str,
+) -> Result<(String, String), GitError> {
+    let worktree_path = worktree_path.to_path_buf();
+    let commit_id = commit_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        let repo = open_repo(&worktree_path)?;
+        let object = repo.revparse_single(&commit_id).map_err(to_git_error)?;
+        let commit = object.peel_to_commit().map_err(to_git_error)?;
+        let right_label = abbreviate_oid(&repo, commit.id())?;
+        let left_label = if commit.parent_count() > 0 {
+            let parent = commit.parent(0).map_err(to_git_error)?;
+            abbreviate_oid(&repo, parent.id())?
+        } else {
+            "Empty".to_string()
+        };
+        Ok((left_label, right_label))
+    })
+    .await
+    .map_err(|_| GitError {
+        message: "failed to join commit label task".to_string(),
+    })?
+}
+
 fn revparse_commit<'repo>(
     repo: &'repo Repository,
     spec: &str,

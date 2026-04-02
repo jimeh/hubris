@@ -555,6 +555,7 @@ export interface components {
           worktree_id: string;
         }
       | {
+          commit_id?: string | null;
           original_path?: string | null;
           path: string;
           preview?: boolean;
@@ -624,7 +625,7 @@ export interface components {
       summary: string;
     };
     /** @enum {string} */
-    GitDiffScope: "staged" | "unstaged";
+    GitDiffScope: "staged" | "unstaged" | "commit";
     GitFileChange: {
       change_type: components["schemas"]["GitFileChangeType"];
       deletions?: number | null;
@@ -807,6 +808,7 @@ export interface components {
           worktree_id: string;
         }
       | {
+          commit_id?: string | null;
           /** Format: int64 */
           created_at: number;
           id: string;
@@ -908,6 +910,8 @@ export interface components {
     /** @enum {string} */
     WorktreeFileKind: "directory" | "file";
     WorktreeGitDiffParams: {
+      /** @description Commit ID (required when scope is `commit`). */
+      commit_id?: string | null;
       /** @description Original relative path for rename/copy actions. */
       original_path?: string | null;
       /** @description Relative path from the worktree root. */
@@ -915,6 +919,7 @@ export interface components {
       scope: components["schemas"]["GitDiffScope"];
     };
     WorktreeGitDiffResponse: {
+      commit_id?: string | null;
       language: string;
       left_content: string;
       left_label: string;
@@ -2147,6 +2152,8 @@ export interface operations {
         scope: components["schemas"]["GitDiffScope"];
         /** @description Original relative path for rename/copy actions. */
         original_path?: string;
+        /** @description Commit ID (required when scope is `commit`). */
+        commit_id?: string;
       };
       header?: never;
       path: {

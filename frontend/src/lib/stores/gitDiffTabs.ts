@@ -135,6 +135,7 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
         tab.path,
         tab.scope,
         tab.original_path ?? undefined,
+        tab.commit_id ?? undefined,
       );
       set((state) => {
         const current = state.sessions[tab.id];
@@ -324,6 +325,7 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
         tab.path,
         tab.scope,
         tab.original_path ?? undefined,
+        tab.commit_id ?? undefined,
       );
       set((state) => {
         const current = state.sessions[tabId];

@@ -43,8 +43,9 @@ function GitDiffTab({ projectId, worktreeId, tab, visible }: Props) {
         tab.path,
         tab.scope,
         tab.original_path,
+        tab.commit_id,
       ),
-    [worktreeId, tab.id, tab.path, tab.scope, tab.original_path],
+    [worktreeId, tab.id, tab.path, tab.scope, tab.original_path, tab.commit_id],
   );
   const diffOptions = useMemo(
     () => ({

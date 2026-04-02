@@ -1104,6 +1104,191 @@ async fn test_unstaged_git_diff_rejects_symlink_escape() {
     assert_eq!(body["message"], DISALLOWED_PATH_MESSAGE);
 }
 
+fn run_git_output(repo_path: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("-c")
+        .arg("commit.gpgsign=false")
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git failed: {:?}", args);
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
+#[tokio::test]
+async fn test_commit_git_diff_shows_parent_vs_commit() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    // Modify the file and commit.
+    std::fs::write(repo.path().join("README.md"), "hello world\n").unwrap();
+    run_git(repo.path(), &["add", "README.md"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "second"]);
+    let commit_id = run_git_output(repo.path(), &["rev-parse", "HEAD"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=commit&commit_id={}",
+            base, project_id, worktree_id, commit_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "hello\n");
+    assert_eq!(body["right_content"], "hello world\n");
+    assert_eq!(body["read_only"], true);
+    assert!(body["modified_version_token"].is_null());
+    assert_eq!(body["scope"], "commit");
+    assert_eq!(body["commit_id"], commit_id);
+    // Labels should be short commit IDs.
+    assert!(!body["left_label"].as_str().unwrap().is_empty());
+    assert!(!body["right_label"].as_str().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_commit_git_diff_initial_commit_has_empty_left_side() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    // The first commit created by init_git_repo has no parent.
+    let commit_id = run_git_output(repo.path(), &["rev-parse", "HEAD"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=commit&commit_id={}",
+            base, project_id, worktree_id, commit_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "");
+    assert_eq!(body["right_content"], "hello\n");
+    assert_eq!(body["left_label"], "Empty");
+    assert_eq!(body["read_only"], true);
+}
+
+#[tokio::test]
+async fn test_commit_git_diff_deleted_file_has_empty_right_side() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::remove_file(repo.path().join("README.md")).unwrap();
+    run_git(repo.path(), &["add", "README.md"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "delete readme"]);
+    let commit_id = run_git_output(repo.path(), &["rev-parse", "HEAD"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=commit&commit_id={}",
+            base, project_id, worktree_id, commit_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(body["left_content"], "hello\n");
+    assert_eq!(body["right_content"], "");
+}
+
+#[tokio::test]
+async fn test_commit_git_diff_without_commit_id_returns_400() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=commit",
+            base, project_id, worktree_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_commit_git_diff_uses_original_path_for_rename() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::rename(repo.path().join("README.md"), repo.path().join("NOTES.md")).unwrap();
+    run_git(repo.path(), &["add", "-A"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "rename readme"]);
+    let commit_id = run_git_output(repo.path(), &["rev-parse", "HEAD"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=NOTES.md&scope=commit&commit_id={}&original_path=README.md",
+            base, project_id, worktree_id, commit_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    // Left side uses original_path to find the blob in the parent.
+    assert_eq!(body["left_content"], "hello\n");
+    assert_eq!(body["right_content"], "hello\n");
+}
+
+#[tokio::test]
+async fn test_commit_git_diff_binary_file_is_unsupported() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    std::fs::write(repo.path().join("binary.bin"), [0_u8, 159, 146, 150]).unwrap();
+    run_git(repo.path(), &["add", "binary.bin"]);
+    run_git(repo.path(), &["commit", "-q", "-m", "add binary"]);
+    let commit_id = run_git_output(repo.path(), &["rev-parse", "HEAD"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=binary.bin&scope=commit&commit_id={}",
+            base, project_id, worktree_id, commit_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(
+        body["unsupported_reason"],
+        "Binary diffs are not supported."
+    );
+    assert_eq!(body["read_only"], true);
+}
+
 #[tokio::test]
 async fn test_rename_worktree_file_succeeds_for_file_and_directory() {
     let (base, _tmp) = start_test_server().await;

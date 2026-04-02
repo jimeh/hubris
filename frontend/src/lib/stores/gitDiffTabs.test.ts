@@ -295,4 +295,95 @@ describe("gitDiffTabs store", () => {
     );
     expect(mockGetProjectWorktreeGitDiff).not.toHaveBeenCalled();
   });
+
+  it("does not react to file updates for commit-scoped diff tabs", async () => {
+    const { useGitDiffStore } = await getStore();
+    const commitTab = {
+      ...diffTab,
+      id: "commit-diff-1",
+      scope: "commit" as const,
+      commit_id: "abcdef123456",
+    };
+    const { useTabStore } = await import("./tabs");
+    useTabStore.setState({ tabs: [commitTab] });
+    useGitDiffStore.setState({
+      sessions: {
+        "commit-diff-1": {
+          tabId: "commit-diff-1",
+          path: "README.md",
+          originalPath: null,
+          scope: "commit",
+          originalContent: "parent\n",
+          draft: "this commit\n",
+          savedContent: "this commit\n",
+          modifiedVersionToken: null,
+          language: "markdown",
+          readOnly: true,
+          unsupportedReason: null,
+          dirty: false,
+          externalChange: false,
+          loadStatus: "loaded",
+          saveStatus: "idle",
+          reloadGeneration: 0,
+          error: null,
+        },
+      },
+    });
+
+    mockEvents.emit("worktree_files_updated", {
+      project_id: "p1",
+      worktree_id: "w1",
+      changed_paths: ["README.md"],
+      listing_paths: [],
+    });
+
+    // Commit tabs should be unaffected by working tree changes.
+    expect(
+      useGitDiffStore.getState().sessions["commit-diff-1"]?.externalChange,
+    ).toBe(false);
+    expect(mockGetProjectWorktreeGitDiff).not.toHaveBeenCalled();
+  });
+
+  it("passes commit_id to the API when loading commit diffs", async () => {
+    const { useGitDiffStore } = await getStore();
+    mockGetProjectWorktreeGitDiff.mockResolvedValue({
+      path: "README.md",
+      scope: "commit",
+      commit_id: "abcdef123456",
+      left_label: "abc1234",
+      right_label: "abcdef1",
+      left_content: "parent\n",
+      right_content: "this commit\n",
+      language: "markdown",
+      read_only: true,
+      modified_version_token: null,
+      unsupported_reason: null,
+    });
+
+    const commitTab = {
+      ...diffTab,
+      id: "commit-diff-2",
+      scope: "commit" as const,
+      commit_id: "abcdef123456",
+    };
+
+    await useGitDiffStore.getState().ensureLoaded("p1", "w1", commitTab);
+
+    expect(mockGetProjectWorktreeGitDiff).toHaveBeenCalledWith(
+      "p1",
+      "w1",
+      "README.md",
+      "commit",
+      undefined,
+      "abcdef123456",
+    );
+
+    const session = useGitDiffStore.getState().sessions["commit-diff-2"];
+    expect(session).toMatchObject({
+      originalContent: "parent\n",
+      draft: "this commit\n",
+      readOnly: true,
+      loadStatus: "loaded",
+    });
+  });
 });

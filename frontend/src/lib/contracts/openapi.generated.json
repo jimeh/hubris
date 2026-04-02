@@ -1271,6 +1271,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "commit_id",
+            "in": "query",
+            "description": "Commit ID (required when scope is `commit`).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1953,6 +1962,9 @@
             "type": "object",
             "required": ["worktree_id", "path", "scope", "type"],
             "properties": {
+              "commit_id": {
+                "type": ["string", "null"]
+              },
               "original_path": {
                 "type": ["string", "null"]
               },
@@ -2165,7 +2177,7 @@
       },
       "GitDiffScope": {
         "type": "string",
-        "enum": ["staged", "unstaged"]
+        "enum": ["staged", "unstaged", "commit"]
       },
       "GitFileChange": {
         "type": "object",
@@ -2734,6 +2746,9 @@
               "type"
             ],
             "properties": {
+              "commit_id": {
+                "type": ["string", "null"]
+              },
               "created_at": {
                 "type": "integer",
                 "format": "int64",
@@ -3062,6 +3077,10 @@
         "type": "object",
         "required": ["path", "scope"],
         "properties": {
+          "commit_id": {
+            "type": ["string", "null"],
+            "description": "Commit ID (required when scope is `commit`)."
+          },
           "original_path": {
             "type": ["string", "null"],
             "description": "Original relative path for rename/copy actions."
@@ -3088,6 +3107,9 @@
           "read_only"
         ],
         "properties": {
+          "commit_id": {
+            "type": ["string", "null"]
+          },
           "language": {
             "type": "string"
           },

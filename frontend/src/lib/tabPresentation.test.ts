@@ -137,4 +137,51 @@ describe("tab presentation", () => {
     expect(presentation.title).toBe("src/lib.rs (Index)");
     expect(presentation.toneClass).toBeUndefined();
   });
+
+  it("shows commit short id as scope label for commit diffs", () => {
+    const presentation = presentTab(
+      gitDiffTab({
+        scope: "commit",
+        commit_id: "abcdef1234567890",
+      }),
+      darkTheme,
+      null,
+    );
+
+    expect(presentation.label).toBe("lib.rs");
+    expect(presentation.labelSuffix).toBe("(abcdef1)");
+    expect(presentation.statusLabel).toBeUndefined();
+    expect(presentation.toneClass).toBeUndefined();
+  });
+
+  it("shows generic label when commit scope has no commit_id", () => {
+    const presentation = presentTab(
+      gitDiffTab({ scope: "commit" }),
+      darkTheme,
+      null,
+    );
+
+    expect(presentation.labelSuffix).toBe("(Commit)");
+  });
+
+  it("does not match git status for commit scope diffs", () => {
+    const presentation = presentTab(
+      gitDiffTab({
+        scope: "commit",
+        commit_id: "abcdef1234567890",
+      }),
+      darkTheme,
+      {
+        generation: 1,
+        ahead_count: 0,
+        ahead_commits: [],
+        comparison_available: true,
+        staged_files: [{ path: "src/lib.rs", change_type: "modified" }],
+        unstaged_files: [],
+      },
+    );
+
+    expect(presentation.statusLabel).toBeUndefined();
+    expect(presentation.toneClass).toBeUndefined();
+  });
 });

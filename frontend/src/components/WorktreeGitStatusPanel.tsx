@@ -946,14 +946,33 @@ function formatCommitTimestamp(value: string): string {
 
 function CommitTreeFileNode({
   node,
+  commitId,
   theme,
+  onOpenDiff,
 }: {
   node: Extract<WorktreeGitStatusTreeNode, { kind: "file" }>;
+  commitId: string;
   theme: HubrisTheme | null;
+  onOpenDiff: (
+    path: string,
+    commitId: string,
+    originalPath: string | undefined,
+    preview: boolean,
+  ) => void;
 }) {
   return (
     <SidebarMenuItem>
       <ChangeRowFrame
+        className="cursor-pointer"
+        interactive
+        onActivate={() =>
+          onOpenDiff(
+            node.path,
+            commitId,
+            node.change.original_path ?? undefined,
+            true,
+          )
+        }
         primary={
           <>
             <span aria-hidden="true" className="h-4 w-4 shrink-0" />
@@ -961,9 +980,29 @@ function CommitTreeFileNode({
             <span className="truncate text-[13px] font-medium">
               {node.name}
             </span>
+            <DiffLineStats
+              insertions={node.change.insertions}
+              deletions={node.change.deletions}
+            />
           </>
         }
         badge={<ChangeStatusBadge changeType={node.change.change_type} />}
+        onClick={() =>
+          onOpenDiff(
+            node.path,
+            commitId,
+            node.change.original_path ?? undefined,
+            true,
+          )
+        }
+        onDoubleClick={() =>
+          onOpenDiff(
+            node.path,
+            commitId,
+            node.change.original_path ?? undefined,
+            false,
+          )
+        }
       />
     </SidebarMenuItem>
   );
@@ -972,15 +1011,24 @@ function CommitTreeFileNode({
 function CommitTreeDirectoryNode({
   node,
   depth,
+  commitId,
   theme,
   openState,
   onOpenChange,
+  onOpenDiff,
 }: {
   node: Extract<WorktreeGitStatusTreeNode, { kind: "directory" }>;
   depth: number;
+  commitId: string;
   theme: HubrisTheme | null;
   openState: TreeOpenState;
   onOpenChange: (path: string, open: boolean) => void;
+  onOpenDiff: (
+    path: string,
+    commitId: string,
+    originalPath: string | undefined,
+    preview: boolean,
+  ) => void;
 }) {
   const open = openState[node.path] ?? depth === 0;
   const changeType = useMemo(() => aggregateDirectoryChangeType(node), [node]);
@@ -1024,15 +1072,19 @@ function CommitTreeDirectoryNode({
                     key={child.path}
                     node={child}
                     depth={depth + 1}
+                    commitId={commitId}
                     theme={theme}
                     openState={openState}
                     onOpenChange={onOpenChange}
+                    onOpenDiff={onOpenDiff}
                   />
                 ) : (
                   <CommitTreeFileNode
                     key={child.path}
                     node={child}
+                    commitId={commitId}
                     theme={theme}
+                    onOpenDiff={onOpenDiff}
                   />
                 ),
               )}
@@ -1120,6 +1172,7 @@ function CommitRow({
   onExpandedChange,
   onDetailsRequest,
   onTreeOpenChange,
+  onOpenDiff,
 }: {
   commit: WorktreeGitCommitSummary;
   index: number;
@@ -1131,6 +1184,12 @@ function CommitRow({
   onExpandedChange: (open: boolean) => void;
   onDetailsRequest: () => void;
   onTreeOpenChange: (path: string, open: boolean) => void;
+  onOpenDiff: (
+    path: string,
+    commitId: string,
+    originalPath: string | undefined,
+    preview: boolean,
+  ) => void;
 }) {
   const tree = useMemo(
     () =>
@@ -1260,15 +1319,19 @@ function CommitRow({
                         key={`${commit.id}:${node.path}`}
                         node={node}
                         depth={0}
+                        commitId={commit.id}
                         theme={theme}
                         openState={treeOpenState}
                         onOpenChange={onTreeOpenChange}
+                        onOpenDiff={onOpenDiff}
                       />
                     ) : (
                       <CommitTreeFileNode
                         key={`${commit.id}:${node.path}`}
                         node={node}
+                        commitId={commit.id}
                         theme={theme}
+                        onOpenDiff={onOpenDiff}
                       />
                     ),
                   )}
@@ -1301,6 +1364,7 @@ function CommitsSection({
   onCommitOpenChange,
   onCommitTreeOpenChange,
   onDetailsRequest,
+  onOpenDiff,
 }: {
   open: boolean;
   aheadCount: number;
@@ -1320,6 +1384,12 @@ function CommitsSection({
     open: boolean,
   ) => void;
   onDetailsRequest: (commitId: string) => void;
+  onOpenDiff: (
+    path: string,
+    commitId: string,
+    originalPath: string | undefined,
+    preview: boolean,
+  ) => void;
 }) {
   return (
     <Collapsible
@@ -1398,6 +1468,7 @@ function CommitsSection({
                   onTreeOpenChange={(path, nextOpen) =>
                     onCommitTreeOpenChange(commit.id, path, nextOpen)
                   }
+                  onOpenDiff={onOpenDiff}
                 />
               ))}
             </SidebarMenu>
@@ -1539,6 +1610,26 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
         worktreeId: worktree.id,
         path,
         scope,
+        originalPath,
+        preview,
+      });
+    },
+    [openGitDiff, setSelectedPath, worktree.id],
+  );
+
+  const handleOpenCommitDiff = useCallback(
+    (
+      path: string,
+      commitId: string,
+      originalPath: string | undefined,
+      preview: boolean,
+    ) => {
+      setSelectedPath(worktree.id, path);
+      void openGitDiff({
+        worktreeId: worktree.id,
+        path,
+        scope: "commit",
+        commitId,
         originalPath,
         preview,
       });
@@ -1736,6 +1827,7 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
                 onCommitOpenChange={handleCommitOpenChange}
                 onCommitTreeOpenChange={handleCommitTreeOpenChange}
                 onDetailsRequest={ensureCommitDetails}
+                onOpenDiff={handleOpenCommitDiff}
               />
             </>
           ) : (

@@ -7,6 +7,7 @@ use utoipa::ToSchema;
 pub enum GitDiffScope {
     Staged,
     Unstaged,
+    Commit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
@@ -48,6 +49,8 @@ pub enum TabInfo {
         scope: GitDiffScope,
         #[serde(skip_serializing_if = "Option::is_none")]
         original_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        commit_id: Option<String>,
     },
 }
 

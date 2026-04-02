@@ -24,6 +24,7 @@ type OpenGitDiffOptions = {
   path: string;
   scope: GitDiffScope;
   originalPath?: string | null;
+  commitId?: string | null;
   preview: boolean;
 };
 
@@ -219,6 +220,7 @@ function findGitDiffTab(
   path: string,
   scope: GitDiffScope,
   originalPath?: string | null,
+  commitId?: string | null,
 ): GitDiffTab | null {
   return (
     tabs.find(
@@ -227,7 +229,8 @@ function findGitDiffTab(
         tab.type === "git_diff" &&
         tab.path === path &&
         tab.scope === scope &&
-        (tab.original_path ?? null) === (originalPath ?? null),
+        (tab.original_path ?? null) === (originalPath ?? null) &&
+        (tab.commit_id ?? null) === (commitId ?? null),
     ) ?? null
   );
 }
@@ -350,6 +353,7 @@ export const useTabStore = create<TabsState>((set, get) => ({
       options.path,
       options.scope,
       options.originalPath,
+      options.commitId,
     );
     if (existing) {
       if (!options.preview && existing.preview) {
@@ -378,6 +382,7 @@ export const useTabStore = create<TabsState>((set, get) => ({
       path: options.path,
       scope: options.scope,
       original_path: options.originalPath ?? undefined,
+      commit_id: options.commitId ?? undefined,
       preview: options.preview,
     });
     set((state) => {

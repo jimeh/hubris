@@ -1135,4 +1135,119 @@ describe("WorktreeGitStatusPanel", () => {
     expect(screen.queryByText("README.md")).not.toBeInTheDocument();
     expect(screen.getByText("+28")).toBeInTheDocument();
   });
+
+  it("opens a commit diff tab when clicking a file in an expanded commit", async () => {
+    // Use a unique file that only appears in the commit, not in staged/unstaged.
+    mockGetProjectWorktreeCommitDetails.mockResolvedValueOnce({
+      id: "abcdef123456",
+      short_id: "abcdef1",
+      summary: "Ahead commit",
+      message: "Ahead commit",
+      author: {
+        name: "Test",
+        email: "test@example.com",
+        date: "2026-03-19T12:00:00+00:00",
+      },
+      committer: {
+        name: "Test",
+        email: "test@example.com",
+        date: "2026-03-19T12:00:00+00:00",
+      },
+      files: [{ path: "commit-only.ts", change_type: "added" }],
+    });
+    renderPanel();
+
+    const commitRow = await screen.findByRole("button", {
+      name: "Toggle commit Ahead commit",
+    });
+    fireEvent.click(commitRow);
+
+    const fileNode = await screen.findByText("commit-only.ts");
+    fireEvent.click(fileNode);
+
+    expect(mockOpenGitDiff).toHaveBeenCalledWith({
+      worktreeId: "w1",
+      path: "commit-only.ts",
+      scope: "commit",
+      commitId: "abcdef123456",
+      originalPath: undefined,
+      preview: true,
+    });
+  });
+
+  it("opens a pinned commit diff tab on double-click", async () => {
+    mockGetProjectWorktreeCommitDetails.mockResolvedValueOnce({
+      id: "abcdef123456",
+      short_id: "abcdef1",
+      summary: "Ahead commit",
+      message: "Ahead commit",
+      author: {
+        name: "Test",
+        email: "test@example.com",
+        date: "2026-03-19T12:00:00+00:00",
+      },
+      committer: {
+        name: "Test",
+        email: "test@example.com",
+        date: "2026-03-19T12:00:00+00:00",
+      },
+      files: [{ path: "commit-only.ts", change_type: "added" }],
+    });
+    renderPanel();
+
+    const commitRow = await screen.findByRole("button", {
+      name: "Toggle commit Ahead commit",
+    });
+    fireEvent.click(commitRow);
+
+    const fileNode = await screen.findByText("commit-only.ts");
+    fireEvent.doubleClick(fileNode);
+
+    expect(mockOpenGitDiff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "commit",
+        commitId: "abcdef123456",
+        preview: false,
+      }),
+    );
+  });
+
+  it("opens a commit diff for files inside directories", async () => {
+    mockGetProjectWorktreeCommitDetails.mockResolvedValueOnce({
+      id: "abcdef123456",
+      short_id: "abcdef1",
+      summary: "Ahead commit",
+      message: "Ahead commit",
+      author: {
+        name: "Test",
+        email: "test@example.com",
+        date: "2026-03-19T12:00:00+00:00",
+      },
+      committer: {
+        name: "Test",
+        email: "test@example.com",
+        date: "2026-03-19T12:00:00+00:00",
+      },
+      files: [{ path: "lib/commit-nested.ts", change_type: "modified" }],
+    });
+    renderPanel();
+
+    const commitRow = await screen.findByRole("button", {
+      name: "Toggle commit Ahead commit",
+    });
+    fireEvent.click(commitRow);
+
+    // The tree compacts single-child directories; at depth 0 it's
+    // auto-opened, so the file should be immediately visible.
+    const deepFile = await screen.findByText("commit-nested.ts");
+    fireEvent.click(deepFile);
+
+    expect(mockOpenGitDiff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "lib/commit-nested.ts",
+        scope: "commit",
+        commitId: "abcdef123456",
+      }),
+    );
+  });
 });
