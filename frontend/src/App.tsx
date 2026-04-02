@@ -121,50 +121,51 @@ function AppHeader({
         ) : null}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
-          {selectedProject ? (
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Folder className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{selectedProject.name}</span>
-            </div>
-          ) : null}
-          {selectedWorktree ? (
-            <div className="truncate text-base font-medium">
-              {selectedWorktree.name}
-            </div>
-          ) : null}
-        </div>
-        <Breadcrumb className="hidden md:block">
-          <BreadcrumbList>
-            {selectedProject ? (
-              <BreadcrumbItem>
-                <BreadcrumbPage className="flex items-center gap-1.5">
-                  <Folder className="h-3.5 w-3.5" />
-                  {selectedProject.name}
-                </BreadcrumbPage>
-              </BreadcrumbItem>
-            ) : null}
-            {selectedProject && selectedWorktree ? (
-              <BreadcrumbSeparator />
-            ) : null}
-            {selectedWorktree ? (
-              <BreadcrumbItem>
-                <BreadcrumbPage>{selectedWorktree.name}</BreadcrumbPage>
-              </BreadcrumbItem>
-            ) : null}
-          </BreadcrumbList>
-        </Breadcrumb>
-      </div>
-      {selectedWorktree && !selectedWorktree.is_local ? (
-        <div className="hidden shrink-0 md:block">
+        {selectedWorktree && !selectedWorktree.is_local ? (
           <BranchInfo
             projectId={selectedWorktree.project_id}
             worktreeId={selectedWorktree.id}
             branch={selectedWorktree.branch}
             sourceRef={selectedWorktree.source_ref ?? null}
           />
-        </div>
-      ) : null}
+        ) : (
+          <>
+            <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
+              {selectedProject ? (
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <Folder className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{selectedProject.name}</span>
+                </div>
+              ) : null}
+              {selectedWorktree ? (
+                <div className="truncate text-base font-medium">
+                  {selectedWorktree.name}
+                </div>
+              ) : null}
+            </div>
+            <Breadcrumb className="hidden md:block">
+              <BreadcrumbList>
+                {selectedProject ? (
+                  <BreadcrumbItem>
+                    <BreadcrumbPage className="flex items-center gap-1.5">
+                      <Folder className="h-3.5 w-3.5" />
+                      {selectedProject.name}
+                    </BreadcrumbPage>
+                  </BreadcrumbItem>
+                ) : null}
+                {selectedProject && selectedWorktree ? (
+                  <BreadcrumbSeparator />
+                ) : null}
+                {selectedWorktree ? (
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>{selectedWorktree.name}</BreadcrumbPage>
+                  </BreadcrumbItem>
+                ) : null}
+              </BreadcrumbList>
+            </Breadcrumb>
+          </>
+        )}
+      </div>
       {selectedWorktree ? (
         !isVscodeMode ? (
           <Tooltip>
