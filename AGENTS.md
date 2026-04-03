@@ -509,6 +509,11 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 
 > Claude Code users: A PostToolUse hook handles this automatically after `git commit` and `git merge`.
 
+- **GitNexus repo names can map to a different worktree than the one you are editing**:
+  on Codex worktrees, `gitnexus_detect_changes()` may report stale or unrelated
+  files if the indexed `hubris` repo path points at another checkout. Confirm the
+  indexed path from `gitnexus_list_repos()` before trusting change-scope output.
+
 ## CLI
 
 | Task | Read this skill file |

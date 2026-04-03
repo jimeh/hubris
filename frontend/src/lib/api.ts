@@ -462,6 +462,7 @@ export async function getProjectWorktreeGitDiff(
   path: string,
   scope: GitDiffScope,
   originalPath?: string,
+  commitId?: string,
 ): Promise<WorktreeGitDiffResponse> {
   const params = new URLSearchParams({
     path,
@@ -469,6 +470,9 @@ export async function getProjectWorktreeGitDiff(
   });
   if (originalPath) {
     params.set("original_path", originalPath);
+  }
+  if (commitId) {
+    params.set("commit_id", commitId);
   }
   const res = await fetch(
     `${BASE}/projects/${projectId}/worktrees/${worktreeId}/git/diff?${params.toString()}`,

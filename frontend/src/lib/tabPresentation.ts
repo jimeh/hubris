@@ -5,7 +5,7 @@ import {
 } from "@/lib/gitChangePresentation";
 import { resolveMaterialFileIcon } from "@/lib/materialIconTheme";
 import type { HubrisTheme } from "@/lib/theme/types";
-import type { Tab } from "@/lib/types";
+import type { GitDiffTab, Tab } from "@/lib/types";
 
 export type TabPresentation = {
   label: string;
@@ -22,8 +22,23 @@ function baseName(path: string): string {
   return path.split("/").filter(Boolean).at(-1) ?? path;
 }
 
-function formatGitDiffScope(scope: "staged" | "unstaged"): string {
-  return scope === "staged" ? "Index" : "Working Tree";
+function shortCommitId(commitId: string | null | undefined): string | null {
+  if (!commitId) {
+    return null;
+  }
+  return commitId.slice(0, 7);
+}
+
+function formatGitDiffScope(tab: GitDiffTab): string {
+  if (tab.scope === "staged") {
+    return "Index";
+  }
+  if (tab.scope === "unstaged") {
+    return "Working Tree";
+  }
+
+  const commitLabel = shortCommitId(tab.commit_id);
+  return commitLabel ? `Commit ${commitLabel}` : "Commit";
 }
 
 function matchGitChange(
@@ -47,6 +62,10 @@ function gitDiffChange(
   gitStatus: WorktreeGitStatus | null,
 ): WorktreeGitFileChange | null {
   if (!gitStatus) {
+    return null;
+  }
+
+  if (tab.scope === "commit") {
     return null;
   }
 
@@ -84,7 +103,7 @@ export function presentTab(
 
   const change = gitDiffChange(tab, gitStatus);
   const statusLabel = change ? gitChangeTypeLabel(change.change_type) : null;
-  const scopeLabel = `(${formatGitDiffScope(tab.scope)})`;
+  const scopeLabel = `(${formatGitDiffScope(tab)})`;
   const label = baseName(tab.path);
   const title = `${tab.path} ${scopeLabel}${
     statusLabel ? ` ${statusLabel}` : ""

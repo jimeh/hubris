@@ -378,6 +378,12 @@ pub enum GitDiffBlobContent {
     Unsupported(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitCommitDiffError {
+    NotFound,
+    Internal,
+}
+
 fn format_diff_size_limit(max_bytes: u64) -> String {
     const KIB: u64 = 1024;
     const MIB: u64 = 1024 * KIB;
@@ -400,6 +406,14 @@ fn load_head_blob<'repo>(
     let Some(tree) = head_tree(repo)? else {
         return Ok(None);
     };
+    load_tree_blob(repo, &tree, relative_path)
+}
+
+fn load_tree_blob<'repo>(
+    repo: &'repo Repository,
+    tree: &git2::Tree<'repo>,
+    relative_path: &str,
+) -> Result<Option<git2::Blob<'repo>>, GitError> {
     let entry = match tree.get_path(Path::new(relative_path)) {
         Ok(entry) => entry,
         Err(err) if err.code() == ErrorCode::NotFound => return Ok(None),
@@ -427,6 +441,23 @@ fn load_index_blob<'repo>(
     }
 }
 
+fn diff_blob_content_from_blob(blob: Option<git2::Blob<'_>>, max_bytes: u64) -> GitDiffBlobContent {
+    let Some(blob) = blob else {
+        return GitDiffBlobContent::Missing;
+    };
+    if blob.size() as u64 > max_bytes {
+        return GitDiffBlobContent::Unsupported(format!(
+            "Diffs larger than {} are read-only.",
+            format_diff_size_limit(max_bytes)
+        ));
+    }
+
+    match std::str::from_utf8(blob.content()) {
+        Ok(content) => GitDiffBlobContent::Text(content.to_string()),
+        Err(_) => GitDiffBlobContent::Unsupported("Binary diffs are not supported.".to_string()),
+    }
+}
+
 fn read_diff_blob_git2(
     worktree_path: &Path,
     source: GitDiffBlobSource,
@@ -441,22 +472,7 @@ fn read_diff_blob_git2(
         GitDiffBlobSource::Head => load_head_blob(&repo, &relative_path)?,
         GitDiffBlobSource::Index => load_index_blob(&repo, &relative_path)?,
     };
-    let Some(blob) = blob else {
-        return Ok(GitDiffBlobContent::Missing);
-    };
-    if blob.size() as u64 > max_bytes {
-        return Ok(GitDiffBlobContent::Unsupported(format!(
-            "Diffs larger than {} are read-only.",
-            format_diff_size_limit(max_bytes)
-        )));
-    }
-
-    match std::str::from_utf8(blob.content()) {
-        Ok(content) => Ok(GitDiffBlobContent::Text(content.to_string())),
-        Err(_) => Ok(GitDiffBlobContent::Unsupported(
-            "Binary diffs are not supported.".to_string(),
-        )),
-    }
+    Ok(diff_blob_content_from_blob(blob, max_bytes))
 }
 
 /// Load HEAD or index blob content for diff tabs without invoking the git CLI.
@@ -475,6 +491,60 @@ pub async fn read_diff_blob(
     .map_err(|_| GitError {
         message: "failed to join diff blob task".to_string(),
     })?
+}
+
+fn read_commit_diff_blob_git2(
+    worktree_path: &Path,
+    commit_id: &str,
+    use_parent: bool,
+    relative_path: &str,
+    max_bytes: u64,
+) -> Result<GitDiffBlobContent, GitCommitDiffError> {
+    let repo = Repository::open(worktree_path).map_err(|_| GitCommitDiffError::Internal)?;
+    let relative_path =
+        normalize_relative_git_path(relative_path).map_err(|_| GitCommitDiffError::Internal)?;
+    let commit = revparse_commit(&repo, commit_id).map_err(|error| match error {
+        GitCommitDetailsError::NotFound => GitCommitDiffError::NotFound,
+        GitCommitDetailsError::Internal => GitCommitDiffError::Internal,
+    })?;
+    let blob = if use_parent {
+        if commit.parent_count() > 0 {
+            let parent = commit.parent(0).map_err(|_| GitCommitDiffError::Internal)?;
+            let tree = parent.tree().map_err(|_| GitCommitDiffError::Internal)?;
+            load_tree_blob(&repo, &tree, &relative_path)
+                .map_err(|_| GitCommitDiffError::Internal)?
+        } else {
+            None
+        }
+    } else {
+        let tree = commit.tree().map_err(|_| GitCommitDiffError::Internal)?;
+        load_tree_blob(&repo, &tree, &relative_path).map_err(|_| GitCommitDiffError::Internal)?
+    };
+
+    Ok(diff_blob_content_from_blob(blob, max_bytes))
+}
+
+pub async fn read_commit_diff_blob(
+    worktree_path: &Path,
+    commit_id: &str,
+    use_parent: bool,
+    relative_path: &str,
+    max_bytes: u64,
+) -> Result<GitDiffBlobContent, GitCommitDiffError> {
+    let worktree_path = worktree_path.to_path_buf();
+    let commit_id = commit_id.to_string();
+    let relative_path = relative_path.to_string();
+    tokio::task::spawn_blocking(move || {
+        read_commit_diff_blob_git2(
+            &worktree_path,
+            &commit_id,
+            use_parent,
+            &relative_path,
+            max_bytes,
+        )
+    })
+    .await
+    .map_err(|_| GitCommitDiffError::Internal)?
 }
 
 fn revparse_commit<'repo>(

@@ -38,6 +38,8 @@ pub enum CreateTabRequest {
         #[serde(default)]
         original_path: Option<String>,
         #[serde(default)]
+        commit_id: Option<String>,
+        #[serde(default)]
         preview: bool,
     },
 }
@@ -125,6 +127,7 @@ fn build_tab_info(
             path,
             scope,
             original_path,
+            commit_id,
             preview,
         } => TabInfo::GitDiff {
             id,
@@ -137,6 +140,7 @@ fn build_tab_info(
             path,
             scope,
             original_path,
+            commit_id,
         },
     }
 }

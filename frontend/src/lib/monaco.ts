@@ -144,6 +144,7 @@ export function getGitDiffModelPaths(
   path: string,
   scope: GitDiffTab["scope"],
   originalPath?: string | null,
+  commitId?: string | null,
 ): { original: string; modified: string } {
   const base = `hubris-diff:///${worktreeId}/${tabId}`;
   const query = new URLSearchParams({
@@ -152,6 +153,9 @@ export function getGitDiffModelPaths(
   });
   if (originalPath) {
     query.set("originalPath", originalPath);
+  }
+  if (commitId) {
+    query.set("commitId", commitId);
   }
 
   return {
@@ -182,6 +186,7 @@ export function scheduleDisposeTabModels(tab: Tab): void {
             tab.path,
             tab.scope,
             tab.original_path,
+            tab.commit_id,
           );
           disposeModel(modelPaths.original);
           disposeModel(modelPaths.modified);

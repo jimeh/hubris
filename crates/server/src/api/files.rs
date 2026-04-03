@@ -20,7 +20,7 @@ use crate::api::monaco_languages_generated::{
 };
 use crate::api::worktrees::{ResolvedWorktree, resolve_worktree};
 use crate::fs_sync::sync_parent_directory;
-use crate::git::{GitDiffBlobContent, GitDiffBlobSource};
+use crate::git::{GitCommitDiffError, GitDiffBlobContent, GitDiffBlobSource};
 use crate::state::AppState;
 use crate::tab::GitDiffScope;
 use crate::worktree_path_policy::{
@@ -146,6 +146,8 @@ pub struct WorktreeGitDiffParams {
     /// Original relative path for rename/copy actions.
     #[serde(default)]
     pub original_path: Option<String>,
+    #[serde(default)]
+    pub commit_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -154,6 +156,8 @@ pub struct WorktreeGitDiffResponse {
     pub scope: GitDiffScope,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_id: Option<String>,
     pub left_label: String,
     pub right_label: String,
     pub left_content: String,
@@ -468,7 +472,7 @@ pub async fn put_project_worktree_file_content(
     responses(
         (
             status = 200,
-            description = "Load a staged or unstaged file diff",
+            description = "Load a staged, unstaged, or commit file diff",
             body = WorktreeGitDiffResponse
         ),
         (status = 400, description = "Invalid relative path", body = ApiErrorResponse),
@@ -496,6 +500,23 @@ pub async fn get_project_worktree_git_diff(
         .transpose()?;
     let left_path = original_path.clone().unwrap_or_else(|| path.clone());
     let right_path = path.clone();
+    let commit_id = match params.scope {
+        GitDiffScope::Commit => Some(
+            params
+                .commit_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    FileApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "commit_id is required for commit diffs.",
+                    )
+                })?
+                .to_string(),
+        ),
+        GitDiffScope::Staged | GitDiffScope::Unstaged => None,
+    };
 
     let left_content = match params.scope {
         GitDiffScope::Staged => {
@@ -505,6 +526,15 @@ pub async fn get_project_worktree_git_diff(
             load_git_diff_side(
                 &resolved.worktree.path,
                 GitDiffBlobSource::Index,
+                &left_path,
+            )
+            .await?
+        }
+        GitDiffScope::Commit => {
+            load_commit_diff_side(
+                &resolved.worktree.path,
+                commit_id.as_deref().unwrap_or_default(),
+                true,
                 &left_path,
             )
             .await?
@@ -524,6 +554,16 @@ pub async fn get_project_worktree_git_diff(
             let side = load_optional_worktree_diff_side(&policy, &right_path).await?;
             (side.content, side.version_token)
         }
+        GitDiffScope::Commit => (
+            load_commit_diff_side(
+                &resolved.worktree.path,
+                commit_id.as_deref().unwrap_or_default(),
+                false,
+                &right_path,
+            )
+            .await?,
+            None,
+        ),
     };
 
     let unsupported_reason = match (&left_content, &right_content) {
@@ -543,13 +583,16 @@ pub async fn get_project_worktree_git_diff(
         path,
         scope: params.scope,
         original_path,
+        commit_id,
         left_label: match params.scope {
             GitDiffScope::Staged => "HEAD".to_string(),
             GitDiffScope::Unstaged => "Index".to_string(),
+            GitDiffScope::Commit => "Parent".to_string(),
         },
         right_label: match params.scope {
             GitDiffScope::Staged => "Index".to_string(),
             GitDiffScope::Unstaged => "Working Tree".to_string(),
+            GitDiffScope::Commit => "Commit".to_string(),
         },
         left_content: match left_content {
             DiffSideContent::Text(content) => content,
@@ -915,6 +958,34 @@ async fn load_git_diff_side(
         .map_err(|_| {
             FileApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
         })? {
+        GitDiffBlobContent::Missing => Ok(DiffSideContent::Text(String::new())),
+        GitDiffBlobContent::Text(content) => Ok(DiffSideContent::Text(content)),
+        GitDiffBlobContent::Unsupported(reason) => Ok(DiffSideContent::Unsupported(reason)),
+    }
+}
+
+async fn load_commit_diff_side(
+    worktree_path: &str,
+    commit_id: &str,
+    use_parent: bool,
+    path: &str,
+) -> Result<DiffSideContent, FileApiError> {
+    match crate::git::read_commit_diff_blob(
+        Path::new(worktree_path),
+        commit_id,
+        use_parent,
+        path,
+        MAX_TEXT_FILE_BYTES,
+    )
+    .await
+    .map_err(|error| match error {
+        GitCommitDiffError::NotFound => {
+            FileApiError::new(StatusCode::NOT_FOUND, "Commit not found.")
+        }
+        GitCommitDiffError::Internal => {
+            FileApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
+        }
+    })? {
         GitDiffBlobContent::Missing => Ok(DiffSideContent::Text(String::new())),
         GitDiffBlobContent::Text(content) => Ok(DiffSideContent::Text(content)),
         GitDiffBlobContent::Unsupported(reason) => Ok(DiffSideContent::Unsupported(reason)),

@@ -569,6 +569,90 @@ describe("WorktreeGitStatusPanel", () => {
     expect(mockGetProjectWorktreeCommitDetails).toHaveBeenCalledTimes(1);
   });
 
+  it("opens commit tree files as preview diffs on click", async () => {
+    mockGetProjectWorktreeCommitDetails.mockResolvedValueOnce({
+      id: "abcdef123456",
+      short_id: "abcdef1",
+      summary: "Ahead commit",
+      message: "Ahead commit\n\nMore context",
+      author: {
+        name: "Author Example",
+        email: "author@example.com",
+        date: "2026-03-19T12:00:00+00:00",
+      },
+      committer: {
+        name: "Committer Example",
+        email: "committer@example.com",
+        date: "2026-03-19T12:30:00+00:00",
+      },
+      files: [{ path: "src/commit-only.ts", change_type: "modified" }],
+    });
+    renderPanel();
+
+    const commitRow = await screen.findByRole("button", {
+      name: "Toggle commit Ahead commit",
+    });
+    fireEvent.click(commitRow);
+
+    const commitFile = await screen.findByText("commit-only.ts");
+    expect(commitFile).toBeTruthy();
+    if (!commitFile) {
+      throw new Error("Commit diff row not found");
+    }
+    fireEvent.click(commitFile);
+
+    expect(mockOpenGitDiff).toHaveBeenCalledWith({
+      worktreeId: "w1",
+      path: "src/commit-only.ts",
+      scope: "commit",
+      originalPath: undefined,
+      commitId: "abcdef123456",
+      preview: true,
+    });
+  });
+
+  it("pins commit tree diffs on double click", async () => {
+    mockGetProjectWorktreeCommitDetails.mockResolvedValueOnce({
+      id: "abcdef123456",
+      short_id: "abcdef1",
+      summary: "Ahead commit",
+      message: "Ahead commit\n\nMore context",
+      author: {
+        name: "Author Example",
+        email: "author@example.com",
+        date: "2026-03-19T12:00:00+00:00",
+      },
+      committer: {
+        name: "Committer Example",
+        email: "committer@example.com",
+        date: "2026-03-19T12:30:00+00:00",
+      },
+      files: [{ path: "src/commit-only.ts", change_type: "modified" }],
+    });
+    renderPanel();
+
+    const commitRow = await screen.findByRole("button", {
+      name: "Toggle commit Ahead commit",
+    });
+    fireEvent.click(commitRow);
+
+    const commitFile = await screen.findByText("commit-only.ts");
+    expect(commitFile).toBeTruthy();
+    if (!commitFile) {
+      throw new Error("Commit diff row not found");
+    }
+    fireEvent.doubleClick(commitFile);
+
+    expect(mockOpenGitDiff).toHaveBeenCalledWith({
+      worktreeId: "w1",
+      path: "src/commit-only.ts",
+      scope: "commit",
+      originalPath: undefined,
+      commitId: "abcdef123456",
+      preview: false,
+    });
+  });
+
   it("renders inline action buttons and manifest-backed icons in list mode", async () => {
     renderPanel();
 

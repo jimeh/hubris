@@ -82,12 +82,21 @@ const diffTab = {
   path: "README.md",
   scope: "unstaged" as const,
   original_path: null,
+  commit_id: null,
+};
+
+const commitDiffTab = {
+  ...diffTab,
+  id: "diff-commit-1",
+  scope: "commit" as const,
+  commit_id: "abcdef123456",
 };
 
 const editableDiffResponse = {
   path: "README.md",
   scope: "unstaged" as const,
   original_path: null,
+  commit_id: null,
   left_label: "Index",
   right_label: "Working Tree",
   left_content: "hello\n",
@@ -294,5 +303,75 @@ describe("gitDiffTabs store", () => {
       true,
     );
     expect(mockGetProjectWorktreeGitDiff).not.toHaveBeenCalled();
+  });
+
+  it("loads commit diffs with commit_id and keeps them read-only", async () => {
+    const { useGitDiffStore } = await getStore();
+    mockGetProjectWorktreeGitDiff.mockResolvedValue({
+      ...editableDiffResponse,
+      scope: "commit",
+      commit_id: "abcdef123456",
+      read_only: true,
+      modified_version_token: null,
+    });
+
+    await useGitDiffStore.getState().ensureLoaded("p1", "w1", commitDiffTab);
+
+    expect(mockGetProjectWorktreeGitDiff).toHaveBeenCalledWith(
+      "p1",
+      "w1",
+      "README.md",
+      "commit",
+      undefined,
+      "abcdef123456",
+    );
+    expect(useGitDiffStore.getState().sessions["diff-commit-1"]).toMatchObject({
+      readOnly: true,
+      modifiedVersionToken: null,
+      scope: "commit",
+    });
+  });
+
+  it("ignores worktree file updates for commit diffs", async () => {
+    const { useGitDiffStore } = await getStore();
+    const { useTabStore } = await import("./tabs");
+    useTabStore.setState({
+      tabs: [commitDiffTab],
+    });
+    useGitDiffStore.setState({
+      sessions: {
+        "diff-commit-1": {
+          tabId: "diff-commit-1",
+          path: "README.md",
+          originalPath: null,
+          scope: "commit",
+          originalContent: "hello\n",
+          draft: "hello world\n",
+          savedContent: "hello world\n",
+          modifiedVersionToken: null,
+          language: "markdown",
+          readOnly: true,
+          unsupportedReason: null,
+          dirty: false,
+          externalChange: false,
+          loadStatus: "loaded",
+          saveStatus: "idle",
+          reloadGeneration: 0,
+          error: null,
+        },
+      },
+    });
+
+    mockEvents.emit("worktree_files_updated", {
+      project_id: "p1",
+      worktree_id: "w1",
+      changed_paths: ["README.md"],
+      listing_paths: [],
+    });
+
+    expect(mockGetProjectWorktreeGitDiff).not.toHaveBeenCalled();
+    expect(
+      useGitDiffStore.getState().sessions["diff-commit-1"]?.externalChange,
+    ).toBe(false);
   });
 });

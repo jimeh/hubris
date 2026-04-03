@@ -52,6 +52,7 @@ function gitDiffTab(overrides: Partial<GitDiffTab> = {}): GitDiffTab {
     path: "src/lib.rs",
     scope: "staged",
     original_path: null,
+    commit_id: null,
     ...overrides,
   };
 }
@@ -136,5 +137,29 @@ describe("tab presentation", () => {
     expect(presentation.statusLabel).toBeUndefined();
     expect(presentation.title).toBe("src/lib.rs (Index)");
     expect(presentation.toneClass).toBeUndefined();
+  });
+
+  it("renders commit diff tabs without live status tone", () => {
+    const presentation = presentTab(
+      gitDiffTab({
+        path: "src/lib.rs",
+        scope: "commit",
+        commit_id: "abcdef123456",
+      }),
+      darkTheme,
+      {
+        generation: 1,
+        ahead_count: 0,
+        ahead_commits: [],
+        comparison_available: true,
+        staged_files: [{ path: "src/lib.rs", change_type: "modified" }],
+        unstaged_files: [],
+      },
+    );
+
+    expect(presentation.labelSuffix).toBe("(Commit abcdef1)");
+    expect(presentation.statusLabel).toBeUndefined();
+    expect(presentation.toneClass).toBeUndefined();
+    expect(presentation.title).toBe("src/lib.rs (Commit abcdef1)");
   });
 });
