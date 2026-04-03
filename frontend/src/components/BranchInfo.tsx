@@ -104,7 +104,7 @@ function SourceRefPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 hover:bg-accent/50"
+          className="flex max-w-48 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 hover:bg-accent/50"
           aria-label="Change target branch"
         >
           {sourceRef ? (
@@ -229,7 +229,7 @@ function BranchRenameButton({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 hover:bg-accent/50"
+          className="flex max-w-48 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 hover:bg-accent/50"
           aria-label="Rename branch"
         >
           <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -281,10 +281,11 @@ export default function BranchInfo({
     <div data-theme-version={themeVersion}>
       {/* Mobile stacked layout */}
       <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
-        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <GitBranch className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{branch}</span>
-        </div>
+        <BranchRenameButton
+          projectId={projectId}
+          worktreeId={worktreeId}
+          branch={branch}
+        />
         <SourceRefPicker
           projectId={projectId}
           worktreeId={worktreeId}
