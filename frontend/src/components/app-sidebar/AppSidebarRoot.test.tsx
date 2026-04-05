@@ -147,7 +147,7 @@ describe("AppSidebarRoot", () => {
     });
 
     expect(await screen.findByText("feature-a")).toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("rerenders removals from worktree_deleted and project_removed", async () => {
     const local = makeWorktree({
