@@ -12,6 +12,8 @@ import type { GitDiffScope, GitDiffTab, Tab } from "@/lib/types";
 
 const LS_ACTIVE_TAB = "hubris-active-tab";
 const LS_TAB_BY_WORKTREE = "hubris-active-tab-by-worktree";
+// Shares one createTab request across click+double-click for the same diff,
+// letting the later event upgrade the eventual tab from preview to pinned.
 const pendingGitDiffOpens = new Map<string, PendingGitDiffOpen>();
 
 type OpenFileOptions = {
