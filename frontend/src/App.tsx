@@ -80,15 +80,16 @@ function AppHeader({
     return displayPath;
   }, [displayPath, homeDir]);
 
-  const [copied, setCopied] = useState(false);
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   useEffect(() => () => clearTimeout(copyTimerRef.current!), []);
+  const copied = copiedPath === displayPath;
   const copyPath = useCallback(() => {
     if (displayPath) {
       void navigator.clipboard.writeText(displayPath);
       clearTimeout(copyTimerRef.current!);
-      setCopied(true);
-      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
+      setCopiedPath(displayPath);
+      copyTimerRef.current = setTimeout(() => setCopiedPath(null), 1500);
     }
   }, [displayPath]);
 
