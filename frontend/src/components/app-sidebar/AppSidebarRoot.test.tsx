@@ -1,8 +1,23 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import type { EventHandler, SseEventName } from "@/lib/events";
+import {
+  initializeProjectStore,
+  resetProjectStoreForTests,
+} from "@/lib/stores/projects";
+import { resetTabStoreForTests } from "@/lib/stores/tabs";
+import {
+  resetVscodeWorkbenchStoreForTests,
+  useVscodeWorkbenchStore,
+} from "@/lib/stores/vscodeWorkbench";
+import {
+  initializeWorktreeStore,
+  resetWorktreeStoreForTests,
+} from "@/lib/stores/worktrees";
 import type { Project, Worktree } from "@/lib/types";
+import AppSidebarRoot from "./AppSidebarRoot";
 
 vi.mock("./SidebarDialogs", () => ({
   default: () => null,
@@ -80,18 +95,13 @@ function makeWorktree(
   };
 }
 
-async function renderSidebar() {
-  const projectStore = await import("@/lib/stores/projects");
-  const worktreeStore = await import("@/lib/stores/worktrees");
-  const vscodeWorkbenchStore = await import("@/lib/stores/vscodeWorkbench");
-  const { SidebarProvider } = await import("@/components/ui/sidebar");
-  const { default: AppSidebarRoot } = await import("./AppSidebarRoot");
-
-  projectStore.resetProjectStoreForTests();
-  worktreeStore.resetWorktreeStoreForTests();
-  vscodeWorkbenchStore.resetVscodeWorkbenchStoreForTests();
-  projectStore.initializeProjectStore();
-  worktreeStore.initializeWorktreeStore();
+function renderSidebar() {
+  resetProjectStoreForTests();
+  resetWorktreeStoreForTests();
+  resetTabStoreForTests();
+  resetVscodeWorkbenchStoreForTests();
+  initializeProjectStore();
+  initializeWorktreeStore();
 
   return render(
     <SidebarProvider defaultOpen>
@@ -103,12 +113,11 @@ async function renderSidebar() {
 describe("AppSidebarRoot", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.resetModules();
     localStorage.clear();
     mockEvents = new MockEventClient();
   });
 
-  it("rerenders project worktrees when project_worktrees_updated arrives", async () => {
+  it("renders project worktrees from snapshot state", () => {
     const local = makeWorktree({
       id: "w-local",
       project_id: "p1",
@@ -117,48 +126,7 @@ describe("AppSidebarRoot", () => {
       position: 1,
     });
 
-    await renderSidebar();
-
-    act(() => {
-      mockEvents.emit("snapshot", {
-        projects: [makeProject({ id: "p1", name: "Devbox" })],
-        worktrees: { p1: [local] },
-        project_errors: {},
-      });
-    });
-
-    await screen.findByText("Devbox");
-    expect(screen.getByRole("button", { name: "local" })).toBeInTheDocument();
-
-    act(() => {
-      mockEvents.emit("project_worktrees_updated", {
-        project_id: "p1",
-        worktrees: [
-          local,
-          makeWorktree({
-            id: "w-feature",
-            project_id: "p1",
-            name: "feature-a",
-            position: 2,
-          }),
-        ],
-        git_error: null,
-      });
-    });
-
-    expect(await screen.findByText("feature-a")).toBeInTheDocument();
-  }, 10_000);
-
-  it("rerenders removals from worktree_deleted and project_removed", async () => {
-    const local = makeWorktree({
-      id: "w-local",
-      project_id: "p1",
-      name: "local",
-      is_local: true,
-      position: 1,
-    });
-
-    await renderSidebar();
+    renderSidebar();
 
     act(() => {
       mockEvents.emit("snapshot", {
@@ -178,7 +146,41 @@ describe("AppSidebarRoot", () => {
       });
     });
 
-    await screen.findByText("feature-a");
+    expect(screen.getByText("Devbox")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "local" })).toBeInTheDocument();
+    expect(screen.getByText("feature-a")).toBeInTheDocument();
+  });
+
+  it("rerenders removals from worktree_deleted and project_removed", () => {
+    const local = makeWorktree({
+      id: "w-local",
+      project_id: "p1",
+      name: "local",
+      is_local: true,
+      position: 1,
+    });
+
+    renderSidebar();
+
+    act(() => {
+      mockEvents.emit("snapshot", {
+        projects: [makeProject({ id: "p1", name: "Devbox" })],
+        worktrees: {
+          p1: [
+            local,
+            makeWorktree({
+              id: "w-feature",
+              project_id: "p1",
+              name: "feature-a",
+              position: 2,
+            }),
+          ],
+        },
+        project_errors: {},
+      });
+    });
+
+    expect(screen.getByText("feature-a")).toBeInTheDocument();
 
     act(() => {
       mockEvents.emit("worktree_deleted", {
@@ -187,9 +189,7 @@ describe("AppSidebarRoot", () => {
       });
     });
 
-    await waitFor(() => {
-      expect(screen.queryByText("feature-a")).not.toBeInTheDocument();
-    });
+    expect(screen.queryByText("feature-a")).not.toBeInTheDocument();
 
     act(() => {
       mockEvents.emit("project_removed", {
@@ -197,13 +197,11 @@ describe("AppSidebarRoot", () => {
       });
     });
 
-    await waitFor(() => {
-      expect(screen.queryByText("Devbox")).not.toBeInTheDocument();
-    });
+    expect(screen.queryByText("Devbox")).not.toBeInTheDocument();
   });
 
-  it("applies the lower mobile sidebar panel z-layer class", async () => {
-    await renderSidebar();
+  it("applies the lower mobile sidebar panel z-layer class", () => {
+    renderSidebar();
 
     const sidebarContainer = document.querySelector(
       '[data-slot="sidebar-container"]',
@@ -213,9 +211,7 @@ describe("AppSidebarRoot", () => {
     expect(sidebarContainer).toHaveClass("md:z-10");
   });
 
-  it("shows a blue-dot indicator for retained VS Code workbenches", async () => {
-    const { useVscodeWorkbenchStore } =
-      await import("@/lib/stores/vscodeWorkbench");
+  it("shows a blue-dot indicator for retained VS Code workbenches", () => {
     const local = makeWorktree({
       id: "w-local",
       project_id: "p1",
@@ -224,7 +220,7 @@ describe("AppSidebarRoot", () => {
       position: 1,
     });
 
-    await renderSidebar();
+    renderSidebar();
 
     act(() => {
       useVscodeWorkbenchStore.getState().markLoaded("w-feature");
@@ -245,7 +241,7 @@ describe("AppSidebarRoot", () => {
       });
     });
 
-    expect(await screen.findByText("feature-a")).toBeInTheDocument();
+    expect(screen.getByText("feature-a")).toBeInTheDocument();
     expect(screen.getByLabelText("VS Code workbench loaded")).toBeVisible();
     expect(screen.getAllByLabelText("VS Code workbench loaded")).toHaveLength(
       1,

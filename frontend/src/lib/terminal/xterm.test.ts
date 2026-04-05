@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { getTerminalTheme } from "./xterm";
+import { getTerminalTheme } from "./theme";
 
 describe("getTerminalTheme", () => {
   afterEach(() => {
