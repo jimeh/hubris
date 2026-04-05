@@ -15,9 +15,14 @@ export function initializeSystemStore(): void {
   if (initialized) return;
   initialized = true;
 
-  void fetchSystemInfo().then((info) => {
-    useSystemStore.setState({ homeDir: info.home_dir ?? null });
-  });
+  fetchSystemInfo().then(
+    (info) => {
+      useSystemStore.setState({ homeDir: info.home_dir ?? null });
+    },
+    () => {
+      console.warn("Failed to fetch system info");
+    },
+  );
 }
 
 export function resetSystemStoreForTests(): void {
