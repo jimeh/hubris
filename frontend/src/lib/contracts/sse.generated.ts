@@ -163,7 +163,6 @@ export type EventKind =
         settings: Settings;
         settings_generation: string;
         settings_status: SettingsStatus;
-        home_dir: string | null;
       };
     }
   | { type: "tab_created"; data: { session_id: string; tab: TabInfo } }

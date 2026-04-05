@@ -28,8 +28,6 @@ pub enum EventKind {
         settings: Settings,
         settings_generation: String,
         settings_status: SettingsStatus,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        home_dir: Option<String>,
     },
     #[serde(rename = "tab_created")]
     TabCreated { session_id: String, tab: TabInfo },
@@ -193,7 +191,6 @@ mod tests {
                 settings: Settings::default(),
                 settings_generation: "0".to_string(),
                 settings_status: SettingsStatus::ok(),
-                home_dir: None,
             }
             .event_name(),
             "snapshot"

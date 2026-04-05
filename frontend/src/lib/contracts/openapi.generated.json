@@ -1639,6 +1639,25 @@
         }
       }
     },
+    "/api/system": {
+      "get": {
+        "tags": ["crate::api::system"],
+        "summary": "Return static system information.",
+        "operationId": "get_system_info",
+        "responses": {
+          "200": {
+            "description": "System information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tabs": {
       "get": {
         "tags": ["crate::api::tabs"],
@@ -2656,6 +2675,16 @@
           },
           "value": {
             "type": "string"
+          }
+        }
+      },
+      "SystemInfo": {
+        "type": "object",
+        "description": "Static system information that does not change at runtime.",
+        "properties": {
+          "home_dir": {
+            "type": ["string", "null"],
+            "description": "The current user's home directory, if available."
           }
         }
       },

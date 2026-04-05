@@ -142,8 +142,6 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         }
     }
 
-    let home_dir = dirs::home_dir().and_then(|p| p.to_str().map(String::from));
-
     let snapshot = EventKind::Snapshot {
         tabs,
         projects,
@@ -152,7 +150,6 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         settings: settings.settings,
         settings_generation: settings.generation,
         settings_status: settings.status,
-        home_dir,
     };
     sse::Event::default()
         .event("snapshot")

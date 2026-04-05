@@ -4,6 +4,7 @@ import type {
   ListWorktreeFilesResponse,
   Project,
   RenameWorktreeFileResponse,
+  SystemInfo,
   Tab,
   WorktreeFileContentResponse,
   WorktreeGitDiffResponse,
@@ -744,6 +745,12 @@ export async function discoverExtensionThemes(): Promise<
   if (!res.ok) {
     throwStatusError(res.status);
   }
+  return res.json();
+}
+
+export async function fetchSystemInfo(): Promise<SystemInfo> {
+  const res = await fetch(`${BASE}/system`);
+  if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
 

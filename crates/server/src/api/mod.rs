@@ -7,6 +7,7 @@ pub mod monaco_languages_generated;
 pub mod openapi;
 pub mod projects;
 pub mod settings;
+pub mod system;
 pub mod tabs;
 pub mod terminal;
 pub mod worktrees;

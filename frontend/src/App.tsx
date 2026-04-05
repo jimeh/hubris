@@ -4,8 +4,9 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
-import { Folder, PanelRight } from "lucide-react";
+import { Check, Copy, Folder, PanelRight } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
@@ -29,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { applyMonacoTheme } from "@/lib/monaco";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
+import { useSystemStore } from "@/lib/stores/system";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useHubrisWorkbenchStore } from "@/lib/stores/hubrisWorkbench";
@@ -65,7 +67,7 @@ function AppHeader({
     : "Show file manager";
   const isVscodeMode = selectedWorktree?.ui_mode === "vscode";
 
-  const homeDir = useProjectStore((state) => state.homeDir);
+  const homeDir = useSystemStore((state) => state.homeDir);
   const displayPath = selectedWorktree?.path ?? selectedProject?.path ?? null;
   const shortPath = useMemo(() => {
     if (!displayPath) return null;
@@ -78,9 +80,12 @@ function AppHeader({
     return displayPath;
   }, [displayPath, homeDir]);
 
+  const [copied, setCopied] = useState(false);
   const copyPath = useCallback(() => {
     if (displayPath) {
       void navigator.clipboard.writeText(displayPath);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
     }
   }, [displayPath]);
 
@@ -154,21 +159,23 @@ function AppHeader({
         ) : null}
       </div>
       {shortPath ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className="hidden min-w-0 flex-1 cursor-pointer items-center justify-end text-xs text-muted-foreground hover:text-foreground md:flex"
-              onClick={copyPath}
-              aria-label="Copy path"
-            >
-              <span className="truncate [direction:rtl]">
-                <bdi>{shortPath}</bdi>
-              </span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{displayPath}</TooltipContent>
-        </Tooltip>
+        <div className="hidden min-w-0 flex-1 items-center justify-end gap-1 md:flex">
+          <span className="min-w-0 truncate text-xs text-muted-foreground [direction:rtl]">
+            <bdi>{shortPath}</bdi>
+          </span>
+          <button
+            type="button"
+            className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+            onClick={copyPath}
+            aria-label="Copy path"
+          >
+            {copied ? (
+              <Check className="h-3 w-3" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
+          </button>
+        </div>
       ) : null}
       {selectedWorktree ? (
         !isVscodeMode ? (
