@@ -192,6 +192,7 @@ export function resetProjectStoreForTests(): void {
   initialized = false;
   useProjectStore.setState({
     projects: [],
+    homeDir: null,
     expandedById: initialExpandedState(),
   });
 }

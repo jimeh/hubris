@@ -69,7 +69,10 @@ function AppHeader({
   const displayPath = selectedWorktree?.path ?? selectedProject?.path ?? null;
   const shortPath = useMemo(() => {
     if (!displayPath) return null;
-    if (homeDir && displayPath.startsWith(homeDir)) {
+    if (
+      homeDir &&
+      (displayPath === homeDir || displayPath.startsWith(homeDir + "/"))
+    ) {
       return "~" + displayPath.slice(homeDir.length);
     }
     return displayPath;
