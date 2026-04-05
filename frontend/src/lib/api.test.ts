@@ -440,6 +440,46 @@ describe("API client", () => {
     });
   });
 
+  describe("getProjectWorktreeGitDiff", () => {
+    it("includes original_path and commit_id when provided", async () => {
+      const mockDiff = {
+        path: "renamed.md",
+        scope: "commit",
+        original_path: "README.md",
+        commit_id: "abcdef123456",
+        left_label: "Parent",
+        right_label: "Commit",
+        left_content: "hello\n",
+        right_content: "updated\n",
+        language: "markdown",
+        read_only: true,
+        modified_version_token: null,
+        unsupported_reason: null,
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(mockDiff),
+        }),
+      );
+
+      const result = await getProjectWorktreeGitDiff(
+        "p1",
+        "w1",
+        "renamed.md",
+        "commit",
+        "README.md",
+        "abcdef123456",
+      );
+
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/p1/worktrees/w1/git/diff?path=renamed.md&scope=commit&original_path=README.md&commit_id=abcdef123456",
+      );
+      expect(result).toEqual(mockDiff);
+    });
+  });
+
   describe("listFiles", () => {
     it("fetches from /api/files with default params", async () => {
       const mockResponse = {
@@ -668,6 +708,34 @@ describe("API client", () => {
         body: JSON.stringify({ type: "terminal", worktree_id: "w1" }),
       });
       expect(result).toEqual(mockTab);
+    });
+
+    it("surfaces API error messages on failed tab creation", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 400,
+          json: () =>
+            Promise.resolve({
+              message: "commit_id is required for commit diffs.",
+            }),
+        }),
+      );
+
+      await expect(
+        createTab({
+          type: "git_diff",
+          worktree_id: "w1",
+          path: "README.md",
+          scope: "commit",
+          preview: true,
+        }),
+      ).rejects.toMatchObject({
+        name: "ApiStatusError",
+        status: 400,
+        message: "commit_id is required for commit diffs.",
+      });
     });
   });
 

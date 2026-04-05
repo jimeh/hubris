@@ -1271,11 +1271,19 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "commit_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Load a staged or unstaged file diff",
+            "description": "Load a staged, unstaged, or commit file diff",
             "content": {
               "application/json": {
                 "schema": {
@@ -1685,11 +1693,35 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid tab request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "Worktree not found"
+            "description": "Worktree not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           },
           "500": {
-            "description": "Internal server error"
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1953,6 +1985,9 @@
             "type": "object",
             "required": ["worktree_id", "path", "scope", "type"],
             "properties": {
+              "commit_id": {
+                "type": ["string", "null"]
+              },
               "original_path": {
                 "type": ["string", "null"]
               },
@@ -2165,7 +2200,7 @@
       },
       "GitDiffScope": {
         "type": "string",
-        "enum": ["staged", "unstaged"]
+        "enum": ["staged", "unstaged", "commit"]
       },
       "GitFileChange": {
         "type": "object",
@@ -2734,6 +2769,9 @@
               "type"
             ],
             "properties": {
+              "commit_id": {
+                "type": ["string", "null"]
+              },
               "created_at": {
                 "type": "integer",
                 "format": "int64",
@@ -3062,6 +3100,9 @@
         "type": "object",
         "required": ["path", "scope"],
         "properties": {
+          "commit_id": {
+            "type": ["string", "null"]
+          },
           "original_path": {
             "type": ["string", "null"],
             "description": "Original relative path for rename/copy actions."
@@ -3088,6 +3129,9 @@
           "read_only"
         ],
         "properties": {
+          "commit_id": {
+            "type": ["string", "null"]
+          },
           "language": {
             "type": "string"
           },

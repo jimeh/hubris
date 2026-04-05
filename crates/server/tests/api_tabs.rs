@@ -59,6 +59,19 @@ fn run_git(repo_path: &Path, args: &[&str]) {
     assert!(status.success(), "git failed: {:?}", args);
 }
 
+fn run_git_output(repo_path: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("-c")
+        .arg("commit.gpgsign=false")
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git failed: {:?}", args);
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
 async fn create_project(client: &reqwest::Client, base: &str, path: &str) -> String {
     let res = client
         .post(format!("{}/api/projects", base))
@@ -184,6 +197,126 @@ async fn test_create_tab_invalid_worktree() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_create_commit_diff_tab_requires_commit_id() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let res = client
+        .post(format!("{}/api/tabs", base))
+        .json(&serde_json::json!({
+            "type": "git_diff",
+            "worktree_id": worktree_id,
+            "path": "README.md",
+            "scope": "commit",
+            "preview": true
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["message"], "commit_id is required for commit diffs.");
+}
+
+#[tokio::test]
+async fn test_create_commit_diff_tab_rejects_blank_commit_id() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let res = client
+        .post(format!("{}/api/tabs", base))
+        .json(&serde_json::json!({
+            "type": "git_diff",
+            "worktree_id": worktree_id,
+            "path": "README.md",
+            "scope": "commit",
+            "commit_id": "   ",
+            "preview": true
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["message"], "commit_id is required for commit diffs.");
+}
+
+#[tokio::test]
+async fn test_create_commit_diff_tab_accepts_valid_commit_id() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let commit_id = run_git_output(repo.path(), &["rev-parse", "HEAD"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let res = client
+        .post(format!("{}/api/tabs", base))
+        .json(&serde_json::json!({
+            "type": "git_diff",
+            "worktree_id": worktree_id,
+            "path": "README.md",
+            "scope": "commit",
+            "commit_id": commit_id,
+            "preview": true
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["type"], "git_diff");
+    assert_eq!(body["scope"], "commit");
+    assert_eq!(body["commit_id"], commit_id);
+    assert_eq!(body["path"], "README.md");
+}
+
+#[tokio::test]
+async fn test_create_non_commit_diff_tab_discards_commit_id() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let res = client
+        .post(format!("{}/api/tabs", base))
+        .json(&serde_json::json!({
+            "type": "git_diff",
+            "worktree_id": worktree_id,
+            "path": "README.md",
+            "scope": "staged",
+            "commit_id": "abcdef123456",
+            "preview": true
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body: Value = res.json().await.unwrap();
+    assert!(body["commit_id"].is_null());
+    assert_eq!(body["scope"], "staged");
 }
 
 #[tokio::test]

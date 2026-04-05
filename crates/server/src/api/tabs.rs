@@ -7,10 +7,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySystem};
 use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 
+use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
 use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TerminalSize};
@@ -18,6 +20,34 @@ use crate::state::AppState;
 use crate::tab::{GitDiffScope, TabInfo};
 
 type TerminalCloseReceiver = tokio::sync::broadcast::Receiver<()>;
+const MISSING_COMMIT_ID_MESSAGE: &str = "commit_id is required for commit diffs.";
+
+#[derive(Debug)]
+pub struct TabsApiError {
+    status: StatusCode,
+    message: String,
+}
+
+impl TabsApiError {
+    fn new(status: StatusCode, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+        }
+    }
+}
+
+impl IntoResponse for TabsApiError {
+    fn into_response(self) -> Response {
+        (
+            self.status,
+            Json(ApiErrorResponse {
+                message: self.message,
+            }),
+        )
+            .into_response()
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -37,6 +67,8 @@ pub enum CreateTabRequest {
         scope: GitDiffScope,
         #[serde(default)]
         original_path: Option<String>,
+        #[serde(default)]
+        commit_id: Option<String>,
         #[serde(default)]
         preview: bool,
     },
@@ -88,6 +120,38 @@ fn worktree_id_for_create(req: &CreateTabRequest) -> &str {
     }
 }
 
+fn validate_create_tab_request(req: &mut CreateTabRequest) -> Result<(), TabsApiError> {
+    let CreateTabRequest::GitDiff {
+        scope, commit_id, ..
+    } = req
+    else {
+        return Ok(());
+    };
+
+    if *scope != GitDiffScope::Commit {
+        *commit_id = None;
+        return Ok(());
+    }
+
+    let normalized = commit_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| TabsApiError::new(StatusCode::BAD_REQUEST, MISSING_COMMIT_ID_MESSAGE))?
+        .to_string();
+    *commit_id = Some(normalized);
+    Ok(())
+}
+
+fn map_status_to_tab_error(status: StatusCode) -> TabsApiError {
+    let message = match status {
+        StatusCode::BAD_REQUEST => "Invalid tab request.",
+        StatusCode::NOT_FOUND => "Worktree not found.",
+        _ => "Internal server error.",
+    };
+    TabsApiError::new(status, message)
+}
+
 fn build_tab_info(
     req: CreateTabRequest,
     id: String,
@@ -125,6 +189,7 @@ fn build_tab_info(
             path,
             scope,
             original_path,
+            commit_id,
             preview,
         } => TabInfo::GitDiff {
             id,
@@ -137,6 +202,7 @@ fn build_tab_info(
             path,
             scope,
             original_path,
+            commit_id,
         },
     }
 }
@@ -288,18 +354,22 @@ pub async fn list_tabs(
     request_body = CreateTabRequest,
     responses(
         (status = 201, description = "Tab created", body = TabInfo),
-        (status = 404, description = "Worktree not found"),
-        (status = 500, description = "Internal server error"),
+        (status = 400, description = "Invalid tab request", body = ApiErrorResponse),
+        (status = 404, description = "Worktree not found", body = ApiErrorResponse),
+        (status = 500, description = "Internal server error", body = ApiErrorResponse),
     ),
 )]
 pub async fn create_tab(
     State(state): State<AppState>,
-    Json(req): Json<CreateTabRequest>,
-) -> Result<(StatusCode, Json<TabInfo>), StatusCode> {
+    Json(mut req): Json<CreateTabRequest>,
+) -> Result<(StatusCode, Json<TabInfo>), TabsApiError> {
+    validate_create_tab_request(&mut req)?;
+
     let worktree_id = worktree_id_for_create(&req).to_string();
     let resolved = resolve_worktree(&state, &worktree_id)
-        .await?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await
+        .map_err(map_status_to_tab_error)?
+        .ok_or_else(|| map_status_to_tab_error(StatusCode::NOT_FOUND))?;
 
     let terminal_number = if matches!(req, CreateTabRequest::Terminal { .. }) {
         state.next_tab_num.fetch_add(1, Ordering::Relaxed)
@@ -321,10 +391,10 @@ pub async fn create_tab(
     );
 
     let terminal_runtime = if info.is_terminal() {
-        Some(spawn_terminal_runtime(
-            &resolved.worktree.path,
-            info.clone(),
-        )?)
+        Some(
+            spawn_terminal_runtime(&resolved.worktree.path, info.clone())
+                .map_err(map_status_to_tab_error)?,
+        )
     } else {
         None
     };

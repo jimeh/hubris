@@ -93,6 +93,7 @@ function makeTab(overrides: Partial<GitDiffTabType> = {}): GitDiffTabType {
     path: "README.md",
     scope: "unstaged",
     original_path: null,
+    commit_id: null,
     ...overrides,
   };
 }
@@ -132,5 +133,29 @@ describe("GitDiffTab", () => {
       screen.getByText(/resolves outside the allowed roots/i),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("hides save controls for read-only commit diffs", async () => {
+    const { default: GitDiffTab } = await import("./GitDiffTab");
+    sessionState.session = {
+      ...editableSession,
+      scope: "commit",
+      readOnly: true,
+      dirty: false,
+      saveStatus: "idle",
+    };
+
+    render(
+      <GitDiffTab
+        projectId="p1"
+        worktreeId="w1"
+        tab={makeTab({ scope: "commit", commit_id: "abcdef123456" })}
+        visible
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Save" }),
+    ).not.toBeInTheDocument();
   });
 });

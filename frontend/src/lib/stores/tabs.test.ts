@@ -1,17 +1,19 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
-import type { FileTab, TerminalTab } from "@/lib/types";
+import type { FileTab, GitDiffTab, TerminalTab } from "@/lib/types";
 
 const mockCreateTab = vi.fn();
 const mockDeleteTab = vi.fn();
 const mockReorderTabs = vi.fn();
+const mockUpdateTab = vi.fn();
 const mockScheduleDisposeTabModels = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   createTab: (...args: unknown[]) => mockCreateTab(...args),
   deleteTab: (...args: unknown[]) => mockDeleteTab(...args),
   reorderTabs: (...args: unknown[]) => mockReorderTabs(...args),
+  updateTab: (...args: unknown[]) => mockUpdateTab(...args),
 }));
 
 vi.mock("@/lib/monaco", () => ({
@@ -93,6 +95,28 @@ function makeFileTab(
   };
 }
 
+function makeGitDiffTab(
+  overrides: Partial<GitDiffTab> & { id: string; path: string },
+): GitDiffTab {
+  return {
+    id: overrides.id,
+    label:
+      overrides.label ??
+      overrides.path.split("/").filter(Boolean).at(-1) ??
+      overrides.path,
+    position: overrides.position ?? 1,
+    worktree_id: overrides.worktree_id ?? "w1",
+    session_id: overrides.session_id ?? "default",
+    type: "git_diff",
+    created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? true,
+    path: overrides.path,
+    scope: overrides.scope ?? "unstaged",
+    original_path: overrides.original_path ?? null,
+    commit_id: overrides.commit_id ?? null,
+  };
+}
+
 async function getStore() {
   const mod = await import("./tabs");
   mod.resetTabStoreForTests();
@@ -106,7 +130,11 @@ describe("Tab store", () => {
     vi.resetModules();
     localStorage.clear();
     mockEvents = new MockEventClient();
+    mockCreateTab.mockReset();
+    mockDeleteTab.mockReset();
+    mockReorderTabs.mockReset();
     mockScheduleDisposeTabModels.mockReset();
+    mockUpdateTab.mockReset();
   });
 
   it("loads tabs from snapshot sorted by position", async () => {
@@ -296,5 +324,192 @@ describe("Tab store", () => {
     expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
       nextTab.id,
     ]);
+  });
+
+  it("openGitDiff dedupes commit diff tabs by commit_id", async () => {
+    const store = await getStore();
+    const existing = makeGitDiffTab({
+      id: "diff-1",
+      worktree_id: "w1",
+      path: "src/main.ts",
+      scope: "commit",
+      commit_id: "abcdef123456",
+      preview: false,
+    });
+
+    mockEvents.emit("snapshot", {
+      tabs: [existing],
+    });
+
+    const tab = await store.useTabStore.getState().openGitDiff({
+      worktreeId: "w1",
+      path: "src/main.ts",
+      scope: "commit",
+      commitId: "abcdef123456",
+      preview: true,
+    });
+
+    expect(mockCreateTab).not.toHaveBeenCalled();
+    expect(tab.id).toBe(existing.id);
+  });
+
+  it("openGitDiff keeps same-path commit diffs distinct across commits", async () => {
+    const store = await getStore();
+    const created = makeGitDiffTab({
+      id: "diff-2",
+      worktree_id: "w1",
+      path: "src/main.ts",
+      scope: "commit",
+      commit_id: "fedcba654321",
+      preview: false,
+      position: 2,
+    });
+    mockCreateTab.mockResolvedValue(created);
+
+    mockEvents.emit("snapshot", {
+      tabs: [
+        makeGitDiffTab({
+          id: "diff-1",
+          worktree_id: "w1",
+          path: "src/main.ts",
+          scope: "commit",
+          commit_id: "abcdef123456",
+          preview: false,
+        }),
+      ],
+    });
+
+    const tab = await store.useTabStore.getState().openGitDiff({
+      worktreeId: "w1",
+      path: "src/main.ts",
+      scope: "commit",
+      commitId: "fedcba654321",
+      preview: false,
+    });
+
+    expect(mockCreateTab).toHaveBeenCalledWith({
+      type: "git_diff",
+      worktree_id: "w1",
+      path: "src/main.ts",
+      scope: "commit",
+      original_path: undefined,
+      commit_id: "fedcba654321",
+      preview: false,
+    });
+    expect(tab.id).toBe("diff-2");
+    expect(
+      store.tabsForWorktree("w1").map((candidate) => candidate.id),
+    ).toEqual(["diff-1", "diff-2"]);
+  });
+
+  it("openGitDiff dedupes concurrent creates for the same diff", async () => {
+    const store = await getStore();
+    let resolveCreate!: (tab: GitDiffTab) => void;
+    mockCreateTab.mockImplementation(
+      () =>
+        new Promise<GitDiffTab>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+
+    const firstPromise = store.useTabStore.getState().openGitDiff({
+      worktreeId: "w1",
+      path: "src/main.ts",
+      scope: "commit",
+      commitId: "abcdef123456",
+      preview: true,
+    });
+    const secondPromise = store.useTabStore.getState().openGitDiff({
+      worktreeId: "w1",
+      path: "src/main.ts",
+      scope: "commit",
+      commitId: "abcdef123456",
+      preview: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(mockCreateTab).toHaveBeenCalledTimes(1);
+    });
+
+    resolveCreate(
+      makeGitDiffTab({
+        id: "diff-3",
+        worktree_id: "w1",
+        path: "src/main.ts",
+        scope: "commit",
+        commit_id: "abcdef123456",
+        preview: true,
+      }),
+    );
+
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+    expect(first.id).toBe("diff-3");
+    expect(second.id).toBe("diff-3");
+    expect(
+      store.tabsForWorktree("w1").map((candidate) => candidate.id),
+    ).toEqual(["diff-3"]);
+  });
+
+  it("openGitDiff upgrades an in-flight preview create to pinned", async () => {
+    const store = await getStore();
+    let resolveCreate!: (tab: GitDiffTab) => void;
+    mockCreateTab.mockImplementation(
+      () =>
+        new Promise<GitDiffTab>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    mockUpdateTab.mockResolvedValue(
+      makeGitDiffTab({
+        id: "diff-4",
+        worktree_id: "w1",
+        path: "src/main.ts",
+        scope: "commit",
+        commit_id: "abcdef123456",
+        preview: false,
+      }),
+    );
+
+    const previewPromise = store.useTabStore.getState().openGitDiff({
+      worktreeId: "w1",
+      path: "src/main.ts",
+      scope: "commit",
+      commitId: "abcdef123456",
+      preview: true,
+    });
+    const pinPromise = store.useTabStore.getState().openGitDiff({
+      worktreeId: "w1",
+      path: "src/main.ts",
+      scope: "commit",
+      commitId: "abcdef123456",
+      preview: false,
+    });
+
+    await vi.waitFor(() => {
+      expect(mockCreateTab).toHaveBeenCalledTimes(1);
+    });
+
+    resolveCreate(
+      makeGitDiffTab({
+        id: "diff-4",
+        worktree_id: "w1",
+        path: "src/main.ts",
+        scope: "commit",
+        commit_id: "abcdef123456",
+        preview: true,
+      }),
+    );
+
+    const [previewTab, pinnedTab] = await Promise.all([
+      previewPromise,
+      pinPromise,
+    ]);
+
+    expect(mockCreateTab).toHaveBeenCalledTimes(1);
+    expect(mockUpdateTab).toHaveBeenCalledWith("diff-4", { preview: false });
+    expect(previewTab.preview).toBe(false);
+    expect(pinnedTab.preview).toBe(false);
+    expect(store.tabsForWorktree("w1")[0]?.preview).toBe(false);
   });
 });
