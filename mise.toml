@@ -84,11 +84,15 @@ depends = ["format:backend", "format:frontend"]
 run = "cd frontend && bun run test"
 description = "Run frontend tests"
 
+[tasks."test:backend"]
+run = "cd crates/server && cargo test"
+description = "Run backend tests"
+
 [tasks.test]
 description = "Run all tests"
 run = [
+  "mise run test:backend",
   "mise run test:frontend",
-  "cd crates/server && cargo test",
 ]
 
 [tasks."setup:frontend"]
