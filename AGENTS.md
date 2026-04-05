@@ -242,12 +242,13 @@ No periodic reconciliation — drift corrects on reconnect.
   `scrollIntoView()`. In Vitest/jsdom, stub `hasPointerCapture`,
   `setPointerCapture`, `releasePointerCapture`, and `scrollIntoView` in
   `src/test/setup.ts`.
-- **Cold `AppSidebarRoot` renders can exceed Vitest's default timeout**:
-  `frontend/src/components/app-sidebar/AppSidebarRoot.test.tsx` mounts a
-  full sidebar + dnd-kit tree and the
-  `project_worktrees_updated` integration case can take more than 5s on
-  cold jsdom runs. Keep a per-test timeout there unless the test is
-  narrowed or the heavy subtree is mocked.
+- **Sidebar SSE coverage is intentionally split across test layers**:
+  `frontend/src/components/app-sidebar/AppSidebarRoot.test.tsx` now uses eager
+  imports and synchronous rendering for snapshot/removal/sidebar UI checks,
+  while `frontend/src/lib/stores/worktrees.test.ts` owns
+  `project_worktrees_updated` event coverage. Keep reducer-style SSE assertions
+  in the store suite unless a true end-to-end sidebar regression needs a
+  component-level check.
 - **Settings store tests must clean up `matchMedia` listeners**:
   `frontend/src/lib/stores/settings.ts` binds a singleton
   `prefers-color-scheme` listener on initialize. Tests that reset and
