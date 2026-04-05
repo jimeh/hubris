@@ -13,6 +13,7 @@ const LS_EXPANDED = "hubris-expanded-projects";
 
 type ProjectsState = {
   projects: Project[];
+  homeDir: string | null;
   expandedById: Record<string, boolean>;
   add: (path: string) => Promise<Project>;
   remove: (id: string, options?: DeleteProjectOptions) => Promise<void>;
@@ -67,6 +68,7 @@ function initialExpandedState(): Record<string, boolean> {
 
 export const useProjectStore = create<ProjectsState>((set) => ({
   projects: [],
+  homeDir: null,
   expandedById: initialExpandedState(),
   async add(path) {
     const project = await addProject(path);
@@ -137,6 +139,7 @@ export function initializeProjectStore(): void {
       const projects = sortedProjects(data.projects);
       useProjectStore.setState((state) => ({
         projects,
+        homeDir: data.home_dir ?? state.homeDir,
         expandedById: ensureExpandedState(projects, state.expandedById),
       }));
     }),

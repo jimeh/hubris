@@ -1,12 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { Folder, PanelRight } from "lucide-react";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
+import { Folder, PanelRight } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
@@ -42,7 +41,7 @@ function AppHeader({
   selectedProject,
   selectedWorktree,
 }: {
-  selectedProject: { name: string } | null;
+  selectedProject: { name: string; path: string } | null;
   selectedWorktree: Worktree | null;
 }) {
   const sidebar = useSidebar();
@@ -65,6 +64,22 @@ function AppHeader({
     ? "Hide file manager"
     : "Show file manager";
   const isVscodeMode = selectedWorktree?.ui_mode === "vscode";
+
+  const homeDir = useProjectStore((state) => state.homeDir);
+  const displayPath = selectedWorktree?.path ?? selectedProject?.path ?? null;
+  const shortPath = useMemo(() => {
+    if (!displayPath) return null;
+    if (homeDir && displayPath.startsWith(homeDir)) {
+      return "~" + displayPath.slice(homeDir.length);
+    }
+    return displayPath;
+  }, [displayPath, homeDir]);
+
+  const copyPath = useCallback(() => {
+    if (displayPath) {
+      void navigator.clipboard.writeText(displayPath);
+    }
+  }, [displayPath]);
 
   return (
     <header className="flex shrink-0 items-center gap-2 border-b py-2 pl-3 pr-4 md:h-12 md:py-0">
@@ -120,7 +135,7 @@ function AppHeader({
           </div>
         ) : null}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 md:shrink-0 md:flex-initial">
         {selectedWorktree && !selectedWorktree.is_local ? (
           <BranchInfo
             projectId={selectedWorktree.project_id}
@@ -128,44 +143,30 @@ function AppHeader({
             branch={selectedWorktree.branch}
             sourceRef={selectedWorktree.source_ref ?? null}
           />
-        ) : (
-          <>
-            <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
-              {selectedProject ? (
-                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <Folder className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{selectedProject.name}</span>
-                </div>
-              ) : null}
-              {selectedWorktree ? (
-                <div className="truncate text-base font-medium">
-                  {selectedWorktree.name}
-                </div>
-              ) : null}
-            </div>
-            <Breadcrumb className="hidden md:block">
-              <BreadcrumbList>
-                {selectedProject ? (
-                  <BreadcrumbItem>
-                    <BreadcrumbPage className="flex items-center gap-1.5">
-                      <Folder className="h-3.5 w-3.5" />
-                      {selectedProject.name}
-                    </BreadcrumbPage>
-                  </BreadcrumbItem>
-                ) : null}
-                {selectedProject && selectedWorktree ? (
-                  <BreadcrumbSeparator />
-                ) : null}
-                {selectedWorktree ? (
-                  <BreadcrumbItem>
-                    <BreadcrumbPage>{selectedWorktree.name}</BreadcrumbPage>
-                  </BreadcrumbItem>
-                ) : null}
-              </BreadcrumbList>
-            </Breadcrumb>
-          </>
-        )}
+        ) : selectedProject ? (
+          <div className="flex items-center gap-1.5 truncate text-sm">
+            <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{selectedProject.name}</span>
+          </div>
+        ) : null}
       </div>
+      {shortPath ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="hidden min-w-0 flex-1 cursor-pointer items-center justify-end text-xs text-muted-foreground hover:text-foreground md:flex"
+              onClick={copyPath}
+              aria-label="Copy path"
+            >
+              <span className="truncate [direction:rtl]">
+                <bdi>{shortPath}</bdi>
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{displayPath}</TooltipContent>
+        </Tooltip>
+      ) : null}
       {selectedWorktree ? (
         !isVscodeMode ? (
           <Tooltip>

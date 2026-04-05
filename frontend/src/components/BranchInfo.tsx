@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, GitBranch, X } from "lucide-react";
+import { Check, ChevronsUpDown, GitBranch, X } from "lucide-react";
 import {
   type WorktreeStartPoint,
   listProjectWorktreeStartPoints,
@@ -108,14 +108,11 @@ function SourceRefPicker({
           aria-label="Change target branch"
         >
           {sourceRef ? (
-            <>
-              <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate text-sm">{sourceRef}</span>
-            </>
+            <span className="truncate text-sm">{sourceRef}</span>
           ) : (
             <span className="text-sm text-muted-foreground">Set target...</span>
           )}
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <ChevronsUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="start">
@@ -150,11 +147,11 @@ function SourceRefPicker({
                   >
                     <Badge
                       variant="outline"
-                      className="deterministic-tag-badge max-w-full gap-1 truncate text-xs"
+                      className="deterministic-tag-badge min-w-0 max-w-full gap-1 text-xs"
                       style={tagStyle(ref, kind)}
                     >
-                      <GitBranch />
-                      {ref}
+                      <GitBranch className="shrink-0 text-inherit" />
+                      <span className="truncate">{ref}</span>
                     </Badge>
                     {ref === sourceRef ? (
                       <Check className="ml-auto shrink-0" />
@@ -233,7 +230,7 @@ function BranchRenameButton({
           aria-label="Rename branch"
         >
           <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate text-sm">{branch}</span>
+          <span className="truncate text-sm text-foreground">{branch}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-64 p-3" align="start">
@@ -280,16 +277,11 @@ export default function BranchInfo({
   return (
     <div data-theme-version={themeVersion}>
       {/* Mobile stacked layout */}
-      <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
+      <div className="flex min-w-0 items-center md:hidden">
         <BranchRenameButton
           projectId={projectId}
           worktreeId={worktreeId}
           branch={branch}
-        />
-        <SourceRefPicker
-          projectId={projectId}
-          worktreeId={worktreeId}
-          sourceRef={sourceRef}
         />
       </div>
       {/* Desktop breadcrumb layout */}
