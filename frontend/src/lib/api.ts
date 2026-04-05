@@ -549,7 +549,10 @@ export async function createTab(request: CreateTabRequest): Promise<Tab> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
   return res.json();
 }
 

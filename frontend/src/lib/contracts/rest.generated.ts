@@ -2573,19 +2573,32 @@ export interface operations {
           "application/json": components["schemas"]["TabInfo"];
         };
       };
+      /** @description Invalid tab request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
       /** @description Worktree not found */
       404: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
       /** @description Internal server error */
       500: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
     };
   };

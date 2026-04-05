@@ -709,6 +709,34 @@ describe("API client", () => {
       });
       expect(result).toEqual(mockTab);
     });
+
+    it("surfaces API error messages on failed tab creation", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 400,
+          json: () =>
+            Promise.resolve({
+              message: "commit_id is required for commit diffs.",
+            }),
+        }),
+      );
+
+      await expect(
+        createTab({
+          type: "git_diff",
+          worktree_id: "w1",
+          path: "README.md",
+          scope: "commit",
+          preview: true,
+        }),
+      ).rejects.toMatchObject({
+        name: "ApiStatusError",
+        status: 400,
+        message: "commit_id is required for commit diffs.",
+      });
+    });
   });
 
   describe("deleteTab", () => {

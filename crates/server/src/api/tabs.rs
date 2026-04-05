@@ -9,9 +9,10 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySystem};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 
+use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
 use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TerminalSize};
@@ -20,11 +21,6 @@ use crate::tab::{GitDiffScope, TabInfo};
 
 type TerminalCloseReceiver = tokio::sync::broadcast::Receiver<()>;
 const MISSING_COMMIT_ID_MESSAGE: &str = "commit_id is required for commit diffs.";
-
-#[derive(Debug, Serialize, ToSchema)]
-struct TabsApiErrorResponse {
-    error: String,
-}
 
 #[derive(Debug)]
 pub struct TabsApiError {
@@ -45,8 +41,8 @@ impl IntoResponse for TabsApiError {
     fn into_response(self) -> Response {
         (
             self.status,
-            Json(TabsApiErrorResponse {
-                error: self.message,
+            Json(ApiErrorResponse {
+                message: self.message,
             }),
         )
             .into_response()
@@ -133,6 +129,7 @@ fn validate_create_tab_request(req: &mut CreateTabRequest) -> Result<(), TabsApi
     };
 
     if *scope != GitDiffScope::Commit {
+        *commit_id = None;
         return Ok(());
     }
 
@@ -357,9 +354,9 @@ pub async fn list_tabs(
     request_body = CreateTabRequest,
     responses(
         (status = 201, description = "Tab created", body = TabInfo),
-        (status = 400, description = "Invalid tab request", body = TabsApiErrorResponse),
-        (status = 404, description = "Worktree not found", body = TabsApiErrorResponse),
-        (status = 500, description = "Internal server error", body = TabsApiErrorResponse),
+        (status = 400, description = "Invalid tab request", body = ApiErrorResponse),
+        (status = 404, description = "Worktree not found", body = ApiErrorResponse),
+        (status = 500, description = "Internal server error", body = ApiErrorResponse),
     ),
 )]
 pub async fn create_tab(

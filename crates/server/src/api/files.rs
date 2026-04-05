@@ -489,9 +489,6 @@ pub async fn get_project_worktree_git_diff(
     let resolved = resolve_project_worktree(&state, &project_id, &worktree_id)
         .await
         .map_err(map_status_to_file_error)?;
-    let policy = WorktreePathPolicy::from_resolved(&resolved)
-        .await
-        .map_err(map_policy_build_error)?;
     let path = normalize_relative_path(&params.path)?;
     let original_path = params
         .original_path
@@ -551,6 +548,9 @@ pub async fn get_project_worktree_git_diff(
             None,
         ),
         GitDiffScope::Unstaged => {
+            let policy = WorktreePathPolicy::from_resolved(&resolved)
+                .await
+                .map_err(map_policy_build_error)?;
             let side = load_optional_worktree_diff_side(&policy, &right_path).await?;
             (side.content, side.version_token)
         }

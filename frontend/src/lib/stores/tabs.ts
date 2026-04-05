@@ -12,6 +12,7 @@ import type { GitDiffScope, GitDiffTab, Tab } from "@/lib/types";
 
 const LS_ACTIVE_TAB = "hubris-active-tab";
 const LS_TAB_BY_WORKTREE = "hubris-active-tab-by-worktree";
+const pendingGitDiffOpens = new Map<string, PendingGitDiffOpen>();
 
 type OpenFileOptions = {
   worktreeId: string;
@@ -26,6 +27,11 @@ type OpenGitDiffOptions = {
   originalPath?: string | null;
   commitId?: string | null;
   preview: boolean;
+};
+
+type PendingGitDiffOpen = {
+  promise: Promise<Tab>;
+  shouldPin: boolean;
 };
 
 type TabsState = {
@@ -247,6 +253,16 @@ function findPreviewTab(tabs: Tab[], worktreeId: string): Tab | null {
   );
 }
 
+function gitDiffOpenKey(options: OpenGitDiffOptions): string {
+  return [
+    options.worktreeId,
+    options.path,
+    options.scope,
+    options.originalPath ?? "",
+    options.commitId ?? "",
+  ].join("|");
+}
+
 function activateLocal(
   state: TabsState,
   id: string,
@@ -373,33 +389,67 @@ export const useTabStore = create<TabsState>((set, get) => ({
       return existing;
     }
 
-    if (options.preview) {
-      await replacePreviewIfNeeded(get(), options.worktreeId);
+    const pendingKey = gitDiffOpenKey(options);
+    const pending = pendingGitDiffOpens.get(pendingKey);
+    if (pending) {
+      if (!options.preview) {
+        pending.shouldPin = true;
+      }
+      return pending.promise;
     }
 
-    const tab = await createTab({
-      type: "git_diff",
-      worktree_id: options.worktreeId,
-      path: options.path,
-      scope: options.scope,
-      original_path: options.originalPath ?? undefined,
-      commit_id: options.commitId ?? undefined,
-      preview: options.preview,
+    const pendingOpen: PendingGitDiffOpen = {
+      promise: Promise.resolve({} as Tab),
+      shouldPin: !options.preview,
+    };
+    pendingGitDiffOpens.set(pendingKey, pendingOpen);
+
+    pendingOpen.promise = (async () => {
+      if (options.preview) {
+        await replacePreviewIfNeeded(get(), options.worktreeId);
+      }
+
+      const tab = await createTab({
+        type: "git_diff",
+        worktree_id: options.worktreeId,
+        path: options.path,
+        scope: options.scope,
+        original_path: options.originalPath ?? undefined,
+        commit_id: options.commitId ?? undefined,
+        preview: options.preview,
+      });
+      set((state) => {
+        const tabs = addTabIfMissing(state.tabs, tab);
+        return {
+          tabs,
+          ...activateLocal(
+            {
+              ...state,
+              tabs,
+            } as TabsState,
+            tab.id,
+          ),
+        };
+      });
+
+      if (!pendingOpen.shouldPin || !tab.preview) {
+        return tab;
+      }
+
+      set((state) => ({
+        tabs: sortedTabs(setTabPreviewLocal(state.tabs, tab.id, false)),
+        ...activateLocal(state, tab.id),
+      }));
+      try {
+        return await updateTab(tab.id, { preview: false });
+      } catch {
+        return { ...tab, preview: false };
+      }
+    })().finally(() => {
+      pendingGitDiffOpens.delete(pendingKey);
     });
-    set((state) => {
-      const tabs = addTabIfMissing(state.tabs, tab);
-      return {
-        tabs,
-        ...activateLocal(
-          {
-            ...state,
-            tabs,
-          } as TabsState,
-          tab.id,
-        ),
-      };
-    });
-    return tab;
+
+    return pendingOpen.promise;
   },
   async pin(id) {
     const existing = get().tabs.find((tab) => tab.id === id) ?? null;
@@ -618,6 +668,7 @@ export function initializeTabStore(): void {
 
 export function resetTabStoreForTests(): void {
   clearNotificationDismissTimer();
+  pendingGitDiffOpens.clear();
   for (const unsubscribe of eventUnsubscribers) {
     unsubscribe();
   }
