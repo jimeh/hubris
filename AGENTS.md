@@ -358,6 +358,10 @@ No periodic reconciliation — drift corrects on reconnect.
   copy-harder detection is useful for staged status but too aggressive for the
   commit-details API. Enabling copy detection there can mislabel a simple added
   file as `copied`.
+- **Commit diff gitlinks should be treated as unsupported, not internal errors**:
+  submodule changes show up in commit trees as gitlink entries, not blobs. When
+  commit-scoped diff loading hits one of those paths, return an unsupported diff
+  reason instead of `500`, even though the commit/path itself is valid.
 - **`git2` status omits already-empty untracked directories**:
   discard flows cannot rely on `repo.statuses(...)` alone for an explicitly
   requested empty directory. If the path still exists on disk and is a

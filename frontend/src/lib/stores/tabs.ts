@@ -30,8 +30,10 @@ type OpenGitDiffOptions = {
 };
 
 type PendingGitDiffOpen = {
+  state: {
+    shouldPin: boolean;
+  };
   promise: Promise<Tab>;
-  shouldPin: boolean;
 };
 
 type TabsState = {
@@ -393,18 +395,15 @@ export const useTabStore = create<TabsState>((set, get) => ({
     const pending = pendingGitDiffOpens.get(pendingKey);
     if (pending) {
       if (!options.preview) {
-        pending.shouldPin = true;
+        pending.state.shouldPin = true;
       }
       return pending.promise;
     }
 
-    const pendingOpen: PendingGitDiffOpen = {
-      promise: Promise.resolve({} as Tab),
+    const pendingState = {
       shouldPin: !options.preview,
     };
-    pendingGitDiffOpens.set(pendingKey, pendingOpen);
-
-    pendingOpen.promise = (async () => {
+    const pendingPromise = (async () => {
       if (options.preview) {
         await replacePreviewIfNeeded(get(), options.worktreeId);
       }
@@ -432,7 +431,7 @@ export const useTabStore = create<TabsState>((set, get) => ({
         };
       });
 
-      if (!pendingOpen.shouldPin || !tab.preview) {
+      if (!pendingState.shouldPin || !tab.preview) {
         return tab;
       }
 
@@ -449,7 +448,12 @@ export const useTabStore = create<TabsState>((set, get) => ({
       pendingGitDiffOpens.delete(pendingKey);
     });
 
-    return pendingOpen.promise;
+    pendingGitDiffOpens.set(pendingKey, {
+      state: pendingState,
+      promise: pendingPromise,
+    });
+
+    return pendingPromise;
   },
   async pin(id) {
     const existing = get().tabs.find((tab) => tab.id === id) ?? null;

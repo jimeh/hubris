@@ -384,6 +384,8 @@ pub enum GitCommitDiffError {
     Internal,
 }
 
+const SUBMODULE_DIFF_UNSUPPORTED_REASON: &str = "Submodule diffs are not supported.";
+
 fn format_diff_size_limit(max_bytes: u64) -> String {
     const KIB: u64 = 1024;
     const MIB: u64 = 1024 * KIB;
@@ -507,21 +509,46 @@ fn read_commit_diff_blob_git2(
         GitCommitDetailsError::NotFound => GitCommitDiffError::NotFound,
         GitCommitDetailsError::Internal => GitCommitDiffError::Internal,
     })?;
-    let blob = if use_parent {
-        if commit.parent_count() > 0 {
-            let parent = commit.parent(0).map_err(|_| GitCommitDiffError::Internal)?;
-            let tree = parent.tree().map_err(|_| GitCommitDiffError::Internal)?;
-            load_tree_blob(&repo, &tree, &relative_path)
-                .map_err(|_| GitCommitDiffError::Internal)?
-        } else {
-            None
+    if use_parent {
+        if commit.parent_count() == 0 {
+            return Ok(GitDiffBlobContent::Missing);
         }
+
+        let parent = commit.parent(0).map_err(|_| GitCommitDiffError::Internal)?;
+        let tree = parent.tree().map_err(|_| GitCommitDiffError::Internal)?;
+        load_commit_tree_diff_content(&repo, &tree, &relative_path, max_bytes)
     } else {
         let tree = commit.tree().map_err(|_| GitCommitDiffError::Internal)?;
-        load_tree_blob(&repo, &tree, &relative_path).map_err(|_| GitCommitDiffError::Internal)?
+        load_commit_tree_diff_content(&repo, &tree, &relative_path, max_bytes)
+    }
+}
+
+fn load_commit_tree_diff_content(
+    repo: &Repository,
+    tree: &git2::Tree<'_>,
+    relative_path: &str,
+    max_bytes: u64,
+) -> Result<GitDiffBlobContent, GitCommitDiffError> {
+    let entry = match tree.get_path(Path::new(relative_path)) {
+        Ok(entry) => entry,
+        Err(err) if err.code() == ErrorCode::NotFound => {
+            return Ok(GitDiffBlobContent::Missing);
+        }
+        Err(_) => return Err(GitCommitDiffError::Internal),
     };
 
-    Ok(diff_blob_content_from_blob(blob, max_bytes))
+    match entry.kind() {
+        Some(git2::ObjectType::Blob) => {
+            let blob = repo
+                .find_blob(entry.id())
+                .map_err(|_| GitCommitDiffError::Internal)?;
+            Ok(diff_blob_content_from_blob(Some(blob), max_bytes))
+        }
+        Some(git2::ObjectType::Commit) => Ok(GitDiffBlobContent::Unsupported(
+            SUBMODULE_DIFF_UNSUPPORTED_REASON.to_string(),
+        )),
+        _ => Ok(GitDiffBlobContent::Missing),
+    }
 }
 
 pub async fn read_commit_diff_blob(

@@ -1155,6 +1155,48 @@ async fn test_commit_git_diff_for_deleted_file_returns_empty_right_side() {
 }
 
 #[tokio::test]
+async fn test_commit_git_diff_for_submodule_entry_is_unsupported() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let submodule = init_git_repo();
+
+    run_git(
+        repo.path(),
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            submodule.path().to_str().unwrap(),
+            "deps/submodule",
+        ],
+    );
+    run_git(repo.path(), &["commit", "-q", "-m", "feat: add submodule"]);
+    let commit_id = run_git_output(repo.path(), &["rev-parse", "HEAD"]);
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = local_worktree_id(&client, &base, &project_id).await;
+
+    let diff = client
+        .get(format!(
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=deps/submodule&scope=commit&commit_id={}",
+            base, project_id, worktree_id, commit_id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(diff.status(), StatusCode::OK);
+    let body: Value = diff.json().await.unwrap();
+    assert_eq!(
+        body["unsupported_reason"],
+        "Submodule diffs are not supported."
+    );
+    assert_eq!(body["left_content"], "");
+    assert_eq!(body["right_content"], "");
+}
+
+#[tokio::test]
 async fn test_commit_git_diff_for_binary_blob_is_unsupported() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
