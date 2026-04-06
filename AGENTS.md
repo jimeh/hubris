@@ -82,8 +82,8 @@ No periodic reconciliation — drift corrects on reconnect.
 - App location: `frontend/`
 - State: Zustand singletons — grep `useProjectStore`,
   `useWorktreeStore`, `useTabStore`, `useSettingsStore`,
-  `useThemeSettings`, `useTerminalSettings`, `useWorktreeSettings`,
-  `useWorktreeRightSidebarStore`,
+  `useSystemStore`, `useThemeSettings`, `useTerminalSettings`,
+  `useWorktreeSettings`, `useWorktreeRightSidebarStore`,
   `useWorktreeRightSidebarWidthStore`
 - SSE bootstrap: `src/lib/bootstrap.ts`
 - UI primitives: shadcn/ui React under `src/components/ui/`
