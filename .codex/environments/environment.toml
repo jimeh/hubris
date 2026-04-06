@@ -3,7 +3,7 @@ version = 1
 name = "hubris"
 
 [setup]
-script = "mise setup"
+script = "mise setup && gitnexus analyze"
 
 [[actions]]
 name = "Run"
