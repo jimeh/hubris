@@ -242,6 +242,13 @@ No periodic reconciliation — drift corrects on reconnect.
   `scrollIntoView()`. In Vitest/jsdom, stub `hasPointerCapture`,
   `setPointerCapture`, `releasePointerCapture`, and `scrollIntoView` in
   `src/test/setup.ts`.
+- **Sidebar SSE coverage is intentionally split across test layers**:
+  `frontend/src/components/app-sidebar/AppSidebarRoot.test.tsx` now uses eager
+  imports and synchronous rendering for snapshot/removal/sidebar UI checks,
+  while `frontend/src/lib/stores/worktrees.test.ts` owns
+  `project_worktrees_updated` event coverage. Keep reducer-style SSE assertions
+  in the store suite unless a true end-to-end sidebar regression needs a
+  component-level check.
 - **Settings store tests must clean up `matchMedia` listeners**:
   `frontend/src/lib/stores/settings.ts` binds a singleton
   `prefers-color-scheme` listener on initialize. Tests that reset and
@@ -427,7 +434,7 @@ No periodic reconciliation — drift corrects on reconnect.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (2974 symbols, 9028 relationships, 248 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hubris** (2967 symbols, 9024 relationships, 247 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

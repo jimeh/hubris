@@ -113,6 +113,113 @@ describe("Worktree store", () => {
     ).toBe(true);
   });
 
+  it("replaces and sorts worktrees on project_worktrees_updated", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({
+            id: "local",
+            project_id: "p1",
+            name: "local",
+            is_local: true,
+            branch: "local",
+            position: 1,
+          }),
+        ],
+      },
+      project_errors: {},
+    });
+
+    mockEvents.emit("project_worktrees_updated", {
+      project_id: "p1",
+      worktrees: [
+        makeWorktree({
+          id: "feature-b",
+          project_id: "p1",
+          name: "feature-b",
+          position: 3,
+        }),
+        makeWorktree({
+          id: "local",
+          project_id: "p1",
+          name: "local",
+          is_local: true,
+          branch: "local",
+          position: 1,
+        }),
+        makeWorktree({
+          id: "feature-a",
+          project_id: "p1",
+          name: "feature-a",
+          position: 2,
+        }),
+      ],
+      git_error: null,
+    });
+
+    expect(
+      (store.useWorktreeStore.getState().worktreesByProject.p1 ?? []).map(
+        (worktree) => worktree.id,
+      ),
+    ).toEqual(["local", "feature-a", "feature-b"]);
+  });
+
+  it("updates and clears project errors from project_worktrees_updated", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({
+            id: "local",
+            project_id: "p1",
+            name: "local",
+            is_local: true,
+            branch: "local",
+            position: 1,
+          }),
+        ],
+      },
+      project_errors: {},
+    });
+
+    mockEvents.emit("project_worktrees_updated", {
+      project_id: "p1",
+      worktrees: [
+        makeWorktree({
+          id: "local",
+          project_id: "p1",
+          name: "local",
+          is_local: true,
+          branch: "local",
+          position: 1,
+        }),
+      ],
+      git_error: "repo unavailable",
+    });
+
+    expect(store.useWorktreeStore.getState().projectErrors).toEqual({
+      p1: "repo unavailable",
+    });
+
+    mockEvents.emit("project_worktrees_updated", {
+      project_id: "p1",
+      worktrees: [
+        makeWorktree({
+          id: "local",
+          project_id: "p1",
+          name: "local",
+          is_local: true,
+          branch: "local",
+          position: 1,
+        }),
+      ],
+      git_error: null,
+    });
+
+    expect(store.useWorktreeStore.getState().projectErrors).toEqual({});
+  });
+
   it("reorder() preserves omitted non-local worktrees", async () => {
     const store = await getStore();
     mockEvents.emit("snapshot", {
