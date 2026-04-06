@@ -159,10 +159,19 @@ describe("loadBundledFont", () => {
   });
 
   it("does not create duplicate style on retry", async () => {
+    const existingCss = `
+      @font-face {
+        font-family: 'GeistMono Nerd Font';
+        src: url('/fonts/GeistMonoNerdFont-Regular.woff2') format('woff2');
+        font-weight: 400;
+        font-style: normal;
+      }
+    `;
+
     // Pre-inject a style element to simulate a failed previous load
     const existing = document.createElement("style");
     existing.id = "bundled-font-geistmono-nf";
-    existing.textContent = "existing";
+    existing.textContent = existingCss;
     document.head.appendChild(existing);
 
     await loadBundledFont("geistmono-nf");
@@ -171,6 +180,6 @@ describe("loadBundledFont", () => {
     const styles = document.querySelectorAll("#bundled-font-geistmono-nf");
     expect(styles).toHaveLength(1);
     // Original content preserved (not replaced)
-    expect(styles[0].textContent).toBe("existing");
+    expect(styles[0].textContent).toBe(existingCss);
   });
 });

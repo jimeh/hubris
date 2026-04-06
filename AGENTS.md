@@ -37,7 +37,7 @@ check`). The `frontend/` directory has a `bun.lock`; there is no
   git local root on add. Persisted in JSON file.
 - **Worktree** — git worktree within a project. The "local" worktree
   is the project's own directory; others are created via `git worktree
-  add`. IDs are deterministic UUIDv5 from path.
+add`. IDs are deterministic UUIDv5 from path.
 - **Session** — logical tab grouping. Hardcoded "default" for now,
   designed for multi-session later.
 - **Tab** — server-authoritative terminal within a worktree+session.
@@ -255,6 +255,19 @@ No periodic reconciliation — drift corrects on reconnect.
   frontend suite and can push already-busy runs into timeout/flake territory.
   Prefer eager top-level imports in broad component/store suites unless a test
   truly needs module re-evaluation semantics.
+- **The Monaco package-root runtime check lives in a smoke lane**:
+  `frontend/src/lib/monaco.runtime.smoke.test.ts` is intentionally excluded
+  from the default `bun run test` unit suite and runs via `bun run test:smoke`
+  plus a dedicated CI job. Keep fast unit coverage in `bun run test`; reserve
+  package-root Monaco imports for smoke coverage.
+- **Vitest aliases `xterm.css` to an empty module**:
+  tests should not parse `@xterm/xterm/css/xterm.css` under jsdom. Keep the
+  Vite/Vitest alias in `frontend/vite.config.ts` so terminal runtime styling
+  stays a browser concern instead of noisy test overhead.
+- **Injected test styles must still be valid CSS**:
+  jsdom logs `Could not parse CSS stylesheet` when a test appends a `<style>`
+  tag with placeholder text. If a test pre-seeds stylesheet state, use minimal
+  valid CSS instead of raw markers like `existing`.
 - **Settings store tests must clean up `matchMedia` listeners**:
   `frontend/src/lib/stores/settings.ts` binds a singleton
   `prefers-color-scheme` listener on initialize. Tests that reset and
@@ -415,7 +428,7 @@ No periodic reconciliation — drift corrects on reconnect.
   `HUBRIS_DEV_TMP`, and runs backend/frontend tasks in parallel.
 - **Backend hot reload uses random socket activation port**:
   `dev:server` runs `systemfd --no-pid -s http::0 -- mise watch
-  --restart dev:server:raw`.
+--restart dev:server:raw`.
 - **Interrupting `mise run dev` still reports task failure on shutdown**:
   stopping the parallel dev wrapper with `Ctrl-C` surfaces `task failed`
   from `mise` while child processes unwind. Treat that as expected
@@ -438,6 +451,7 @@ No periodic reconciliation — drift corrects on reconnect.
   reformat the eval criteria
 
 <!-- gitnexus:start -->
+
 # GitNexus — Code Intelligence
 
 This project is indexed by GitNexus as **hubris** (2989 symbols, 9060 relationships, 249 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
@@ -474,35 +488,36 @@ This project is indexed by GitNexus as **hubris** (2989 symbols, 9060 relationsh
 
 ## Tools Quick Reference
 
-| Tool | When to use | Command |
-|------|-------------|---------|
-| `query` | Find code by concept | `gitnexus_query({query: "auth validation"})` |
-| `context` | 360-degree view of one symbol | `gitnexus_context({name: "validateUser"})` |
-| `impact` | Blast radius before editing | `gitnexus_impact({target: "X", direction: "upstream"})` |
-| `detect_changes` | Pre-commit scope check | `gitnexus_detect_changes({scope: "staged"})` |
-| `rename` | Safe multi-file rename | `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` |
-| `cypher` | Custom graph queries | `gitnexus_cypher({query: "MATCH ..."})` |
+| Tool             | When to use                   | Command                                                                 |
+| ---------------- | ----------------------------- | ----------------------------------------------------------------------- |
+| `query`          | Find code by concept          | `gitnexus_query({query: "auth validation"})`                            |
+| `context`        | 360-degree view of one symbol | `gitnexus_context({name: "validateUser"})`                              |
+| `impact`         | Blast radius before editing   | `gitnexus_impact({target: "X", direction: "upstream"})`                 |
+| `detect_changes` | Pre-commit scope check        | `gitnexus_detect_changes({scope: "staged"})`                            |
+| `rename`         | Safe multi-file rename        | `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` |
+| `cypher`         | Custom graph queries          | `gitnexus_cypher({query: "MATCH ..."})`                                 |
 
 ## Impact Risk Levels
 
-| Depth | Meaning | Action |
-|-------|---------|--------|
-| d=1 | WILL BREAK — direct callers/importers | MUST update these |
-| d=2 | LIKELY AFFECTED — indirect deps | Should test |
-| d=3 | MAY NEED TESTING — transitive | Test if critical path |
+| Depth | Meaning                               | Action                |
+| ----- | ------------------------------------- | --------------------- |
+| d=1   | WILL BREAK — direct callers/importers | MUST update these     |
+| d=2   | LIKELY AFFECTED — indirect deps       | Should test           |
+| d=3   | MAY NEED TESTING — transitive         | Test if critical path |
 
 ## Resources
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/hubris/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/hubris/clusters` | All functional areas |
-| `gitnexus://repo/hubris/processes` | All execution flows |
-| `gitnexus://repo/hubris/process/{name}` | Step-by-step execution trace |
+| Resource                                | Use for                                  |
+| --------------------------------------- | ---------------------------------------- |
+| `gitnexus://repo/hubris/context`        | Codebase overview, check index freshness |
+| `gitnexus://repo/hubris/clusters`       | All functional areas                     |
+| `gitnexus://repo/hubris/processes`      | All execution flows                      |
+| `gitnexus://repo/hubris/process/{name}` | Step-by-step execution trace             |
 
 ## Self-Check Before Finishing
 
 Before completing any code modification task, verify:
+
 1. `gitnexus_impact` was run for all modified symbols
 2. No HIGH/CRITICAL risk warnings were ignored
 3. `gitnexus_detect_changes()` confirms changes match expected scope
@@ -528,16 +543,17 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 
 ## CLI
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Task                                         | Read this skill file                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
+| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
+| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
+| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
+| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
+
 - **Desktop app serves bundled frontend files from Tauri resources**:
   the Tauri shell still loads Hubris over loopback HTTP. Production
   desktop builds bundle `frontend/dist` as Tauri resources and the
@@ -554,7 +570,7 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
   file**: `.mise/tasks/dev-desktop` reuses the shared `HUBRIS_DEV_ID`
   / `HUBRIS_DEV_TMP` mechanism, waits for
   `tmp/dev-<id>.frontend.json`, then launches `cargo tauri dev
-  --config` with the actual Vite port. Keep that wrapper in sync with
+--config` with the actual Vite port. Keep that wrapper in sync with
   the Vite `devInstancePlugin()` output shape, and keep
   `desktop/src/main.rs` reading `app.config().build.dev_url` in debug
   mode instead of hardcoding a localhost port.

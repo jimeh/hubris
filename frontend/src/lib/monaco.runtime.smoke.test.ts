@@ -1,10 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 describe("monaco-editor package root", () => {
-  beforeEach(() => {
-    vi.resetModules();
-  });
-
   it("registers rich and basic languages", async () => {
     const monaco = await import("monaco-editor");
     const languageIds = new Set(

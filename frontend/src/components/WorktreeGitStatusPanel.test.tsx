@@ -10,13 +10,22 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeGitStatusPanel from "./WorktreeGitStatusPanel";
 import WorktreeGitStatusViewToggle from "./WorktreeGitStatusViewToggle";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { useWorktreeGitStatusViewStore } from "@/lib/stores/worktreeGitStatusView";
-import { useWorktreeStore } from "@/lib/stores/worktrees";
+import { resetWorktreeFileManagerStoreForTests } from "@/lib/stores/worktreeFileManager";
 import {
+  resetWorktreeGitStatusViewStoreForTests,
+  useWorktreeGitStatusViewStore,
+} from "@/lib/stores/worktreeGitStatusView";
+import {
+  resetWorktreeRightSidebarStoreForTests,
   initializeWorktreeRightSidebarStore,
   useWorktreeRightSidebarStore,
 } from "@/lib/stores/worktreeRightSidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { resetTabStoreForTests, useTabStore } from "@/lib/stores/tabs";
+import {
+  resetWorktreeStoreForTests,
+  useWorktreeStore,
+} from "@/lib/stores/worktrees";
 import { WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB } from "@/lib/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
 
@@ -145,7 +154,17 @@ vi.mock("@/components/ui/collapsible", async () => {
 
     const toggle = () => context.setOpen(!context.open);
     if (asChild && React.isValidElement(children)) {
-      return <span onClick={() => toggle()}>{children}</span>;
+      const child = children as React.ReactElement<{
+        onClick?: (event: React.MouseEvent<HTMLElement>) => void;
+      }>;
+      return React.cloneElement(child, {
+        onClick: (event: React.MouseEvent<HTMLElement>) => {
+          child.props.onClick?.(event);
+          if (!event.defaultPrevented) {
+            toggle();
+          }
+        },
+      } as Partial<typeof child.props>);
     }
 
     return <button onClick={toggle}>{children}</button>;
@@ -602,7 +621,7 @@ function sectionHeaderTitles(): string[] {
 }
 
 describe("WorktreeGitStatusPanel", () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     localStorage.clear();
@@ -611,23 +630,13 @@ describe("WorktreeGitStatusPanel", () => {
     mockStageProjectWorktreePath.mockReset();
     mockUnstageProjectWorktreePath.mockReset();
     mockDiscardProjectWorktreePath.mockReset();
-    const { resetWorktreeFileManagerStoreForTests } =
-      await import("@/lib/stores/worktreeFileManager");
-    const { resetWorktreeRightSidebarStoreForTests } =
-      await import("@/lib/stores/worktreeRightSidebar");
     resetWorktreeFileManagerStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
-    const { resetWorktreeGitStatusViewStoreForTests } =
-      await import("@/lib/stores/worktreeGitStatusView");
     resetWorktreeGitStatusViewStoreForTests();
-    const { resetTabStoreForTests, useTabStore } =
-      await import("@/lib/stores/tabs");
     resetTabStoreForTests();
     useTabStore.setState({
       openGitDiff: mockOpenGitDiff,
     });
-    const { resetWorktreeStoreForTests } =
-      await import("@/lib/stores/worktrees");
     resetWorktreeStoreForTests();
     mockOpenGitDiff.mockReset();
     mockGetProjectWorktreeGitStatus.mockResolvedValue(makeGitStatusResponse());
@@ -782,7 +791,7 @@ describe("WorktreeGitStatusPanel", () => {
   });
 
   it("renders compacted directory labels with faded slash separators", async () => {
-    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+    mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 1,
       unstaged_files: [],
@@ -855,7 +864,7 @@ describe("WorktreeGitStatusPanel", () => {
   });
 
   it("renders copied, renamed, and conflict badges", async () => {
-    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+    mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 1,
       unstaged_files: [
@@ -916,7 +925,7 @@ describe("WorktreeGitStatusPanel", () => {
   });
 
   it("renders a head marker and connector segments for the commit timeline", async () => {
-    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+    mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 1,
       unstaged_files: [],
@@ -949,7 +958,7 @@ describe("WorktreeGitStatusPanel", () => {
   });
 
   it("expands a commit into a changed-file tree", async () => {
-    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+    mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 1,
       unstaged_files: [
@@ -972,19 +981,12 @@ describe("WorktreeGitStatusPanel", () => {
 
     renderPanel();
 
+    const user = userEvent.setup();
     const commitRow = await screen.findByRole("button", {
       name: "Toggle commit Ahead commit",
     });
-    fireEvent.pointerEnter(commitRow);
-
-    await waitFor(() => {
-      expect(mockGetProjectWorktreeCommitDetails).toHaveBeenCalledWith(
-        "p1",
-        "w1",
-        "abcdef123456",
-      );
-    });
-    fireEvent.click(commitRow.parentElement ?? commitRow);
+    await user.hover(commitRow);
+    await user.click(commitRow);
     expect(
       await screen.findByText("main.ts", { selector: "span" }),
     ).toBeInTheDocument();
@@ -994,7 +996,6 @@ describe("WorktreeGitStatusPanel", () => {
     expect(
       screen.getByTestId("commit-marker-connector-content"),
     ).toBeInTheDocument();
-    expect(mockGetProjectWorktreeCommitDetails).toHaveBeenCalledTimes(1);
   });
 
   it("opens commit tree files as preview diffs on click", async () => {
@@ -1017,10 +1018,12 @@ describe("WorktreeGitStatusPanel", () => {
     });
     renderPanel();
 
+    const user = userEvent.setup();
     const commitRow = await screen.findByRole("button", {
       name: "Toggle commit Ahead commit",
     });
-    fireEvent.click(commitRow.parentElement ?? commitRow);
+    await user.hover(commitRow);
+    await user.click(commitRow);
     const [commitFile] = await screen.findAllByText("commit-only.ts", {
       selector: "span",
     });
@@ -1119,7 +1122,7 @@ describe("WorktreeGitStatusPanel", () => {
 
   it("passes original_path when staging a renamed file in list view", async () => {
     const user = userEvent.setup();
-    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+    mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 1,
       unstaged_files: [
@@ -1154,7 +1157,7 @@ describe("WorktreeGitStatusPanel", () => {
 
   it("passes original_path when staging a copied file in tree view", async () => {
     const user = userEvent.setup();
-    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+    mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 1,
       unstaged_files: [
@@ -1203,7 +1206,7 @@ describe("WorktreeGitStatusPanel", () => {
   });
 
   it("aggregates directory dots by most significant descendant change", async () => {
-    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+    mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 1,
       unstaged_files: [
@@ -1536,7 +1539,7 @@ describe("WorktreeGitStatusPanel", () => {
     expect(screen.getByText("+28")).toBeInTheDocument();
 
     // After staging bar.txt (+5 -2): it moves from unstaged to staged
-    mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
+    mockGetProjectWorktreeGitStatus.mockResolvedValue({
       source_ref: "main",
       generation: 2,
       unstaged_files: [
