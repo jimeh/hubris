@@ -25,6 +25,10 @@ pub use access::{
     DESKTOP_BOOTSTRAP_PATH, DESKTOP_SESSION_COOKIE_NAME, DesktopAccess, ServerAccess,
 };
 use access::{desktop_auth_middleware, desktop_bootstrap_handler};
+use api::code_server::{
+    check_code_server_update, get_code_server_status, install_code_server, restart_code_server,
+    start_code_server, stop_code_server,
+};
 use api::editor_themes::{
     delete_editor_theme, discover_editor_themes, get_editor_theme, import_extension_theme,
     list_editor_themes, upload_editor_theme,
@@ -274,6 +278,12 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route("/events", get(event_stream))
         .route("/terminal/ws", get(ws_handler))
         .route("/system", get(get_system_info))
+        .route("/code-server", get(get_code_server_status))
+        .route("/code-server/check-update", post(check_code_server_update))
+        .route("/code-server/install", post(install_code_server))
+        .route("/code-server/start", post(start_code_server))
+        .route("/code-server/stop", post(stop_code_server))
+        .route("/code-server/restart", post(restart_code_server))
         .route(
             "/settings",
             get(get_settings).put(put_settings).patch(patch_settings),

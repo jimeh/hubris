@@ -76,8 +76,8 @@ directory has a `bun.lock`; there is no `package-lock.json` or `pnpm-lock.yaml`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (3032 symbols, 9204
-relationships, 252 execution flows). Use the GitNexus MCP tools to understand
+This project is indexed by GitNexus as **hubris** (3047 symbols, 9207
+relationships, 253 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in
@@ -208,3 +208,10 @@ embeddings.**
 | Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
+
+## Discoveries
+
+- `code-server` release handling needs two HTTP client modes: `/releases/latest`
+  must disable redirects so version parsing can read the `Location` header, but
+  release asset downloads must follow redirects or the extractor will read
+  GitHub's redirect response instead of the tarball.

@@ -33,6 +33,7 @@ import {
 import AppearanceSettings from "./AppearanceSettings";
 import EditorSettings from "./EditorSettings";
 import TerminalSettings from "./TerminalSettings";
+import VscodeSettings from "./VscodeSettings";
 import WorktreeSettings from "./WorktreeSettings";
 import {
   sections,
@@ -131,6 +132,7 @@ export default function SettingsDialogRoot({
               {activeSection === "Appearance" ? <AppearanceSettings /> : null}
               {activeSection === "Editor" ? <EditorSettings /> : null}
               {activeSection === "Terminal" ? <TerminalSettings /> : null}
+              {activeSection === "VS Code" ? <VscodeSettings /> : null}
               {activeSection === "Worktrees" ? <WorktreeSettings /> : null}
             </div>
           </main>

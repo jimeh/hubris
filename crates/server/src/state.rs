@@ -41,7 +41,7 @@ impl AppState {
             terminal_tabs: Arc::new(DashMap::new()),
             events: events.clone(),
             next_tab_num: Arc::new(AtomicU32::new(1)),
-            code_server: Arc::new(CodeServerManager::new(data_dir.join("code"))),
+            code_server: Arc::new(CodeServerManager::new(data_dir.join("code-server"))),
             data_dir,
             settings,
             worktree_files: Arc::new(WorktreeFilesService::new(events.clone())),

@@ -9,6 +9,214 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/code-server": {
+      "get": {
+        "tags": ["crate::api::code_server"],
+        "operationId": "get_code_server_status",
+        "responses": {
+          "200": {
+            "description": "Current code-server status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeServerStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/code-server/check-update": {
+      "post": {
+        "tags": ["crate::api::code_server"],
+        "operationId": "check_code_server_update",
+        "responses": {
+          "200": {
+            "description": "Latest release checked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeServerStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported platform or invalid release metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/code-server/install": {
+      "post": {
+        "tags": ["crate::api::code_server"],
+        "operationId": "install_code_server",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallCodeServerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Installed or upgraded code-server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeServerStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported platform or invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/code-server/restart": {
+      "post": {
+        "tags": ["crate::api::code_server"],
+        "operationId": "restart_code_server",
+        "responses": {
+          "200": {
+            "description": "Restarted code-server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeServerStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "code-server is not installed or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/code-server/start": {
+      "post": {
+        "tags": ["crate::api::code_server"],
+        "operationId": "start_code_server",
+        "responses": {
+          "200": {
+            "description": "Started code-server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeServerStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "code-server is not installed or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/code-server/stop": {
+      "post": {
+        "tags": ["crate::api::code_server"],
+        "operationId": "stop_code_server",
+        "responses": {
+          "200": {
+            "description": "Stopped code-server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodeServerStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/editor-themes": {
       "get": {
         "tags": ["crate::api::editor_themes"],
@@ -1962,6 +2170,60 @@
           }
         ]
       },
+      "CodeServerLatestCheck": {
+        "type": "object",
+        "required": ["updateAvailable"],
+        "properties": {
+          "checkedAt": {
+            "type": ["string", "null"]
+          },
+          "latestVersion": {
+            "type": ["string", "null"]
+          },
+          "updateAvailable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CodeServerProcessStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "stopped",
+          "starting",
+          "stopping",
+          "installing",
+          "error"
+        ]
+      },
+      "CodeServerStatus": {
+        "type": "object",
+        "required": ["supported", "processStatus"],
+        "properties": {
+          "installedVersion": {
+            "type": ["string", "null"]
+          },
+          "latest": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CodeServerLatestCheck"
+              }
+            ]
+          },
+          "message": {
+            "type": ["string", "null"]
+          },
+          "processStatus": {
+            "$ref": "#/components/schemas/CodeServerProcessStatus"
+          },
+          "supported": {
+            "type": "boolean"
+          }
+        }
+      },
       "ColorScheme": {
         "type": "string",
         "enum": ["auto", "light", "dark"]
@@ -2302,6 +2564,14 @@
           },
           "path": {
             "type": "string"
+          }
+        }
+      },
+      "InstallCodeServerRequest": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": ["string", "null"]
           }
         }
       },
