@@ -1,13 +1,16 @@
-/target/
-/data/
-/crates/server/data/*
-!/crates/server/data/editor-themes/
-/tmp/
-/frontend/node_modules/
-/frontend/dist/
-/desktop/gen/
-/desktop/target/
-*.swp
 *.swo
+*.swp
 .DS_Store
 .gitnexus
+.vscode/settings.json
+/data/
+/desktop/gen/
+/desktop/target/
+/frontend/dist/
+/frontend/node_modules/
+/target/
+/tmp/
+
+# Ignore all data files in the server crate, except for editor themes.
+/crates/server/data/*
+!/crates/server/data/editor-themes/

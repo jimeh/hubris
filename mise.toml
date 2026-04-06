@@ -60,9 +60,13 @@ run = [
 run = "cd frontend && bun run lint && bun run check"
 description = "Frontend lint + format check + type check"
 
+[tasks."check:markdown"]
+run = "bun x prettier --check '**/*.md' '!frontend/node_modules'"
+description = "Markdown format check"
+
 [tasks.check]
 description = "Run all checks"
-depends = ["check:backend", "check:frontend"]
+depends = ["check:backend", "check:frontend", "check:markdown"]
 
 [tasks.lint]
 description = "Alias for check"
@@ -76,9 +80,13 @@ run = "cargo fmt --all"
 run = "cd frontend && bun run format"
 description = "Format frontend code"
 
+[tasks."format:markdown"]
+run = "bun x prettier --write '**/*.md' '!frontend/node_modules'"
+description = "Format Markdown files"
+
 [tasks.format]
 description = "Format all code"
-depends = ["format:backend", "format:frontend"]
+depends = ["format:backend", "format:frontend", "format:markdown"]
 
 [tasks."test:frontend"]
 run = [

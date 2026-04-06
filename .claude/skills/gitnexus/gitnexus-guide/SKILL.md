@@ -1,26 +1,33 @@
 ---
 name: gitnexus-guide
-description: "Use when the user asks about GitNexus itself — available tools, how to query the knowledge graph, MCP resources, graph schema, or workflow reference. Examples: \"What GitNexus tools are available?\", \"How do I use GitNexus?\""
+description:
+  'Use when the user asks about GitNexus itself — available tools, how to query
+  the knowledge graph, MCP resources, graph schema, or workflow reference.
+  Examples: "What GitNexus tools are available?", "How do I use GitNexus?"'
 ---
 
 # GitNexus Guide
 
-Quick reference for all GitNexus MCP tools, resources, and the knowledge graph schema.
+Quick reference for all GitNexus MCP tools, resources, and the knowledge graph
+schema.
 
 ## Always Start Here
 
-For any task involving code understanding, debugging, impact analysis, or refactoring:
+For any task involving code understanding, debugging, impact analysis, or
+refactoring:
 
-1. **Read `gitnexus://repo/{name}/context`** — codebase overview + check index freshness
+1. **Read `gitnexus://repo/{name}/context`** — codebase overview + check index
+   freshness
 2. **Match your task to a skill below** and **read that skill file**
 3. **Follow the skill's workflow and checklist**
 
-> If step 1 warns the index is stale, run `npx gitnexus analyze` in the terminal first.
+> If step 1 warns the index is stale, run `npx gitnexus analyze` in the terminal
+> first.
 
 ## Skills
 
-| Task                                         | Skill to read       |
-| -------------------------------------------- | ------------------- |
+| Task                                         | Skill to read                |
+| -------------------------------------------- | ---------------------------- |
 | Understand architecture / "How does X work?" | `gitnexus-exploring`         |
 | Blast radius / "What breaks if I change X?"  | `gitnexus-impact-analysis`   |
 | Trace bugs / "Why is X failing?"             | `gitnexus-debugging`         |
@@ -55,8 +62,9 @@ Lightweight reads (~100-500 tokens) for navigation:
 
 ## Graph Schema
 
-**Nodes:** File, Function, Class, Interface, Method, Community, Process
-**Edges (via CodeRelation.type):** CALLS, IMPORTS, EXTENDS, IMPLEMENTS, DEFINES, MEMBER_OF, STEP_IN_PROCESS
+**Nodes:** File, Function, Class, Interface, Method, Community, Process **Edges
+(via CodeRelation.type):** CALLS, IMPORTS, EXTENDS, IMPLEMENTS, DEFINES,
+MEMBER_OF, STEP_IN_PROCESS
 
 ```cypher
 MATCH (caller)-[:CodeRelation {type: 'CALLS'}]->(f:Function {name: "myFunc"})
