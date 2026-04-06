@@ -28,6 +28,10 @@ import {
   initializeSettingsStore,
   resetSettingsStoreForTests,
 } from "@/lib/stores/settings";
+import {
+  initializeSystemStore,
+  resetSystemStoreForTests,
+} from "@/lib/stores/system";
 
 let bootstrapped = false;
 
@@ -43,6 +47,7 @@ export function bootstrapApp(): void {
   initializeWorktreeFileManagerStore();
   initializeWorktreeRightSidebarStore();
   initializeSettingsStore();
+  initializeSystemStore();
 
   getEventClient().connect();
 }
@@ -57,5 +62,6 @@ export function resetBootstrapForTests(): void {
   resetWorktreeFileManagerStoreForTests();
   resetWorktreeRightSidebarStoreForTests();
   resetSettingsStoreForTests();
+  resetSystemStoreForTests();
   getEventClient().disconnect();
 }

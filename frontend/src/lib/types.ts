@@ -19,3 +19,4 @@ export type WorktreeFileContentResponse =
   components["schemas"]["WorktreeFileContentResponse"];
 export type WorktreeGitDiffResponse =
   components["schemas"]["WorktreeGitDiffResponse"];
+export type SystemInfo = components["schemas"]["SystemInfo"];

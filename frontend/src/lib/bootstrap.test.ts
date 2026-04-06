@@ -60,6 +60,11 @@ vi.mock("@/lib/stores/settings", () => ({
   resetSettingsStoreForTests: () => calls.push("reset-settings"),
 }));
 
+vi.mock("@/lib/stores/system", () => ({
+  initializeSystemStore: () => calls.push("system"),
+  resetSystemStoreForTests: () => calls.push("reset-system"),
+}));
+
 vi.mock("@/lib/events", () => ({
   getEventClient: () => ({
     on: vi.fn(() => vi.fn()),
@@ -94,6 +99,7 @@ describe("bootstrapApp", () => {
       "worktree-file-manager",
       "worktree-right-sidebar",
       "settings",
+      "system",
       "connect",
     ]);
   });
@@ -112,6 +118,7 @@ describe("bootstrapApp", () => {
       "reset-worktree-file-manager",
       "reset-worktree-right-sidebar",
       "reset-settings",
+      "reset-system",
       "disconnect",
     ]);
   });

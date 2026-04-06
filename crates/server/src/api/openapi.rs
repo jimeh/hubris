@@ -20,6 +20,7 @@ use crate::api::settings::{
     TerminalSettings, TerminalSettingsPatch, WorktreeLocationMode, WorktreeSettings,
     WorktreeSettingsPatch,
 };
+use crate::api::system::SystemInfo;
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
 use crate::api::worktrees::{
@@ -67,6 +68,7 @@ use crate::tab::{GitDiffScope, TabInfo};
         crate::api::tabs::delete_tab,
         crate::api::events::event_stream,
         crate::api::terminal::ws_handler,
+        crate::api::system::get_system_info,
         crate::api::settings::get_settings,
         crate::api::settings::put_settings,
         crate::api::settings::patch_settings,
@@ -138,6 +140,7 @@ use crate::tab::{GitDiffScope, TabInfo};
             SettingsStatusKind,
             SettingsStatus,
             SettingsState,
+            SystemInfo,
             EditorThemeEntry,
             VscodeThemeJson,
             VscodeTokenColor,

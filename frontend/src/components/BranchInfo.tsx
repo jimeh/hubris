@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, GitBranch, X } from "lucide-react";
+import { Check, ChevronsUpDown, GitBranch, X } from "lucide-react";
 import {
   type WorktreeStartPoint,
   listProjectWorktreeStartPoints,
@@ -8,6 +8,12 @@ import { tagStyle } from "@/lib/theme/tagStyle";
 import { useThemeSettings } from "@/lib/stores/theme";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import { Badge } from "@/components/ui/badge";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import {
   Command,
   CommandEmpty,
@@ -98,24 +104,18 @@ function SourceRefPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex min-w-0 cursor-pointer items-center rounded-sm px-1 py-0.5 hover:bg-accent/50"
+          className="flex max-w-48 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 hover:bg-accent/50"
           aria-label="Change target branch"
         >
           {sourceRef ? (
-            <Badge
-              variant="outline"
-              className="deterministic-tag-badge max-w-[12rem] gap-1 truncate text-xs"
-              style={tagStyle(sourceRef, "remote")}
-            >
-              <GitBranch />
-              {sourceRef}
-            </Badge>
+            <span className="truncate text-sm">{sourceRef}</span>
           ) : (
-            <span className="text-xs text-muted-foreground">Set target...</span>
+            <span className="text-sm text-muted-foreground">Set target...</span>
           )}
+          <ChevronsUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 p-0" align="end">
+      <PopoverContent className="w-72 p-0" align="start">
         <Command>
           <CommandInput placeholder="Search branches..." />
           <CommandList>
@@ -147,11 +147,11 @@ function SourceRefPicker({
                   >
                     <Badge
                       variant="outline"
-                      className="deterministic-tag-badge max-w-full gap-1 truncate text-xs"
+                      className="deterministic-tag-badge min-w-0 max-w-full gap-1 text-xs"
                       style={tagStyle(ref, kind)}
                     >
-                      <GitBranch />
-                      {ref}
+                      <GitBranch className="shrink-0 text-inherit" />
+                      <span className="truncate">{ref}</span>
                     </Badge>
                     {ref === sourceRef ? (
                       <Check className="ml-auto shrink-0" />
@@ -226,20 +226,14 @@ function BranchRenameButton({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex min-w-0 cursor-pointer items-center rounded-sm px-1 py-0.5 hover:bg-accent/50"
+          className="flex max-w-48 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 hover:bg-accent/50"
           aria-label="Rename branch"
         >
-          <Badge
-            variant="outline"
-            className="deterministic-tag-badge max-w-[12rem] gap-1 truncate text-xs"
-            style={tagStyle(branch)}
-          >
-            <GitBranch />
-            {branch}
-          </Badge>
+          <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate text-sm text-foreground">{branch}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-3" align="end">
+      <PopoverContent className="w-64 p-3" align="start">
         <div className="flex flex-col gap-2">
           <p className="text-xs font-medium">Rename branch</p>
           <Input
@@ -281,21 +275,35 @@ export default function BranchInfo({
   const themeVersion = useThemeSettings((state) => state.version);
 
   return (
-    <div
-      className="flex items-center gap-0.5"
-      data-theme-version={themeVersion}
-    >
-      <SourceRefPicker
-        projectId={projectId}
-        worktreeId={worktreeId}
-        sourceRef={sourceRef}
-      />
-      <ArrowLeft className="size-3 shrink-0 text-muted-foreground" />
-      <BranchRenameButton
-        projectId={projectId}
-        worktreeId={worktreeId}
-        branch={branch}
-      />
+    <div data-theme-version={themeVersion}>
+      {/* Mobile stacked layout */}
+      <div className="flex min-w-0 items-center md:hidden">
+        <BranchRenameButton
+          projectId={projectId}
+          worktreeId={worktreeId}
+          branch={branch}
+        />
+      </div>
+      {/* Desktop breadcrumb layout */}
+      <Breadcrumb className="hidden md:block">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BranchRenameButton
+              projectId={projectId}
+              worktreeId={worktreeId}
+              branch={branch}
+            />
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <SourceRefPicker
+              projectId={projectId}
+              worktreeId={worktreeId}
+              sourceRef={sourceRef}
+            />
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
     </div>
   );
 }

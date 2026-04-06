@@ -446,6 +446,23 @@ export interface paths {
     patch: operations["patch_settings"];
     trace?: never;
   };
+  "/api/system": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Return static system information. */
+    get: operations["get_system_info"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/tabs": {
     parameters: {
       query?: never;
@@ -777,6 +794,11 @@ export interface components {
       remote_refs: string[];
       sha: string;
       value: string;
+    };
+    /** @description Static system information that does not change at runtime. */
+    SystemInfo: {
+      /** @description The current user's home directory, if available. */
+      home_dir?: string | null;
     };
     TabInfo:
       | {
@@ -2526,6 +2548,26 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  get_system_info: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description System information */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SystemInfo"];
+        };
       };
     };
   };
