@@ -249,6 +249,12 @@ No periodic reconciliation — drift corrects on reconnect.
   `project_worktrees_updated` event coverage. Keep reducer-style SSE assertions
   in the store suite unless a true end-to-end sidebar regression needs a
   component-level check.
+- **Hot Vitest suites should avoid per-test dynamic imports**:
+  repeatedly calling `await import(...)` for App/store modules inside
+  `beforeEach` or hot-path tests adds enough module/init overhead to slow the
+  frontend suite and can push already-busy runs into timeout/flake territory.
+  Prefer eager top-level imports in broad component/store suites unless a test
+  truly needs module re-evaluation semantics.
 - **Settings store tests must clean up `matchMedia` listeners**:
   `frontend/src/lib/stores/settings.ts` binds a singleton
   `prefers-color-scheme` listener on initialize. Tests that reset and
@@ -434,7 +440,7 @@ No periodic reconciliation — drift corrects on reconnect.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (2967 symbols, 9024 relationships, 247 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hubris** (2989 symbols, 9060 relationships, 249 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

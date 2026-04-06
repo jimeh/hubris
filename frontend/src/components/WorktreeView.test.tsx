@@ -9,6 +9,25 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
 import type { FileTab, GitDiffTab, TerminalTab, Worktree } from "@/lib/types";
+import WorktreeView from "./WorktreeView";
+import {
+  resetFileEditorStoreForTests,
+  useFileEditorStore,
+} from "@/lib/stores/fileEditorTabs";
+import {
+  resetGitDiffStoreForTests,
+  useGitDiffStore,
+} from "@/lib/stores/gitDiffTabs";
+import { resetTabStoreForTests, useTabStore } from "@/lib/stores/tabs";
+import {
+  initializeWorktreeRightSidebarStore,
+  resetWorktreeRightSidebarStoreForTests,
+  useWorktreeRightSidebarStore,
+} from "@/lib/stores/worktreeRightSidebar";
+import {
+  resetWorktreeRightSidebarWidthStoreForTests,
+  useWorktreeRightSidebarWidthStore,
+} from "@/lib/stores/worktreeRightSidebarWidth";
 
 const terminalRenderSpy = vi.fn<(tabId: string) => void>();
 
@@ -155,24 +174,11 @@ function deferred<T>() {
 }
 
 describe("WorktreeView", () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.restoreAllMocks();
     terminalRenderSpy.mockClear();
     localStorage.clear();
     setMobile(false);
-
-    const { resetTabStoreForTests, useTabStore } =
-      await import("@/lib/stores/tabs");
-    const {
-      initializeWorktreeRightSidebarStore,
-      resetWorktreeRightSidebarStoreForTests,
-    } = await import("@/lib/stores/worktreeRightSidebar");
-    const { resetFileEditorStoreForTests } =
-      await import("@/lib/stores/fileEditorTabs");
-    const { resetGitDiffStoreForTests } =
-      await import("@/lib/stores/gitDiffTabs");
-    const { resetWorktreeRightSidebarWidthStoreForTests } =
-      await import("@/lib/stores/worktreeRightSidebarWidth");
     resetTabStoreForTests();
     resetFileEditorStoreForTests();
     resetGitDiffStoreForTests();
@@ -187,8 +193,6 @@ describe("WorktreeView", () => {
   });
 
   it("does not rerender terminal tabs when sibling tabs are added", async () => {
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { default: WorktreeView } = await import("./WorktreeView");
     const worktree = makeWorktree();
 
     useTabStore.setState({
@@ -214,8 +218,6 @@ describe("WorktreeView", () => {
   });
 
   it("does not rerender when tabs change in another worktree", async () => {
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { default: WorktreeView } = await import("./WorktreeView");
     const worktree = makeWorktree();
 
     useTabStore.setState({
@@ -243,8 +245,6 @@ describe("WorktreeView", () => {
   });
 
   it("does not rerender terminal tabs when worktree tabs reorder", async () => {
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { default: WorktreeView } = await import("./WorktreeView");
     const worktree = makeWorktree();
 
     useTabStore.setState({
@@ -276,13 +276,7 @@ describe("WorktreeView", () => {
   });
 
   it("updates right sidebar width without rerendering terminal tabs", async () => {
-    const { default: WorktreeView } = await import("./WorktreeView");
     const worktree = makeWorktree();
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { useWorktreeRightSidebarStore } =
-      await import("@/lib/stores/worktreeRightSidebar");
-    const { useWorktreeRightSidebarWidthStore } =
-      await import("@/lib/stores/worktreeRightSidebarWidth");
 
     useTabStore.setState({
       tabs: [makeTab("a", worktree.id, { position: 1 })],
@@ -421,8 +415,6 @@ describe("WorktreeView", () => {
   });
 
   it("renders the right sidebar in hubris mode", async () => {
-    const { default: WorktreeView } = await import("./WorktreeView");
-
     render(<WorktreeView worktree={makeWorktree()} active />);
 
     expect(
@@ -432,9 +424,6 @@ describe("WorktreeView", () => {
   });
 
   it("does not rerender terminal tabs when file editor sessions change", async () => {
-    const { default: WorktreeView } = await import("./WorktreeView");
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
     const worktree = makeWorktree();
 
     useTabStore.setState({
@@ -476,9 +465,6 @@ describe("WorktreeView", () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const saveAttempt = deferred<void>();
     const saveSpy = vi.fn().mockReturnValue(saveAttempt.promise);
-    const { default: WorktreeView } = await import("./WorktreeView");
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
     const worktree = makeWorktree();
     const fileTab = makeFileTab("file-1", worktree.id);
 
@@ -553,9 +539,6 @@ describe("WorktreeView", () => {
   it("closes the dirty git diff tab after a successful save", async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const saveAttempt = deferred<void>();
-    const { default: WorktreeView } = await import("./WorktreeView");
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { useGitDiffStore } = await import("@/lib/stores/gitDiffTabs");
     const worktree = makeWorktree();
     const diffTab = makeGitDiffTab("diff-1", worktree.id, {
       path: "README.md",
@@ -638,9 +621,6 @@ describe("WorktreeView", () => {
   it("closes the dirty file tab after a successful save", async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const saveAttempt = deferred<void>();
-    const { default: WorktreeView } = await import("./WorktreeView");
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
     const worktree = makeWorktree();
     const fileTab = makeFileTab("file-1", worktree.id);
     const saveSpy = vi.fn().mockImplementation(async () => {
@@ -726,9 +706,6 @@ describe("WorktreeView", () => {
   it("does not allow cancel or discard to race a pending save", async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const saveAttempt = deferred<void>();
-    const { default: WorktreeView } = await import("./WorktreeView");
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
     const worktree = makeWorktree();
     const fileTab = makeFileTab("file-race", worktree.id);
     const saveSpy = vi.fn().mockImplementation(async () => {
@@ -815,9 +792,6 @@ describe("WorktreeView", () => {
 
   it("uses the current tab store snapshot when deciding whether close needs confirmation", async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
-    const { default: WorktreeView } = await import("./WorktreeView");
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { useFileEditorStore } = await import("@/lib/stores/fileEditorTabs");
     const worktree = makeWorktree();
     const fileTab = makeFileTab("shared-id", worktree.id);
 

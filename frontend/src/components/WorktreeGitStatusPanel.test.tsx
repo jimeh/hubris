@@ -27,6 +27,424 @@ const mockUnstageProjectWorktreePath = vi.fn();
 const mockDiscardProjectWorktreePath = vi.fn();
 const mockOpenGitDiff = vi.fn();
 
+vi.mock("sonner", () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/materialIconTheme", () => ({
+  resolveMaterialFileIcon: (path: string) => ({
+    iconPath: `/icons/${path.split("/").pop() ?? "file"}.svg`,
+    iconId: "test-file",
+  }),
+  resolveMaterialFolderIcon: (
+    name: string,
+    _theme: unknown,
+    open: boolean,
+  ) => ({
+    iconPath: `/icons/${name}.svg`,
+    iconId: open ? "test-folder-open" : "test-folder-closed",
+  }),
+}));
+
+vi.mock("@/lib/stores/theme", () => ({
+  useThemeSettings: <T,>(selector: (state: { activeTheme: null }) => T) =>
+    selector({ activeTheme: null }),
+}));
+
+vi.mock("@/components/ui/button", () => ({
+  Button: ({
+    children,
+    type = "button",
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type={type} {...props}>
+      {children}
+    </button>
+  ),
+}));
+
+vi.mock("@/components/ui/badge", () => ({
+  Badge: ({ children, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span {...props}>{children}</span>
+  ),
+}));
+
+vi.mock("@/components/ui/separator", () => ({
+  Separator: (props: React.HTMLAttributes<HTMLHRElement>) => <hr {...props} />,
+}));
+
+vi.mock("@/components/ui/skeleton", () => ({
+  Skeleton: ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+    <div data-slot="skeleton" className={className} {...props} />
+  ),
+}));
+
+vi.mock("@/components/ui/scroll-area", () => ({
+  ScrollArea: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+}));
+
+vi.mock("@/components/ui/sidebar", () => ({
+  SidebarProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  SidebarMenu: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  SidebarMenuItem: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+}));
+
+vi.mock("@/components/ui/collapsible", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+
+  type CollapsibleContextValue = {
+    open: boolean;
+    setOpen: (open: boolean) => void;
+  };
+
+  const CollapsibleContext =
+    React.createContext<CollapsibleContextValue | null>(null);
+
+  function Collapsible({
+    open,
+    onOpenChange,
+    children,
+    ...props
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    children: React.ReactNode;
+  } & React.HTMLAttributes<HTMLDivElement>) {
+    return (
+      <CollapsibleContext.Provider value={{ open, setOpen: onOpenChange }}>
+        <div {...props}>{children}</div>
+      </CollapsibleContext.Provider>
+    );
+  }
+
+  function CollapsibleTrigger({
+    asChild,
+    children,
+  }: {
+    asChild?: boolean;
+    children: React.ReactNode;
+  }) {
+    const context = React.useContext(CollapsibleContext);
+    if (!context) {
+      return <>{children}</>;
+    }
+
+    const toggle = () => context.setOpen(!context.open);
+    if (asChild && React.isValidElement(children)) {
+      return <span onClick={() => toggle()}>{children}</span>;
+    }
+
+    return <button onClick={toggle}>{children}</button>;
+  }
+
+  function CollapsibleContent({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) {
+    const context = React.useContext(CollapsibleContext);
+    if (!context?.open) {
+      return null;
+    }
+    return <div {...props}>{children}</div>;
+  }
+
+  return {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+  };
+});
+
+vi.mock("@/components/ui/context-menu", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+
+  type ContextMenuValue = {
+    open: boolean;
+    setOpen: (open: boolean) => void;
+  };
+
+  const ContextMenuState = React.createContext<ContextMenuValue | null>(null);
+
+  function mergeHandler<T extends React.SyntheticEvent>(
+    existing: ((event: T) => void) | undefined,
+    next: (event: T) => void,
+  ) {
+    return (event: T) => {
+      existing?.(event);
+      if (!event.defaultPrevented) {
+        next(event);
+      }
+    };
+  }
+
+  function ContextMenu({ children }: { children: React.ReactNode }) {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <ContextMenuState.Provider value={{ open, setOpen }}>
+        {children}
+      </ContextMenuState.Provider>
+    );
+  }
+
+  function ContextMenuTrigger({
+    asChild,
+    children,
+  }: {
+    asChild?: boolean;
+    children: React.ReactNode;
+  }) {
+    const context = React.useContext(ContextMenuState);
+    if (!context) {
+      return <>{children}</>;
+    }
+
+    const openMenu = (event: React.MouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      context.setOpen(true);
+    };
+
+    if (asChild && React.isValidElement(children)) {
+      const child = children as React.ReactElement<{
+        onContextMenu?: (event: React.MouseEvent<HTMLElement>) => void;
+      }>;
+      return React.cloneElement(child, {
+        onContextMenu: mergeHandler(child.props.onContextMenu, openMenu),
+      } as Partial<typeof child.props>);
+    }
+
+    return <div onContextMenu={openMenu}>{children}</div>;
+  }
+
+  function ContextMenuContent({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) {
+    const context = React.useContext(ContextMenuState);
+    if (!context?.open) {
+      return null;
+    }
+    return (
+      <div role="menu" {...props}>
+        {children}
+      </div>
+    );
+  }
+
+  function ContextMenuItem({
+    children,
+    onSelect,
+    onClick,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    onSelect?: () => void;
+  }) {
+    const context = React.useContext(ContextMenuState);
+
+    return (
+      <button
+        role="menuitem"
+        onClick={(event) => {
+          onClick?.(event);
+          if (!event.defaultPrevented) {
+            onSelect?.();
+            context?.setOpen(false);
+          }
+        }}
+        {...props}
+      >
+        {children}
+      </button>
+    );
+  }
+
+  return {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuTrigger,
+  };
+});
+
+vi.mock("@/components/ui/hover-card", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+
+  type HoverCardValue = {
+    open: boolean;
+    setOpen: (open: boolean) => void;
+  };
+
+  const HoverCardState = React.createContext<HoverCardValue | null>(null);
+
+  function mergeHandler<T extends React.SyntheticEvent>(
+    existing: ((event: T) => void) | undefined,
+    next: (event: T) => void,
+  ) {
+    return (event: T) => {
+      existing?.(event);
+      if (!event.defaultPrevented) {
+        next(event);
+      }
+    };
+  }
+
+  function HoverCard({ children }: { children: React.ReactNode }) {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <HoverCardState.Provider value={{ open, setOpen }}>
+        {children}
+      </HoverCardState.Provider>
+    );
+  }
+
+  function HoverCardTrigger({
+    asChild,
+    children,
+  }: {
+    asChild?: boolean;
+    children: React.ReactNode;
+  }) {
+    const context = React.useContext(HoverCardState);
+    if (!context) {
+      return <>{children}</>;
+    }
+
+    const open = () => context.setOpen(true);
+    const close = () => context.setOpen(false);
+
+    if (asChild && React.isValidElement(children)) {
+      const child = children as React.ReactElement<{
+        onPointerEnter?: (event: React.PointerEvent<HTMLElement>) => void;
+        onPointerLeave?: (event: React.PointerEvent<HTMLElement>) => void;
+        onFocus?: (event: React.FocusEvent<HTMLElement>) => void;
+        onBlur?: (event: React.FocusEvent<HTMLElement>) => void;
+      }>;
+      return React.cloneElement(child, {
+        onPointerEnter: mergeHandler(child.props.onPointerEnter, () => open()),
+        onPointerLeave: mergeHandler(child.props.onPointerLeave, () => close()),
+        onFocus: mergeHandler(child.props.onFocus, () => open()),
+        onBlur: mergeHandler(child.props.onBlur, () => close()),
+      } as Partial<typeof child.props>);
+    }
+
+    return <div>{children}</div>;
+  }
+
+  function HoverCardContent({
+    children,
+    side: _side,
+    align: _align,
+    sideOffset: _sideOffset,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement> & {
+    side?: string;
+    align?: string;
+    sideOffset?: number;
+  }) {
+    const context = React.useContext(HoverCardState);
+    if (!context?.open) {
+      return null;
+    }
+    return <div {...props}>{children}</div>;
+  }
+
+  return {
+    HoverCard,
+    HoverCardContent,
+    HoverCardTrigger,
+  };
+});
+
+vi.mock("@/components/ui/alert-dialog", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+
+  const AlertDialogState = React.createContext<
+    ((open: boolean) => void) | null
+  >(null);
+
+  function AlertDialog({
+    open,
+    onOpenChange,
+    children,
+  }: {
+    open: boolean;
+    onOpenChange?: (open: boolean) => void;
+    children: React.ReactNode;
+  }) {
+    return open ? (
+      <AlertDialogState.Provider value={onOpenChange ?? null}>
+        <div>{children}</div>
+      </AlertDialogState.Provider>
+    ) : null;
+  }
+
+  function passthrough(tag: string) {
+    return function Component({
+      children,
+      ...props
+    }: React.HTMLAttributes<HTMLElement>) {
+      return React.createElement(tag, props, children);
+    };
+  }
+
+  function AlertDialogAction({
+    children,
+    onClick,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+    return (
+      <button onClick={onClick} {...props}>
+        {children}
+      </button>
+    );
+  }
+
+  function AlertDialogCancel({
+    children,
+    onClick,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+    const onOpenChange = React.useContext(AlertDialogState);
+    return (
+      <button
+        onClick={(event) => {
+          onClick?.(event);
+          if (!event.defaultPrevented) {
+            onOpenChange?.(false);
+          }
+        }}
+        {...props}
+      >
+        {children}
+      </button>
+    );
+  }
+
+  return {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent: passthrough("div"),
+    AlertDialogDescription: passthrough("p"),
+    AlertDialogFooter: passthrough("div"),
+    AlertDialogHeader: passthrough("div"),
+    AlertDialogTitle: passthrough("h2"),
+  };
+});
+
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
@@ -557,9 +975,19 @@ describe("WorktreeGitStatusPanel", () => {
     const commitRow = await screen.findByRole("button", {
       name: "Toggle commit Ahead commit",
     });
-    fireEvent.click(commitRow);
+    fireEvent.pointerEnter(commitRow);
 
-    expect(await screen.findByText("main.ts")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockGetProjectWorktreeCommitDetails).toHaveBeenCalledWith(
+        "p1",
+        "w1",
+        "abcdef123456",
+      );
+    });
+    fireEvent.click(commitRow.parentElement ?? commitRow);
+    expect(
+      await screen.findByText("main.ts", { selector: "span" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Toggle src/nested" }),
     ).toBeVisible();
@@ -592,16 +1020,17 @@ describe("WorktreeGitStatusPanel", () => {
     const commitRow = await screen.findByRole("button", {
       name: "Toggle commit Ahead commit",
     });
-    fireEvent.click(commitRow);
-
-    const commitFile = await screen.findByText("commit-only.ts");
+    fireEvent.click(commitRow.parentElement ?? commitRow);
+    const [commitFile] = await screen.findAllByText("commit-only.ts", {
+      selector: "span",
+    });
     expect(commitFile).toBeTruthy();
     if (!commitFile) {
       throw new Error("Commit diff row not found");
     }
     fireEvent.click(commitFile);
 
-    expect(mockOpenGitDiff).toHaveBeenCalledWith({
+    expect(mockOpenGitDiff).toHaveBeenNthCalledWith(1, {
       worktreeId: "w1",
       path: "src/commit-only.ts",
       scope: "commit",
@@ -609,41 +1038,9 @@ describe("WorktreeGitStatusPanel", () => {
       commitId: "abcdef123456",
       preview: true,
     });
-  });
-
-  it("pins commit tree diffs on double click", async () => {
-    mockGetProjectWorktreeCommitDetails.mockResolvedValueOnce({
-      id: "abcdef123456",
-      short_id: "abcdef1",
-      summary: "Ahead commit",
-      message: "Ahead commit\n\nMore context",
-      author: {
-        name: "Author Example",
-        email: "author@example.com",
-        date: "2026-03-19T12:00:00+00:00",
-      },
-      committer: {
-        name: "Committer Example",
-        email: "committer@example.com",
-        date: "2026-03-19T12:30:00+00:00",
-      },
-      files: [{ path: "src/commit-only.ts", change_type: "modified" }],
-    });
-    renderPanel();
-
-    const commitRow = await screen.findByRole("button", {
-      name: "Toggle commit Ahead commit",
-    });
-    fireEvent.click(commitRow);
-
-    const commitFile = await screen.findByText("commit-only.ts");
-    expect(commitFile).toBeTruthy();
-    if (!commitFile) {
-      throw new Error("Commit diff row not found");
-    }
     fireEvent.doubleClick(commitFile);
 
-    expect(mockOpenGitDiff).toHaveBeenCalledWith({
+    expect(mockOpenGitDiff).toHaveBeenNthCalledWith(2, {
       worktreeId: "w1",
       path: "src/commit-only.ts",
       scope: "commit",

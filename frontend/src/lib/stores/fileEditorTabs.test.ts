@@ -2,6 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiStatusError } from "@/lib/api";
 import type { EventHandler, SseEventName } from "@/lib/events";
+import {
+  initializeFileEditorStore,
+  resetFileEditorStoreForTests,
+  useFileEditorStore,
+} from "./fileEditorTabs";
+import { useTabStore } from "./tabs";
 
 const mockSaveProjectWorktreeFileContent = vi.fn();
 const mockGetProjectWorktreeFileContent = vi.fn();
@@ -53,11 +59,10 @@ vi.mock("@/lib/events", async () => {
   };
 });
 
-async function getStore() {
-  const mod = await import("./fileEditorTabs");
-  mod.resetFileEditorStoreForTests();
-  mod.initializeFileEditorStore();
-  return mod;
+function getStore() {
+  resetFileEditorStoreForTests();
+  initializeFileEditorStore();
+  return { useFileEditorStore };
 }
 
 function deferred<T>() {
@@ -80,7 +85,7 @@ describe("fileEditorTabs store", () => {
   });
 
   it("keeps newer draft edits dirty when an older save resolves", async () => {
-    const { useFileEditorStore } = await getStore();
+    const { useFileEditorStore } = getStore();
     mockSaveProjectWorktreeFileContent.mockImplementation(async () => {
       useFileEditorStore.getState().updateDraft("file-1", "draft-2");
       return { version_token: "v2" };
@@ -125,7 +130,7 @@ describe("fileEditorTabs store", () => {
   }, 10_000);
 
   it("does not recreate a discarded session when save finishes later", async () => {
-    const { useFileEditorStore } = await getStore();
+    const { useFileEditorStore } = getStore();
     const saveRequest = deferred<{ version_token: string }>();
     mockSaveProjectWorktreeFileContent.mockImplementation(
       () => saveRequest.promise,
@@ -164,7 +169,7 @@ describe("fileEditorTabs store", () => {
   });
 
   it("does not recreate a discarded session when ensureLoaded succeeds later", async () => {
-    const { useFileEditorStore } = await getStore();
+    const { useFileEditorStore } = getStore();
     const loadRequest = deferred<{
       content: string;
       version_token: string;
@@ -206,7 +211,7 @@ describe("fileEditorTabs store", () => {
   });
 
   it("does not recreate a discarded session when ensureLoaded fails later", async () => {
-    const { useFileEditorStore } = await getStore();
+    const { useFileEditorStore } = getStore();
     const loadRequest = deferred<never>();
     mockGetProjectWorktreeFileContent.mockImplementation(
       () => loadRequest.promise,
@@ -236,7 +241,7 @@ describe("fileEditorTabs store", () => {
   });
 
   it("marks external changes on save conflict without dropping the latest draft", async () => {
-    const { useFileEditorStore } = await getStore();
+    const { useFileEditorStore } = getStore();
     mockSaveProjectWorktreeFileContent.mockRejectedValue(
       new ApiStatusError(409, "conflict"),
     );
@@ -277,7 +282,7 @@ describe("fileEditorTabs store", () => {
   });
 
   it("preserves session object identity when snapshot pruning is a no-op", async () => {
-    const { useFileEditorStore } = await getStore();
+    const { useFileEditorStore } = getStore();
     const session = {
       tabId: "file-1",
       path: "src/main.ts",
@@ -319,7 +324,7 @@ describe("fileEditorTabs store", () => {
   });
 
   it("prunes only stale file sessions on snapshot", async () => {
-    const { useFileEditorStore } = await getStore();
+    const { useFileEditorStore } = getStore();
     const keptSession = {
       tabId: "file-1",
       path: "src/main.ts",
@@ -363,8 +368,7 @@ describe("fileEditorTabs store", () => {
   });
 
   it("does not recreate a discarded session when reload fails later", async () => {
-    const { useFileEditorStore } = await getStore();
-    const { useTabStore } = await import("./tabs");
+    const { useFileEditorStore } = getStore();
     const reloadRequest = deferred<unknown>();
     mockGetProjectWorktreeFileContent.mockImplementation(
       () => reloadRequest.promise,
