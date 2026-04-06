@@ -255,6 +255,12 @@ No periodic reconciliation — drift corrects on reconnect.
   frontend suite and can push already-busy runs into timeout/flake territory.
   Prefer eager top-level imports in broad component/store suites unless a test
   truly needs module re-evaluation semantics.
+- **Eager-import Vitest mocks may need `vi.hoisted(...)` state**:
+  when a test switches from lazy `await import(...)` to top-level imports,
+  any `vi.mock()` factory that closes over shared spies/classes can trip
+  hoisting order errors (`Cannot access ... before initialization`). Move that
+  shared mock state into `vi.hoisted(...)` instead of falling back to dynamic
+  imports.
 - **The Monaco package-root runtime check lives in a smoke lane**:
   `frontend/src/lib/monaco.runtime.smoke.test.ts` is intentionally excluded
   from the default `bun run test` unit suite and runs via `bun run test:smoke`

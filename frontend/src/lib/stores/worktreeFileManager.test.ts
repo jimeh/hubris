@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventData, SseEventName } from "@/lib/events";
+import { ApiStatusError } from "@/lib/api";
+import {
+  initializeWorktreeFileManagerStore,
+  resetWorktreeFileManagerStoreForTests,
+  useWorktreeFileManagerStore,
+} from "./worktreeFileManager";
 
 const mockListProjectWorktreeFiles = vi.fn();
 const mockGetProjectWorktreeGitStatus = vi.fn();
@@ -59,18 +65,16 @@ function createDeferred<T>() {
   return { promise, resolve };
 }
 
-async function getStore() {
-  const mod = await import("./worktreeFileManager");
-  mod.initializeWorktreeFileManagerStore();
-  mod.resetWorktreeFileManagerStoreForTests();
-  mod.initializeWorktreeFileManagerStore();
-  return mod.useWorktreeFileManagerStore;
+function getStore() {
+  initializeWorktreeFileManagerStore();
+  resetWorktreeFileManagerStoreForTests();
+  initializeWorktreeFileManagerStore();
+  return useWorktreeFileManagerStore;
 }
 
 describe("worktree file manager store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.resetModules();
     eventHandlers.clear();
     mockListProjectWorktreeFiles.mockReset();
     mockGetProjectWorktreeGitStatus.mockReset();
@@ -671,7 +675,6 @@ describe("worktree file manager store", () => {
 
   it("prunes removed direct child subtrees when a parent listing refreshes", async () => {
     const store = await getStore();
-    const { ApiStatusError } = await import("@/lib/api");
     mockListProjectWorktreeFiles.mockImplementation(
       async (_projectId: string, _worktreeId: string, path = "") => {
         if (path === "tmp2") {
@@ -841,7 +844,6 @@ describe("worktree file manager store", () => {
   it("retries a transient 404 once before keeping a directory loaded", async () => {
     vi.useFakeTimers();
     const store = await getStore();
-    const { ApiStatusError } = await import("@/lib/api");
 
     mockListProjectWorktreeFiles.mockResolvedValueOnce({
       generation: 1,
@@ -877,7 +879,6 @@ describe("worktree file manager store", () => {
   it("removes a directory entry after a second 404 confirms it is gone", async () => {
     vi.useFakeTimers();
     const store = await getStore();
-    const { ApiStatusError } = await import("@/lib/api");
 
     mockListProjectWorktreeFiles.mockImplementation(
       async (_projectId: string, _worktreeId: string, path = "") => {

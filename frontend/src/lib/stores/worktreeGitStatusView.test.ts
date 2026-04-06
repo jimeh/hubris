@@ -1,19 +1,21 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resetWorktreeGitStatusViewStoreForTests,
+  useWorktreeGitStatusViewStore,
+} from "./worktreeGitStatusView";
 
 const LS_VIEW_MODE_BY_WORKTREE =
   "hubris-worktree-git-status-view-mode-by-worktree";
 
-async function getStore() {
-  const mod = await import("./worktreeGitStatusView");
-  mod.resetWorktreeGitStatusViewStoreForTests();
-  return mod.useWorktreeGitStatusViewStore;
+function getStore() {
+  resetWorktreeGitStatusViewStoreForTests();
+  return useWorktreeGitStatusViewStore;
 }
 
 describe("Worktree git status view store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.resetModules();
     localStorage.clear();
   });
 

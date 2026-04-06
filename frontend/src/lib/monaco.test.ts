@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { configureMonaco, resetMonacoForTests } from "./monaco";
 
-const loaderConfig = vi.fn();
-const monacoStub = {
-  editor: {
-    defineTheme: vi.fn(),
-    getModel: vi.fn(),
-    setTheme: vi.fn(),
+const { loaderConfig, monacoStub } = vi.hoisted(() => ({
+  loaderConfig: vi.fn(),
+  monacoStub: {
+    editor: {
+      defineTheme: vi.fn(),
+      getModel: vi.fn(),
+      setTheme: vi.fn(),
+    },
   },
-};
+}));
 
 vi.mock("@monaco-editor/react", () => ({
   loader: {
@@ -35,15 +38,13 @@ vi.mock("monaco-editor/esm/vs/language/typescript/ts.worker?worker", () => ({
 
 describe("configureMonaco", () => {
   beforeEach(() => {
-    vi.resetModules();
     loaderConfig.mockReset();
+    resetMonacoForTests();
   });
 
-  it("configures the loader with the package-root Monaco instance", async () => {
-    const mod = await import("./monaco");
-
-    mod.configureMonaco();
-    mod.configureMonaco();
+  it("configures the loader with the package-root Monaco instance", () => {
+    configureMonaco();
+    configureMonaco();
 
     expect(loaderConfig).toHaveBeenCalledTimes(1);
     expect(loaderConfig).toHaveBeenCalledWith({ monaco: monacoStub });

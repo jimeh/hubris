@@ -33,7 +33,7 @@ vi.mock("@/components/SidebarResizeHandle", () => ({
   default: () => null,
 }));
 
-vi.mock("@/components/AppSidebar", async () => {
+vi.mock("@/components/AppSidebar", () => {
   function MockSidebar() {
     const worktreesByProject = useWorktreeStore(
       (state) => state.worktreesByProject,

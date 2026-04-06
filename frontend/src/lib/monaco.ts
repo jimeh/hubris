@@ -132,6 +132,17 @@ export function applyMonacoTheme(
   monaco.editor.setTheme(HUBRIS_THEME_NAME);
 }
 
+/**
+ * Reset module-level Monaco configuration state for tests.
+ */
+export function resetMonacoForTests(): void {
+  configured = false;
+  appliedThemeSignature = null;
+  if (typeof window !== "undefined") {
+    delete window.MonacoEnvironment;
+  }
+}
+
 export function getFileModelPath(worktreeId: string, tab: FileTab): string {
   return `hubris-file:///${worktreeId}/${tab.id}?path=${encodeURIComponent(
     tab.path,

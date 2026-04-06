@@ -1,36 +1,47 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createXtermAdapter } from "./xterm";
 
-const terminalInstances: MockTerminal[] = [];
-const fitAddonInstances: MockFitAddon[] = [];
+const { terminalInstances, fitAddonInstances, MockTerminal, MockFitAddon } =
+  vi.hoisted(() => {
+    const terminalInstances: MockTerminal[] = [];
+    const fitAddonInstances: MockFitAddon[] = [];
 
-class MockTerminal {
-  options: Record<string, unknown>;
-  rows = 24;
-  cols = 80;
-  loadAddon = vi.fn();
-  open = vi.fn();
-  write = vi.fn();
-  onData = vi.fn(() => ({ dispose: vi.fn() }));
-  onBinary = vi.fn(() => ({ dispose: vi.fn() }));
-  resize = vi.fn();
-  focus = vi.fn();
-  reset = vi.fn();
-  dispose = vi.fn();
+    class MockTerminal {
+      options: Record<string, unknown>;
+      rows = 24;
+      cols = 80;
+      loadAddon = vi.fn();
+      open = vi.fn();
+      write = vi.fn();
+      onData = vi.fn(() => ({ dispose: vi.fn() }));
+      onBinary = vi.fn(() => ({ dispose: vi.fn() }));
+      resize = vi.fn();
+      focus = vi.fn();
+      reset = vi.fn();
+      dispose = vi.fn();
 
-  constructor(options: Record<string, unknown>) {
-    this.options = options;
-    terminalInstances.push(this);
-  }
-}
+      constructor(options: Record<string, unknown>) {
+        this.options = options;
+        terminalInstances.push(this);
+      }
+    }
 
-class MockFitAddon {
-  proposeDimensions = vi.fn(() => ({ cols: 132, rows: 41 }));
+    class MockFitAddon {
+      proposeDimensions = vi.fn(() => ({ cols: 132, rows: 41 }));
 
-  constructor() {
-    fitAddonInstances.push(this);
-  }
-}
+      constructor() {
+        fitAddonInstances.push(this);
+      }
+    }
+
+    return {
+      terminalInstances,
+      fitAddonInstances,
+      MockTerminal,
+      MockFitAddon,
+    };
+  });
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: MockTerminal,
@@ -56,22 +67,19 @@ describe("createXtermAdapter", () => {
   beforeEach(() => {
     terminalInstances.length = 0;
     fitAddonInstances.length = 0;
-    vi.resetModules();
   });
 
   afterEach(() => {
     document.documentElement.removeAttribute("style");
   });
 
-  it("returns proposed viewport dimensions without fitting locally", async () => {
-    const { createXtermAdapter } = await import("./xterm");
+  it("returns proposed viewport dimensions without fitting locally", () => {
     const adapter = createXtermAdapter();
 
     expect(adapter.measureViewport()).toEqual({ cols: 132, rows: 41 });
   });
 
-  it("updates font without forcing a local fit", async () => {
-    const { createXtermAdapter } = await import("./xterm");
+  it("updates font without forcing a local fit", () => {
     const adapter = createXtermAdapter();
     const terminal = terminalInstances[0];
     const fitAddon = fitAddonInstances[0];
@@ -83,8 +91,7 @@ describe("createXtermAdapter", () => {
     expect(fitAddon.proposeDimensions).not.toHaveBeenCalled();
   });
 
-  it("exposes xterm binary input events", async () => {
-    const { createXtermAdapter } = await import("./xterm");
+  it("exposes xterm binary input events", () => {
     const adapter = createXtermAdapter();
     const terminal = terminalInstances[0];
     const onBinary = vi.fn();

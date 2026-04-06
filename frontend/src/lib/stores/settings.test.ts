@@ -4,6 +4,11 @@ import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_FONT_FAMILY } from "@/lib/terminal/fonts";
 import { useTerminalSettings } from "@/lib/stores/terminal";
+import {
+  initializeSettingsStore,
+  resetSettingsStoreForTests,
+  useSettingsStore,
+} from "./settings";
 
 const mockGetSettings = vi.fn();
 const mockPatchSettings = vi.fn();
@@ -158,10 +163,13 @@ function createSettingsState(
   };
 }
 
-async function getStore() {
-  const mod = await import("./settings");
-  mod.resetSettingsStoreForTests();
-  return mod;
+function getStore() {
+  resetSettingsStoreForTests();
+  return {
+    initializeSettingsStore,
+    resetSettingsStoreForTests,
+    useSettingsStore,
+  };
 }
 
 describe("settings store", () => {

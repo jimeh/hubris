@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import ToastViewport from "./ToastViewport";
 import { builtinThemes } from "@/lib/theme/builtin";
+import {
+  resetSettingsStoreForTests,
+  useSettingsStore,
+} from "@/lib/stores/settings";
 
 const toasterSpy = vi.fn();
 
@@ -28,16 +33,14 @@ describe("ToastViewport", () => {
     toasterSpy.mockReset();
   });
 
-  it("uses the active settings theme and expected viewport placement", async () => {
-    const store = await import("@/lib/stores/settings");
-    store.resetSettingsStoreForTests();
-    store.useSettingsStore.setState({
+  it("uses the active settings theme and expected viewport placement", () => {
+    resetSettingsStoreForTests();
+    useSettingsStore.setState({
       activeTheme:
         builtinThemes.find((theme) => theme.id === "hubris-dark") ?? null,
       prefersLight: true,
     });
 
-    const { default: ToastViewport } = await import("./ToastViewport");
     render(<ToastViewport />);
 
     expect(screen.getByTestId("toast-viewport")).toHaveAttribute(

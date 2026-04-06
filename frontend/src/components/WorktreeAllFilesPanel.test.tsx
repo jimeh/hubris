@@ -116,6 +116,7 @@ vi.mock("@/components/ui/sidebar", () => ({
   SidebarMenuButton: ({
     children,
     type = "button",
+    isActive: _isActive,
     ...props
   }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
     isActive?: boolean;
@@ -264,8 +265,11 @@ vi.mock("@/components/ui/context-menu", async () => {
 
   function ContextMenuContent({
     children,
+    onCloseAutoFocus: _onCloseAutoFocus,
     ...props
-  }: React.HTMLAttributes<HTMLDivElement>) {
+  }: React.HTMLAttributes<HTMLDivElement> & {
+    onCloseAutoFocus?: (event: Event) => void;
+  }) {
     const context = React.useContext(ContextMenuState);
     if (!context?.open) {
       return null;
