@@ -10,6 +10,22 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
+import WorktreeRightSidebar from "./WorktreeRightSidebar";
+import {
+  initializeWorktreeRightSidebarStore,
+  resetWorktreeRightSidebarStoreForTests,
+  useWorktreeRightSidebarStore,
+} from "@/lib/stores/worktreeRightSidebar";
+import { resetWorktreeRightSidebarWidthStoreForTests } from "@/lib/stores/worktreeRightSidebarWidth";
+import {
+  resetWorktreeFileManagerStoreForTests,
+  useWorktreeFileManagerStore,
+} from "@/lib/stores/worktreeFileManager";
+import { resetWorktreeGitStatusViewStoreForTests } from "@/lib/stores/worktreeGitStatusView";
+import {
+  resetWorktreeStoreForTests,
+  useWorktreeStore,
+} from "@/lib/stores/worktrees";
 import {
   WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
   WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
@@ -74,7 +90,6 @@ function makeWorktree(overrides?: Partial<Worktree>): Worktree {
 }
 
 async function seedSelectedWorktree(worktree = makeWorktree()): Promise<void> {
-  const { useWorktreeStore } = await import("@/lib/stores/worktrees");
   useWorktreeStore.setState({
     worktreesByProject: {
       [worktree.project_id]: [worktree],
@@ -85,16 +100,6 @@ async function seedSelectedWorktree(worktree = makeWorktree()): Promise<void> {
 }
 
 async function resetStores(): Promise<void> {
-  const { resetWorktreeRightSidebarStoreForTests } =
-    await import("@/lib/stores/worktreeRightSidebar");
-  const { resetWorktreeRightSidebarWidthStoreForTests } =
-    await import("@/lib/stores/worktreeRightSidebarWidth");
-  const { resetWorktreeFileManagerStoreForTests } =
-    await import("@/lib/stores/worktreeFileManager");
-  const { resetWorktreeGitStatusViewStoreForTests } =
-    await import("@/lib/stores/worktreeGitStatusView");
-  const { resetWorktreeStoreForTests } = await import("@/lib/stores/worktrees");
-
   resetWorktreeRightSidebarStoreForTests();
   resetWorktreeRightSidebarWidthStoreForTests();
   resetWorktreeFileManagerStoreForTests();
@@ -197,8 +202,6 @@ describe("WorktreeRightSidebar", () => {
   it("renders all-files header actions declaratively on desktop", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     render(<WorktreeRightSidebar worktree={worktree} active />);
 
@@ -217,8 +220,6 @@ describe("WorktreeRightSidebar", () => {
   it("keeps labeled tabs when the desktop header has enough room", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
@@ -243,8 +244,6 @@ describe("WorktreeRightSidebar", () => {
   it("collapses desktop tabs to icons when the header gets too tight", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
@@ -269,8 +268,6 @@ describe("WorktreeRightSidebar", () => {
   it("applies compact tabs on first render when the header is already tight", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     const clientWidthSpy = vi.spyOn(
       HTMLElement.prototype,
@@ -319,8 +316,6 @@ describe("WorktreeRightSidebar", () => {
   it("collapses slightly before the exact width boundary", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
@@ -339,8 +334,6 @@ describe("WorktreeRightSidebar", () => {
   it("switching tabs swaps header actions immediately", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     render(<WorktreeRightSidebar worktree={worktree} active />);
 
@@ -364,8 +357,6 @@ describe("WorktreeRightSidebar", () => {
   it("recomputes compact mode when the changes actions get wider", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
@@ -401,10 +392,6 @@ describe("WorktreeRightSidebar", () => {
   it("shows the total change count on the changes tab", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { useWorktreeRightSidebarStore } =
-      await import("@/lib/stores/worktreeRightSidebar");
-    const { useWorktreeFileManagerStore } =
-      await import("@/lib/stores/worktreeFileManager");
 
     useWorktreeRightSidebarStore.setState({
       activeTab: WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
@@ -439,8 +426,6 @@ describe("WorktreeRightSidebar", () => {
       },
     });
 
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
     render(<WorktreeRightSidebar worktree={worktree} active />);
 
     expect(screen.getByRole("button", { name: /Changes/ })).toHaveTextContent(
@@ -451,10 +436,6 @@ describe("WorktreeRightSidebar", () => {
   it("keeps the numeric changes badge visible in compact mode", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { useWorktreeRightSidebarStore } =
-      await import("@/lib/stores/worktreeRightSidebar");
-    const { useWorktreeFileManagerStore } =
-      await import("@/lib/stores/worktreeFileManager");
 
     useWorktreeRightSidebarStore.setState({
       activeTab: WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
@@ -489,8 +470,6 @@ describe("WorktreeRightSidebar", () => {
       },
     });
 
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
     render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
       headerWidth: 220,
@@ -509,14 +488,10 @@ describe("WorktreeRightSidebar", () => {
   it("hides completely when collapsed on desktop", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { useWorktreeRightSidebarStore } =
-      await import("@/lib/stores/worktreeRightSidebar");
     useWorktreeRightSidebarStore.setState({
       desktopOpen: false,
       mobileOpen: false,
     });
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     render(<WorktreeRightSidebar worktree={worktree} active />);
 
@@ -543,15 +518,11 @@ describe("WorktreeRightSidebar", () => {
     setMobile(true);
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { useWorktreeRightSidebarStore } =
-      await import("@/lib/stores/worktreeRightSidebar");
     useWorktreeRightSidebarStore.setState({
       desktopOpen: true,
       mobileOpen: true,
       isMobileViewport: true,
     });
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     render(<WorktreeRightSidebar worktree={worktree} active />);
 
@@ -570,15 +541,11 @@ describe("WorktreeRightSidebar", () => {
     setMobile(true);
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { useWorktreeRightSidebarStore } =
-      await import("@/lib/stores/worktreeRightSidebar");
     useWorktreeRightSidebarStore.setState({
       desktopOpen: true,
       mobileOpen: true,
       isMobileViewport: true,
     });
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     render(<WorktreeRightSidebar worktree={worktree} active />);
     setHeaderMetrics({
@@ -603,8 +570,6 @@ describe("WorktreeRightSidebar", () => {
   it("keeps resize measurement working after the sidebar remounts", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { default: WorktreeRightSidebar } =
-      await import("./WorktreeRightSidebar");
 
     const { rerender } = render(
       <WorktreeRightSidebar worktree={worktree} active />,
@@ -634,10 +599,6 @@ describe("WorktreeRightSidebar", () => {
   it("loads files and git status when all-files becomes visible", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const { initializeWorktreeRightSidebarStore } =
-      await import("@/lib/stores/worktreeRightSidebar");
-    const { useWorktreeFileManagerStore } =
-      await import("@/lib/stores/worktreeFileManager");
 
     const loadDirectory = vi.fn().mockResolvedValue(undefined);
     const preloadVisibleDirectories = vi.fn().mockResolvedValue(undefined);
@@ -661,12 +622,6 @@ describe("WorktreeRightSidebar", () => {
   it("loads git status when changes becomes visible", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const {
-      initializeWorktreeRightSidebarStore,
-      useWorktreeRightSidebarStore,
-    } = await import("@/lib/stores/worktreeRightSidebar");
-    const { useWorktreeFileManagerStore } =
-      await import("@/lib/stores/worktreeFileManager");
 
     const loadGitStatus = vi.fn().mockResolvedValue(undefined);
     useWorktreeRightSidebarStore.setState({
@@ -684,12 +639,6 @@ describe("WorktreeRightSidebar", () => {
   it("keeps pending refresh queued while hidden and flushes on open", async () => {
     const worktree = makeWorktree();
     await seedSelectedWorktree(worktree);
-    const {
-      initializeWorktreeRightSidebarStore,
-      useWorktreeRightSidebarStore,
-    } = await import("@/lib/stores/worktreeRightSidebar");
-    const { useWorktreeFileManagerStore } =
-      await import("@/lib/stores/worktreeFileManager");
 
     const refreshPendingPaths = vi.fn().mockResolvedValue(undefined);
     useWorktreeRightSidebarStore.setState({
@@ -737,7 +686,6 @@ describe("WorktreeRightSidebar", () => {
       branch: "feature-b",
       position: 3,
     });
-    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
     useWorktreeStore.setState({
       worktreesByProject: {
         [selectedWorktree.project_id]: [selectedWorktree, unrelatedWorktree],
@@ -745,11 +693,6 @@ describe("WorktreeRightSidebar", () => {
       projectErrors: {},
       selectedWorktreeId: selectedWorktree.id,
     });
-    const { initializeWorktreeRightSidebarStore } =
-      await import("@/lib/stores/worktreeRightSidebar");
-    const { useWorktreeFileManagerStore } =
-      await import("@/lib/stores/worktreeFileManager");
-
     const loadDirectory = vi.fn().mockResolvedValue(undefined);
     const preloadVisibleDirectories = vi.fn().mockResolvedValue(undefined);
     const loadGitStatus = vi.fn().mockResolvedValue(undefined);

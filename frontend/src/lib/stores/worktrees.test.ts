@@ -2,6 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
 import type { Worktree } from "@/lib/types";
+import { updateProjectWorktree } from "@/lib/api";
+import {
+  initializeWorktreeStore,
+  resetWorktreeStoreForTests,
+  useWorktreeStore,
+} from "./worktrees";
 
 vi.mock("@/lib/api", () => ({
   createProjectWorktree: vi.fn(),
@@ -67,17 +73,19 @@ function makeWorktree(
   };
 }
 
-async function getStore() {
-  const mod = await import("./worktrees");
-  mod.resetWorktreeStoreForTests();
-  mod.initializeWorktreeStore();
-  return mod;
+function getStore() {
+  resetWorktreeStoreForTests();
+  initializeWorktreeStore();
+  return {
+    initializeWorktreeStore,
+    resetWorktreeStoreForTests,
+    useWorktreeStore,
+  };
 }
 
 describe("Worktree store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.resetModules();
     localStorage.clear();
     mockEvents = new MockEventClient();
   });
@@ -265,20 +273,18 @@ describe("Worktree store", () => {
     ).toEqual(["local", "c", "a", "b"]);
   });
 
-  it("resetWorktreeStoreForTests unsubscribes SSE handlers", async () => {
-    const store = await import("./worktrees");
-    store.resetWorktreeStoreForTests();
-    store.initializeWorktreeStore();
+  it("resetWorktreeStoreForTests unsubscribes SSE handlers", () => {
+    resetWorktreeStoreForTests();
+    initializeWorktreeStore();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(1);
 
-    store.resetWorktreeStoreForTests();
+    resetWorktreeStoreForTests();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(0);
   });
 
   it("optimistically updates and persists worktree ui mode", async () => {
-    const { updateProjectWorktree } = await import("@/lib/api");
     vi.mocked(updateProjectWorktree).mockResolvedValue(
       makeWorktree({
         id: "w1",

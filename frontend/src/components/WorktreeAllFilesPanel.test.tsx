@@ -11,6 +11,20 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeAllFilesPanel from "./WorktreeAllFilesPanel";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { resetTabStoreForTests, useTabStore } from "@/lib/stores/tabs";
+import {
+  resetWorktreeFileManagerStoreForTests,
+  useWorktreeFileManagerStore,
+} from "@/lib/stores/worktreeFileManager";
+import {
+  initializeWorktreeRightSidebarStore,
+  resetWorktreeRightSidebarStoreForTests,
+  useWorktreeRightSidebarStore,
+} from "@/lib/stores/worktreeRightSidebar";
+import {
+  resetWorktreeStoreForTests,
+  useWorktreeStore,
+} from "@/lib/stores/worktrees";
 import { WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB } from "@/lib/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
 import { consumeClipboardItems } from "@/test/clipboard";
@@ -18,6 +32,290 @@ import { consumeClipboardItems } from "@/test/clipboard";
 const mockListProjectWorktreeFiles = vi.fn();
 const mockGetProjectWorktreeGitStatus = vi.fn();
 const mockRenameProjectWorktreeFile = vi.fn();
+
+vi.mock("sonner", () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/materialIconTheme", () => ({
+  resolveMaterialFileIcon: (path: string) => {
+    const basename = path.split("/").pop() ?? "file";
+    const iconId =
+      basename === "README.md"
+        ? "readme"
+        : basename.endsWith(".rs")
+          ? "rust"
+          : "file";
+
+    return {
+      iconPath: `/icons/${basename}.svg`,
+      iconId,
+    };
+  },
+  resolveMaterialFolderIcon: (
+    name: string,
+    _theme: unknown,
+    open: boolean,
+  ) => ({
+    iconPath: `/icons/${name}.svg`,
+    iconId: open ? "folder-open" : "folder-closed",
+  }),
+}));
+
+vi.mock("@/lib/stores/theme", () => ({
+  useThemeSettings: <T,>(selector: (state: { activeTheme: null }) => T) =>
+    selector({ activeTheme: null }),
+}));
+
+vi.mock("@/components/ui/button", () => ({
+  Button: ({
+    children,
+    type = "button",
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type={type} {...props}>
+      {children}
+    </button>
+  ),
+}));
+
+vi.mock("@/components/ui/input", () => ({
+  Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => (
+    <input {...props} />
+  ),
+}));
+
+vi.mock("@/components/ui/skeleton", () => ({
+  Skeleton: ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+    <div data-slot="skeleton" className={className} {...props} />
+  ),
+}));
+
+vi.mock("@/components/ui/scroll-area", () => ({
+  ScrollArea: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+}));
+
+vi.mock("@/components/ui/sidebar", () => ({
+  SidebarProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  SidebarMenu: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  SidebarMenuItem: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  SidebarMenuButton: ({
+    children,
+    type = "button",
+    isActive: _isActive,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    isActive?: boolean;
+  }) => (
+    <button type={type} {...props}>
+      {children}
+    </button>
+  ),
+}));
+
+vi.mock("@/components/ui/collapsible", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+
+  type CollapsibleContextValue = {
+    open: boolean;
+    setOpen: (open: boolean) => void;
+  };
+
+  const CollapsibleContext =
+    React.createContext<CollapsibleContextValue | null>(null);
+
+  function Collapsible({
+    open,
+    onOpenChange,
+    children,
+    ...props
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    children: React.ReactNode;
+  } & React.HTMLAttributes<HTMLDivElement>) {
+    return (
+      <CollapsibleContext.Provider value={{ open, setOpen: onOpenChange }}>
+        <div {...props}>{children}</div>
+      </CollapsibleContext.Provider>
+    );
+  }
+
+  function CollapsibleTrigger({
+    asChild,
+    children,
+  }: {
+    asChild?: boolean;
+    children: React.ReactNode;
+  }) {
+    const context = React.useContext(CollapsibleContext);
+    if (!context) {
+      return <>{children}</>;
+    }
+
+    const toggle = () => context.setOpen(!context.open);
+    if (asChild && React.isValidElement(children)) {
+      const child = children as React.ReactElement<{
+        onClick?: (event: React.MouseEvent<HTMLElement>) => void;
+      }>;
+      return React.cloneElement(child, {
+        onClick: (event: React.MouseEvent<HTMLElement>) => {
+          child.props.onClick?.(event);
+          if (!event.defaultPrevented) {
+            toggle();
+          }
+        },
+      } as Partial<typeof child.props>);
+    }
+
+    return <button onClick={toggle}>{children}</button>;
+  }
+
+  function CollapsibleContent({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) {
+    const context = React.useContext(CollapsibleContext);
+    if (!context?.open) {
+      return null;
+    }
+    return <div {...props}>{children}</div>;
+  }
+
+  return {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+  };
+});
+
+vi.mock("@/components/ui/context-menu", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+
+  type ContextMenuValue = {
+    open: boolean;
+    setOpen: (open: boolean) => void;
+  };
+
+  const ContextMenuState = React.createContext<ContextMenuValue | null>(null);
+
+  function mergeHandler<T extends React.SyntheticEvent>(
+    existing: ((event: T) => void) | undefined,
+    next: (event: T) => void,
+  ) {
+    return (event: T) => {
+      existing?.(event);
+      if (!event.defaultPrevented) {
+        next(event);
+      }
+    };
+  }
+
+  function ContextMenu({ children }: { children: React.ReactNode }) {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <ContextMenuState.Provider value={{ open, setOpen }}>
+        {children}
+      </ContextMenuState.Provider>
+    );
+  }
+
+  function ContextMenuTrigger({
+    asChild,
+    children,
+  }: {
+    asChild?: boolean;
+    children: React.ReactNode;
+  }) {
+    const context = React.useContext(ContextMenuState);
+    if (!context) {
+      return <>{children}</>;
+    }
+
+    const openMenu = (event: React.MouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      context.setOpen(true);
+    };
+
+    if (asChild && React.isValidElement(children)) {
+      const child = children as React.ReactElement<{
+        onContextMenu?: (event: React.MouseEvent<HTMLElement>) => void;
+      }>;
+      return React.cloneElement(child, {
+        onContextMenu: mergeHandler(child.props.onContextMenu, openMenu),
+      } as Partial<typeof child.props>);
+    }
+
+    return <div onContextMenu={openMenu}>{children}</div>;
+  }
+
+  function ContextMenuContent({
+    children,
+    onCloseAutoFocus: _onCloseAutoFocus,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement> & {
+    onCloseAutoFocus?: (event: Event) => void;
+  }) {
+    const context = React.useContext(ContextMenuState);
+    if (!context?.open) {
+      return null;
+    }
+
+    return (
+      <div role="menu" {...props}>
+        {children}
+      </div>
+    );
+  }
+
+  function ContextMenuItem({
+    children,
+    onSelect,
+    onClick,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    onSelect?: () => void;
+  }) {
+    const context = React.useContext(ContextMenuState);
+
+    return (
+      <button
+        role="menuitem"
+        onClick={(event) => {
+          onClick?.(event);
+          if (!event.defaultPrevented) {
+            onSelect?.();
+            context?.setOpen(false);
+          }
+        }}
+        {...props}
+      >
+        {children}
+      </button>
+    );
+  }
+
+  return {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuTrigger,
+  };
+});
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
@@ -69,9 +367,6 @@ function createDeferred<T>() {
 
 async function renderPanel() {
   const worktree = makeWorktree();
-  const { useWorktreeStore } = await import("@/lib/stores/worktrees");
-  const { useWorktreeRightSidebarStore, initializeWorktreeRightSidebarStore } =
-    await import("@/lib/stores/worktreeRightSidebar");
 
   useWorktreeStore.setState({
     worktreesByProject: {
@@ -108,19 +403,11 @@ describe("WorktreeAllFilesPanel", () => {
     vi.useRealTimers();
   });
 
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.restoreAllMocks();
     mockListProjectWorktreeFiles.mockReset();
     mockGetProjectWorktreeGitStatus.mockReset();
     mockRenameProjectWorktreeFile.mockReset();
-    const { resetTabStoreForTests, useTabStore } =
-      await import("@/lib/stores/tabs");
-    const { resetWorktreeFileManagerStoreForTests } =
-      await import("@/lib/stores/worktreeFileManager");
-    const { resetWorktreeRightSidebarStoreForTests } =
-      await import("@/lib/stores/worktreeRightSidebar");
-    const { resetWorktreeStoreForTests } =
-      await import("@/lib/stores/worktrees");
     resetTabStoreForTests();
     resetWorktreeFileManagerStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
@@ -580,9 +867,6 @@ describe("WorktreeAllFilesPanel", () => {
 
     fireEvent.click(getRowButton("src"));
     expect(await screen.findByText("before.txt")).toBeInTheDocument();
-
-    const { useWorktreeFileManagerStore } =
-      await import("@/lib/stores/worktreeFileManager");
 
     vi.useFakeTimers();
     mockListProjectWorktreeFiles.mockImplementationOnce(

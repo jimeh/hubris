@@ -81,7 +81,10 @@ description = "Format all code"
 depends = ["format:backend", "format:frontend"]
 
 [tasks."test:frontend"]
-run = "cd frontend && bun run test"
+run = [
+  "cd frontend && bun run test",
+  "cd frontend && bun run test:smoke",
+]
 description = "Run frontend tests"
 
 [tasks."test:backend"]

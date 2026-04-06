@@ -1,40 +1,38 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  addProject,
+  createProjectWorktree,
+  createTab,
+  deleteProject,
+  deleteTab,
+  getProjectWorktreeCommitDetails,
+  getProjectWorktreeFileContent,
+  getProjectWorktreeGitDiff,
+  getProjectWorktreeGitStatus,
+  getSettings,
+  listFiles,
+  listProjectWorktreeFiles,
+  listProjectWorktreeStartPoints,
+  listProjects,
+  listTabs,
+  patchSettings,
+  replaceSettings,
+  reorderProjects,
+  resetApiStateForTests,
+  saveProjectWorktreeFileContent,
+  stageProjectWorktreePath,
+  terminalWsUrl,
+  unstageProjectWorktreePath,
+  updateProject,
+  updateTab,
+} from "./api";
 
 // Mock location for terminalWsUrl
 vi.stubGlobal("location", {
   protocol: "http:",
   host: "localhost:5173",
 });
-
-// Import after mocking globals
-const {
-  listProjects,
-  addProject,
-  updateProject,
-  reorderProjects,
-  deleteProject,
-  listProjectWorktreeStartPoints,
-  createProjectWorktree,
-  getProjectWorktreeCommitDetails,
-  getProjectWorktreeGitStatus,
-  getProjectWorktreeFileContent,
-  getProjectWorktreeGitDiff,
-  stageProjectWorktreePath,
-  saveProjectWorktreeFileContent,
-  unstageProjectWorktreePath,
-  listProjectWorktreeFiles,
-  terminalWsUrl,
-  listFiles,
-  listTabs,
-  createTab,
-  deleteTab,
-  updateTab,
-  getSettings,
-  patchSettings,
-  replaceSettings,
-  resetApiStateForTests,
-} = await import("./api");
 
 const okStatus = {
   kind: "ok" as const,

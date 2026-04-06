@@ -2,6 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiStatusError } from "@/lib/api";
 import type { EventHandler, SseEventName } from "@/lib/events";
+import {
+  initializeGitDiffStore,
+  resetGitDiffStoreForTests,
+  useGitDiffStore,
+} from "./gitDiffTabs";
+import { useTabStore } from "./tabs";
 
 const mockSaveProjectWorktreeFileContent = vi.fn();
 const mockGetProjectWorktreeGitDiff = vi.fn();
@@ -53,11 +59,10 @@ vi.mock("@/lib/events", async () => {
   };
 });
 
-async function getStore() {
-  const mod = await import("./gitDiffTabs");
-  mod.resetGitDiffStoreForTests();
-  mod.initializeGitDiffStore();
-  return mod;
+function getStore() {
+  resetGitDiffStoreForTests();
+  initializeGitDiffStore();
+  return { useGitDiffStore };
 }
 
 function deferred<T>() {
@@ -117,7 +122,7 @@ describe("gitDiffTabs store", () => {
   });
 
   it("keeps newer draft edits dirty when an older save resolves", async () => {
-    const { useGitDiffStore } = await getStore();
+    const { useGitDiffStore } = getStore();
     mockSaveProjectWorktreeFileContent.mockImplementation(async () => {
       useGitDiffStore.getState().updateDraft("diff-1", "hello again\n");
       return { version_token: "v2" };
@@ -161,7 +166,7 @@ describe("gitDiffTabs store", () => {
   }, 10_000);
 
   it("marks external changes on save conflict without dropping the latest draft", async () => {
-    const { useGitDiffStore } = await getStore();
+    const { useGitDiffStore } = getStore();
     mockSaveProjectWorktreeFileContent.mockRejectedValue(
       new ApiStatusError(409, "conflict"),
     );
@@ -205,13 +210,12 @@ describe("gitDiffTabs store", () => {
   });
 
   it("reloads clean editable diffs on matching worktree file updates", async () => {
-    const { useGitDiffStore } = await getStore();
+    const { useGitDiffStore } = getStore();
     const reloadRequest = deferred<typeof editableDiffResponse>();
     mockGetProjectWorktreeGitDiff.mockImplementation(
       () => reloadRequest.promise,
     );
 
-    const { useTabStore } = await import("./tabs");
     useTabStore.setState({
       tabs: [diffTab],
     });
@@ -263,8 +267,7 @@ describe("gitDiffTabs store", () => {
   });
 
   it("marks dirty editable diffs as externally changed on matching worktree file updates", async () => {
-    const { useGitDiffStore } = await getStore();
-    const { useTabStore } = await import("./tabs");
+    const { useGitDiffStore } = getStore();
     useTabStore.setState({
       tabs: [diffTab],
     });
@@ -306,7 +309,7 @@ describe("gitDiffTabs store", () => {
   });
 
   it("loads commit diffs with commit_id and keeps them read-only", async () => {
-    const { useGitDiffStore } = await getStore();
+    const { useGitDiffStore } = getStore();
     mockGetProjectWorktreeGitDiff.mockResolvedValue({
       ...editableDiffResponse,
       scope: "commit",
@@ -333,8 +336,7 @@ describe("gitDiffTabs store", () => {
   });
 
   it("ignores worktree file updates for commit diffs", async () => {
-    const { useGitDiffStore } = await getStore();
-    const { useTabStore } = await import("./tabs");
+    const { useGitDiffStore } = getStore();
     useTabStore.setState({
       tabs: [commitDiffTab],
     });

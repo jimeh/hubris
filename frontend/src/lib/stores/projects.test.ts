@@ -2,6 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
 import type { Project } from "@/lib/types";
+import {
+  initializeProjectStore,
+  isProjectExpanded,
+  resetProjectStoreForTests,
+  useProjectStore,
+} from "./projects";
 
 const mockAddProject = vi.fn();
 const mockDeleteProject = vi.fn();
@@ -64,17 +70,20 @@ function makeProject(overrides: Partial<Project> & { id: string }): Project {
   };
 }
 
-async function getStore() {
-  const mod = await import("./projects");
-  mod.resetProjectStoreForTests();
-  mod.initializeProjectStore();
-  return mod;
+function getStore() {
+  resetProjectStoreForTests();
+  initializeProjectStore();
+  return {
+    initializeProjectStore,
+    isProjectExpanded,
+    resetProjectStoreForTests,
+    useProjectStore,
+  };
 }
 
 describe("Project store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.resetModules();
     localStorage.clear();
     mockEvents = new MockEventClient();
   });
@@ -155,14 +164,13 @@ describe("Project store", () => {
     ]);
   });
 
-  it("resetProjectStoreForTests unsubscribes SSE handlers", async () => {
-    const store = await import("./projects");
-    store.resetProjectStoreForTests();
-    store.initializeProjectStore();
+  it("resetProjectStoreForTests unsubscribes SSE handlers", () => {
+    resetProjectStoreForTests();
+    initializeProjectStore();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(1);
 
-    store.resetProjectStoreForTests();
+    resetProjectStoreForTests();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(0);
   });

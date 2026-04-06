@@ -1,18 +1,20 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resetWorktreeRightSidebarWidthStoreForTests,
+  useWorktreeRightSidebarWidthStore,
+} from "./worktreeRightSidebarWidth";
 
 const LS_RIGHT_SIDEBAR_WIDTH = "hubris-worktree-right-sidebar-width";
 
-async function getStore() {
-  const mod = await import("./worktreeRightSidebarWidth");
-  mod.resetWorktreeRightSidebarWidthStoreForTests();
-  return mod.useWorktreeRightSidebarWidthStore;
+function getStore() {
+  resetWorktreeRightSidebarWidthStoreForTests();
+  return useWorktreeRightSidebarWidthStore;
 }
 
 describe("Worktree right sidebar width store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.resetModules();
     vi.useRealTimers();
     localStorage.clear();
   });
@@ -27,7 +29,6 @@ describe("Worktree right sidebar width store", () => {
     let store = await getStore();
     expect(store.getState().width).toBe(240);
 
-    vi.resetModules();
     localStorage.setItem(LS_RIGHT_SIDEBAR_WIDTH, "900");
     store = await getStore();
     expect(store.getState().width).toBe(640);

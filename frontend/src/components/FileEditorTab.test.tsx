@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import FileEditorTab from "./FileEditorTab";
 import type { FileTab } from "@/lib/types";
 
 const ensureLoaded = vi.fn();
@@ -89,9 +90,7 @@ describe("FileEditorTab", () => {
     vi.clearAllMocks();
   });
 
-  it("shows backend denied-path messages verbatim", async () => {
-    const { default: FileEditorTab } = await import("./FileEditorTab");
-
+  it("shows backend denied-path messages verbatim", () => {
     render(
       <FileEditorTab projectId="p1" worktreeId="w1" tab={makeTab()} visible />,
     );

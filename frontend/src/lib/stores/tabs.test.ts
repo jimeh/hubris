@@ -2,6 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
 import type { FileTab, GitDiffTab, TerminalTab } from "@/lib/types";
+import {
+  initializeTabStore,
+  resetTabStoreForTests,
+  tabsForWorktree,
+  useTabStore,
+} from "./tabs";
 
 const mockCreateTab = vi.fn();
 const mockDeleteTab = vi.fn();
@@ -117,17 +123,20 @@ function makeGitDiffTab(
   };
 }
 
-async function getStore() {
-  const mod = await import("./tabs");
-  mod.resetTabStoreForTests();
-  mod.initializeTabStore();
-  return mod;
+function getStore() {
+  resetTabStoreForTests();
+  initializeTabStore();
+  return {
+    initializeTabStore,
+    resetTabStoreForTests,
+    tabsForWorktree,
+    useTabStore,
+  };
 }
 
 describe("Tab store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.resetModules();
     localStorage.clear();
     mockEvents = new MockEventClient();
     mockCreateTab.mockReset();
@@ -252,14 +261,13 @@ describe("Tab store", () => {
     );
   });
 
-  it("resetTabStoreForTests unsubscribes SSE handlers", async () => {
-    const store = await import("./tabs");
-    store.resetTabStoreForTests();
-    store.initializeTabStore();
+  it("resetTabStoreForTests unsubscribes SSE handlers", () => {
+    resetTabStoreForTests();
+    initializeTabStore();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(1);
 
-    store.resetTabStoreForTests();
+    resetTabStoreForTests();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(0);
   });

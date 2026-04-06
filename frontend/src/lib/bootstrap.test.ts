@@ -1,20 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { bootstrapApp, resetBootstrapForTests } from "./bootstrap";
 
-const calls: string[] = [];
-const mockConnect = vi.fn(() => {
-  calls.push("connect");
-});
-const mockDisconnect = vi.fn(() => {
-  calls.push("disconnect");
-});
-const mockResetProjectStore = vi.fn(() => {
-  calls.push("reset-projects");
-});
-const mockResetWorktreeStore = vi.fn(() => {
-  calls.push("reset-worktrees");
-});
-const mockResetTabStore = vi.fn(() => {
-  calls.push("reset-tabs");
+const {
+  calls,
+  mockConnect,
+  mockDisconnect,
+  mockResetProjectStore,
+  mockResetWorktreeStore,
+  mockResetTabStore,
+} = vi.hoisted(() => {
+  const calls: string[] = [];
+  return {
+    calls,
+    mockConnect: vi.fn(() => {
+      calls.push("connect");
+    }),
+    mockDisconnect: vi.fn(() => {
+      calls.push("disconnect");
+    }),
+    mockResetProjectStore: vi.fn(() => {
+      calls.push("reset-projects");
+    }),
+    mockResetWorktreeStore: vi.fn(() => {
+      calls.push("reset-worktrees");
+    }),
+    mockResetTabStore: vi.fn(() => {
+      calls.push("reset-tabs");
+    }),
+  };
 });
 
 vi.mock("@/lib/stores/projects", () => ({
@@ -83,12 +96,11 @@ describe("bootstrapApp", () => {
     mockResetTabStore.mockClear();
   });
 
-  it("initializes stores before connecting the event stream", async () => {
-    const mod = await import("./bootstrap");
-    mod.resetBootstrapForTests();
+  it("initializes stores before connecting the event stream", () => {
+    resetBootstrapForTests();
     calls.length = 0;
 
-    mod.bootstrapApp();
+    bootstrapApp();
 
     expect(calls).toEqual([
       "projects",
@@ -104,10 +116,8 @@ describe("bootstrapApp", () => {
     ]);
   });
 
-  it("resets store initialization and disconnects events for repeated tests", async () => {
-    const mod = await import("./bootstrap");
-
-    mod.resetBootstrapForTests();
+  it("resets store initialization and disconnects events for repeated tests", () => {
+    resetBootstrapForTests();
 
     expect(calls).toEqual([
       "reset-projects",

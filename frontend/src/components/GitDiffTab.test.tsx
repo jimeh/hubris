@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import GitDiffTab from "./GitDiffTab";
 import type { GitDiffSession } from "@/lib/stores/gitDiffTabs";
 import type { GitDiffTab as GitDiffTabType } from "@/lib/types";
 
@@ -104,9 +105,7 @@ describe("GitDiffTab", () => {
     sessionState.session = editableSession;
   });
 
-  it("shows a save footer for editable unstaged diffs", async () => {
-    const { default: GitDiffTab } = await import("./GitDiffTab");
-
+  it("shows a save footer for editable unstaged diffs", () => {
     render(
       <GitDiffTab projectId="p1" worktreeId="w1" tab={makeTab()} visible />,
     );
@@ -116,8 +115,7 @@ describe("GitDiffTab", () => {
     expect(save).toHaveBeenCalledWith("p1", "w1", "diff-1");
   });
 
-  it("shows backend denied-path messages verbatim", async () => {
-    const { default: GitDiffTab } = await import("./GitDiffTab");
+  it("shows backend denied-path messages verbatim", () => {
     sessionState.session = {
       ...editableSession,
       loadStatus: "error",
@@ -135,8 +133,7 @@ describe("GitDiffTab", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
-  it("hides save controls for read-only commit diffs", async () => {
-    const { default: GitDiffTab } = await import("./GitDiffTab");
+  it("hides save controls for read-only commit diffs", () => {
     sessionState.session = {
       ...editableSession,
       scope: "commit",

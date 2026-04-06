@@ -3,6 +3,25 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
+import App from "./App";
+import { useProjectStore } from "@/lib/stores/projects";
+import { resetTabStoreForTests } from "@/lib/stores/tabs";
+import {
+  resetSidebarWidthStoreForTests,
+  useSidebarWidthStore,
+} from "@/lib/stores/sidebarWidth";
+import {
+  resetWorktreeRightSidebarStoreForTests,
+  useWorktreeRightSidebarStore,
+} from "@/lib/stores/worktreeRightSidebar";
+import {
+  resetSettingsStoreForTests,
+  useSettingsStore,
+} from "@/lib/stores/settings";
+import { resetHubrisWorkbenchStoreForTests } from "@/lib/stores/hubrisWorkbench";
+import { resetVscodeWorkbenchStoreForTests } from "@/lib/stores/vscodeWorkbench";
+import { useWorktreeStore } from "@/lib/stores/worktrees";
+import { useTabStore } from "@/lib/stores/tabs";
 
 let worktreeViewRenderCount = 0;
 const hubrisViewMountCounts: Record<string, number> = {};
@@ -14,9 +33,7 @@ vi.mock("@/components/SidebarResizeHandle", () => ({
   default: () => null,
 }));
 
-vi.mock("@/components/AppSidebar", async () => {
-  const { useWorktreeStore } = await import("@/lib/stores/worktrees");
-
+vi.mock("@/components/AppSidebar", () => {
   function MockSidebar() {
     const worktreesByProject = useWorktreeStore(
       (state) => state.worktreesByProject,
@@ -115,7 +132,7 @@ vi.mock("@/components/VscodeWorkbenchPane", async () => {
 });
 
 describe("App", () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
     worktreeViewRenderCount = 0;
@@ -132,20 +149,6 @@ describe("App", () => {
       delete vscodePaneUnmountCounts[key];
     }
     setMobile(false);
-
-    const { useProjectStore } = await import("@/lib/stores/projects");
-    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
-    const { resetTabStoreForTests } = await import("@/lib/stores/tabs");
-    const { resetSidebarWidthStoreForTests, useSidebarWidthStore } =
-      await import("@/lib/stores/sidebarWidth");
-    const { resetWorktreeRightSidebarStoreForTests } =
-      await import("@/lib/stores/worktreeRightSidebar");
-    const { resetSettingsStoreForTests } =
-      await import("@/lib/stores/settings");
-    const { resetHubrisWorkbenchStoreForTests } =
-      await import("@/lib/stores/hubrisWorkbench");
-    const { resetVscodeWorkbenchStoreForTests } =
-      await import("@/lib/stores/vscodeWorkbench");
 
     resetTabStoreForTests();
     resetSidebarWidthStoreForTests();
@@ -199,9 +202,6 @@ describe("App", () => {
   });
 
   it("updates the main pane when the selected worktree changes", async () => {
-    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
-    const { default: App } = await import("./App");
-
     render(<App />);
 
     expect(screen.getByTestId("hubris-view-w-local")).toHaveAttribute(
@@ -224,9 +224,6 @@ describe("App", () => {
   }, 10_000);
 
   it("updates sidebar width via DOM subscription without rerendering the main pane", async () => {
-    const { useSidebarWidthStore } = await import("@/lib/stores/sidebarWidth");
-    const { default: App } = await import("./App");
-
     render(<App />);
 
     const sidebarWrapper = document.querySelector<HTMLElement>(
@@ -266,13 +263,10 @@ describe("App", () => {
 
   it("opens the mobile right sidebar on the first tap in mobile view", async () => {
     setMobile(true);
-    const { useWorktreeRightSidebarStore } =
-      await import("@/lib/stores/worktreeRightSidebar");
     useWorktreeRightSidebarStore.setState({
       desktopOpen: false,
       mobileOpen: false,
     });
-    const { default: App } = await import("./App");
 
     render(<App />);
 
@@ -283,13 +277,10 @@ describe("App", () => {
   });
 
   it("opens the desktop right sidebar in desktop view", async () => {
-    const { useWorktreeRightSidebarStore } =
-      await import("@/lib/stores/worktreeRightSidebar");
     useWorktreeRightSidebarStore.setState({
       desktopOpen: false,
       mobileOpen: false,
     });
-    const { default: App } = await import("./App");
 
     render(<App />);
 
@@ -300,7 +291,6 @@ describe("App", () => {
   });
 
   it("shows a global warning when the settings file is invalid", async () => {
-    const { useSettingsStore } = await import("@/lib/stores/settings");
     useSettingsStore.setState({
       status: {
         kind: "invalidFile",
@@ -308,8 +298,6 @@ describe("App", () => {
         message: "expected a ] while parsing settings.toml",
       },
     });
-    const { default: App } = await import("./App");
-
     render(<App />);
 
     expect(screen.getByText("Settings file is invalid")).toBeInTheDocument();
@@ -322,7 +310,6 @@ describe("App", () => {
   });
 
   it("hides the file manager control in vscode mode", async () => {
-    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
     useWorktreeStore.setState((state) => ({
       worktreesByProject: {
         ...state.worktreesByProject,
@@ -333,8 +320,6 @@ describe("App", () => {
         ),
       },
     }));
-    const { default: App } = await import("./App");
-
     render(<App />);
 
     expect(screen.getByRole("button", { name: "Hubris" })).toBeInTheDocument();
@@ -345,8 +330,6 @@ describe("App", () => {
   });
 
   it("renders the mode switcher before the title block", async () => {
-    const { default: App } = await import("./App");
-
     render(<App />);
 
     const modeSwitcher = screen.getByRole("group", { name: "Worktree mode" });
@@ -359,7 +342,6 @@ describe("App", () => {
   });
 
   it("keeps VS Code panes mounted across worktree switches and mode toggles", async () => {
-    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
     useWorktreeStore.setState((state) => ({
       worktreesByProject: {
         ...state.worktreesByProject,
@@ -369,8 +351,6 @@ describe("App", () => {
         })),
       },
     }));
-    const { default: App } = await import("./App");
-
     render(<App />);
 
     expect(screen.getByTestId("vscode-pane-w-local")).toHaveAttribute(
@@ -439,7 +419,6 @@ describe("App", () => {
   });
 
   it("removes cached VS Code panes when the worktree disappears", async () => {
-    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
     useWorktreeStore.setState((state) => ({
       worktreesByProject: {
         ...state.worktreesByProject,
@@ -450,8 +429,6 @@ describe("App", () => {
         ),
       },
     }));
-    const { default: App } = await import("./App");
-
     render(<App />);
     expect(screen.getByTestId("vscode-pane-w-local")).toBeInTheDocument();
 
@@ -472,9 +449,6 @@ describe("App", () => {
   });
 
   it("keeps Hubris worktree views mounted across worktree switches", async () => {
-    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
-    const { default: App } = await import("./App");
-
     render(<App />);
 
     expect(screen.getByTestId("hubris-view-w-local")).toHaveAttribute(
@@ -515,9 +489,6 @@ describe("App", () => {
   });
 
   it("removes cached Hubris views when the worktree disappears", async () => {
-    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
-    const { default: App } = await import("./App");
-
     render(<App />);
 
     expect(screen.getByTestId("hubris-view-w-local")).toBeInTheDocument();
@@ -539,8 +510,6 @@ describe("App", () => {
   });
 
   it("switches the active Hubris tab when the selected worktree changes", async () => {
-    const { useTabStore } = await import("@/lib/stores/tabs");
-    const { useWorktreeStore } = await import("@/lib/stores/worktrees");
     useTabStore.setState({
       tabs: [
         {
@@ -570,8 +539,6 @@ describe("App", () => {
         "w-feature": "tab-feature",
       },
     });
-    const { default: App } = await import("./App");
-
     render(<App />);
     expect(useTabStore.getState().activeTabId).toBe("tab-local");
 

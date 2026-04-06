@@ -1,19 +1,21 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB } from "@/lib/worktreeRightSidebar";
+import {
+  resetWorktreeRightSidebarStoreForTests,
+  useWorktreeRightSidebarStore,
+} from "./worktreeRightSidebar";
 
 const LS_DESKTOP_OPEN = "hubris-worktree-right-sidebar-open";
 
-async function getStore() {
-  const mod = await import("./worktreeRightSidebar");
-  mod.resetWorktreeRightSidebarStoreForTests();
-  return mod.useWorktreeRightSidebarStore;
+function getStore() {
+  resetWorktreeRightSidebarStoreForTests();
+  return useWorktreeRightSidebarStore;
 }
 
 describe("Worktree right sidebar store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.resetModules();
     localStorage.clear();
   });
 

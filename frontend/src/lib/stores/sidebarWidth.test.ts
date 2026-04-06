@@ -1,18 +1,20 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resetSidebarWidthStoreForTests,
+  useSidebarWidthStore,
+} from "./sidebarWidth";
 
 const LS_SIDEBAR_WIDTH = "hubris-sidebar-width";
 
-async function getStore() {
-  const mod = await import("./sidebarWidth");
-  mod.resetSidebarWidthStoreForTests();
-  return mod.useSidebarWidthStore;
+function getStore() {
+  resetSidebarWidthStoreForTests();
+  return useSidebarWidthStore;
 }
 
 describe("Sidebar width store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.resetModules();
     vi.useRealTimers();
     localStorage.clear();
   });
@@ -27,7 +29,6 @@ describe("Sidebar width store", () => {
     let store = await getStore();
     expect(store.getState().width).toBe(192);
 
-    vi.resetModules();
     localStorage.setItem(LS_SIDEBAR_WIDTH, "900");
     store = await getStore();
     expect(store.getState().width).toBe(640);

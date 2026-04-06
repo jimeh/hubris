@@ -9,6 +9,8 @@ const devId = process.env.HUBRIS_DEV_ID;
 const devTmp = process.env.HUBRIS_DEV_TMP;
 const desktopBootstrapToken = process.env.HUBRIS_DESKTOP_BOOTSTRAP_TOKEN;
 const desktopSessionToken = process.env.HUBRIS_DESKTOP_SESSION_TOKEN;
+const isVitest = process.env.VITEST === "true";
+const isVitestSmoke = process.env.HUBRIS_VITEST_SMOKE === "true";
 
 async function waitForBackendState(
   timeoutMs = 120_000,
@@ -87,6 +89,13 @@ export default defineConfig(async () => {
     resolve: {
       alias: {
         "@": path.resolve("./src"),
+        ...(isVitest
+          ? {
+              "@xterm/xterm/css/xterm.css": path.resolve(
+                "./src/test/emptyStyle.ts",
+              ),
+            }
+          : {}),
       },
     },
     server: {
@@ -108,9 +117,12 @@ export default defineConfig(async () => {
       environment: "jsdom",
       globals: true,
       setupFiles: ["./src/test/setup.ts"],
-      css: true,
+      css: false,
       include: ["src/**/*.{test,spec}.{ts,tsx}", "scripts/**/*.test.ts"],
-      exclude: ["src/lib/components/**"],
+      exclude: [
+        "src/lib/components/**",
+        ...(isVitestSmoke ? [] : ["src/lib/monaco.runtime.smoke.test.ts"]),
+      ],
       coverage: {
         reporter: ["text", "lcov"],
       },
