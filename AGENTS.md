@@ -446,21 +446,38 @@ No periodic reconciliation — drift corrects on reconnect.
 - **Stable-port reload requires socket activation in backend**:
   server startup must check inherited fd0 via `listenfd` before using
   dev fallback port binding.
-
-## EDD (Eval-Driven Development)
-
-- Feature specs live in `docs/features/NNN-slug/`; check there before
-  implementing a feature request
-- Reference EDD feature numbers in commits: `feat(edd-NNN): ...`
-- Never modify `evals.md` once feature status is Evals Ready or later
-- When writing specs from evals, use your own language — don't just
-  reformat the eval criteria
+- **Desktop app serves bundled frontend files from Tauri resources**:
+  the Tauri shell still loads Hubris over loopback HTTP. Production
+  desktop builds bundle `frontend/dist` as Tauri resources and the
+  embedded server reads those files at runtime instead of using
+  `embed-frontend`. Keep `desktop/build.rs` creating a placeholder
+  `frontend/dist/index.html` for clean-checkout `cargo check`, but
+  rely on `bun run build` to produce the real frontend before desktop
+  release builds.
+- **Desktop Tauri hooks run from the repo root in this setup**:
+  `desktop/tauri.conf.json` build hooks should use root-relative paths
+  like `cd frontend && bun run build`, not paths relative to
+  `desktop/`.
+- **Desktop dev dynamically overrides `devUrl` from the frontend state
+  file**: `.mise/tasks/dev-desktop` reuses the shared `HUBRIS_DEV_ID`
+  / `HUBRIS_DEV_TMP` mechanism, waits for
+  `tmp/dev-<id>.frontend.json`, then launches `cargo tauri dev
+--config` with the actual Vite port. Keep that wrapper in sync with
+  the Vite `devInstancePlugin()` output shape, and keep
+  `desktop/src/main.rs` reading `app.config().build.dev_url` in debug
+  mode instead of hardcoding a localhost port.
+- **Desktop loopback auth uses a one-time bootstrap plus an `HttpOnly`
+  cookie**: packaged desktop hits
+  `/_hubris/desktop/bootstrap?token=...` on the embedded server, while
+  `mise run dev:desktop` hits the same path on the Vite dev server.
+  The backend trusts only the `hubris_desktop_session` cookie in
+  desktop mode, so keep desktop auth out of frontend JS fetch/SSE/WS
+  code.
 
 <!-- gitnexus:start -->
-
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (2989 symbols, 9060 relationships, 249 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **hubris** (3007 symbols, 9173 relationships, 250 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -494,31 +511,31 @@ This project is indexed by GitNexus as **hubris** (2989 symbols, 9060 relationsh
 
 ## Tools Quick Reference
 
-| Tool             | When to use                   | Command                                                                 |
-| ---------------- | ----------------------------- | ----------------------------------------------------------------------- |
-| `query`          | Find code by concept          | `gitnexus_query({query: "auth validation"})`                            |
-| `context`        | 360-degree view of one symbol | `gitnexus_context({name: "validateUser"})`                              |
-| `impact`         | Blast radius before editing   | `gitnexus_impact({target: "X", direction: "upstream"})`                 |
-| `detect_changes` | Pre-commit scope check        | `gitnexus_detect_changes({scope: "staged"})`                            |
-| `rename`         | Safe multi-file rename        | `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` |
-| `cypher`         | Custom graph queries          | `gitnexus_cypher({query: "MATCH ..."})`                                 |
+| Tool | When to use | Command |
+|------|-------------|---------|
+| `query` | Find code by concept | `gitnexus_query({query: "auth validation"})` |
+| `context` | 360-degree view of one symbol | `gitnexus_context({name: "validateUser"})` |
+| `impact` | Blast radius before editing | `gitnexus_impact({target: "X", direction: "upstream"})` |
+| `detect_changes` | Pre-commit scope check | `gitnexus_detect_changes({scope: "staged"})` |
+| `rename` | Safe multi-file rename | `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` |
+| `cypher` | Custom graph queries | `gitnexus_cypher({query: "MATCH ..."})` |
 
 ## Impact Risk Levels
 
-| Depth | Meaning                               | Action                |
-| ----- | ------------------------------------- | --------------------- |
-| d=1   | WILL BREAK — direct callers/importers | MUST update these     |
-| d=2   | LIKELY AFFECTED — indirect deps       | Should test           |
-| d=3   | MAY NEED TESTING — transitive         | Test if critical path |
+| Depth | Meaning | Action |
+|-------|---------|--------|
+| d=1 | WILL BREAK — direct callers/importers | MUST update these |
+| d=2 | LIKELY AFFECTED — indirect deps | Should test |
+| d=3 | MAY NEED TESTING — transitive | Test if critical path |
 
 ## Resources
 
-| Resource                                | Use for                                  |
-| --------------------------------------- | ---------------------------------------- |
-| `gitnexus://repo/hubris/context`        | Codebase overview, check index freshness |
-| `gitnexus://repo/hubris/clusters`       | All functional areas                     |
-| `gitnexus://repo/hubris/processes`      | All execution flows                      |
-| `gitnexus://repo/hubris/process/{name}` | Step-by-step execution trace             |
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/hubris/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/hubris/clusters` | All functional areas |
+| `gitnexus://repo/hubris/processes` | All execution flows |
+| `gitnexus://repo/hubris/process/{name}` | Step-by-step execution trace |
 
 ## Self-Check Before Finishing
 
@@ -549,41 +566,13 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 
 ## CLI
 
-| Task                                         | Read this skill file                                        |
-| -------------------------------------------- | ----------------------------------------------------------- |
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
-| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
-| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
-| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
-| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
-
-- **Desktop app serves bundled frontend files from Tauri resources**:
-  the Tauri shell still loads Hubris over loopback HTTP. Production
-  desktop builds bundle `frontend/dist` as Tauri resources and the
-  embedded server reads those files at runtime instead of using
-  `embed-frontend`. Keep `desktop/build.rs` creating a placeholder
-  `frontend/dist/index.html` for clean-checkout `cargo check`, but
-  rely on `bun run build` to produce the real frontend before desktop
-  release builds.
-- **Desktop Tauri hooks run from the repo root in this setup**:
-  `desktop/tauri.conf.json` build hooks should use root-relative paths
-  like `cd frontend && bun run build`, not paths relative to
-  `desktop/`.
-- **Desktop dev dynamically overrides `devUrl` from the frontend state
-  file**: `.mise/tasks/dev-desktop` reuses the shared `HUBRIS_DEV_ID`
-  / `HUBRIS_DEV_TMP` mechanism, waits for
-  `tmp/dev-<id>.frontend.json`, then launches `cargo tauri dev
---config` with the actual Vite port. Keep that wrapper in sync with
-  the Vite `devInstancePlugin()` output shape, and keep
-  `desktop/src/main.rs` reading `app.config().build.dev_url` in debug
-  mode instead of hardcoding a localhost port.
-- **Desktop loopback auth uses a one-time bootstrap plus an `HttpOnly`
-  cookie**: packaged desktop hits
-  `/_hubris/desktop/bootstrap?token=...` on the embedded server, while
-  `mise run dev:desktop` hits the same path on the Vite dev server.
-  The backend trusts only the `hubris_desktop_session` cookie in
-  desktop mode, so keep desktop auth out of frontend JS fetch/SSE/WS
-  code.
