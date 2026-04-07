@@ -1,6 +1,10 @@
 use axum::Json;
 use utoipa::OpenApi;
 
+use crate::api::code_server::{
+    CodeServerInstallPhase, CodeServerInstallProgress, CodeServerLatestCheck,
+    CodeServerProcessStatus, CodeServerStatus, InstallCodeServerRequest,
+};
 use crate::api::editor_themes::{
     DiscoveredExtension, DiscoveredTheme, EditorThemeEntry, ImportThemeRequest, VscodeThemeJson,
     VscodeTokenColor, VscodeTokenColorSettings, VscodeTokenScope,
@@ -36,6 +40,12 @@ use crate::tab::{GitDiffScope, TabInfo};
 #[openapi(
     paths(
         openapi_json,
+        crate::api::code_server::get_code_server_status,
+        crate::api::code_server::check_code_server_update,
+        crate::api::code_server::install_code_server,
+        crate::api::code_server::start_code_server,
+        crate::api::code_server::stop_code_server,
+        crate::api::code_server::restart_code_server,
         crate::api::files::list_files,
         crate::api::files::list_project_worktree_files,
         crate::api::files::get_project_worktree_file_content,
@@ -84,6 +94,12 @@ use crate::tab::{GitDiffScope, TabInfo};
             DirEntry,
             ListFilesResponse,
             ApiErrorResponse,
+            CodeServerInstallPhase,
+            CodeServerInstallProgress,
+            CodeServerProcessStatus,
+            CodeServerLatestCheck,
+            CodeServerStatus,
+            InstallCodeServerRequest,
             WorktreeFileKind,
             WorktreeFileEntry,
             ListWorktreeFilesResponse,

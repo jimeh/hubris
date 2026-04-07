@@ -4,6 +4,102 @@
  */
 
 export interface paths {
+  "/api/code-server": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_code_server_status"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/code-server/check-update": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["check_code_server_update"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/code-server/install": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["install_code_server"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/code-server/restart": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["restart_code_server"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/code-server/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["start_code_server"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/code-server/stop": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["stop_code_server"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/editor-themes": {
     parameters: {
       query?: never;
@@ -557,6 +653,45 @@ export interface components {
       visible: boolean;
     };
     /** @enum {string} */
+    CodeServerInstallPhase:
+      | "preparing"
+      | "downloading"
+      | "extracting"
+      | "cleaning"
+      | "starting";
+    CodeServerInstallProgress: {
+      /** Format: int64 */
+      downloadedBytes?: number | null;
+      /** Format: int32 */
+      percent: number;
+      phase: components["schemas"]["CodeServerInstallPhase"];
+      /** Format: int64 */
+      totalBytes?: number | null;
+    };
+    CodeServerLatestCheck: {
+      checkedAt?: string | null;
+      latestVersion?: string | null;
+      updateAvailable: boolean;
+    };
+    /** @enum {string} */
+    CodeServerProcessStatus:
+      | "running"
+      | "stopped"
+      | "starting"
+      | "stopping"
+      | "installing"
+      | "error";
+    CodeServerStatus: {
+      installProgress?:
+        | null
+        | components["schemas"]["CodeServerInstallProgress"];
+      installedVersion?: string | null;
+      latest?: null | components["schemas"]["CodeServerLatestCheck"];
+      message?: string | null;
+      processStatus: components["schemas"]["CodeServerProcessStatus"];
+      supported: boolean;
+    };
+    /** @enum {string} */
     ColorScheme: "auto" | "light" | "dark";
     CreateTabRequest:
       | {
@@ -680,6 +815,11 @@ export interface components {
       branch?: string | null;
       id: string;
       path: string;
+    };
+    InstallCodeServerRequest: {
+      /** @description Force a fresh reinstall of the target runtime version. */
+      force?: boolean;
+      version?: string | null;
     };
     ListFilesResponse: {
       /** @description Subdirectories within `path`. */
@@ -998,6 +1138,211 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  get_code_server_status: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current code-server status */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CodeServerStatus"];
+        };
+      };
+    };
+  };
+  check_code_server_update: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Latest release checked */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CodeServerStatus"];
+        };
+      };
+      /** @description Unsupported platform or invalid release metadata */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  install_code_server: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["InstallCodeServerRequest"];
+      };
+    };
+    responses: {
+      /** @description Started installing or upgrading code-server */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CodeServerStatus"];
+        };
+      };
+      /** @description Unsupported platform or invalid request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  restart_code_server: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Restarted code-server */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CodeServerStatus"];
+        };
+      };
+      /** @description code-server is not installed or unsupported */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  start_code_server: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Started code-server */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CodeServerStatus"];
+        };
+      };
+      /** @description code-server is not installed or unsupported */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  stop_code_server: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Stopped code-server */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CodeServerStatus"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
   list_editor_themes: {
     parameters: {
       query?: never;

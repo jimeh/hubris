@@ -738,6 +738,18 @@ export type ImportThemeRequest = {
   overwriteId?: string;
 };
 
+export type CodeServerLatestCheck =
+  components["schemas"]["CodeServerLatestCheck"];
+export type CodeServerInstallPhase =
+  components["schemas"]["CodeServerInstallPhase"];
+export type CodeServerInstallProgress =
+  components["schemas"]["CodeServerInstallProgress"];
+export type CodeServerProcessStatus =
+  components["schemas"]["CodeServerProcessStatus"];
+export type CodeServerStatus = components["schemas"]["CodeServerStatus"];
+type InstallCodeServerRequest =
+  components["schemas"]["InstallCodeServerRequest"];
+
 export async function discoverExtensionThemes(): Promise<
   DiscoveredExtension[]
 > {
@@ -751,6 +763,81 @@ export async function discoverExtensionThemes(): Promise<
 export async function fetchSystemInfo(): Promise<SystemInfo> {
   const res = await fetch(`${BASE}/system`);
   if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function getCodeServerStatus(): Promise<CodeServerStatus> {
+  const res = await fetch(`${BASE}/code-server`);
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+  return res.json();
+}
+
+export async function checkCodeServerUpdate(): Promise<CodeServerStatus> {
+  const res = await fetch(`${BASE}/code-server/check-update`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function installCodeServer(
+  version?: string,
+  force = false,
+): Promise<CodeServerStatus> {
+  const payload: InstallCodeServerRequest = {};
+  if (version) {
+    payload.version = version;
+  }
+  if (force) {
+    payload.force = force;
+  }
+  const res = await fetch(`${BASE}/code-server/install`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function startCodeServer(): Promise<CodeServerStatus> {
+  const res = await fetch(`${BASE}/code-server/start`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function stopCodeServer(): Promise<CodeServerStatus> {
+  const res = await fetch(`${BASE}/code-server/stop`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function restartCodeServer(): Promise<CodeServerStatus> {
+  const res = await fetch(`${BASE}/code-server/restart`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
   return res.json();
 }
 

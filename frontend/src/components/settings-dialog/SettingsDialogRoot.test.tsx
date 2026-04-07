@@ -12,6 +12,10 @@ vi.mock("./TerminalSettings", () => ({
   default: () => <div>Terminal section</div>,
 }));
 
+vi.mock("./VscodeSettings", () => ({
+  default: () => <div>VS Code section</div>,
+}));
+
 vi.mock("./WorktreeSettings", () => ({
   default: () => <div>Worktrees section</div>,
 }));
@@ -50,9 +54,9 @@ describe("SettingsDialogRoot", () => {
     render(<SettingsDialogRoot open onOpenChange={vi.fn()} />);
 
     await user.click(screen.getByRole("combobox"));
-    await user.click(await screen.findByRole("option", { name: "Worktrees" }));
+    await user.click(await screen.findByRole("option", { name: "VS Code" }));
 
-    expect(screen.getByText("Worktrees section")).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveTextContent("Worktrees");
+    expect(screen.getByText("VS Code section")).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveTextContent("VS Code");
   });
 });

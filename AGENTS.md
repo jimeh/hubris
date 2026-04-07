@@ -58,6 +58,36 @@ directory has a `bun.lock`; there is no `package-lock.json` or `pnpm-lock.yaml`.
   performance-sensitive imperative paths where state-driven rerenders cause
   visible lag (for example sidebar resize width writes).
 
+## Architecture Highlights
+
+- **Frontend/backend comms use four main surfaces**: REST for command/query APIs
+  under `/api/...`, one global SSE stream at `/api/events` for app-wide state
+  sync, PTY WebSockets for terminal I/O, and the `/code` reverse proxy for the
+  shared VS Code surface.
+- **State sync uses one global SSE stream**: server state is modeled as
+  snapshot-on-connect plus incremental events. Prefer extending the existing
+  `/api/events` snapshot/event model for new app-wide state instead of adding
+  polling loops or section-local refresh logic.
+- **Use REST for actions, SSE for ongoing shared state**: start with REST for
+  discrete mutations and fetches; if the frontend needs live status after that,
+  feed it through the existing SSE snapshot + event model instead of polling.
+- **Frontend stores must be ready before SSE connects**: initialize all Zustand
+  stores and event handlers in `frontend/src/lib/bootstrap.ts` before calling
+  `EventClient.connect()`. The snapshot is delivered immediately on connect.
+- **Use Zustand singletons for shared frontend state**: app-wide state should
+  live in a dedicated store under `frontend/src/lib/stores/`, seeded from SSE
+  snapshot data and updated by incremental events.
+- **Terminal transport is special-case WebSocket I/O**: terminal bytes and
+  resize/control messages do not go through REST or SSE. Reuse the existing PTY
+  WS model for terminal behavior instead of inventing parallel channels.
+- **Contracts are generated, not handwritten**: backend API/SSE/WS schema
+  changes should flow through `mise run generate` so frontend contract files in
+  `frontend/src/lib/contracts/` stay authoritative.
+- **Keep settings UI thin**: `SettingsDialog` is a shell. Feature logic belongs
+  in focused components under `frontend/src/components/settings-dialog/`, with
+  backend-authoritative state coming from stores/contracts rather than ad hoc
+  local orchestration.
+
 ## Detail Docs
 
 - [Architecture](docs/agents/architecture.md) — connection model, state sync,
@@ -76,8 +106,8 @@ directory has a `bun.lock`; there is no `package-lock.json` or `pnpm-lock.yaml`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (3032 symbols, 9204
-relationships, 252 execution flows). Use the GitNexus MCP tools to understand
+This project is indexed by GitNexus as **hubris** (3205 symbols, 9833
+relationships, 267 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in
@@ -208,3 +238,10 @@ embeddings.**
 | Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
+
+## Discoveries
+
+- `code-server` release handling needs two HTTP client modes: `/releases/latest`
+  must disable redirects so version parsing can read the `Location` header, but
+  release asset downloads must follow redirects or the extractor will read
+  GitHub's redirect response instead of the tarball.

@@ -68,6 +68,11 @@ vi.mock("@/lib/stores/worktreeRightSidebar", () => ({
     calls.push("reset-worktree-right-sidebar"),
 }));
 
+vi.mock("@/lib/stores/codeServer", () => ({
+  initializeCodeServerStore: () => calls.push("code-server"),
+  resetCodeServerStoreForTests: () => calls.push("reset-code-server"),
+}));
+
 vi.mock("@/lib/stores/settings", () => ({
   initializeSettingsStore: () => calls.push("settings"),
   resetSettingsStoreForTests: () => calls.push("reset-settings"),
@@ -110,6 +115,7 @@ describe("bootstrapApp", () => {
       "git-diff-tabs",
       "worktree-file-manager",
       "worktree-right-sidebar",
+      "code-server",
       "settings",
       "system",
       "connect",
@@ -127,6 +133,7 @@ describe("bootstrapApp", () => {
       "reset-git-diff-tabs",
       "reset-worktree-file-manager",
       "reset-worktree-right-sidebar",
+      "reset-code-server",
       "reset-settings",
       "reset-system",
       "disconnect",
