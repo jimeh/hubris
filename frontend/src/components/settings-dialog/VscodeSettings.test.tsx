@@ -62,6 +62,8 @@ describe("VscodeSettings", () => {
 
     render(<VscodeSettings />);
 
+    expect(screen.getByText("Installation")).toBeInTheDocument();
+    expect(screen.getByText("Process")).toBeInTheDocument();
     expect(await screen.findByText("Not installed")).toBeInTheDocument();
     expect(screen.getByText("Managed by")).toBeInTheDocument();
     expect(
@@ -118,7 +120,7 @@ describe("VscodeSettings", () => {
 
     expect(mockCheckCodeServerUpdate).toHaveBeenCalledTimes(1);
     expect(
-      await screen.findByRole("button", { name: "Upgrade to v4.114.1" }),
+      await screen.findByRole("button", { name: "Upgrade to 4.114.1" }),
     ).toBeInTheDocument();
   });
 

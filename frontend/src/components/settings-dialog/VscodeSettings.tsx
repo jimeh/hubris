@@ -1,20 +1,20 @@
 import { useState } from "react";
 import {
+  Activity,
   CircleOff,
   Download,
   Loader2,
-  Monitor,
+  Package,
+  Play,
   RefreshCw,
   RotateCcw,
   Square,
-  TriangleRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
 import {
   checkCodeServerUpdate,
   installCodeServer,
@@ -75,6 +75,14 @@ function statusLabel(status: CodeServerStatus["processStatus"]) {
   }
 }
 
+function displayVersion(version: string | null | undefined): string | null {
+  if (!version) {
+    return null;
+  }
+
+  return version.replace(/^v/i, "");
+}
+
 function statusSummary(status: CodeServerStatus | null): string {
   if (!status) {
     return "Loading...";
@@ -82,7 +90,7 @@ function statusSummary(status: CodeServerStatus | null): string {
   if (!status.supported) {
     return "Unsupported";
   }
-  return status.installedVersion ?? "Not installed";
+  return displayVersion(status.installedVersion) ?? "Not installed";
 }
 
 function formatBytes(bytes: number): string {
@@ -196,241 +204,252 @@ export default function VscodeSettings() {
     !!latest.latestVersion;
 
   return (
-    <section className="space-y-3">
-      <div className="flex items-start gap-2">
-        <Monitor className="h-4 w-4 text-muted-foreground" />
-        <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium">VS Code</h3>
-          <p className="text-xs text-muted-foreground">
-            Managed by <code>coder/code-server</code>
-          </p>
-        </div>
-      </div>
+    <section className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        Managed by <code>coder/code-server</code>
+      </p>
 
-      <div className={settingsRowClass}>
-        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
-          Installed
-        </Label>
-        <div className="flex min-h-8 flex-wrap items-center gap-2">
-          <Badge variant={status?.installedVersion ? "secondary" : "outline"}>
-            {statusSummary(status)}
-          </Badge>
-          {status?.installedVersion ? (
-            <span className="text-xs text-muted-foreground">
-              coder/code-server runtime
-            </span>
-          ) : null}
-        </div>
-      </div>
+      <div className="space-y-3">
+        <h4 className="flex items-center gap-2 text-sm font-medium">
+          <Package className="h-4 w-4 text-muted-foreground" />
+          Installation
+        </h4>
 
-      <div className={settingsRowClass}>
-        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
-          Process
-        </Label>
-        <div className="flex min-h-8 flex-wrap items-center gap-2">
-          <Badge variant={statusBadgeVariant(processStatus)}>
-            {busy ? <Loader2 className="animate-spin" /> : null}
-            {statusLabel(processStatus)}
-          </Badge>
-          {status?.message ? (
-            <span className="text-xs text-muted-foreground">
-              {status.message}
-            </span>
-          ) : processStatus === "running" ? (
-            <span className="text-xs text-muted-foreground">
-              coder/code-server is ready for <code>/code</code>.
-            </span>
-          ) : null}
-        </div>
-      </div>
-
-      {installProgress ? (
         <div className={settingsRowClass}>
           <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
-            Install
+            Installed
           </Label>
-          <div className="flex min-h-8 flex-col gap-2 py-1">
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="font-medium">
-                {installPhaseLabel(installProgress)}
+          <div className="flex min-h-8 flex-wrap items-center gap-2">
+            <Badge variant={status?.installedVersion ? "secondary" : "outline"}>
+              {statusSummary(status)}
+            </Badge>
+            {status?.installedVersion ? (
+              <span className="text-xs text-muted-foreground">
+                coder/code-server runtime
               </span>
-              <span className="text-muted-foreground">
-                {installProgress.percent}%
-              </span>
-            </div>
-            <Progress
-              value={installProgress.percent}
-              aria-label="Install progress"
-            />
-            <p className="text-xs text-muted-foreground">
-              {installPhaseDescription(installProgress)}
-            </p>
+            ) : null}
           </div>
         </div>
-      ) : null}
 
-      <div className={settingsRowClass}>
-        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
-          Latest
-        </Label>
-        <div className="flex min-h-8 flex-wrap items-center gap-2">
-          <Badge variant="outline">
-            {latest?.latestVersion
-              ? `v${latest.latestVersion}`
-              : "Not checked yet"}
-          </Badge>
-          {latest?.updateAvailable ? (
-            <span className="text-xs text-muted-foreground">
-              New coder/code-server release available
-            </span>
-          ) : latest?.latestVersion && status?.installedVersion ? (
-            <span className="text-xs text-muted-foreground">
-              coder/code-server is up to date
-            </span>
-          ) : null}
+        {installProgress ? (
+          <div className={settingsRowClass}>
+            <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+              Install
+            </Label>
+            <div className="flex min-h-8 flex-col gap-2 py-1">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-medium">
+                  {installPhaseLabel(installProgress)}
+                </span>
+                <span className="text-muted-foreground">
+                  {installProgress.percent}%
+                </span>
+              </div>
+              <Progress
+                value={installProgress.percent}
+                aria-label="Install progress"
+              />
+              <p className="text-xs text-muted-foreground">
+                {installPhaseDescription(installProgress)}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        <div className={settingsRowClass}>
+          <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+            Latest
+          </Label>
+          <div className="flex min-h-8 flex-wrap items-center gap-2">
+            <Badge variant={latest?.latestVersion ? "secondary" : "outline"}>
+              {displayVersion(latest?.latestVersion) ?? "Not checked yet"}
+            </Badge>
+            {latest?.updateAvailable ? (
+              <span className="text-xs text-muted-foreground">
+                New coder/code-server release available
+              </span>
+            ) : latest?.latestVersion && status?.installedVersion ? (
+              <span className="text-xs text-muted-foreground">
+                coder/code-server is up to date
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className={settingsRowClass}>
+          <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+            Actions
+          </Label>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!status?.supported || busy}
+              onClick={() =>
+                void runAction(
+                  "check",
+                  checkCodeServerUpdate,
+                  "Checked coder/code-server for updates",
+                )
+              }
+            >
+              {pendingAction === "check" ? (
+                <Loader2 className="animate-spin" data-icon="inline-start" />
+              ) : (
+                <RefreshCw data-icon="inline-start" />
+              )}
+              Check for Update
+            </Button>
+
+            {canInstall ? (
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  void runAction(
+                    "install",
+                    () => installCodeServer(),
+                    "Started coder/code-server install",
+                  )
+                }
+              >
+                {pendingAction === "install" ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <Download data-icon="inline-start" />
+                )}
+                Install latest
+              </Button>
+            ) : null}
+
+            {canUpgrade ? (
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  void runAction(
+                    "upgrade",
+                    () => installCodeServer(latest?.latestVersion ?? undefined),
+                    `Started coder/code-server upgrade to ${displayVersion(latest?.latestVersion)}`,
+                  )
+                }
+              >
+                {pendingAction === "upgrade" ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <Download data-icon="inline-start" />
+                )}
+                Upgrade to {displayVersion(latest?.latestVersion)}
+              </Button>
+            ) : null}
+
+            {status && !status.supported ? (
+              <Button variant="ghost" size="sm" disabled>
+                <CircleOff data-icon="inline-start" />
+                Unsupported host
+              </Button>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <Separator />
+      <div className="space-y-3">
+        <h4 className="flex items-center gap-2 text-sm font-medium">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          Process
+        </h4>
 
-      <div className={settingsRowClass}>
-        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
-          Actions
-        </Label>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!status?.supported || busy}
-            onClick={() =>
-              void runAction(
-                "check",
-                checkCodeServerUpdate,
-                "Checked coder/code-server for updates",
-              )
-            }
-          >
-            {pendingAction === "check" ? (
-              <Loader2 className="animate-spin" data-icon="inline-start" />
-            ) : (
-              <RefreshCw data-icon="inline-start" />
-            )}
-            Check for Update
-          </Button>
+        <div className={settingsRowClass}>
+          <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+            Status
+          </Label>
+          <div className="flex min-h-8 flex-wrap items-center gap-2">
+            <Badge variant={statusBadgeVariant(processStatus)}>
+              {busy ? <Loader2 className="animate-spin" /> : null}
+              {statusLabel(processStatus)}
+            </Badge>
+            {status?.message ? (
+              <span className="text-xs text-muted-foreground">
+                {status.message}
+              </span>
+            ) : processStatus === "running" ? (
+              <span className="text-xs text-muted-foreground">
+                coder/code-server is ready for <code>/code</code>.
+              </span>
+            ) : null}
+          </div>
+        </div>
 
-          {canInstall ? (
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() =>
-                void runAction(
-                  "install",
-                  () => installCodeServer(),
-                  "Started coder/code-server install",
-                )
-              }
-            >
-              {pendingAction === "install" ? (
-                <Loader2 className="animate-spin" data-icon="inline-start" />
-              ) : (
-                <Download data-icon="inline-start" />
-              )}
-              Install latest
-            </Button>
-          ) : null}
+        <div className={settingsRowClass}>
+          <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+            Actions
+          </Label>
+          <div className="flex flex-wrap gap-2">
+            {canStart ? (
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  void runAction(
+                    "start",
+                    startCodeServer,
+                    "Started coder/code-server",
+                  )
+                }
+              >
+                {pendingAction === "start" ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <Play data-icon="inline-start" />
+                )}
+                Start
+              </Button>
+            ) : null}
 
-          {canUpgrade ? (
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() =>
-                void runAction(
-                  "upgrade",
-                  () => installCodeServer(latest?.latestVersion ?? undefined),
-                  `Started coder/code-server upgrade to v${latest?.latestVersion}`,
-                )
-              }
-            >
-              {pendingAction === "upgrade" ? (
-                <Loader2 className="animate-spin" data-icon="inline-start" />
-              ) : (
-                <Download data-icon="inline-start" />
-              )}
-              Upgrade to v{latest?.latestVersion}
-            </Button>
-          ) : null}
+            {canStop ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  void runAction(
+                    "stop",
+                    stopCodeServer,
+                    "Stopped coder/code-server",
+                  )
+                }
+              >
+                {pendingAction === "stop" ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <Square data-icon="inline-start" />
+                )}
+                Stop
+              </Button>
+            ) : null}
 
-          {canStart ? (
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() =>
-                void runAction(
-                  "start",
-                  startCodeServer,
-                  "Started coder/code-server",
-                )
-              }
-            >
-              {pendingAction === "start" ? (
-                <Loader2 className="animate-spin" data-icon="inline-start" />
-              ) : (
-                <TriangleRight data-icon="inline-start" />
-              )}
-              Start
-            </Button>
-          ) : null}
-
-          {canStop ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() =>
-                void runAction(
-                  "stop",
-                  stopCodeServer,
-                  "Stopped coder/code-server",
-                )
-              }
-            >
-              {pendingAction === "stop" ? (
-                <Loader2 className="animate-spin" data-icon="inline-start" />
-              ) : (
-                <Square data-icon="inline-start" />
-              )}
-              Stop
-            </Button>
-          ) : null}
-
-          {canRestart ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() =>
-                void runAction(
-                  "restart",
-                  restartCodeServer,
-                  "Restarted coder/code-server",
-                )
-              }
-            >
-              {pendingAction === "restart" ? (
-                <Loader2 className="animate-spin" data-icon="inline-start" />
-              ) : (
-                <RotateCcw data-icon="inline-start" />
-              )}
-              Restart
-            </Button>
-          ) : null}
-
-          {status && !status.supported ? (
-            <Button variant="ghost" size="sm" disabled>
-              <CircleOff data-icon="inline-start" />
-              Unsupported host
-            </Button>
-          ) : null}
+            {canRestart ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  void runAction(
+                    "restart",
+                    restartCodeServer,
+                    "Restarted coder/code-server",
+                  )
+                }
+              >
+                {pendingAction === "restart" ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <RotateCcw data-icon="inline-start" />
+                )}
+                Restart
+              </Button>
+            ) : null}
+          </div>
         </div>
       </div>
     </section>
