@@ -2,6 +2,10 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use hubris_server::api::code_server::{
+    CodeServerInstallPhase, CodeServerInstallProgress, CodeServerLatestCheck,
+    CodeServerProcessStatus, CodeServerStatus,
+};
 use hubris_server::api::projects::Project;
 use hubris_server::api::settings::{
     AppearanceSettings, ColorScheme, EditorSettings, EditorSettingsPatch, Settings, SettingsState,
@@ -76,6 +80,11 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<SettingsStatusKind>(&mut sse, &cfg)?;
     push_ts_export::<SettingsStatus>(&mut sse, &cfg)?;
     push_ts_export::<SettingsState>(&mut sse, &cfg)?;
+    push_ts_export::<CodeServerInstallPhase>(&mut sse, &cfg)?;
+    push_ts_export::<CodeServerInstallProgress>(&mut sse, &cfg)?;
+    push_ts_export::<CodeServerLatestCheck>(&mut sse, &cfg)?;
+    push_ts_export::<CodeServerProcessStatus>(&mut sse, &cfg)?;
+    push_ts_export::<CodeServerStatus>(&mut sse, &cfg)?;
     push_ts_export::<EventKind>(&mut sse, &cfg)?;
     fs::write(&sse_path, sse)?;
 

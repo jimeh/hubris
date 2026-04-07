@@ -80,8 +80,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "Installed or upgraded code-server",
+          "202": {
+            "description": "Started installing or upgrading code-server",
             "content": {
               "application/json": {
                 "schema": {
@@ -2170,6 +2170,40 @@
           }
         ]
       },
+      "CodeServerInstallPhase": {
+        "type": "string",
+        "enum": [
+          "preparing",
+          "downloading",
+          "extracting",
+          "cleaning",
+          "starting"
+        ]
+      },
+      "CodeServerInstallProgress": {
+        "type": "object",
+        "required": ["phase", "percent"],
+        "properties": {
+          "downloadedBytes": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "percent": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "phase": {
+            "$ref": "#/components/schemas/CodeServerInstallPhase"
+          },
+          "totalBytes": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "CodeServerLatestCheck": {
         "type": "object",
         "required": ["updateAvailable"],
@@ -2200,6 +2234,16 @@
         "type": "object",
         "required": ["supported", "processStatus"],
         "properties": {
+          "installProgress": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CodeServerInstallProgress"
+              }
+            ]
+          },
           "installedVersion": {
             "type": ["string", "null"]
           },

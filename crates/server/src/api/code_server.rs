@@ -8,9 +8,31 @@ use utoipa::ToSchema;
 
 use crate::api::files::ApiErrorResponse;
 use crate::code_server::{
-    CodeServerProcessStatusValue, CodeServerStatusSnapshot, ManagerCodeServerLatestCheck,
+    CodeServerInstallPhaseValue, CodeServerProcessStatusValue, CodeServerStatusSnapshot,
+    ManagerCodeServerInstallProgress, ManagerCodeServerLatestCheck,
 };
 use crate::state::AppState;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum CodeServerInstallPhase {
+    Preparing,
+    Downloading,
+    Extracting,
+    Cleaning,
+    Starting,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeServerInstallProgress {
+    pub phase: CodeServerInstallPhase,
+    pub percent: u8,
+    #[serde(default)]
+    pub downloaded_bytes: Option<u64>,
+    #[serde(default)]
+    pub total_bytes: Option<u64>,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +65,8 @@ pub struct CodeServerStatus {
     #[serde(default)]
     pub latest: Option<CodeServerLatestCheck>,
     #[serde(default)]
+    pub install_progress: Option<CodeServerInstallProgress>,
+    #[serde(default)]
     pub message: Option<String>,
 }
 
@@ -66,6 +90,29 @@ impl From<CodeServerProcessStatusValue> for CodeServerProcessStatus {
     }
 }
 
+impl From<CodeServerInstallPhaseValue> for CodeServerInstallPhase {
+    fn from(value: CodeServerInstallPhaseValue) -> Self {
+        match value {
+            CodeServerInstallPhaseValue::Preparing => Self::Preparing,
+            CodeServerInstallPhaseValue::Downloading => Self::Downloading,
+            CodeServerInstallPhaseValue::Extracting => Self::Extracting,
+            CodeServerInstallPhaseValue::Cleaning => Self::Cleaning,
+            CodeServerInstallPhaseValue::Starting => Self::Starting,
+        }
+    }
+}
+
+impl From<ManagerCodeServerInstallProgress> for CodeServerInstallProgress {
+    fn from(value: ManagerCodeServerInstallProgress) -> Self {
+        Self {
+            phase: value.phase.into(),
+            percent: value.percent,
+            downloaded_bytes: value.downloaded_bytes,
+            total_bytes: value.total_bytes,
+        }
+    }
+}
+
 impl From<ManagerCodeServerLatestCheck> for CodeServerLatestCheck {
     fn from(value: ManagerCodeServerLatestCheck) -> Self {
         Self {
@@ -83,6 +130,7 @@ impl From<CodeServerStatusSnapshot> for CodeServerStatus {
             installed_version: value.installed_version,
             process_status: value.process_status.into(),
             latest: value.latest.map(Into::into),
+            install_progress: value.install_progress.map(Into::into),
             message: value.message,
         }
     }
@@ -148,7 +196,7 @@ pub async fn check_code_server_update(State(state): State<AppState>) -> Response
     path = "/api/code-server/install",
     request_body = InstallCodeServerRequest,
     responses(
-        (status = 200, description = "Installed or upgraded code-server", body = CodeServerStatus),
+        (status = 202, description = "Started installing or upgrading code-server", body = CodeServerStatus),
         (status = 400, description = "Unsupported platform or invalid request", body = ApiErrorResponse),
         (status = 500, description = "Internal server error", body = ApiErrorResponse),
     ),
@@ -159,7 +207,7 @@ pub async fn install_code_server(
 ) -> Response {
     let version = payload.and_then(|body| body.version.clone());
     match state.code_server.install(version).await {
-        Ok(status) => Json(CodeServerStatus::from(status)).into_response(),
+        Ok(status) => (StatusCode::ACCEPTED, Json(CodeServerStatus::from(status))).into_response(),
         Err(error) => code_server_error_response(error),
     }
 }

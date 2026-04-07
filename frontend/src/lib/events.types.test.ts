@@ -15,6 +15,23 @@ describe("EventClient typing", () => {
     client.on("project_removed", (payload) => {
       expectTypeOf(payload.project_id).toEqualTypeOf<string>();
     });
+
+    client.on("code_server_updated", (payload) => {
+      expectTypeOf(payload.processStatus).toEqualTypeOf<
+        "error" | "running" | "starting" | "stopped" | "stopping" | "installing"
+      >();
+      expectTypeOf(payload.installProgress).toEqualTypeOf<{
+        phase:
+          | "preparing"
+          | "downloading"
+          | "extracting"
+          | "cleaning"
+          | "starting";
+        percent: number;
+        downloadedBytes: bigint | null;
+        totalBytes: bigint | null;
+      } | null>();
+    });
   });
 
   it("rejects invalid event and payload usage", () => {

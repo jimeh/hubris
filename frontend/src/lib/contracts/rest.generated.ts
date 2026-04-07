@@ -652,6 +652,22 @@ export interface components {
       type: "resize";
       visible: boolean;
     };
+    /** @enum {string} */
+    CodeServerInstallPhase:
+      | "preparing"
+      | "downloading"
+      | "extracting"
+      | "cleaning"
+      | "starting";
+    CodeServerInstallProgress: {
+      /** Format: int64 */
+      downloadedBytes?: number | null;
+      /** Format: int32 */
+      percent: number;
+      phase: components["schemas"]["CodeServerInstallPhase"];
+      /** Format: int64 */
+      totalBytes?: number | null;
+    };
     CodeServerLatestCheck: {
       checkedAt?: string | null;
       latestVersion?: string | null;
@@ -666,6 +682,9 @@ export interface components {
       | "installing"
       | "error";
     CodeServerStatus: {
+      installProgress?:
+        | null
+        | components["schemas"]["CodeServerInstallProgress"];
       installedVersion?: string | null;
       latest?: null | components["schemas"]["CodeServerLatestCheck"];
       message?: string | null;
@@ -1188,8 +1207,8 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Installed or upgraded code-server */
-      200: {
+      /** @description Started installing or upgrading code-server */
+      202: {
         headers: {
           [name: string]: unknown;
         };

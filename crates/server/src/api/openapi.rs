@@ -2,7 +2,8 @@ use axum::Json;
 use utoipa::OpenApi;
 
 use crate::api::code_server::{
-    CodeServerLatestCheck, CodeServerProcessStatus, CodeServerStatus, InstallCodeServerRequest,
+    CodeServerInstallPhase, CodeServerInstallProgress, CodeServerLatestCheck,
+    CodeServerProcessStatus, CodeServerStatus, InstallCodeServerRequest,
 };
 use crate::api::editor_themes::{
     DiscoveredExtension, DiscoveredTheme, EditorThemeEntry, ImportThemeRequest, VscodeThemeJson,
@@ -93,6 +94,8 @@ use crate::tab::{GitDiffScope, TabInfo};
             DirEntry,
             ListFilesResponse,
             ApiErrorResponse,
+            CodeServerInstallPhase,
+            CodeServerInstallProgress,
             CodeServerProcessStatus,
             CodeServerLatestCheck,
             CodeServerStatus,

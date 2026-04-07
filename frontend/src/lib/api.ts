@@ -740,6 +740,10 @@ export type ImportThemeRequest = {
 
 export type CodeServerLatestCheck =
   components["schemas"]["CodeServerLatestCheck"];
+export type CodeServerInstallPhase =
+  components["schemas"]["CodeServerInstallPhase"];
+export type CodeServerInstallProgress =
+  components["schemas"]["CodeServerInstallProgress"];
 export type CodeServerProcessStatus =
   components["schemas"]["CodeServerProcessStatus"];
 export type CodeServerStatus = components["schemas"]["CodeServerStatus"];

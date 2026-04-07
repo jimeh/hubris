@@ -27,6 +27,8 @@ use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use uuid::Uuid;
 
+use crate::api::code_server::CodeServerStatus;
+use crate::events::{EventBus, EventKind};
 use crate::state::AppState;
 
 const PUBLIC_BASE_PATH: &str = "/code";
@@ -51,6 +53,8 @@ type DownloadRuntimeFn = Arc<
         + Send
         + Sync,
 >;
+type InstallProgressFn =
+    Arc<dyn Fn(ManagerCodeServerInstallProgress) -> BoxFuture<'static, ()> + Send + Sync>;
 type LaunchFn = Arc<
     dyn Fn(
             CodeServerLaunchRequest,
@@ -133,6 +137,7 @@ pub struct CodeServerStatusSnapshot {
     pub installed_version: Option<String>,
     pub process_status: CodeServerProcessStatusValue,
     pub latest: Option<ManagerCodeServerLatestCheck>,
+    pub install_progress: Option<ManagerCodeServerInstallProgress>,
     pub message: Option<String>,
 }
 
@@ -141,6 +146,7 @@ pub struct CodeServerManager {
     inner: Arc<Mutex<ManagerState>>,
     notify: Arc<Notify>,
     client: reqwest::Client,
+    events: Option<Arc<EventBus>>,
     fetch_latest: FetchLatestFn,
     download_runtime: DownloadRuntimeFn,
     launch: LaunchFn,
@@ -159,6 +165,7 @@ impl fmt::Debug for CodeServerManager {
 struct ManagerState {
     lifecycle: LifecycleState,
     latest: Option<ManagerCodeServerLatestCheck>,
+    install_progress: Option<ManagerCodeServerInstallProgress>,
 }
 
 #[derive(Debug)]
@@ -214,11 +221,29 @@ struct InstalledRuntime {
     binary_path: PathBuf,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct CodeServerDownloadRequest {
     root_dir: PathBuf,
     version: String,
     platform: CodeServerPlatform,
+    install_progress: Option<InstallProgressFn>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CodeServerInstallPhaseValue {
+    Preparing,
+    Downloading,
+    Extracting,
+    Cleaning,
+    Starting,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManagerCodeServerInstallProgress {
+    pub phase: CodeServerInstallPhaseValue,
+    pub percent: u8,
+    pub downloaded_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -291,7 +316,7 @@ impl From<axum::Error> for CodeServerError {
 
 impl CodeServerManager {
     /// Create a manager that launches a shared `code-server` instance.
-    pub fn new(root_dir: PathBuf) -> Self {
+    pub fn new(root_dir: PathBuf, events: Arc<EventBus>) -> Self {
         let metadata_client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -314,6 +339,7 @@ impl CodeServerManager {
             inner: Arc::new(Mutex::new(ManagerState {
                 lifecycle: LifecycleState::Stopped,
                 latest: None,
+                install_progress: None,
             })),
             notify: Arc::new(Notify::new()),
             client: reqwest::Client::builder()
@@ -322,6 +348,7 @@ impl CodeServerManager {
                 .unwrap_or_else(|error| {
                     panic!("failed to build code-server proxy client: {error}")
                 }),
+            events: Some(events),
             fetch_latest,
             download_runtime,
             launch,
@@ -345,9 +372,11 @@ impl CodeServerManager {
             inner: Arc::new(Mutex::new(ManagerState {
                 lifecycle: LifecycleState::Stopped,
                 latest: None,
+                install_progress: None,
             })),
             notify: Arc::new(Notify::new()),
             client,
+            events: None,
             fetch_latest,
             download_runtime,
             launch,
@@ -384,13 +413,23 @@ impl CodeServerManager {
             }
         }
 
-        CodeServerStatusSnapshot {
+        let snapshot = CodeServerStatusSnapshot {
             supported,
             installed_version: installed.map(|runtime| runtime.version),
             process_status,
             latest: state.latest.clone(),
+            install_progress: state.install_progress.clone(),
             message,
+        };
+        drop(state);
+
+        if exited && let Some(events) = &self.events {
+            events.emit(EventKind::CodeServerUpdated(Box::new(
+                CodeServerStatus::from(snapshot.clone()),
+            )));
         }
+
+        snapshot
     }
 
     pub async fn check_for_update(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
@@ -412,6 +451,8 @@ impl CodeServerManager {
             });
         }
 
+        self.publish_status_update().await;
+
         Ok(self.status().await)
     }
 
@@ -419,52 +460,42 @@ impl CodeServerManager {
         &self,
         requested_version: Option<String>,
     ) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        let previous = self
-            .begin_lifecycle_transition(LifecycleTransition::Installing)
-            .await?;
-        shutdown_previous(previous).await?;
+        loop {
+            let mut state = self.inner.lock().await;
+            normalize_dead_process(&mut state)?;
 
-        let platform = detect_platform()?;
-        let version = match requested_version {
-            Some(version) => normalize_version(&version)?,
-            None => (self.fetch_latest)().await?,
-        };
+            match state.lifecycle {
+                LifecycleState::Installing => {
+                    drop(state);
+                    return Ok(self.status().await);
+                }
+                LifecycleState::Starting | LifecycleState::Stopping => {
+                    let notified = self.notify.notified();
+                    drop(state);
+                    notified.await;
+                }
+                _ => {
+                    let previous =
+                        match std::mem::replace(&mut state.lifecycle, LifecycleState::Installing) {
+                            LifecycleState::Running(server) => Some(server),
+                            LifecycleState::Stopped | LifecycleState::Error(_) => None,
+                            LifecycleState::Starting
+                            | LifecycleState::Stopping
+                            | LifecycleState::Installing => unreachable!(),
+                        };
+                    state.install_progress = Some(preparing_install_progress());
+                    drop(state);
 
-        let target = (self.download_runtime)(CodeServerDownloadRequest {
-            root_dir: self.root_dir.clone(),
-            version,
-            platform,
-        })
-        .await;
+                    self.notify.notify_waiters();
+                    self.publish_status_update().await;
 
-        let runtime = match target {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                self.finish_with_error(error.to_string()).await;
-                return Err(error);
-            }
-        };
+                    let manager = self.clone();
+                    tokio::spawn(async move {
+                        manager.run_install_task(previous, requested_version).await;
+                    });
 
-        if let Err(error) = cleanup_other_platform_runtimes(
-            self.root_dir.clone(),
-            runtime.platform,
-            &runtime.runtime_dir,
-        )
-        .await
-        {
-            self.finish_with_error(error.to_string()).await;
-            return Err(error);
-        }
-
-        let result = (self.launch)(build_launch_request(&self.root_dir, &runtime)).await;
-        match result {
-            Ok(server) => {
-                self.finish_with_running(server).await;
-                Ok(self.status().await)
-            }
-            Err(error) => {
-                self.finish_with_error(error.to_string()).await;
-                Err(error)
+                    return Ok(self.status().await);
+                }
             }
         }
     }
@@ -517,7 +548,10 @@ impl CodeServerManager {
                 LifecycleState::Stopped | LifecycleState::Error(_) => {
                     let runtime = runtime.ok_or(CodeServerError::NotInstalled)?;
                     state.lifecycle = LifecycleState::Starting;
+                    state.install_progress = None;
                     drop(state);
+                    self.notify.notify_waiters();
+                    self.publish_status_update().await;
 
                     let result =
                         (self.launch)(build_launch_request(&self.root_dir, &runtime)).await;
@@ -558,7 +592,6 @@ impl CodeServerManager {
                         &mut state.lifecycle,
                         match next {
                             LifecycleTransition::Stopping => LifecycleState::Stopping,
-                            LifecycleTransition::Installing => LifecycleState::Installing,
                         },
                     ) {
                         LifecycleState::Running(server) => Some(server),
@@ -569,6 +602,7 @@ impl CodeServerManager {
                     };
                     drop(state);
                     self.notify.notify_waiters();
+                    self.publish_status_update().await;
                     return Ok(previous);
                 }
             }
@@ -578,22 +612,28 @@ impl CodeServerManager {
     async fn finish_stopped(&self) {
         let mut state = self.inner.lock().await;
         state.lifecycle = LifecycleState::Stopped;
+        state.install_progress = None;
         drop(state);
         self.notify.notify_waiters();
+        self.publish_status_update().await;
     }
 
     async fn finish_with_running(&self, server: RunningCodeServer) {
         let mut state = self.inner.lock().await;
         state.lifecycle = LifecycleState::Running(Box::new(server));
+        state.install_progress = None;
         drop(state);
         self.notify.notify_waiters();
+        self.publish_status_update().await;
     }
 
     async fn finish_with_error(&self, message: String) {
         let mut state = self.inner.lock().await;
         state.lifecycle = LifecycleState::Error(message);
+        state.install_progress = None;
         drop(state);
         self.notify.notify_waiters();
+        self.publish_status_update().await;
     }
 
     async fn find_installed_runtime(&self) -> Result<Option<InstalledRuntime>, CodeServerError> {
@@ -603,12 +643,102 @@ impl CodeServerManager {
             .await
             .map_err(|error| CodeServerError::Spawn(error.to_string()))?
     }
+
+    async fn run_install_task(
+        self,
+        previous: Option<Box<RunningCodeServer>>,
+        requested_version: Option<String>,
+    ) {
+        let result = async {
+            shutdown_previous(previous).await?;
+
+            let platform = detect_platform()?;
+            let version = match requested_version {
+                Some(version) => normalize_version(&version)?,
+                None => (self.fetch_latest)().await?,
+            };
+
+            let runtime = (self.download_runtime)(CodeServerDownloadRequest {
+                root_dir: self.root_dir.clone(),
+                version,
+                platform,
+                install_progress: Some(self.install_progress_callback()),
+            })
+            .await?;
+
+            self.set_install_progress(ManagerCodeServerInstallProgress {
+                phase: CodeServerInstallPhaseValue::Cleaning,
+                percent: 90,
+                downloaded_bytes: None,
+                total_bytes: None,
+            })
+            .await;
+
+            cleanup_other_platform_runtimes(
+                self.root_dir.clone(),
+                runtime.platform,
+                &runtime.runtime_dir,
+            )
+            .await?;
+
+            self.set_install_progress(ManagerCodeServerInstallProgress {
+                phase: CodeServerInstallPhaseValue::Starting,
+                percent: 95,
+                downloaded_bytes: None,
+                total_bytes: None,
+            })
+            .await;
+
+            let server = (self.launch)(build_launch_request(&self.root_dir, &runtime)).await?;
+            self.finish_with_running(server).await;
+            Ok::<(), CodeServerError>(())
+        }
+        .await;
+
+        if let Err(error) = result {
+            self.finish_with_error(error.to_string()).await;
+        }
+    }
+
+    fn install_progress_callback(&self) -> InstallProgressFn {
+        let manager = self.clone();
+        Arc::new(move |progress| {
+            let manager = manager.clone();
+            Box::pin(async move {
+                manager.set_install_progress(progress).await;
+            })
+        })
+    }
+
+    async fn set_install_progress(&self, progress: ManagerCodeServerInstallProgress) {
+        let mut should_emit = false;
+        {
+            let mut state = self.inner.lock().await;
+            if state.install_progress.as_ref() != Some(&progress) {
+                state.install_progress = Some(progress);
+                should_emit = true;
+            }
+        }
+
+        if should_emit {
+            self.notify.notify_waiters();
+            self.publish_status_update().await;
+        }
+    }
+
+    async fn publish_status_update(&self) {
+        let Some(events) = &self.events else {
+            return;
+        };
+        events.emit(EventKind::CodeServerUpdated(Box::new(
+            self.status().await.into(),
+        )));
+    }
 }
 
 #[derive(Clone, Copy)]
 enum LifecycleTransition {
     Stopping,
-    Installing,
 }
 
 impl RunningCodeServer {
@@ -986,6 +1116,28 @@ fn runtime_dir_name(version: &str, platform: CodeServerPlatform) -> String {
     format!("code-server-{version}-{}-{}", platform.os, platform.arch)
 }
 
+fn preparing_install_progress() -> ManagerCodeServerInstallProgress {
+    ManagerCodeServerInstallProgress {
+        phase: CodeServerInstallPhaseValue::Preparing,
+        percent: 5,
+        downloaded_bytes: None,
+        total_bytes: None,
+    }
+}
+
+fn downloading_install_progress(
+    percent: u8,
+    downloaded_bytes: Option<u64>,
+    total_bytes: Option<u64>,
+) -> ManagerCodeServerInstallProgress {
+    ManagerCodeServerInstallProgress {
+        phase: CodeServerInstallPhaseValue::Downloading,
+        percent,
+        downloaded_bytes,
+        total_bytes,
+    }
+}
+
 fn build_launch_request(root_dir: &Path, runtime: &InstalledRuntime) -> CodeServerLaunchRequest {
     let port = pick_unused_port().unwrap_or(8080);
     CodeServerLaunchRequest {
@@ -1072,12 +1224,53 @@ async fn download_runtime_archive_from_base_url(
 
     let download = async {
         let response = client.get(asset_url).send().await?.error_for_status()?;
+        let total_bytes = response.content_length();
+        if let Some(progress) = &request.install_progress {
+            progress(downloading_install_progress(
+                if total_bytes.is_some() { 10 } else { 35 },
+                Some(0),
+                total_bytes,
+            ))
+            .await;
+        }
         let mut file = tokio::fs::File::create(&archive_path).await?;
         let mut stream = response.bytes_stream();
+        let mut downloaded_bytes = 0_u64;
+        let mut last_download_percent = None;
         while let Some(chunk) = stream.try_next().await? {
+            downloaded_bytes += chunk.len() as u64;
             file.write_all(&chunk).await?;
+            if let (Some(total_bytes), Some(progress)) = (total_bytes, &request.install_progress) {
+                let download_percent =
+                    10 + ((downloaded_bytes.saturating_mul(60)) / total_bytes.max(1)) as u8;
+                let download_percent = download_percent.clamp(10, 70);
+                if last_download_percent != Some(download_percent) {
+                    last_download_percent = Some(download_percent);
+                    progress(downloading_install_progress(
+                        download_percent,
+                        Some(downloaded_bytes.min(total_bytes)),
+                        Some(total_bytes),
+                    ))
+                    .await;
+                }
+            }
         }
         file.flush().await?;
+        if let Some(progress) = &request.install_progress {
+            progress(downloading_install_progress(
+                70,
+                Some(downloaded_bytes),
+                total_bytes,
+            ))
+            .await;
+            progress(ManagerCodeServerInstallProgress {
+                phase: CodeServerInstallPhaseValue::Extracting,
+                percent: 80,
+                downloaded_bytes: None,
+                total_bytes: None,
+            })
+            .await;
+        }
         Ok::<(), CodeServerError>(())
     }
     .await;
@@ -1567,6 +1760,7 @@ mod tests {
                 version: version.to_string(),
                 platform,
                 root_dir: tmp.path().join("code-server"),
+                install_progress: None,
             },
             reqwest::Client::new(),
             &format!("http://{addr}/releases"),
@@ -1838,6 +2032,23 @@ mod tests {
 
     #[tokio::test]
     async fn code_server_install_endpoint_installs_and_starts_runtime() {
+        let download: DownloadRuntimeFn = Arc::new(move |request: CodeServerDownloadRequest| {
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let dir_name = runtime_dir_name(&request.version, request.platform);
+                let runtime_dir = request.root_dir.join(RUNTIMES_DIR).join(&dir_name);
+                tokio::fs::create_dir_all(runtime_dir.join("bin")).await?;
+                tokio::fs::write(runtime_dir.join("bin").join("code-server"), "#!/bin/sh\n")
+                    .await?;
+                Ok(InstalledRuntime {
+                    version: request.version.clone(),
+                    version_semver: Version::parse(&request.version).unwrap(),
+                    platform: request.platform,
+                    runtime_dir: runtime_dir.clone(),
+                    binary_path: runtime_dir.join("bin").join("code-server"),
+                })
+            })
+        });
         let launch: LaunchFn = Arc::new(move |request| {
             Box::pin(async move {
                 Ok(RunningCodeServer {
@@ -1854,7 +2065,7 @@ mod tests {
         state.code_server = Arc::new(CodeServerManager::with_hooks(
             tmp.path().join("code-server"),
             static_fetch_latest("4.114.1"),
-            static_download_runtime(tmp.path().to_path_buf()),
+            download,
             launch,
         ));
         let app = build_router(state);
@@ -1873,10 +2084,146 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
         let body: serde_json::Value = response.json().await.unwrap();
-        assert_eq!(body["installedVersion"], "4.114.1");
-        assert_eq!(body["processStatus"], "running");
+        assert_eq!(body["installedVersion"], serde_json::Value::Null);
+        assert_eq!(body["processStatus"], "installing");
+        assert_eq!(body["installProgress"]["phase"], "preparing");
         assert_eq!(body["latest"]["latestVersion"], serde_json::Value::Null);
+
+        let started = tokio::time::Instant::now();
+        loop {
+            let response = client
+                .get(format!("http://{addr}/api/code-server"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let body: serde_json::Value = response.json().await.unwrap();
+            if body["processStatus"] == "running" {
+                assert_eq!(body["installedVersion"], "4.114.1");
+                assert_eq!(body["installProgress"], serde_json::Value::Null);
+                break;
+            }
+
+            assert!(
+                started.elapsed() < Duration::from_secs(2),
+                "code-server install never reached running state: {body}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn install_emits_code_server_updated_events_with_progress() {
+        let events = Arc::new(EventBus::new());
+        let mut rx = events.subscribe();
+        let download: DownloadRuntimeFn = Arc::new(move |request: CodeServerDownloadRequest| {
+            Box::pin(async move {
+                if let Some(progress) = &request.install_progress {
+                    progress(ManagerCodeServerInstallProgress {
+                        phase: CodeServerInstallPhaseValue::Downloading,
+                        percent: 42,
+                        downloaded_bytes: Some(42),
+                        total_bytes: Some(100),
+                    })
+                    .await;
+                }
+
+                let dir_name = runtime_dir_name(&request.version, request.platform);
+                let runtime_dir = request.root_dir.join(RUNTIMES_DIR).join(&dir_name);
+                tokio::fs::create_dir_all(runtime_dir.join("bin")).await?;
+                tokio::fs::write(runtime_dir.join("bin").join("code-server"), "#!/bin/sh\n")
+                    .await?;
+
+                Ok(InstalledRuntime {
+                    version: request.version.clone(),
+                    version_semver: Version::parse(&request.version).unwrap(),
+                    platform: request.platform,
+                    runtime_dir: runtime_dir.clone(),
+                    binary_path: runtime_dir.join("bin").join("code-server"),
+                })
+            })
+        });
+        let launch: LaunchFn = Arc::new(move |_request| {
+            Box::pin(async {
+                Ok(RunningCodeServer {
+                    connection: CodeServerConnection {
+                        base_url: "http://127.0.0.1:1234".into(),
+                    },
+                    process: RunningCodeServerProcess::External,
+                })
+            })
+        });
+        let tmp = tempfile::TempDir::new().unwrap();
+        let manager = CodeServerManager {
+            inner: Arc::new(Mutex::new(ManagerState {
+                lifecycle: LifecycleState::Stopped,
+                latest: None,
+                install_progress: None,
+            })),
+            notify: Arc::new(Notify::new()),
+            client: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap(),
+            events: Some(events),
+            fetch_latest: static_fetch_latest("4.114.1"),
+            download_runtime: download,
+            launch,
+            root_dir: tmp.path().join("code-server"),
+        };
+
+        let initial = manager.install(Some("4.114.1".to_string())).await.unwrap();
+        assert_eq!(
+            initial.process_status,
+            CodeServerProcessStatusValue::Installing
+        );
+
+        let mut saw_preparing = false;
+        let mut saw_downloading = false;
+        let mut saw_running = false;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+
+        while tokio::time::Instant::now() < deadline && !saw_running {
+            let timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let event = tokio::time::timeout(timeout, rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+
+            let EventKind::CodeServerUpdated(status) = &event.kind else {
+                continue;
+            };
+
+            if status.process_status == crate::api::code_server::CodeServerProcessStatus::Installing
+            {
+                if status.install_progress.as_ref().is_some_and(|progress| {
+                    progress.phase == crate::api::code_server::CodeServerInstallPhase::Preparing
+                }) {
+                    saw_preparing = true;
+                }
+
+                if status.install_progress.as_ref().is_some_and(|progress| {
+                    progress.phase == crate::api::code_server::CodeServerInstallPhase::Downloading
+                        && progress.percent == 42
+                        && progress.downloaded_bytes == Some(42)
+                        && progress.total_bytes == Some(100)
+                }) {
+                    saw_downloading = true;
+                }
+            }
+
+            if status.process_status == crate::api::code_server::CodeServerProcessStatus::Running {
+                assert_eq!(status.installed_version.as_deref(), Some("4.114.1"));
+                assert!(status.install_progress.is_none());
+                saw_running = true;
+            }
+        }
+
+        assert!(saw_preparing, "missing preparing code-server event");
+        assert!(saw_downloading, "missing downloading code-server event");
+        assert!(saw_running, "missing running code-server event");
     }
 }

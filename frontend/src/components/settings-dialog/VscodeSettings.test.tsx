@@ -1,9 +1,13 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CodeServerStatus } from "@/lib/api";
+import {
+  resetCodeServerStoreForTests,
+  setCodeServerStatus,
+} from "@/lib/stores/codeServer";
 import VscodeSettings from "./VscodeSettings";
 
-const mockGetCodeServerStatus = vi.fn();
 const mockCheckCodeServerUpdate = vi.fn();
 const mockInstallCodeServer = vi.fn();
 const mockStartCodeServer = vi.fn();
@@ -13,7 +17,6 @@ const mockToastError = vi.fn();
 const mockToastSuccess = vi.fn();
 
 vi.mock("@/lib/api", () => ({
-  getCodeServerStatus: () => mockGetCodeServerStatus(),
   checkCodeServerUpdate: () => mockCheckCodeServerUpdate(),
   installCodeServer: (version?: string) => mockInstallCodeServer(version),
   startCodeServer: () => mockStartCodeServer(),
@@ -28,24 +31,15 @@ vi.mock("sonner", () => ({
   },
 }));
 
-function makeStatus(overrides: Record<string, unknown> = {}): {
-  supported: boolean;
-  installedVersion: string | null;
-  processStatus:
-    | "running"
-    | "stopped"
-    | "starting"
-    | "stopping"
-    | "installing"
-    | "error";
-  latest: { latestVersion: string | null; updateAvailable: boolean } | null;
-  message: string | null;
-} {
+function makeStatus(
+  overrides: Partial<CodeServerStatus> = {},
+): CodeServerStatus {
   return {
     supported: true,
     installedVersion: null,
-    processStatus: "stopped",
+    processStatus: "stopped" as const,
     latest: null,
+    installProgress: null,
     message: null,
     ...overrides,
   };
@@ -53,7 +47,7 @@ function makeStatus(overrides: Record<string, unknown> = {}): {
 
 describe("VscodeSettings", () => {
   beforeEach(() => {
-    mockGetCodeServerStatus.mockReset();
+    resetCodeServerStoreForTests();
     mockCheckCodeServerUpdate.mockReset();
     mockInstallCodeServer.mockReset();
     mockStartCodeServer.mockReset();
@@ -64,19 +58,45 @@ describe("VscodeSettings", () => {
   });
 
   it("shows the install state when code-server is not installed", async () => {
-    mockGetCodeServerStatus.mockResolvedValue(makeStatus());
+    setCodeServerStatus(makeStatus());
 
     render(<VscodeSettings />);
 
     expect(await screen.findByText("Not installed")).toBeInTheDocument();
+    expect(screen.getByText("Managed by")).toBeInTheDocument();
+    expect(
+      screen.getByText("coder/code-server", { selector: "code" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Install latest" }),
     ).toBeEnabled();
   });
 
+  it("renders install progress from the shared code-server store", async () => {
+    setCodeServerStatus(
+      makeStatus({
+        processStatus: "installing",
+        installProgress: {
+          phase: "downloading",
+          percent: 42,
+          downloadedBytes: 42 * 1024 * 1024,
+          totalBytes: 100 * 1024 * 1024,
+        },
+      }),
+    );
+
+    render(<VscodeSettings />);
+
+    expect(await screen.findByText("Downloading runtime")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Downloading coder\/code-server 42%/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Install progress")).toBeInTheDocument();
+  });
+
   it("checks for updates and offers an upgrade when a newer version exists", async () => {
     const user = userEvent.setup();
-    mockGetCodeServerStatus.mockResolvedValue(
+    setCodeServerStatus(
       makeStatus({
         installedVersion: "4.113.0",
       }),
@@ -104,7 +124,7 @@ describe("VscodeSettings", () => {
 
   it("shows runtime controls for a running installation", async () => {
     const user = userEvent.setup();
-    mockGetCodeServerStatus.mockResolvedValue(
+    setCodeServerStatus(
       makeStatus({
         installedVersion: "4.114.1",
         processStatus: "running",

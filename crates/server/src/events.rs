@@ -5,6 +5,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 use ts_rs::TS;
 
+use crate::api::code_server::CodeServerStatus;
 use crate::api::projects::Project;
 use crate::api::settings::{Settings, SettingsState, SettingsStatus};
 use crate::api::worktrees::Worktree;
@@ -25,9 +26,10 @@ pub enum EventKind {
         projects: Vec<Project>,
         worktrees: HashMap<String, Vec<Worktree>>,
         project_errors: HashMap<String, String>,
-        settings: Settings,
+        settings: Box<Settings>,
         settings_generation: String,
         settings_status: SettingsStatus,
+        code_server: Box<CodeServerStatus>,
     },
     #[serde(rename = "tab_created")]
     TabCreated { session_id: String, tab: TabInfo },
@@ -83,6 +85,8 @@ pub enum EventKind {
     },
     #[serde(rename = "settings_updated")]
     SettingsUpdated(SettingsState),
+    #[serde(rename = "code_server_updated")]
+    CodeServerUpdated(Box<CodeServerStatus>),
 }
 
 impl EventKind {
@@ -104,6 +108,7 @@ impl EventKind {
             EventKind::WorktreeFilesUpdated { .. } => "worktree_files_updated",
             EventKind::WorktreeGitStatusUpdated { .. } => "worktree_git_status_updated",
             EventKind::SettingsUpdated(_) => "settings_updated",
+            EventKind::CodeServerUpdated(_) => "code_server_updated",
         }
     }
 }
@@ -188,9 +193,17 @@ mod tests {
                 projects: vec![],
                 worktrees: HashMap::new(),
                 project_errors: HashMap::new(),
-                settings: Settings::default(),
+                settings: Box::new(Settings::default()),
                 settings_generation: "0".to_string(),
                 settings_status: SettingsStatus::ok(),
+                code_server: Box::new(CodeServerStatus {
+                    supported: true,
+                    installed_version: None,
+                    process_status: crate::api::code_server::CodeServerProcessStatus::Stopped,
+                    latest: None,
+                    install_progress: None,
+                    message: None,
+                }),
             }
             .event_name(),
             "snapshot"
@@ -202,6 +215,18 @@ mod tests {
             }
             .event_name(),
             "tab_closed"
+        );
+        assert_eq!(
+            EventKind::CodeServerUpdated(Box::new(CodeServerStatus {
+                supported: true,
+                installed_version: None,
+                process_status: crate::api::code_server::CodeServerProcessStatus::Stopped,
+                latest: None,
+                install_progress: None,
+                message: None,
+            }))
+            .event_name(),
+            "code_server_updated"
         );
     }
 }
