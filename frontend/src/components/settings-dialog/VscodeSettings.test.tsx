@@ -18,7 +18,8 @@ const mockToastSuccess = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   checkCodeServerUpdate: () => mockCheckCodeServerUpdate(),
-  installCodeServer: (version?: string) => mockInstallCodeServer(version),
+  installCodeServer: (version?: string, force?: boolean) =>
+    mockInstallCodeServer(version, force),
   startCodeServer: () => mockStartCodeServer(),
   stopCodeServer: () => mockStopCodeServer(),
   restartCodeServer: () => mockRestartCodeServer(),
@@ -150,6 +151,30 @@ describe("VscodeSettings", () => {
 
     await waitFor(() => {
       expect(mockRestartCodeServer).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("offers reinstall for an installed runtime", async () => {
+    const user = userEvent.setup();
+    setCodeServerStatus(
+      makeStatus({
+        installedVersion: "v4.114.1",
+        processStatus: "running",
+      }),
+    );
+    mockInstallCodeServer.mockResolvedValue(
+      makeStatus({
+        installedVersion: "4.114.1",
+        processStatus: "installing",
+      }),
+    );
+
+    render(<VscodeSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Reinstall" }));
+
+    await waitFor(() => {
+      expect(mockInstallCodeServer).toHaveBeenCalledWith("v4.114.1", true);
     });
   });
 });

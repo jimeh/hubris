@@ -75,6 +75,9 @@ pub struct CodeServerStatus {
 pub struct InstallCodeServerRequest {
     #[serde(default)]
     pub version: Option<String>,
+    /// Force a fresh reinstall of the target runtime version.
+    #[serde(default)]
+    pub force: bool,
 }
 
 impl From<CodeServerProcessStatusValue> for CodeServerProcessStatus {
@@ -205,8 +208,10 @@ pub async fn install_code_server(
     State(state): State<AppState>,
     payload: Option<Json<InstallCodeServerRequest>>,
 ) -> Response {
-    let version = payload.and_then(|body| body.version.clone());
-    match state.code_server.install(version).await {
+    let (version, force) = payload
+        .map(|body| (body.version.clone(), body.force))
+        .unwrap_or((None, false));
+    match state.code_server.install(version, force).await {
         Ok(status) => (StatusCode::ACCEPTED, Json(CodeServerStatus::from(status))).into_response(),
         Err(error) => code_server_error_response(error),
     }

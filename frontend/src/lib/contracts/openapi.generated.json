@@ -2614,6 +2614,10 @@
       "InstallCodeServerRequest": {
         "type": "object",
         "properties": {
+          "force": {
+            "type": "boolean",
+            "description": "Force a fresh reinstall of the target runtime version."
+          },
           "version": {
             "type": ["string", "null"]
           }

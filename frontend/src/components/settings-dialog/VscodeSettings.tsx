@@ -35,6 +35,7 @@ const settingsRowClass =
 type ActionKind =
   | "check"
   | "install"
+  | "reinstall"
   | "upgrade"
   | "start"
   | "stop"
@@ -202,6 +203,7 @@ export default function VscodeSettings() {
     !!status.installedVersion &&
     !!latest?.updateAvailable &&
     !!latest.latestVersion;
+  const canReinstall = status?.supported && !!status.installedVersion;
 
   return (
     <section className="space-y-4">
@@ -340,6 +342,32 @@ export default function VscodeSettings() {
                   <Download data-icon="inline-start" />
                 )}
                 Upgrade to {displayVersion(latest?.latestVersion)}
+              </Button>
+            ) : null}
+
+            {canReinstall ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  void runAction(
+                    "reinstall",
+                    () =>
+                      installCodeServer(
+                        status.installedVersion ?? undefined,
+                        true,
+                      ),
+                    "Started coder/code-server reinstall",
+                  )
+                }
+              >
+                {pendingAction === "reinstall" ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <Download data-icon="inline-start" />
+                )}
+                Reinstall
               </Button>
             ) : null}
 

@@ -787,10 +787,14 @@ export async function checkCodeServerUpdate(): Promise<CodeServerStatus> {
 
 export async function installCodeServer(
   version?: string,
+  force = false,
 ): Promise<CodeServerStatus> {
   const payload: InstallCodeServerRequest = {};
   if (version) {
     payload.version = version;
+  }
+  if (force) {
+    payload.force = force;
   }
   const res = await fetch(`${BASE}/code-server/install`, {
     method: "POST",

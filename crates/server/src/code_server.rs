@@ -226,7 +226,15 @@ struct CodeServerDownloadRequest {
     root_dir: PathBuf,
     version: String,
     platform: CodeServerPlatform,
+    force: bool,
     install_progress: Option<InstallProgressFn>,
+}
+
+#[derive(Clone, Debug)]
+struct CodeServerInstallPlan {
+    version: String,
+    platform: CodeServerPlatform,
+    force: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -459,7 +467,31 @@ impl CodeServerManager {
     pub async fn install(
         &self,
         requested_version: Option<String>,
+        force: bool,
     ) -> Result<CodeServerStatusSnapshot, CodeServerError> {
+        loop {
+            let mut state = self.inner.lock().await;
+            normalize_dead_process(&mut state)?;
+
+            match state.lifecycle {
+                LifecycleState::Installing => {
+                    drop(state);
+                    return Ok(self.status().await);
+                }
+                LifecycleState::Starting | LifecycleState::Stopping => {
+                    let notified = self.notify.notified();
+                    drop(state);
+                    notified.await;
+                }
+                _ => {
+                    drop(state);
+                    break;
+                }
+            }
+        }
+
+        let plan = self.prepare_install_plan(requested_version, force).await?;
+
         loop {
             let mut state = self.inner.lock().await;
             normalize_dead_process(&mut state)?;
@@ -491,7 +523,7 @@ impl CodeServerManager {
 
                     let manager = self.clone();
                     tokio::spawn(async move {
-                        manager.run_install_task(previous, requested_version).await;
+                        manager.run_install_task(previous, plan).await;
                     });
 
                     return Ok(self.status().await);
@@ -647,21 +679,16 @@ impl CodeServerManager {
     async fn run_install_task(
         self,
         previous: Option<Box<RunningCodeServer>>,
-        requested_version: Option<String>,
+        plan: CodeServerInstallPlan,
     ) {
         let result = async {
             shutdown_previous(previous).await?;
 
-            let platform = detect_platform()?;
-            let version = match requested_version {
-                Some(version) => normalize_version(&version)?,
-                None => (self.fetch_latest)().await?,
-            };
-
             let runtime = (self.download_runtime)(CodeServerDownloadRequest {
                 root_dir: self.root_dir.clone(),
-                version,
-                platform,
+                version: plan.version,
+                platform: plan.platform,
+                force: plan.force,
                 install_progress: Some(self.install_progress_callback()),
             })
             .await?;
@@ -733,6 +760,31 @@ impl CodeServerManager {
         events.emit(EventKind::CodeServerUpdated(Box::new(
             self.status().await.into(),
         )));
+    }
+
+    async fn prepare_install_plan(
+        &self,
+        requested_version: Option<String>,
+        force: bool,
+    ) -> Result<CodeServerInstallPlan, CodeServerError> {
+        let platform = detect_platform()?;
+        let version = match requested_version {
+            Some(version) => normalize_version(&version)?,
+            None if force => {
+                if let Some(installed) = self.find_installed_runtime().await? {
+                    installed.version
+                } else {
+                    (self.fetch_latest)().await?
+                }
+            }
+            None => (self.fetch_latest)().await?,
+        };
+
+        Ok(CodeServerInstallPlan {
+            version,
+            platform,
+            force,
+        })
     }
 }
 
@@ -1198,7 +1250,7 @@ async fn download_runtime_archive_from_base_url(
     let dir_name = runtime_dir_name(&version, request.platform);
     let runtime_dir = request.root_dir.join(RUNTIMES_DIR).join(&dir_name);
     let binary_path = runtime_dir.join("bin").join("code-server");
-    if tokio::fs::try_exists(&binary_path).await? {
+    if runtime_dir_is_complete(&runtime_dir).await? && !request.force {
         return Ok(InstalledRuntime {
             version: version.clone(),
             version_semver: Version::parse(&version).expect("validated version"),
@@ -1206,6 +1258,10 @@ async fn download_runtime_archive_from_base_url(
             runtime_dir,
             binary_path,
         });
+    }
+
+    if tokio::fs::try_exists(&runtime_dir).await? {
+        tokio::fs::remove_dir_all(&runtime_dir).await?;
     }
 
     tokio::fs::create_dir_all(request.root_dir.join(RUNTIMES_DIR)).await?;
@@ -1293,16 +1349,14 @@ async fn download_runtime_archive_from_base_url(
     .await
     .map_err(|error| CodeServerError::Spawn(error.to_string()))??;
 
-    let move_result = if tokio::fs::try_exists(&runtime_dir).await? {
-        Ok(())
-    } else {
-        tokio::fs::rename(&extracted_root, &runtime_dir).await
-    };
+    if tokio::fs::try_exists(&runtime_dir).await? {
+        tokio::fs::remove_dir_all(&runtime_dir).await?;
+    }
 
+    tokio::fs::create_dir_all(request.root_dir.join(RUNTIMES_DIR)).await?;
+    tokio::fs::rename(&extracted_root, &runtime_dir).await?;
     let _ = tokio::fs::remove_file(&archive_path).await;
     let _ = tokio::fs::remove_dir_all(&extract_dir).await;
-
-    move_result?;
 
     if !tokio::fs::try_exists(&binary_path).await? {
         return Err(CodeServerError::Archive(format!(
@@ -1318,6 +1372,12 @@ async fn download_runtime_archive_from_base_url(
         runtime_dir,
         binary_path,
     })
+}
+
+async fn runtime_dir_is_complete(runtime_dir: &Path) -> Result<bool, CodeServerError> {
+    tokio::fs::try_exists(runtime_dir.join("bin").join("code-server"))
+        .await
+        .map_err(Into::into)
 }
 
 fn extract_archive(
@@ -1760,6 +1820,7 @@ mod tests {
                 version: version.to_string(),
                 platform,
                 root_dir: tmp.path().join("code-server"),
+                force: false,
                 install_progress: None,
             },
             reqwest::Client::new(),
@@ -1774,6 +1835,66 @@ mod tests {
             dir_name.as_str()
         );
         assert!(tokio::fs::try_exists(installed.binary_path).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn download_runtime_archive_replaces_incomplete_target_runtime() {
+        let version = "4.114.1";
+        let platform = CodeServerPlatform {
+            os: "linux",
+            arch: "amd64",
+        };
+        let dir_name = runtime_dir_name(version, platform);
+        let asset_name = format!("{dir_name}.tar.gz");
+        let archive = Arc::new(runtime_archive(&dir_name));
+        let upstream = Router::new().route(
+            &format!("/releases/download/v{version}/{asset_name}"),
+            any({
+                let archive = archive.clone();
+                move || async move {
+                    Response::builder()
+                        .status(StatusCode::OK)
+                        .header(axum::http::header::CONTENT_TYPE, "application/gzip")
+                        .body(Body::from(archive.as_ref().clone()))
+                        .unwrap()
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, upstream).await.unwrap();
+        });
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root_dir = tmp.path().join("code-server");
+        let runtime_dir = root_dir.join(RUNTIMES_DIR).join(&dir_name);
+        tokio::fs::create_dir_all(&runtime_dir).await.unwrap();
+        tokio::fs::write(runtime_dir.join("stale.txt"), "stale")
+            .await
+            .unwrap();
+
+        let installed = download_runtime_archive_from_base_url(
+            CodeServerDownloadRequest {
+                version: version.to_string(),
+                platform,
+                root_dir: root_dir.clone(),
+                force: false,
+                install_progress: None,
+            },
+            reqwest::Client::new(),
+            &format!("http://{addr}/releases"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(installed.version, version);
+        assert!(tokio::fs::try_exists(installed.binary_path).await.unwrap());
+        assert!(
+            !tokio::fs::try_exists(runtime_dir.join("stale.txt"))
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]
@@ -1801,7 +1922,10 @@ mod tests {
             static_download_runtime(tmp.path().to_path_buf()),
             launch,
         );
-        manager.install(Some("4.114.1".to_string())).await.unwrap();
+        manager
+            .install(Some("4.114.1".to_string()), false)
+            .await
+            .unwrap();
         manager.stop().await.unwrap();
 
         let (first, second) = tokio::join!(manager.ensure_ready(), manager.ensure_ready());
@@ -1944,7 +2068,7 @@ mod tests {
         ));
         state
             .code_server
-            .install(Some("4.114.1".to_string()))
+            .install(Some("4.114.1".to_string()), false)
             .await
             .unwrap();
         let app = build_router(state);
@@ -2116,6 +2240,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn code_server_install_endpoint_rejects_invalid_versions_before_starting() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let state = AppState::new(tmp.path().to_path_buf()).await;
+        let app = build_router(state);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("http://{addr}/api/code-server/install"))
+            .json(&serde_json::json!({ "version": "latest" }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(
+            body["message"],
+            serde_json::Value::String("invalid code-server version: latest".to_string())
+        );
+
+        let status = client
+            .get(format!("http://{addr}/api/code-server"))
+            .send()
+            .await
+            .unwrap();
+        let body: serde_json::Value = status.json().await.unwrap();
+        assert_eq!(body["processStatus"], "stopped");
+        assert_eq!(body["installProgress"], serde_json::Value::Null);
+    }
+
+    #[tokio::test]
+    async fn force_reinstall_reuses_installed_version() {
+        let requests = Arc::new(Mutex::new(Vec::<(String, bool)>::new()));
+        let requests_for_download = requests.clone();
+        let download: DownloadRuntimeFn = Arc::new(move |request: CodeServerDownloadRequest| {
+            let requests = requests_for_download.clone();
+            Box::pin(async move {
+                requests
+                    .lock()
+                    .await
+                    .push((request.version.clone(), request.force));
+                let dir_name = runtime_dir_name(&request.version, request.platform);
+                let runtime_dir = request.root_dir.join(RUNTIMES_DIR).join(&dir_name);
+                tokio::fs::create_dir_all(runtime_dir.join("bin")).await?;
+                tokio::fs::write(runtime_dir.join("bin").join("code-server"), "#!/bin/sh\n")
+                    .await?;
+                Ok(InstalledRuntime {
+                    version: request.version.clone(),
+                    version_semver: Version::parse(&request.version).unwrap(),
+                    platform: request.platform,
+                    runtime_dir: runtime_dir.clone(),
+                    binary_path: runtime_dir.join("bin").join("code-server"),
+                })
+            })
+        });
+        let launch: LaunchFn = Arc::new(move |request| {
+            Box::pin(async move {
+                Ok(RunningCodeServer {
+                    connection: CodeServerConnection {
+                        base_url: format!("http://{}:{}", request.host, request.port),
+                    },
+                    process: RunningCodeServerProcess::External,
+                })
+            })
+        });
+        let tmp = tempfile::TempDir::new().unwrap();
+        let manager = CodeServerManager::with_hooks(
+            tmp.path().join("code-server"),
+            static_fetch_latest("9.9.9"),
+            download,
+            launch,
+        );
+
+        manager
+            .install(Some("4.114.1".to_string()), false)
+            .await
+            .unwrap();
+        wait_for_running_status(&manager).await;
+
+        manager.install(None, true).await.unwrap();
+        wait_for_running_status(&manager).await;
+
+        let requests = requests.lock().await.clone();
+        assert_eq!(
+            requests,
+            vec![
+                ("4.114.1".to_string(), false),
+                ("4.114.1".to_string(), true),
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn install_emits_code_server_updated_events_with_progress() {
         let events = Arc::new(EventBus::new());
         let mut rx = events.subscribe();
@@ -2175,7 +2398,10 @@ mod tests {
             root_dir: tmp.path().join("code-server"),
         };
 
-        let initial = manager.install(Some("4.114.1".to_string())).await.unwrap();
+        let initial = manager
+            .install(Some("4.114.1".to_string()), false)
+            .await
+            .unwrap();
         assert_eq!(
             initial.process_status,
             CodeServerProcessStatusValue::Installing
@@ -2225,5 +2451,18 @@ mod tests {
         assert!(saw_preparing, "missing preparing code-server event");
         assert!(saw_downloading, "missing downloading code-server event");
         assert!(saw_running, "missing running code-server event");
+    }
+
+    async fn wait_for_running_status(manager: &CodeServerManager) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while tokio::time::Instant::now() < deadline {
+            let status = manager.status().await;
+            if status.process_status == CodeServerProcessStatusValue::Running {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        panic!("code-server never reached running state");
     }
 }

@@ -817,6 +817,8 @@ export interface components {
       path: string;
     };
     InstallCodeServerRequest: {
+      /** @description Force a fresh reinstall of the target runtime version. */
+      force?: boolean;
       version?: string | null;
     };
     ListFilesResponse: {
