@@ -43,6 +43,8 @@ const USER_DIR: &str = "user";
 const EXTENSIONS_DIR: &str = "extensions";
 const CONFIG_DIR: &str = "config";
 const TMP_DIR: &str = "tmp";
+const SHUTDOWN_GRACE_TIMEOUT: Duration = Duration::from_secs(10);
+const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 type FetchLatestFn =
     Arc<dyn Fn() -> BoxFuture<'static, Result<String, CodeServerError>> + Send + Sync>;
@@ -194,11 +196,18 @@ struct TestProcessProbe {
 
 #[derive(Debug)]
 enum RunningCodeServerProcess {
-    Child(Child),
+    Child(ManagedChildProcess),
     #[cfg(test)]
     External,
     #[cfg(test)]
     TestProbe(TestProcessProbe),
+}
+
+#[derive(Debug)]
+struct ManagedChildProcess {
+    child: Child,
+    #[cfg(unix)]
+    process_group_id: Option<i32>,
 }
 
 enum UpgradeOutcome {
@@ -803,10 +812,62 @@ impl RunningCodeServer {
     }
 }
 
+impl ManagedChildProcess {
+    fn new(child: Child) -> Self {
+        Self {
+            #[cfg(unix)]
+            process_group_id: child.id().and_then(|pid| i32::try_from(pid).ok()),
+            child,
+        }
+    }
+
+    fn is_alive(&mut self) -> Result<bool, CodeServerError> {
+        Ok(self.child.try_wait()?.is_none())
+    }
+
+    async fn shutdown(&mut self) -> Result<(), CodeServerError> {
+        self.shutdown_with_timeout(SHUTDOWN_GRACE_TIMEOUT).await
+    }
+
+    async fn shutdown_with_timeout(&mut self, timeout: Duration) -> Result<(), CodeServerError> {
+        if self.child.try_wait()?.is_some() {
+            return Ok(());
+        }
+
+        self.send_graceful_shutdown()?;
+        if wait_for_child_exit(&mut self.child, timeout).await? {
+            return Ok(());
+        }
+
+        tracing::warn!("code-server did not exit after SIGTERM; forcing shutdown");
+        self.force_kill()?;
+        let _ = self.child.wait().await?;
+        Ok(())
+    }
+
+    fn send_graceful_shutdown(&mut self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        if let Some(process_group_id) = self.process_group_id {
+            return send_signal_to_process_group(process_group_id, libc::SIGTERM);
+        }
+
+        self.child.start_kill()
+    }
+
+    fn force_kill(&mut self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        if let Some(process_group_id) = self.process_group_id {
+            return send_signal_to_process_group(process_group_id, libc::SIGKILL);
+        }
+
+        self.child.start_kill()
+    }
+}
+
 impl RunningCodeServerProcess {
     fn is_alive(&mut self) -> Result<bool, CodeServerError> {
         match self {
-            Self::Child(child) => Ok(child.try_wait()?.is_none()),
+            Self::Child(child) => child.is_alive(),
             #[cfg(test)]
             Self::External => Ok(true),
             #[cfg(test)]
@@ -816,13 +877,7 @@ impl RunningCodeServerProcess {
 
     async fn shutdown(&mut self) -> Result<(), CodeServerError> {
         match self {
-            Self::Child(child) => {
-                if child.try_wait()?.is_none() {
-                    child.start_kill()?;
-                    let _ = child.wait().await?;
-                }
-                Ok(())
-            }
+            Self::Child(child) => child.shutdown().await,
             #[cfg(test)]
             Self::External => Ok(()),
             #[cfg(test)]
@@ -843,7 +898,7 @@ impl Drop for RunningCodeServerProcess {
     fn drop(&mut self) {
         match self {
             Self::Child(child) => {
-                let _ = child.start_kill();
+                let _ = child.force_kill();
             }
             #[cfg(test)]
             Self::External => {}
@@ -859,6 +914,39 @@ impl Drop for RunningCodeServerProcess {
                 }
             }
         }
+    }
+}
+
+#[cfg(unix)]
+fn send_signal_to_process_group(process_group_id: i32, signal: libc::c_int) -> std::io::Result<()> {
+    let result = unsafe { libc::kill(-process_group_id, signal) };
+    if result == 0 {
+        return Ok(());
+    }
+
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(());
+    }
+
+    Err(error)
+}
+
+async fn wait_for_child_exit(
+    child: &mut Child,
+    timeout: Duration,
+) -> Result<bool, CodeServerError> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if child.try_wait()?.is_some() {
+            return Ok(true);
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            return Ok(false);
+        }
+
+        tokio::time::sleep(SHUTDOWN_POLL_INTERVAL).await;
     }
 }
 
@@ -1499,7 +1587,8 @@ async fn launch_code_server(
 ) -> Result<RunningCodeServer, CodeServerError> {
     prepare_dirs(&request).await?;
 
-    let mut child = Command::new(&request.binary_path)
+    let mut command = Command::new(&request.binary_path);
+    command
         .arg("--bind-addr")
         .arg(format!("{}:{}", request.host, request.port))
         .arg("--auth")
@@ -1515,14 +1604,17 @@ async fn launch_code_server(
         .arg(PUBLIC_BASE_PATH)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| {
-            CodeServerError::Spawn(format!(
-                "failed to launch code-server binary {}: {error}",
-                request.binary_path.display()
-            ))
-        })?;
+        .stderr(Stdio::piped());
+
+    #[cfg(unix)]
+    command.process_group(0);
+
+    let mut child = command.spawn().map_err(|error| {
+        CodeServerError::Spawn(format!(
+            "failed to launch code-server binary {}: {error}",
+            request.binary_path.display()
+        ))
+    })?;
 
     let connection = CodeServerConnection {
         base_url: format!("http://{}:{}", request.host, request.port),
@@ -1535,7 +1627,7 @@ async fn launch_code_server(
 
     Ok(RunningCodeServer {
         connection,
-        process: RunningCodeServerProcess::Child(child),
+        process: RunningCodeServerProcess::Child(ManagedChildProcess::new(child)),
     })
 }
 
@@ -1584,6 +1676,7 @@ async fn wait_for_ready(
 #[cfg(test)]
 mod tests {
     use std::io::Write;
+    use std::path::Path;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use axum::extract::Request as AxumRequest;
@@ -1595,6 +1688,10 @@ mod tests {
 
     use super::*;
     use crate::{AppState, build_router};
+    #[cfg(unix)]
+    use std::fs::Permissions;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     #[cfg(test)]
     impl TestProcessProbe {
@@ -1658,6 +1755,49 @@ mod tests {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(&tar_bytes).unwrap();
         encoder.finish().unwrap()
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_file(path: &Path) -> String {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Ok(contents) = tokio::fs::read_to_string(path).await {
+                return contents;
+            }
+
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting for {}",
+                path.display()
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[cfg(unix)]
+    fn process_exists(pid: i32) -> bool {
+        let result = unsafe { libc::kill(pid, 0) };
+        if result == 0 {
+            return true;
+        }
+
+        std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_process_exit(pid: i32) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            if !process_exists(pid) {
+                return;
+            }
+
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting for process {pid} to exit"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
 
     #[test]
@@ -1933,6 +2073,107 @@ mod tests {
         assert!(first.is_ok());
         assert!(second.is_ok());
         assert_eq!(launches.load(Ordering::Relaxed), 2);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn managed_child_shutdown_terminates_process_group_gracefully() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let script_path = tmp.path().join("graceful-shutdown.sh");
+        let child_pid_path = tmp.path().join("child.pid");
+        let ready_path = tmp.path().join("ready");
+        tokio::fs::write(
+            &script_path,
+            format!(
+                concat!(
+                    "#!/bin/sh\n",
+                    "set -eu\n",
+                    "child_pid_file=\"{}\"\n",
+                    "ready_file=\"{}\"\n",
+                    "sleep 1000 &\n",
+                    "child=$!\n",
+                    "echo \"$child\" > \"$child_pid_file\"\n",
+                    "echo ready > \"$ready_file\"\n",
+                    "trap 'exit 0' TERM INT\n",
+                    "wait \"$child\"\n"
+                ),
+                child_pid_path.display(),
+                ready_path.display()
+            ),
+        )
+        .await
+        .unwrap();
+        tokio::fs::set_permissions(&script_path, Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        let mut command = Command::new(&script_path);
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        let child = command.spawn().unwrap();
+        let mut process = ManagedChildProcess::new(child);
+
+        let child_pid: i32 = wait_for_file(&child_pid_path).await.trim().parse().unwrap();
+        let _ = wait_for_file(&ready_path).await;
+
+        process
+            .shutdown_with_timeout(Duration::from_millis(250))
+            .await
+            .unwrap();
+
+        wait_for_process_exit(child_pid).await;
+        assert!(!process.is_alive().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn managed_child_shutdown_escalates_after_timeout() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let script_path = tmp.path().join("ignore-term.sh");
+        let ready_path = tmp.path().join("ready");
+        tokio::fs::write(
+            &script_path,
+            format!(
+                concat!(
+                    "#!/bin/sh\n",
+                    "set -eu\n",
+                    "ready_file=\"{}\"\n",
+                    "echo ready > \"$ready_file\"\n",
+                    "trap '' TERM INT\n",
+                    "while :; do\n",
+                    "  sleep 1\n",
+                    "done\n"
+                ),
+                ready_path.display()
+            ),
+        )
+        .await
+        .unwrap();
+        tokio::fs::set_permissions(&script_path, Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        let mut command = Command::new(&script_path);
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        let child = command.spawn().unwrap();
+        let mut process = ManagedChildProcess::new(child);
+
+        let _ = wait_for_file(&ready_path).await;
+        let started = tokio::time::Instant::now();
+        process
+            .shutdown_with_timeout(Duration::from_millis(250))
+            .await
+            .unwrap();
+
+        assert!(started.elapsed() >= Duration::from_millis(250));
+        assert!(!process.is_alive().unwrap());
     }
 
     #[tokio::test]

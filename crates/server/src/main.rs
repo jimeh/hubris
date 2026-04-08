@@ -4,7 +4,8 @@ use listenfd::ListenFd;
 use tracing_subscriber::EnvFilter;
 
 use hubris_server::{
-    DesktopAccess, ServerAccess, ServerOptions, resolve_data_dir, run_server, select_listener,
+    DesktopAccess, ServerAccess, ServerOptions, resolve_data_dir, run_server_with_shutdown,
+    select_listener,
 };
 
 const DEFAULT_PORT: u16 = 3001;
@@ -76,14 +77,41 @@ async fn main() {
         .map(ServerAccess::DesktopLocked)
         .unwrap_or(ServerAccess::Open);
 
-    run_server(
+    run_server_with_shutdown(
         listener,
         data_dir,
         ServerOptions {
             access,
             ..ServerOptions::default()
         },
+        shutdown_signal(),
     )
     .await
     .unwrap();
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
+
+    tracing::info!("shutdown signal received");
 }

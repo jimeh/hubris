@@ -3,8 +3,10 @@ use std::time::Duration;
 
 use hubris_server::{
     FrontendAssets, ServerOptions, build_router_with_options, resolve_data_dir, run_server,
+    run_server_with_shutdown,
 };
 use tempfile::TempDir;
+use tokio::sync::oneshot;
 
 static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
@@ -102,6 +104,67 @@ async fn run_server_uses_existing_listener_port() {
     assert!(response.text().await.unwrap().contains("\"openapi\""));
 
     handle.abort();
+}
+
+#[tokio::test]
+async fn run_server_with_shutdown_stops_on_signal() {
+    let temp = TempDir::new().unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let handle = tokio::spawn(async move {
+        run_server_with_shutdown(
+            listener,
+            temp.path().join("data"),
+            ServerOptions::default(),
+            async move {
+                let _ = shutdown_rx.await;
+            },
+        )
+        .await
+        .unwrap();
+    });
+
+    let response = wait_for_ok(&format!("http://127.0.0.1:{port}/api/openapi.json")).await;
+    assert!(response.text().await.unwrap().contains("\"openapi\""));
+
+    shutdown_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(2), handle)
+        .await
+        .expect("server did not stop after shutdown signal")
+        .unwrap();
+}
+
+#[tokio::test]
+async fn run_server_with_shutdown_stops_with_open_event_stream() {
+    let temp = TempDir::new().unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let handle = tokio::spawn(async move {
+        run_server_with_shutdown(
+            listener,
+            temp.path().join("data"),
+            ServerOptions::default(),
+            async move {
+                let _ = shutdown_rx.await;
+            },
+        )
+        .await
+        .unwrap();
+    });
+
+    let _stream = reqwest::Client::new()
+        .get(format!("http://127.0.0.1:{port}/api/events"))
+        .send()
+        .await
+        .unwrap();
+
+    shutdown_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(4), handle)
+        .await
+        .expect("server did not stop with open event stream")
+        .unwrap();
 }
 
 #[test]

@@ -12,12 +12,17 @@ pub mod tab;
 pub mod worktree_files;
 pub mod worktree_path_policy;
 
+use std::future::Future;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use axum::Extension;
 use axum::Router;
 use axum::http::Method;
 use axum::http::header::CONTENT_TYPE;
 use axum::middleware;
 use axum::routing::{any, delete, get, post, put};
+use tokio::sync::Notify;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -191,6 +196,8 @@ const API_METHODS: [Method; 5] = [
     Method::PATCH,
 ];
 
+const SERVER_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Build the API router for a given AppState.
 pub fn build_router(state: AppState) -> Router {
     build_router_with_options(state, ServerOptions::default())
@@ -361,17 +368,101 @@ pub async fn run_server(
     data_dir: std::path::PathBuf,
     options: ServerOptions,
 ) -> std::io::Result<()> {
+    run_server_with_shutdown(listener, data_dir, options, std::future::pending()).await
+}
+
+/// Run the Hubris server on an existing listener until either the
+/// server exits or the provided shutdown signal resolves.
+pub async fn run_server_with_shutdown<F>(
+    listener: tokio::net::TcpListener,
+    data_dir: std::path::PathBuf,
+    options: ServerOptions,
+    shutdown: F,
+) -> std::io::Result<()>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
     let state = create_app_state(data_dir).await?;
     let app = build_router_with_options(state.clone(), options);
-    let result = axum::serve(listener, app)
-        .await
-        .map_err(std::io::Error::other);
+    let shutdown_signal = Arc::new(ShutdownSignal::default());
+    let signal_task = {
+        let shutdown_signal = shutdown_signal.clone();
+        tokio::spawn(async move {
+            shutdown.await;
+            shutdown_signal.trigger();
+        })
+    };
 
-    if let Err(error) = state.code_server.shutdown().await {
+    let shutdown_wait = shutdown_signal.clone();
+    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+        shutdown_wait.wait().await;
+    });
+    let mut server_task = tokio::spawn(async move { server.await.map_err(std::io::Error::other) });
+
+    let result = tokio::select! {
+        result = &mut server_task => {
+            signal_task.abort();
+            result.map_err(std::io::Error::other)?
+        }
+        _ = shutdown_signal.wait() => {
+            if let Err(error) = state.code_server.shutdown().await {
+                tracing::warn!("failed to shut down shared code server: {error}");
+            }
+
+            let result = match tokio::time::timeout(
+                SERVER_SHUTDOWN_TIMEOUT,
+                &mut server_task,
+            ).await {
+                Ok(result) => result.map_err(std::io::Error::other)?,
+                Err(_) => {
+                    tracing::warn!(
+                        "server did not stop after {:?}; aborting open connections",
+                        SERVER_SHUTDOWN_TIMEOUT
+                    );
+                    server_task.abort();
+                    let _ = server_task.await;
+                    Ok(())
+                }
+            };
+            signal_task.abort();
+            result
+        }
+    };
+
+    if !shutdown_signal.is_triggered()
+        && let Err(error) = state.code_server.shutdown().await
+    {
         tracing::warn!("failed to shut down shared code server: {error}");
     }
 
     result
+}
+
+#[derive(Default)]
+struct ShutdownSignal {
+    triggered: AtomicBool,
+    notify: Notify,
+}
+
+impl ShutdownSignal {
+    fn trigger(&self) {
+        self.triggered.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
+    fn is_triggered(&self) -> bool {
+        self.triggered.load(Ordering::SeqCst)
+    }
+
+    async fn wait(&self) {
+        loop {
+            let notified = self.notify.notified();
+            if self.is_triggered() {
+                return;
+            }
+            notified.await;
+        }
+    }
 }
 
 pub fn openapi_spec() -> utoipa::openapi::OpenApi {
