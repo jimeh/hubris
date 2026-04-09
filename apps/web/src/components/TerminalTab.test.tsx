@@ -40,7 +40,7 @@ class MockWebSocket {
 
   binaryType = "";
   readyState = MockWebSocket.CONNECTING;
-  sent: Array<string | Uint8Array> = [];
+  sent: Array<string | ArrayBuffer> = [];
   url: string;
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -52,7 +52,7 @@ class MockWebSocket {
     MockWebSocket.instances.push(this);
   }
 
-  send = vi.fn((data: string | Uint8Array) => {
+  send = vi.fn((data: string | ArrayBuffer) => {
     this.sent.push(data);
   });
 
@@ -89,9 +89,14 @@ vi.mock("@/lib/stores/terminal", () => ({
     selector(terminalState),
 }));
 
-function parseControlMessage(message: string | Uint8Array) {
+function parseControlMessage(message: string | ArrayBuffer) {
   expect(typeof message).toBe("string");
   return JSON.parse(message as string);
+}
+
+function parseBinaryMessage(message: string | ArrayBuffer): number[] {
+  expect(typeof message).not.toBe("string");
+  return Array.from(new Uint8Array(message as ArrayBuffer));
 }
 
 function triggerResizeObserver(): void {
@@ -246,8 +251,7 @@ describe("TerminalTab", () => {
       rows: 30,
       visible: true,
     });
-    expect(typeof ws.sent[1]).not.toBe("string");
-    expect(Array.from(ws.sent[1] as ArrayLike<number>)).toEqual(
+    expect(parseBinaryMessage(ws.sent[1])).toEqual(
       Array.from(new TextEncoder().encode("ls\n")),
     );
   });

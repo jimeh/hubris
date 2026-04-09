@@ -7,17 +7,17 @@ persistent PTY sessions.
 
 ```sh
 mise run setup     # install all deps
-mise run dev       # backend + frontend dev servers
+mise run dev       # backend + web dev servers
 mise run dev:desktop  # Tauri desktop app in dev mode
 mise run build:desktop  # Tauri desktop app bundle
 mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
-mise run test      # frontend tests + cargo test
+mise run test      # web tests + cargo test
 mise run generate  # run all code generators
 ```
 
-Sub-tasks: `check:backend`, `check:frontend`, `format:backend`,
-`format:frontend`. `lint` is an alias for `check`.
+Sub-tasks: `check:backend`, `check:web`, `format:backend`, `format:web`.
+`lint` is an alias for `check`.
 
 Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (frontend).
 

@@ -53,7 +53,7 @@ wait_for_frontend_port() {
   done
 }
 
-./.mise/tasks/dev dev:frontend &
+./.mise/tasks/dev dev:web &
 DEV_STACK_PID=$!
 
 FRONTEND_PORT="$(wait_for_frontend_port)"
