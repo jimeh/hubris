@@ -44,9 +44,10 @@
   truly needs module re-evaluation semantics.
 - **The Monaco package-root runtime check lives in a smoke lane**:
   `apps/web/src/lib/monaco.runtime.smoke.test.ts` is intentionally excluded from
-  the default `bun run test` unit suite and runs via `bun run test:smoke` plus a
-  dedicated CI job. Keep fast unit coverage in `bun run test`; reserve
-  package-root Monaco imports for smoke coverage.
+  the default `pnpm --filter hubris-web test` unit suite and runs via
+  `pnpm --filter hubris-web test:smoke` plus a dedicated CI job. Keep fast unit
+  coverage in `pnpm --filter hubris-web test`; reserve package-root Monaco
+  imports for smoke coverage.
 
 ## Rust Tests
 

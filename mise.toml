@@ -1,6 +1,7 @@
 [tools]
 rust = "latest"
-bun = "latest"
+node = "25.9.0"
+pnpm = "10.33.0"
 "cargo:tauri-cli" = "2"
 "github:mitsuhiko/systemfd" = "latest"
 
@@ -8,12 +9,22 @@ bun = "latest"
 depends = ["build:web", "build:server"]
 description = "Build web app + server (release)"
 
-[tasks."build:web"]
-run = [
-  "bun install",
-  "bun run --filter hubris-web build",
+[tasks."pnpm-install"]
+run = "pnpm install"
+sources = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "apps/web/package.json",
+  "mise.toml",
 ]
-description = "Install deps and build web app"
+outputs = ["node_modules/.pnpm/lock.yaml"]
+description = "Install frontend dependencies when package inputs change"
+
+[tasks."build:web"]
+depends = ["pnpm-install"]
+run = "pnpm --filter hubris-web build"
+description = "Build web app"
 
 [tasks."build:server"]
 depends = ["build:web"]
@@ -21,10 +32,8 @@ run = "cargo build --release --features embed-frontend"
 description = "Build server binary (release)"
 
 [tasks."build:desktop"]
-run = [
-  "bun install",
-  "cd apps/desktop-tauri && cargo tauri build --bundles app",
-]
+depends = ["pnpm-install"]
+run = "cd apps/desktop-tauri && cargo tauri build --bundles app"
 description = "Build the Tauri desktop app"
 
 [tasks."dev:server"]
@@ -44,7 +53,8 @@ sources = [
 ]
 
 [tasks."dev:web"]
-run = "bun run --filter hubris-web dev"
+depends = ["pnpm-install"]
+run = "pnpm --filter hubris-web dev"
 description = "Run web dev server"
 
 [tasks."dev:desktop"]
@@ -60,14 +70,12 @@ run = [
 ]
 
 [tasks."check:web"]
-run = [
-  "bun run --filter hubris-web lint",
-  "bun run --filter hubris-web check",
-]
+depends = ["pnpm-install"]
+run = ["pnpm --filter hubris-web lint", "pnpm --filter hubris-web check"]
 description = "Web lint + format check + type check"
 
 [tasks."check:markdown"]
-run = "bun x prettier --check '**/*.md' '!node_modules' '!apps/web/node_modules'"
+run = "pnpm exec prettier --check '**/*.md' '!node_modules' '!apps/web/node_modules'"
 description = "Markdown format check"
 
 [tasks.check]
@@ -83,11 +91,12 @@ description = "Format Rust code"
 run = "cargo fmt --all"
 
 [tasks."format:web"]
-run = "bun run --filter hubris-web format"
+depends = ["pnpm-install"]
+run = "pnpm --filter hubris-web format"
 description = "Format web code"
 
 [tasks."format:markdown"]
-run = "bun x prettier --write '**/*.md' '!node_modules' '!apps/web/node_modules'"
+run = "pnpm exec prettier --write '**/*.md' '!node_modules' '!apps/web/node_modules'"
 description = "Format Markdown files"
 
 [tasks.format]
@@ -95,10 +104,8 @@ description = "Format all code"
 depends = ["format:backend", "format:web", "format:markdown"]
 
 [tasks."test:web"]
-run = [
-  "bun run --filter hubris-web test",
-  "bun run --filter hubris-web test:smoke",
-]
+depends = ["pnpm-install"]
+run = ["pnpm --filter hubris-web test", "pnpm --filter hubris-web test:smoke"]
 description = "Run web tests"
 
 [tasks."test:backend"]
@@ -114,7 +121,7 @@ run = [
     -v hubris-docker-test-cargo:/cargo \
     -v hubris-docker-test-target:/cargo-target \
     -v hubris-docker-test-sccache:/sccache \
-    -v hubris-docker-test-bun-cache:/bun-cache \
+    -v hubris-docker-test-pnpm-store:/pnpm-store \
     -v hubris-docker-test-node-modules:/work/node_modules \
     -e CARGO_HOME=/cargo \
     -e CARGO_TARGET_DIR=/cargo-target \
@@ -132,7 +139,7 @@ run = [
 ]
 
 [tasks."setup:web"]
-run = "bun install"
+depends = ["pnpm-install"]
 description = "Install web dependencies"
 
 [tasks."setup:server"]
@@ -148,12 +155,13 @@ description = "Run all code generators"
 depends = ["generate:web"]
 
 [tasks."generate:web"]
+depends = ["pnpm-install"]
 run = [
   "cargo run -p hubris-server --bin generate_contracts",
-  "bun run --filter hubris-web generate:contracts:rest",
-  "bun run --filter hubris-web generate:monaco-languages",
-  "bun run --filter hubris-web generate:material-icons",
-  "bun run --filter hubris-web generate:theme-defaults",
+  "pnpm --filter hubris-web generate:contracts:rest",
+  "pnpm --filter hubris-web generate:monaco-languages",
+  "pnpm --filter hubris-web generate:material-icons",
+  "pnpm --filter hubris-web generate:theme-defaults",
 ]
 description = "Generate web contracts and theme defaults"
 
@@ -162,7 +170,8 @@ run = "apps/web/scripts/download-bundled-fonts.sh"
 description = "Download bundled Nerd Font woff2 files"
 
 [tasks."download:vscode-themes"]
-run = "bun run scripts/download-vscode-themes.ts"
+depends = ["pnpm-install"]
+run = "pnpm exec tsx scripts/download-vscode-themes.ts"
 description = "Download and resolve VS Code built-in themes"
 
 [tasks."clean:web"]

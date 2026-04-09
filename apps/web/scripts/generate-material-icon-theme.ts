@@ -4,7 +4,7 @@
  * Copies the package SVG icons into `public/material-icon-theme-icons/`
  * and rewrites manifest icon paths to those public URLs.
  *
- * Usage: bun run scripts/generate-material-icon-theme.ts
+ * Usage: pnpm exec tsx scripts/generate-material-icon-theme.ts
  */
 
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -79,7 +79,7 @@ cpSync(sourceIconsDir, publicIconsDir, { recursive: true });
 writeFileSync(
   generatedManifestFile,
   `/* Auto-generated from material-icon-theme — do not edit. */
-/* Run: bun run generate:material-icons */
+/* Run: pnpm --filter hubris-web generate:material-icons */
 
 export const materialIconThemeData = JSON.parse(
   ${JSON.stringify(JSON.stringify(explorerData))}

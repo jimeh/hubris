@@ -1,5 +1,5 @@
 /* Auto-generated from monaco-editor language contributions — do not edit. */
-/* Run: bun run --filter hubris-web generate:monaco-languages */
+/* Run: pnpm --filter hubris-web generate:monaco-languages */
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MonacoFilenameAssociation {

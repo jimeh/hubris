@@ -5,7 +5,7 @@
  * theme-derived CSS custom properties, so app.css doesn't
  * need to duplicate values from builtin.ts.
  *
- * Usage: bun run scripts/generate-theme-defaults.ts
+ * Usage: pnpm exec tsx scripts/generate-theme-defaults.ts
  */
 
 import { hubrisLight, hubrisDark } from "../src/lib/theme/builtin";
@@ -47,7 +47,7 @@ const lightBlock = generateBlock(hubrisLight);
 const darkBlock = generateBlock(hubrisDark);
 
 console.log(`/* Auto-generated from builtin themes — do not edit. */
-/* Run: bun run generate:theme-defaults */
+/* Run: pnpm --filter hubris-web generate:theme-defaults */
 
 :root {
 ${lightBlock}

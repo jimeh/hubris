@@ -1,5 +1,5 @@
 {
   "name": "hubris",
   "private": true,
-  "workspaces": ["apps/web"]
+  "packageManager": "pnpm@10.33.0"
 }

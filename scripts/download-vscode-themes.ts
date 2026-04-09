@@ -1,19 +1,28 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Downloads VS Code built-in color themes from the latest release,
  * resolves `include` chains, strips JSONC comments, and writes
  * self-contained theme JSON files for embedding in the Hubris server.
  *
- * Usage: bun run scripts/download-vscode-themes.ts
+ * Usage: pnpm exec tsx scripts/download-vscode-themes.ts
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { join, dirname } from "path";
-import { execSync } from "child_process";
+import { execSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const REPO = "microsoft/vscode";
+const ROOT_DIR = dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = join(
-  dirname(import.meta.dir),
+  ROOT_DIR,
   "apps/server/data/editor-themes/vscode",
 );
 
@@ -134,10 +143,10 @@ type PackageJson = {
 
 // Resolve a theme file, following `include` chains.
 // `filePath` is the absolute path to the theme JSON file.
-async function resolveTheme(
+function resolveTheme(
   filePath: string,
   visited: Set<string> = new Set(),
-): Promise<ThemeJson> {
+): ThemeJson {
   if (visited.has(filePath)) {
     console.warn(`  Circular include detected: ${filePath}`);
     return {};
@@ -149,7 +158,7 @@ async function resolveTheme(
     return {};
   }
 
-  const raw = await Bun.file(filePath).text();
+  const raw = readFileSync(filePath, "utf8");
   let theme: ThemeJson;
   try {
     theme = parseJsonc(raw) as ThemeJson;
@@ -166,7 +175,7 @@ async function resolveTheme(
 
   // Resolve the parent — include path is relative to this file's dir.
   const parentPath = join(dirname(filePath), theme.include);
-  const parent = await resolveTheme(parentPath, visited);
+  const parent = resolveTheme(parentPath, visited);
 
   // Merge: parent is the base, child overrides.
   const { include: _, $schema: __, ...child } = theme;
@@ -233,10 +242,7 @@ async function main() {
   const tarballUrl = `https://github.com/${REPO}/archive/refs/tags/${tag}.tar.gz`;
   console.log(`Downloading tarball: ${tarballUrl}`);
 
-  const tmpDir = join(
-    import.meta.dir,
-    ".vscode-themes-tmp",
-  );
+  const tmpDir = join(ROOT_DIR, ".vscode-themes-tmp");
   mkdirSync(tmpDir, { recursive: true });
   const tarPath = join(tmpDir, "vscode.tar.gz");
 
@@ -261,12 +267,9 @@ async function main() {
   mkdirSync(OUTPUT_DIR, { recursive: true });
   let totalThemes = 0;
 
-  const entries = await Array.fromAsync(
-    new Bun.Glob("theme-*").scan({
-      cwd: extensionsDir,
-      onlyFiles: false,
-    }),
-  );
+  const entries = readdirSync(extensionsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("theme-"))
+    .map((entry) => entry.name);
 
   for (const extName of entries.sort()) {
     if (SKIP_EXTENSIONS.has(extName)) {
@@ -280,7 +283,7 @@ async function main() {
 
     let pkg: PackageJson;
     try {
-      pkg = (await Bun.file(pkgPath).json()) as PackageJson;
+      pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as PackageJson;
     } catch {
       console.warn(`  Failed to parse ${pkgPath}`);
       continue;
@@ -304,7 +307,7 @@ async function main() {
 
       // Resolve the theme file relative to the extension root.
       const themeFilePath = join(extDir, contrib.path);
-      const resolved = await resolveTheme(themeFilePath);
+      const resolved = resolveTheme(themeFilePath);
       if (
         !resolved.colors &&
         !resolved.tokenColors?.length
@@ -330,7 +333,7 @@ async function main() {
   }
 
   // 5. Cleanup.
-  execSync(`rm -rf "${tmpDir}"`);
+  rmSync(tmpDir, { recursive: true, force: true });
 
   console.log(
     `\nDone! ${totalThemes} themes written to ${OUTPUT_DIR}`,

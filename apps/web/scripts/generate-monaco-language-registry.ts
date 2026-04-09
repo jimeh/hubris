@@ -1,7 +1,7 @@
 /**
  * Generate a checked-in Rust registry from Monaco language metadata.
  *
- * Usage: bun run scripts/generate-monaco-language-registry.ts
+ * Usage: pnpm exec tsx scripts/generate-monaco-language-registry.ts
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -237,7 +237,7 @@ function writeRustRegistry(contributions: Contribution[]): void {
   );
 
   const body = `/* Auto-generated from monaco-editor language contributions — do not edit. */
-/* Run: bun run --filter hubris-web generate:monaco-languages */
+/* Run: pnpm --filter hubris-web generate:monaco-languages */
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MonacoFilenameAssociation {

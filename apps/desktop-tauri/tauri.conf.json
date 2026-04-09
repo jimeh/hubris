@@ -5,7 +5,7 @@
   "identifier": "dev.hubris.desktop",
   "build": {
     "devUrl": "http://localhost:3001",
-    "beforeBuildCommand": "bun run --filter hubris-web build",
+    "beforeBuildCommand": "pnpm --filter hubris-web build",
     "frontendDist": "../web/dist"
   },
   "app": {

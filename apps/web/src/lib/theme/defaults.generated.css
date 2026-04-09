@@ -1,5 +1,5 @@
 /* Auto-generated from builtin themes — do not edit. */
-/* Run: bun run generate:theme-defaults */
+/* Run: pnpm --filter hubris-web generate:theme-defaults */
 
 :root {
   --background: oklch(0.985 0.002 255);

@@ -7,7 +7,7 @@ ENV MISE_DATA_DIR=/opt/mise
 ENV MISE_GLOBAL_CONFIG_FILE=/etc/mise/config.toml
 ENV MISE_TASK_RUN_AUTO_INSTALL=false
 ENV PATH=/usr/local/bin:/opt/mise/shims:$PATH
-ENV BUN_INSTALL_CACHE_DIR=/bun-cache
+ENV PNPM_STORE_DIR=/pnpm-store
 ENV SCCACHE_DIR=/sccache
 ENV SCCACHE_CACHE_SIZE=10G
 ENV SCCACHE_IGNORE_SERVER_IO_ERROR=1
@@ -35,7 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl https://mise.run | sh
 RUN install -Dm755 /root/.local/bin/mise /usr/local/bin/mise
 RUN mise settings add trusted_config_paths /work && \
-    mise use -g bun
+    mise use -g node@25.9.0 pnpm@10.33.0
 RUN arch="$(dpkg --print-architecture)" && \
     case "$arch" in \
       amd64) sccache_arch="x86_64-unknown-linux-musl" ;; \
@@ -73,14 +73,14 @@ if [[ "$(id -u)" == "0" ]]; then
       hubris
   fi
 
-  install -d /cargo /cargo-target "${SCCACHE_DIR}" "${BUN_INSTALL_CACHE_DIR}"
+  install -d /cargo /cargo-target "${SCCACHE_DIR}" "${PNPM_STORE_DIR}"
   install -d /work/node_modules
 
   chown -R "${host_uid}:${host_gid}" \
     /cargo \
     /cargo-target \
     "${SCCACHE_DIR}" \
-    "${BUN_INSTALL_CACHE_DIR}" \
+    "${PNPM_STORE_DIR}" \
     /work/node_modules 2>/dev/null || true
 
   export HOME
@@ -90,7 +90,7 @@ if [[ "$(id -u)" == "0" ]]; then
 fi
 
 if [[ "$#" -eq 3 && "$1" == "mise" && "$2" == "run" && "$3" == "test" ]]; then
-  (cd /work && bun install --frozen-lockfile)
+  (cd /work && pnpm install --frozen-lockfile)
 fi
 
 exec "$@"

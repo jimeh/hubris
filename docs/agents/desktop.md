@@ -6,12 +6,12 @@
   at runtime instead of using `embed-frontend`. Keep
   `apps/desktop-tauri/build.rs` creating a placeholder
   `apps/web/dist/index.html` for clean-checkout `cargo check`, but rely on
-  `bun run --filter hubris-web build` to produce the real frontend before
-  desktop release builds.
+  `pnpm --filter hubris-web build` to produce the real frontend before desktop
+  release builds.
 - **Desktop Tauri hooks run from the repo root in this setup**:
   `apps/desktop-tauri/tauri.conf.json` build hooks should use root-relative
-  workspace commands like `bun run --filter hubris-web build`, not paths
-  relative to `apps/desktop-tauri/`.
+  workspace commands like `pnpm --filter hubris-web build`, not paths relative
+  to `apps/desktop-tauri/`.
 - **Desktop dev dynamically overrides `devUrl` from the frontend state file**:
   `.mise/tasks/dev-desktop` reuses the shared `HUBRIS_DEV_ID` / `HUBRIS_DEV_TMP`
   mechanism, waits for `tmp/dev-<id>.frontend.json`, then launches

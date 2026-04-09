@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bun run:*)",
+      "Bash(pnpm:*)",
       "Bash(cargo check:*)",
       "Bash(git diff-tree:*)",
       "Bash(mise check*)",

@@ -8,7 +8,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "bun run dev -- --host localhost --port 4173",
+    command: "pnpm run dev -- --host localhost --port 4173",
     url: "http://localhost:4173",
     reuseExistingServer: true,
     timeout: 30_000,

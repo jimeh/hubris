@@ -52,5 +52,5 @@ reconciliation — drift corrects on reconnect.
   before first paint
 - API contracts: Rust `generate_contracts` writes directly to
   `apps/web/src/lib/contracts/{openapi,sse,ws}.generated.*`; then
-  `bun run --filter hubris-web generate:contracts:rest` produces
+  `pnpm --filter hubris-web generate:contracts:rest` produces
   `rest.generated.ts`

@@ -16,20 +16,19 @@ mise run test      # web tests + cargo test
 mise run generate  # run all code generators
 ```
 
-Sub-tasks: `check:backend`, `check:web`, `format:backend`, `format:web`.
-`lint` is an alias for `check`.
+Sub-tasks: `check:backend`, `check:web`, `format:backend`, `format:web`. `lint`
+is an alias for `check`.
 
-Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (frontend).
+Tools: mise (see `mise.toml`). Packages: Cargo (backend), **Node + pnpm**
+(frontend).
 
 **IMPORTANT: Always run `mise run check` before committing or opening PRs.** CI
 runs the same checks — format (`cargo fmt`, `prettier`), lint (`clippy`,
 `eslint`), and type check (`tsc`).
 
-**IMPORTANT: The frontend uses bun, NOT npm or pnpm.** All frontend commands
-must use `bun`. Install dependencies from the repo root with `bun install`, and
-run web scripts with `bun run --filter hubris-web ...`. The Bun workspace
-manifest and `bun.lock` live at the repo root; there is no `package-lock.json`
-or `pnpm-lock.yaml`.
+**IMPORTANT: The frontend uses pnpm.** Install dependencies from the repo root
+with `pnpm install`, and run web scripts with `pnpm --filter hubris-web ...`.
+The pnpm workspace manifest and `pnpm-lock.yaml` live at the repo root.
 
 ## Domain Concepts
 
@@ -108,8 +107,8 @@ or `pnpm-lock.yaml`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (3205 symbols, 9833
-relationships, 267 execution flows). Use the GitNexus MCP tools to understand
+This project is indexed by GitNexus as **hubris** (3278 symbols, 9992
+relationships, 274 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in
@@ -251,11 +250,11 @@ embeddings.**
   file before the shell writes content. Poll for non-empty file contents rather
   than mere file existence to avoid CI flakes.
 - `docker:test` should install only the tools it actually needs in image layers:
-  global `bun` via `mise` and a prebuilt `sccache` binary, with the base Rust
-  image providing `cargo`/`rustc`. Using `mise` for `sccache` hits GitHub API
-  rate limits in Docker builds. Persist project dependency state in named Docker
-  volumes for `CARGO_HOME`, `CARGO_TARGET_DIR`, `SCCACHE_DIR`, Bun cache, and
-  root `node_modules`.
+  global `node` + `pnpm` via `mise` and a prebuilt `sccache` binary, with the
+  base Rust image providing `cargo`/`rustc`. Using `mise` for `sccache` hits
+  GitHub API rate limits in Docker builds. Persist project dependency state in
+  named Docker volumes for `CARGO_HOME`, `CARGO_TARGET_DIR`, `SCCACHE_DIR`, the
+  pnpm store, and root `node_modules`.
 - Run `docker:test` containers as the host UID/GID after bootstrapping cache
   volume ownership. Running the Linux test suite as `root` hides permission
   failures and can invalidate filesystem-behavior tests.
@@ -263,9 +262,12 @@ embeddings.**
   that removes the need for per-run `mise trust` commands in the container
   entrypoint.
 - Keep the Docker entrypoint minimal. For `docker:test`, it only needs cache
-  ownership bootstrap plus a plain `bun install --frozen-lockfile` before the
+  ownership bootstrap plus a plain `pnpm install --frozen-lockfile` before the
   default `mise run test` command so a fresh root `node_modules` volume is
   populated.
+- pnpm 10 blocks dependency install scripts unless they are explicitly allowed
+  in `pnpm-workspace.yaml`. Keep `allowBuilds.esbuild = true` or Vite/esbuild
+  binaries will be missing after `pnpm install`.
 - `apps/server/tests/terminal_ws.rs` needs a deterministic shell wrapper under a
   shared test mutex. Real interactive shells can emit prompt/redraw bytes on
   attach or resize, which makes PTY snapshot assertions flaky on Linux and
