@@ -14,7 +14,7 @@ import { execSync } from "child_process";
 const REPO = "microsoft/vscode";
 const OUTPUT_DIR = join(
   dirname(import.meta.dir),
-  "crates/server/data/editor-themes/vscode",
+  "apps/server/data/editor-themes/vscode",
 );
 
 // Skip icon themes and non-color-theme extensions.

@@ -7,17 +7,17 @@ persistent PTY sessions.
 
 ```sh
 mise run setup     # install all deps
-mise run dev       # backend + frontend dev servers
+mise run dev       # backend + web dev servers
 mise run dev:desktop  # Tauri desktop app in dev mode
 mise run build:desktop  # Tauri desktop app bundle
 mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
-mise run test      # frontend tests + cargo test
+mise run test      # web tests + cargo test
 mise run generate  # run all code generators
 ```
 
-Sub-tasks: `check:backend`, `check:frontend`, `format:backend`,
-`format:frontend`. `lint` is an alias for `check`.
+Sub-tasks: `check:backend`, `check:web`, `format:backend`, `format:web`.
+`lint` is an alias for `check`.
 
 Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (frontend).
 
@@ -26,8 +26,10 @@ runs the same checks — format (`cargo fmt`, `prettier`), lint (`clippy`,
 `eslint`), and type check (`tsc`).
 
 **IMPORTANT: The frontend uses bun, NOT npm or pnpm.** All frontend commands
-must use `bun` (`bun install`, `bun run test`, `bun run check`). The `frontend/`
-directory has a `bun.lock`; there is no `package-lock.json` or `pnpm-lock.yaml`.
+must use `bun`. Install dependencies from the repo root with `bun install`, and
+run web scripts with `bun run --filter hubris-web ...`. The Bun workspace
+manifest and `bun.lock` live at the repo root; there is no `package-lock.json`
+or `pnpm-lock.yaml`.
 
 ## Domain Concepts
 
@@ -72,19 +74,19 @@ directory has a `bun.lock`; there is no `package-lock.json` or `pnpm-lock.yaml`.
   discrete mutations and fetches; if the frontend needs live status after that,
   feed it through the existing SSE snapshot + event model instead of polling.
 - **Frontend stores must be ready before SSE connects**: initialize all Zustand
-  stores and event handlers in `frontend/src/lib/bootstrap.ts` before calling
+  stores and event handlers in `apps/web/src/lib/bootstrap.ts` before calling
   `EventClient.connect()`. The snapshot is delivered immediately on connect.
 - **Use Zustand singletons for shared frontend state**: app-wide state should
-  live in a dedicated store under `frontend/src/lib/stores/`, seeded from SSE
+  live in a dedicated store under `apps/web/src/lib/stores/`, seeded from SSE
   snapshot data and updated by incremental events.
 - **Terminal transport is special-case WebSocket I/O**: terminal bytes and
   resize/control messages do not go through REST or SSE. Reuse the existing PTY
   WS model for terminal behavior instead of inventing parallel channels.
 - **Contracts are generated, not handwritten**: backend API/SSE/WS schema
   changes should flow through `mise run generate` so frontend contract files in
-  `frontend/src/lib/contracts/` stay authoritative.
+  `apps/web/src/lib/contracts/` stay authoritative.
 - **Keep settings UI thin**: `SettingsDialog` is a shell. Feature logic belongs
-  in focused components under `frontend/src/components/settings-dialog/`, with
+  in focused components under `apps/web/src/components/settings-dialog/`, with
   backend-authoritative state coming from stores/contracts rather than ad hoc
   local orchestration.
 
@@ -253,7 +255,7 @@ embeddings.**
   image providing `cargo`/`rustc`. Using `mise` for `sccache` hits GitHub API
   rate limits in Docker builds. Persist project dependency state in named Docker
   volumes for `CARGO_HOME`, `CARGO_TARGET_DIR`, `SCCACHE_DIR`, Bun cache, and
-  `frontend/node_modules`.
+  root `node_modules`.
 - Run `docker:test` containers as the host UID/GID after bootstrapping cache
   volume ownership. Running the Linux test suite as `root` hides permission
   failures and can invalidate filesystem-behavior tests.
@@ -262,9 +264,9 @@ embeddings.**
   entrypoint.
 - Keep the Docker entrypoint minimal. For `docker:test`, it only needs cache
   ownership bootstrap plus a plain `bun install --frozen-lockfile` before the
-  default `mise run test` command so a fresh `frontend/node_modules` volume is
+  default `mise run test` command so a fresh root `node_modules` volume is
   populated.
-- `crates/server/tests/terminal_ws.rs` needs a deterministic shell wrapper under
-  a shared test mutex. Real interactive shells can emit prompt/redraw bytes on
+- `apps/server/tests/terminal_ws.rs` needs a deterministic shell wrapper under a
+  shared test mutex. Real interactive shells can emit prompt/redraw bytes on
   attach or resize, which makes PTY snapshot assertions flaky on Linux and
   inside Docker.

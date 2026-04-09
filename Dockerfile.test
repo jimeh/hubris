@@ -74,14 +74,14 @@ if [[ "$(id -u)" == "0" ]]; then
   fi
 
   install -d /cargo /cargo-target "${SCCACHE_DIR}" "${BUN_INSTALL_CACHE_DIR}"
-  install -d /work/frontend/node_modules
+  install -d /work/node_modules
 
   chown -R "${host_uid}:${host_gid}" \
     /cargo \
     /cargo-target \
     "${SCCACHE_DIR}" \
     "${BUN_INSTALL_CACHE_DIR}" \
-    /work/frontend/node_modules 2>/dev/null || true
+    /work/node_modules 2>/dev/null || true
 
   export HOME
   HOME="$(getent passwd "${host_uid}" | cut -d: -f6)"
@@ -90,7 +90,7 @@ if [[ "$(id -u)" == "0" ]]; then
 fi
 
 if [[ "$#" -eq 3 && "$1" == "mise" && "$2" == "run" && "$3" == "test" ]]; then
-  (cd /work/frontend && bun install --frozen-lockfile)
+  (cd /work && bun install --frozen-lockfile)
 fi
 
 exec "$@"

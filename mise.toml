@@ -5,22 +5,25 @@ bun = "latest"
 "github:mitsuhiko/systemfd" = "latest"
 
 [tasks.build]
-depends = ["build:frontend", "build:server"]
-description = "Build frontend + server (release)"
+depends = ["build:web", "build:server"]
+description = "Build web app + server (release)"
 
-[tasks."build:frontend"]
-run = "cd frontend && bun install && bun run build"
-description = "Install deps and build frontend"
+[tasks."build:web"]
+run = [
+  "bun install",
+  "bun run --filter hubris-web build",
+]
+description = "Install deps and build web app"
 
 [tasks."build:server"]
-depends = ["build:frontend"]
+depends = ["build:web"]
 run = "cargo build --release --features embed-frontend"
 description = "Build server binary (release)"
 
 [tasks."build:desktop"]
 run = [
-  "cd frontend && bun install",
-  "cd desktop && cargo tauri build --bundles app",
+  "bun install",
+  "cd apps/desktop-tauri && cargo tauri build --bundles app",
 ]
 description = "Build the Tauri desktop app"
 
@@ -29,20 +32,20 @@ run = "systemfd --no-pid -s http::0 -- mise watch --restart dev:server:raw"
 description = "Run backend dev server with hot reload"
 
 [tasks."dev:server:raw"]
-run = "cd crates/server && cargo run --bin hubris-server"
+run = "cd apps/server && cargo run --bin hubris-server"
 description = "Run backend dev server"
 hide = true
 sources = [
   "Cargo.toml",
   "Cargo.lock",
-  "crates/server/Cargo.toml",
-  "crates/server/build.rs",
-  "crates/server/src/**/*.rs",
+  "apps/server/Cargo.toml",
+  "apps/server/build.rs",
+  "apps/server/src/**/*.rs",
 ]
 
-[tasks."dev:frontend"]
-run = "cd frontend && bun dev"
-description = "Run frontend dev server"
+[tasks."dev:web"]
+run = "bun run --filter hubris-web dev"
+description = "Run web dev server"
 
 [tasks."dev:desktop"]
 run = ".mise/tasks/dev-desktop"
@@ -56,17 +59,20 @@ run = [
   "cargo clippy --all-targets -- -D warnings",
 ]
 
-[tasks."check:frontend"]
-run = "cd frontend && bun run lint && bun run check"
-description = "Frontend lint + format check + type check"
+[tasks."check:web"]
+run = [
+  "bun run --filter hubris-web lint",
+  "bun run --filter hubris-web check",
+]
+description = "Web lint + format check + type check"
 
 [tasks."check:markdown"]
-run = "bun x prettier --check '**/*.md' '!frontend/node_modules'"
+run = "bun x prettier --check '**/*.md' '!node_modules' '!apps/web/node_modules'"
 description = "Markdown format check"
 
 [tasks.check]
 description = "Run all checks"
-depends = ["check:backend", "check:frontend", "check:markdown"]
+depends = ["check:backend", "check:web", "check:markdown"]
 
 [tasks.lint]
 description = "Alias for check"
@@ -76,31 +82,31 @@ depends = ["check"]
 description = "Format Rust code"
 run = "cargo fmt --all"
 
-[tasks."format:frontend"]
-run = "cd frontend && bun run format"
-description = "Format frontend code"
+[tasks."format:web"]
+run = "bun run --filter hubris-web format"
+description = "Format web code"
 
 [tasks."format:markdown"]
-run = "bun x prettier --write '**/*.md' '!frontend/node_modules'"
+run = "bun x prettier --write '**/*.md' '!node_modules' '!apps/web/node_modules'"
 description = "Format Markdown files"
 
 [tasks.format]
 description = "Format all code"
-depends = ["format:backend", "format:frontend", "format:markdown"]
+depends = ["format:backend", "format:web", "format:markdown"]
 
-[tasks."test:frontend"]
+[tasks."test:web"]
 run = [
-  "cd frontend && bun run test",
-  "cd frontend && bun run test:smoke",
+  "bun run --filter hubris-web test",
+  "bun run --filter hubris-web test:smoke",
 ]
-description = "Run frontend tests"
+description = "Run web tests"
 
 [tasks."test:backend"]
-run = "cd crates/server && cargo test"
+run = "cd apps/server && cargo test"
 description = "Run backend tests"
 
 [tasks."docker:test"]
-description = "Run backend + frontend tests in Linux via Docker"
+description = "Run backend + web tests in Linux via Docker"
 run = [
   "docker build -f Dockerfile.test -t hubris-test .",
   '''docker run --rm \
@@ -109,7 +115,7 @@ run = [
     -v hubris-docker-test-target:/cargo-target \
     -v hubris-docker-test-sccache:/sccache \
     -v hubris-docker-test-bun-cache:/bun-cache \
-    -v hubris-docker-test-node-modules:/work/frontend/node_modules \
+    -v hubris-docker-test-node-modules:/work/node_modules \
     -e CARGO_HOME=/cargo \
     -e CARGO_TARGET_DIR=/cargo-target \
     -e HOST_UID="$(id -u)" \
@@ -122,50 +128,50 @@ run = [
 description = "Run all tests"
 run = [
   "mise run test:backend",
-  "mise run test:frontend",
+  "mise run test:web",
 ]
 
-[tasks."setup:frontend"]
-run = "cd frontend && bun install"
-description = "Install frontend dependencies"
+[tasks."setup:web"]
+run = "bun install"
+description = "Install web dependencies"
 
 [tasks."setup:server"]
 run = "cargo fetch"
 description = "Fetch backend dependencies"
 
 [tasks.setup]
-depends = ["setup:frontend", "setup:server"]
+depends = ["setup:web", "setup:server"]
 description = "Install all dependencies"
 
 [tasks.generate]
 description = "Run all code generators"
-depends = ["generate:frontend"]
+depends = ["generate:web"]
 
-[tasks."generate:frontend"]
+[tasks."generate:web"]
 run = [
   "cargo run -p hubris-server --bin generate_contracts",
-  "cd frontend && bun run generate:contracts:rest",
-  "cd frontend && bun run generate:monaco-languages",
-  "cd frontend && bun run generate:material-icons",
-  "cd frontend && bun run generate:theme-defaults",
+  "bun run --filter hubris-web generate:contracts:rest",
+  "bun run --filter hubris-web generate:monaco-languages",
+  "bun run --filter hubris-web generate:material-icons",
+  "bun run --filter hubris-web generate:theme-defaults",
 ]
-description = "Generate frontend contracts and theme defaults"
+description = "Generate web contracts and theme defaults"
 
 [tasks."download:fonts"]
-run = "frontend/scripts/download-bundled-fonts.sh"
+run = "apps/web/scripts/download-bundled-fonts.sh"
 description = "Download bundled Nerd Font woff2 files"
 
 [tasks."download:vscode-themes"]
 run = "bun run scripts/download-vscode-themes.ts"
 description = "Download and resolve VS Code built-in themes"
 
-[tasks."clean:frontend"]
-run = "rm -rf frontend/dist frontend/node_modules"
-description = "Remove frontend build artifacts"
+[tasks."clean:web"]
+run = "rm -rf apps/web/dist apps/web/node_modules node_modules"
+description = "Remove web build artifacts"
 
 [tasks.clean]
 description = "Remove build artifacts"
 run = [
   "cargo clean",
-  "mise run clean:frontend",
+  "mise run clean:web",
 ]

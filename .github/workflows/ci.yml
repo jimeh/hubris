@@ -16,13 +16,13 @@ jobs:
       - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
 
       - name: Install dependencies
-        run: cd frontend && bun install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Lint
-        run: cd frontend && bun run lint
+        run: bun run --filter hubris-web lint
 
       - name: Type check
-        run: cd frontend && bun run check
+        run: bun run --filter hubris-web check
 
   frontend-test:
     name: Frontend Unit Test
@@ -32,10 +32,10 @@ jobs:
       - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
 
       - name: Install dependencies
-        run: cd frontend && bun install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Test
-        run: cd frontend && bun run test
+        run: bun run --filter hubris-web test
 
   frontend-test-smoke:
     name: Frontend Smoke Test
@@ -45,10 +45,10 @@ jobs:
       - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
 
       - name: Install dependencies
-        run: cd frontend && bun install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Smoke test
-        run: cd frontend && bun run test:smoke
+        run: bun run --filter hubris-web test:smoke
 
   generated:
     name: Generated Files
@@ -58,10 +58,10 @@ jobs:
       - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
 
       - name: Install dependencies
-        run: cd frontend && bun install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Run generators
-        run: cd frontend && bun run generate:theme-defaults
+        run: bun run --filter hubris-web generate:theme-defaults
 
       - name: Check for uncommitted changes
         run: git diff --exit-code -- '*.generated.*'

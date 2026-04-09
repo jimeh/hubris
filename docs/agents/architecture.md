@@ -30,7 +30,7 @@ reconciliation — drift corrects on reconnect.
 
 ## Frontend (React / Vite / Tailwind v4)
 
-- App location: `frontend/`
+- App location: `apps/web/`
 - State: Zustand singletons — grep `useProjectStore`, `useWorktreeStore`,
   `useTabStore`, `useSettingsStore`, `useSystemStore`, `useThemeSettings`,
   `useTerminalSettings`, `useWorktreeSettings`, `useWorktreeRightSidebarStore`,
@@ -51,5 +51,6 @@ reconciliation — drift corrects on reconnect.
   choose light/dark mode and `hubris-theme-cache` to apply cached CSS vars
   before first paint
 - API contracts: Rust `generate_contracts` writes directly to
-  `frontend/src/lib/contracts/{openapi,sse,ws}.generated.*`; then
-  `bun run generate:contracts:rest` produces `rest.generated.ts`
+  `apps/web/src/lib/contracts/{openapi,sse,ws}.generated.*`; then
+  `bun run --filter hubris-web generate:contracts:rest` produces
+  `rest.generated.ts`

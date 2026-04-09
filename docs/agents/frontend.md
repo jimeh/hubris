@@ -2,7 +2,7 @@
 
 ## shadcn / UI Primitives
 
-- **Do NOT modify shadcn components**: Files under `frontend/src/components/ui/`
+- **Do NOT modify shadcn components**: Files under `apps/web/src/components/ui/`
   are managed vendor code. Editing them makes future shadcn updates painful. Put
   customizations in wrapper components or app-level code instead.
 - **Sidebar resize ownership**: Keep sidebar resize customization in app-level
@@ -13,7 +13,7 @@
   outside a full `Sidebar`, wrap the render tree in `SidebarProvider` in app
   code/tests.
 - **Popover lists inside React dialogs may need a dialog-local portal**:
-  `frontend/src/components/AddWorktreeDialog.tsx` mounts the start-point
+  `apps/web/src/components/AddWorktreeDialog.tsx` mounts the start-point
   `Popover` into a container inside the dialog instead of the default body
   portal. Portalling that popover outside the dialog breaks wheel/trackpad
   scrolling on `CommandList` content.
@@ -28,7 +28,7 @@
   Keep websocket, reconnect timer, and post-open `requestAnimationFrame`
   handlers scoped to the active connection so stale callbacks from a previous
   mount cannot schedule extra sockets or duplicate terminal I/O.
-- **Sidebar width updates are imperative during drag**: `frontend/src/App.tsx`
+- **Sidebar width updates are imperative during drag**: `apps/web/src/App.tsx`
   subscribes to sidebar width store changes and writes `--sidebar-width`
   directly to the rendered sidebar wrapper. Keep `isResizing` reactive, but
   avoid reintroducing a full React subscription to width or resize drags will

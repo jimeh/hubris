@@ -53,7 +53,7 @@ wait_for_frontend_port() {
   done
 }
 
-./.mise/tasks/dev dev:frontend &
+./.mise/tasks/dev dev:web &
 DEV_STACK_PID=$!
 
 FRONTEND_PORT="$(wait_for_frontend_port)"
@@ -62,5 +62,5 @@ printf \
   "$FRONTEND_PORT" \
   "$BOOTSTRAP_TOKEN" >"$TAURI_CONFIG_OVERRIDE"
 
-cd desktop
+cd apps/desktop-tauri
 cargo tauri dev --config "$TAURI_CONFIG_OVERRIDE" "$@"

@@ -18,7 +18,7 @@ docker run --rm \
   -v hubris-docker-test-target:/cargo-target \
   -v hubris-docker-test-sccache:/sccache \
   -v hubris-docker-test-bun-cache:/bun-cache \
-  -v hubris-docker-test-node-modules:/work/frontend/node_modules \
+  -v hubris-docker-test-node-modules:/work/node_modules \
   -e CARGO_HOME=/cargo \
   -e CARGO_TARGET_DIR=/cargo-target \
   -e HOST_UID="$(id -u)" \
@@ -30,5 +30,4 @@ docker run --rm \
 
 The image trusts `/work` via global `mise` settings. The entrypoint only does
 cache ownership bootstrap and runs `bun install --frozen-lockfile` for the
-default `mise run test` command so a fresh `frontend/node_modules` volume is
-usable.
+default `mise run test` command so a fresh root `node_modules` volume is usable.
