@@ -62,5 +62,5 @@ printf \
   "$FRONTEND_PORT" \
   "$BOOTSTRAP_TOKEN" >"$TAURI_CONFIG_OVERRIDE"
 
-cd desktop
+cd apps/desktop-tauri
 cargo tauri dev --config "$TAURI_CONFIG_OVERRIDE" "$@"

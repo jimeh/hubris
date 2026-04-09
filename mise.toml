@@ -9,7 +9,10 @@ depends = ["build:frontend", "build:server"]
 description = "Build frontend + server (release)"
 
 [tasks."build:frontend"]
-run = "cd frontend && bun install && bun run build"
+run = [
+  "bun install",
+  "bun run --filter hubris-web build",
+]
 description = "Install deps and build frontend"
 
 [tasks."build:server"]
@@ -19,8 +22,8 @@ description = "Build server binary (release)"
 
 [tasks."build:desktop"]
 run = [
-  "cd frontend && bun install",
-  "cd desktop && cargo tauri build --bundles app",
+  "bun install",
+  "cd apps/desktop-tauri && cargo tauri build --bundles app",
 ]
 description = "Build the Tauri desktop app"
 
@@ -29,19 +32,19 @@ run = "systemfd --no-pid -s http::0 -- mise watch --restart dev:server:raw"
 description = "Run backend dev server with hot reload"
 
 [tasks."dev:server:raw"]
-run = "cd crates/server && cargo run --bin hubris-server"
+run = "cd apps/server && cargo run --bin hubris-server"
 description = "Run backend dev server"
 hide = true
 sources = [
   "Cargo.toml",
   "Cargo.lock",
-  "crates/server/Cargo.toml",
-  "crates/server/build.rs",
-  "crates/server/src/**/*.rs",
+  "apps/server/Cargo.toml",
+  "apps/server/build.rs",
+  "apps/server/src/**/*.rs",
 ]
 
 [tasks."dev:frontend"]
-run = "cd frontend && bun dev"
+run = "bun run --filter hubris-web dev"
 description = "Run frontend dev server"
 
 [tasks."dev:desktop"]
@@ -57,11 +60,14 @@ run = [
 ]
 
 [tasks."check:frontend"]
-run = "cd frontend && bun run lint && bun run check"
+run = [
+  "bun run --filter hubris-web lint",
+  "bun run --filter hubris-web check",
+]
 description = "Frontend lint + format check + type check"
 
 [tasks."check:markdown"]
-run = "bun x prettier --check '**/*.md' '!frontend/node_modules'"
+run = "bun x prettier --check '**/*.md' '!node_modules' '!apps/web/node_modules'"
 description = "Markdown format check"
 
 [tasks.check]
@@ -77,11 +83,11 @@ description = "Format Rust code"
 run = "cargo fmt --all"
 
 [tasks."format:frontend"]
-run = "cd frontend && bun run format"
+run = "bun run --filter hubris-web format"
 description = "Format frontend code"
 
 [tasks."format:markdown"]
-run = "bun x prettier --write '**/*.md' '!frontend/node_modules'"
+run = "bun x prettier --write '**/*.md' '!node_modules' '!apps/web/node_modules'"
 description = "Format Markdown files"
 
 [tasks.format]
@@ -90,13 +96,13 @@ depends = ["format:backend", "format:frontend", "format:markdown"]
 
 [tasks."test:frontend"]
 run = [
-  "cd frontend && bun run test",
-  "cd frontend && bun run test:smoke",
+  "bun run --filter hubris-web test",
+  "bun run --filter hubris-web test:smoke",
 ]
 description = "Run frontend tests"
 
 [tasks."test:backend"]
-run = "cd crates/server && cargo test"
+run = "cd apps/server && cargo test"
 description = "Run backend tests"
 
 [tasks."docker:test"]
@@ -109,7 +115,7 @@ run = [
     -v hubris-docker-test-target:/cargo-target \
     -v hubris-docker-test-sccache:/sccache \
     -v hubris-docker-test-bun-cache:/bun-cache \
-    -v hubris-docker-test-node-modules:/work/frontend/node_modules \
+    -v hubris-docker-test-node-modules:/work/node_modules \
     -e CARGO_HOME=/cargo \
     -e CARGO_TARGET_DIR=/cargo-target \
     -e HOST_UID="$(id -u)" \
@@ -126,7 +132,7 @@ run = [
 ]
 
 [tasks."setup:frontend"]
-run = "cd frontend && bun install"
+run = "bun install"
 description = "Install frontend dependencies"
 
 [tasks."setup:server"]
@@ -144,15 +150,15 @@ depends = ["generate:frontend"]
 [tasks."generate:frontend"]
 run = [
   "cargo run -p hubris-server --bin generate_contracts",
-  "cd frontend && bun run generate:contracts:rest",
-  "cd frontend && bun run generate:monaco-languages",
-  "cd frontend && bun run generate:material-icons",
-  "cd frontend && bun run generate:theme-defaults",
+  "bun run --filter hubris-web generate:contracts:rest",
+  "bun run --filter hubris-web generate:monaco-languages",
+  "bun run --filter hubris-web generate:material-icons",
+  "bun run --filter hubris-web generate:theme-defaults",
 ]
 description = "Generate frontend contracts and theme defaults"
 
 [tasks."download:fonts"]
-run = "frontend/scripts/download-bundled-fonts.sh"
+run = "apps/web/scripts/download-bundled-fonts.sh"
 description = "Download bundled Nerd Font woff2 files"
 
 [tasks."download:vscode-themes"]
@@ -160,7 +166,7 @@ run = "bun run scripts/download-vscode-themes.ts"
 description = "Download and resolve VS Code built-in themes"
 
 [tasks."clean:frontend"]
-run = "rm -rf frontend/dist frontend/node_modules"
+run = "rm -rf apps/web/dist apps/web/node_modules node_modules"
 description = "Remove frontend build artifacts"
 
 [tasks.clean]

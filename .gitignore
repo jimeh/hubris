@@ -4,13 +4,14 @@
 .gitnexus
 .vscode/settings.json
 /data/
-/desktop/gen/
-/desktop/target/
-/frontend/dist/
-/frontend/node_modules/
+/apps/desktop-tauri/gen/
+/apps/desktop-tauri/target/
+/apps/web/dist/
+/apps/web/node_modules/
+/node_modules/
 /target/
 /tmp/
 
 # Ignore all data files in the server crate, except for editor themes.
-/crates/server/data/*
-!/crates/server/data/editor-themes/
+/apps/server/data/*
+!/apps/server/data/editor-themes/
