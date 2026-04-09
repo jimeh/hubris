@@ -77,6 +77,7 @@ describe("FileBrowser", () => {
       />,
     );
 
+    await screen.findByRole("option", { name: "repo" });
     const listbox = await screen.findByRole("listbox");
     listbox.focus();
     fireEvent.keyDown(listbox, { key: "s" });

@@ -1608,6 +1608,8 @@ async fn launch_code_server(
 
     #[cfg(unix)]
     command.process_group(0);
+    #[cfg(target_os = "linux")]
+    configure_parent_death_signal(&mut command);
 
     let mut child = command.spawn().map_err(|error| {
         CodeServerError::Spawn(format!(
@@ -1629,6 +1631,25 @@ async fn launch_code_server(
         connection,
         process: RunningCodeServerProcess::Child(ManagedChildProcess::new(child)),
     })
+}
+
+#[cfg(target_os = "linux")]
+fn configure_parent_death_signal(command: &mut Command) {
+    let parent_pid = unsafe { libc::getpid() };
+    unsafe {
+        command.pre_exec(move || {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            // Close the race where the parent exits between fork and prctl.
+            if libc::getppid() != parent_pid {
+                return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
+            }
+
+            Ok(())
+        });
+    }
 }
 
 async fn prepare_dirs(request: &CodeServerLaunchRequest) -> Result<(), CodeServerError> {
@@ -1761,7 +1782,9 @@ mod tests {
     async fn wait_for_file(path: &Path) -> String {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
         loop {
-            if let Ok(contents) = tokio::fs::read_to_string(path).await {
+            if let Ok(contents) = tokio::fs::read_to_string(path).await
+                && !contents.trim().is_empty()
+            {
                 return contents;
             }
 
@@ -1784,11 +1807,29 @@ mod tests {
         std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
     }
 
+    #[cfg(target_os = "linux")]
+    fn process_is_zombie(pid: i32) -> bool {
+        let status_path = format!("/proc/{pid}/status");
+        let Ok(status) = std::fs::read_to_string(status_path) else {
+            return false;
+        };
+
+        status
+            .lines()
+            .find(|line| line.starts_with("State:"))
+            .is_some_and(|line| line.contains("\tZ"))
+    }
+
     #[cfg(unix)]
     async fn wait_for_process_exit(pid: i32) {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
         loop {
             if !process_exists(pid) {
+                return;
+            }
+
+            #[cfg(target_os = "linux")]
+            if process_is_zombie(pid) {
                 return;
             }
 
@@ -1798,6 +1839,53 @@ mod tests {
             );
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn linux_parent_death_signal_terminates_child_after_parent_exit() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let child_pid_path = tmp.path().join("child.pid");
+
+        let status = Command::new(std::env::current_exe().unwrap())
+            .arg("--ignored")
+            .arg("--exact")
+            .arg("code_server::tests::linux_parent_death_signal_helper")
+            .env("HUBRIS_TEST_PDEATHSIG_CHILD_PID_FILE", &child_pid_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .unwrap();
+
+        let child_pid: i32 = wait_for_file(&child_pid_path).await.trim().parse().unwrap();
+        assert!(
+            status.success() || !process_exists(child_pid),
+            "helper test exited unsuccessfully before child shutdown was observed: {status:?}"
+        );
+        wait_for_process_exit(child_pid).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    #[ignore]
+    async fn linux_parent_death_signal_helper() {
+        let Some(child_pid_path) = std::env::var_os("HUBRIS_TEST_PDEATHSIG_CHILD_PID_FILE") else {
+            return;
+        };
+
+        let mut command = Command::new("sleep");
+        command
+            .arg("1000")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        configure_parent_death_signal(&mut command);
+
+        let child = command.spawn().unwrap();
+        let child_pid = child.id().unwrap();
+        std::fs::write(PathBuf::from(child_pid_path), format!("{child_pid}")).unwrap();
     }
 
     #[test]

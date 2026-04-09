@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -12,6 +13,14 @@ use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
+async fn lock_terminal_test() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: tokio::sync::OnceCell<tokio::sync::Mutex<()>> = tokio::sync::OnceCell::const_new();
+    LOCK.get_or_init(|| async { tokio::sync::Mutex::new(()) })
+        .await
+        .lock()
+        .await
+}
+
 async fn start_test_server() -> (String, tempfile::TempDir) {
     let tmp = tempfile::TempDir::new().unwrap();
     let state = AppState::new(tmp.path().to_path_buf()).await;
@@ -24,6 +33,54 @@ async fn start_test_server() -> (String, tempfile::TempDir) {
     });
 
     (format!("http://{}", addr), tmp)
+}
+
+struct ShellEnvGuard {
+    original: Option<OsString>,
+}
+
+impl ShellEnvGuard {
+    fn set(value: &Path) -> Self {
+        let original = std::env::var_os("SHELL");
+        unsafe {
+            std::env::set_var("SHELL", value);
+        }
+        Self { original }
+    }
+}
+
+impl Drop for ShellEnvGuard {
+    fn drop(&mut self) {
+        unsafe {
+            match &self.original {
+                Some(value) => std::env::set_var("SHELL", value),
+                None => std::env::remove_var("SHELL"),
+            }
+        }
+    }
+}
+
+fn install_quiet_shell(tmp: &tempfile::TempDir) -> ShellEnvGuard {
+    let shell_wrapper = tmp.path().join("terminal-shell-wrapper.sh");
+    std::fs::write(
+        &shell_wrapper,
+        r#"#!/bin/sh
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  /bin/sh -c "$line"
+done
+"#,
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = std::fs::metadata(&shell_wrapper).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&shell_wrapper, permissions).unwrap();
+    }
+    ShellEnvGuard::set(&shell_wrapper)
 }
 
 fn init_git_repo() -> tempfile::TempDir {
@@ -249,7 +306,9 @@ async fn read_binary_bytes(
 
 #[tokio::test]
 async fn attached_message_includes_current_pty_size() {
-    let (base, _tmp) = start_test_server().await;
+    let _lock = lock_terminal_test().await;
+    let (base, tmp) = start_test_server().await;
+    let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
     let repo = init_git_repo();
 
@@ -280,7 +339,9 @@ async fn attached_message_includes_current_pty_size() {
 
 #[tokio::test]
 async fn smallest_visible_client_drives_shared_pty_size() {
-    let (base, _tmp) = start_test_server().await;
+    let _lock = lock_terminal_test().await;
+    let (base, tmp) = start_test_server().await;
+    let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
     let repo = init_git_repo();
 
@@ -331,7 +392,9 @@ async fn smallest_visible_client_drives_shared_pty_size() {
 
 #[tokio::test]
 async fn invalid_resize_drops_client_from_shared_size_calculation() {
-    let (base, _tmp) = start_test_server().await;
+    let _lock = lock_terminal_test().await;
+    let (base, tmp) = start_test_server().await;
+    let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
     let repo = init_git_repo();
 
@@ -371,7 +434,9 @@ async fn invalid_resize_drops_client_from_shared_size_calculation() {
 
 #[tokio::test]
 async fn disconnecting_smallest_client_restores_next_visible_size() {
-    let (base, _tmp) = start_test_server().await;
+    let _lock = lock_terminal_test().await;
+    let (base, tmp) = start_test_server().await;
+    let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
     let repo = init_git_repo();
 
@@ -404,7 +469,9 @@ async fn disconnecting_smallest_client_restores_next_visible_size() {
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn healthy_client_survives_periodic_server_pings() {
-    let (base, _tmp) = start_test_server().await;
+    let _lock = lock_terminal_test().await;
+    let (base, tmp) = start_test_server().await;
+    let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
     let repo = init_git_repo();
 
@@ -441,7 +508,9 @@ async fn healthy_client_survives_periodic_server_pings() {
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn stale_smallest_client_expires_and_restores_next_visible_size() {
-    let (base, _tmp) = start_test_server().await;
+    let _lock = lock_terminal_test().await;
+    let (base, tmp) = start_test_server().await;
+    let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
     let repo = init_git_repo();
 
@@ -479,7 +548,9 @@ async fn stale_smallest_client_expires_and_restores_next_visible_size() {
 
 #[tokio::test]
 async fn resume_attach_uses_raw_delta_when_gap_fits_scrollback() {
-    let (base, _tmp) = start_test_server().await;
+    let _lock = lock_terminal_test().await;
+    let (base, tmp) = start_test_server().await;
+    let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
     let repo = init_git_repo();
 
@@ -502,8 +573,6 @@ async fn resume_attach_uses_raw_delta_when_gap_fits_scrollback() {
         }
         other => panic!("expected attached message, got {other:?}"),
     };
-    let _ = read_binary_bytes(&mut first, 1).await;
-
     send_input(&mut first, b"printf 'hubris-resume'\n").await;
     let _ = read_binary_bytes(&mut first, 1).await;
 
@@ -524,7 +593,9 @@ async fn resume_attach_uses_raw_delta_when_gap_fits_scrollback() {
 
 #[tokio::test]
 async fn caught_up_resume_returns_empty_non_snapshot_payload() {
-    let (base, _tmp) = start_test_server().await;
+    let _lock = lock_terminal_test().await;
+    let (base, tmp) = start_test_server().await;
+    let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
     let repo = init_git_repo();
 
@@ -564,7 +635,9 @@ async fn caught_up_resume_returns_empty_non_snapshot_payload() {
 
 #[tokio::test]
 async fn resume_attach_uses_snapshot_when_gap_exceeds_scrollback() {
-    let (base, _tmp) = start_test_server().await;
+    let _lock = lock_terminal_test().await;
+    let (base, tmp) = start_test_server().await;
+    let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
     let repo = init_git_repo();
 
@@ -587,8 +660,6 @@ async fn resume_attach_uses_snapshot_when_gap_exceeds_scrollback() {
         }
         other => panic!("expected attached message, got {other:?}"),
     };
-    let _ = read_binary_bytes(&mut first, 1).await;
-
     send_input(&mut first, b"perl -e 'print \"x\" x 150000'\n").await;
     assert!(read_binary_bytes(&mut first, DEFAULT_SCROLLBACK + 1).await > DEFAULT_SCROLLBACK);
 

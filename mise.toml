@@ -99,6 +99,25 @@ description = "Run frontend tests"
 run = "cd crates/server && cargo test"
 description = "Run backend tests"
 
+[tasks."docker:test"]
+description = "Run backend + frontend tests in Linux via Docker"
+run = [
+  "docker build -f Dockerfile.test -t hubris-test .",
+  '''docker run --rm \
+    -v "$PWD:/work" \
+    -v hubris-docker-test-cargo:/cargo \
+    -v hubris-docker-test-target:/cargo-target \
+    -v hubris-docker-test-sccache:/sccache \
+    -v hubris-docker-test-bun-cache:/bun-cache \
+    -v hubris-docker-test-node-modules:/work/frontend/node_modules \
+    -e CARGO_HOME=/cargo \
+    -e CARGO_TARGET_DIR=/cargo-target \
+    -e HOST_UID="$(id -u)" \
+    -e HOST_GID="$(id -g)" \
+    -w /work \
+    hubris-test''',
+]
+
 [tasks.test]
 description = "Run all tests"
 run = [

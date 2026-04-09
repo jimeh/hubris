@@ -1,0 +1,104 @@
+FROM rust:bookworm
+
+SHELL ["/bin/bash", "-c"]
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV MISE_DATA_DIR=/opt/mise
+ENV MISE_GLOBAL_CONFIG_FILE=/etc/mise/config.toml
+ENV MISE_TASK_RUN_AUTO_INSTALL=false
+ENV PATH=/usr/local/bin:/opt/mise/shims:$PATH
+ENV BUN_INSTALL_CACHE_DIR=/bun-cache
+ENV SCCACHE_DIR=/sccache
+ENV SCCACHE_CACHE_SIZE=10G
+ENV SCCACHE_IGNORE_SERVER_IO_ERROR=1
+ENV RUSTC_WRAPPER=sccache
+ARG SCCACHE_VERSION=0.14.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    file \
+    git \
+    gosu \
+    libayatana-appindicator3-dev \
+    librsvg2-dev \
+    libssl-dev \
+    libwebkit2gtk-4.1-dev \
+    libxdo-dev \
+    pkg-config \
+    unzip \
+    wget \
+    xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl https://mise.run | sh
+RUN install -Dm755 /root/.local/bin/mise /usr/local/bin/mise
+RUN mise settings add trusted_config_paths /work && \
+    mise use -g bun
+RUN arch="$(dpkg --print-architecture)" && \
+    case "$arch" in \
+      amd64) sccache_arch="x86_64-unknown-linux-musl" ;; \
+      arm64) sccache_arch="aarch64-unknown-linux-musl" ;; \
+      *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac && \
+    curl -LsSf \
+      "https://github.com/mozilla/sccache/releases/download/v${SCCACHE_VERSION}/sccache-v${SCCACHE_VERSION}-${sccache_arch}.tar.gz" \
+      -o /tmp/sccache.tar.gz && \
+    tar -xzf /tmp/sccache.tar.gz -C /tmp && \
+    install -Dm755 \
+      "/tmp/sccache-v${SCCACHE_VERSION}-${sccache_arch}/sccache" \
+      /usr/local/bin/sccache && \
+    rm -rf /tmp/sccache /tmp/sccache.tar.gz \
+      "/tmp/sccache-v${SCCACHE_VERSION}-${sccache_arch}"
+
+RUN cat > /usr/local/bin/docker-test-entrypoint <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$(id -u)" == "0" ]]; then
+  host_uid="${HOST_UID:-1000}"
+  host_gid="${HOST_GID:-1000}"
+
+  if ! getent group "${host_gid}" >/dev/null; then
+    groupadd --gid "${host_gid}" hubris
+  fi
+
+  if ! getent passwd "${host_uid}" >/dev/null; then
+    useradd \
+      --uid "${host_uid}" \
+      --gid "${host_gid}" \
+      --create-home \
+      --shell /bin/bash \
+      hubris
+  fi
+
+  install -d /cargo /cargo-target "${SCCACHE_DIR}" "${BUN_INSTALL_CACHE_DIR}"
+  install -d /work/frontend/node_modules
+
+  chown -R "${host_uid}:${host_gid}" \
+    /cargo \
+    /cargo-target \
+    "${SCCACHE_DIR}" \
+    "${BUN_INSTALL_CACHE_DIR}" \
+    /work/frontend/node_modules 2>/dev/null || true
+
+  export HOME
+  HOME="$(getent passwd "${host_uid}" | cut -d: -f6)"
+
+  exec gosu "${host_uid}:${host_gid}" "$0" "$@"
+fi
+
+if [[ "$#" -eq 3 && "$1" == "mise" && "$2" == "run" && "$3" == "test" ]]; then
+  (cd /work/frontend && bun install --frozen-lockfile)
+fi
+
+exec "$@"
+EOF
+
+RUN chmod +x /usr/local/bin/docker-test-entrypoint
+
+WORKDIR /work
+
+ENTRYPOINT ["/usr/local/bin/docker-test-entrypoint"]
+CMD ["mise", "run", "test"]

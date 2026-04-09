@@ -56,6 +56,12 @@ function encodeBinaryInput(data: string): Uint8Array {
   return bytes;
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 export function useTerminalConnection({
   tabId,
   visible,
@@ -150,7 +156,7 @@ export function useTerminalConnection({
     }
 
     for (const chunk of inputBufferRef.current) {
-      wsRef.current.send(chunk);
+      wsRef.current.send(toArrayBuffer(chunk));
     }
     inputBufferRef.current = [];
     flushInputAfterResizeRef.current = false;
@@ -422,7 +428,7 @@ export function useTerminalConnection({
   const handleTerminalData = useCallback((data: string): void => {
     const encoded = encoderRef.current.encode(data);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(encoded);
+      wsRef.current.send(toArrayBuffer(encoded));
     } else {
       inputBufferRef.current.push(encoded);
     }
@@ -431,7 +437,7 @@ export function useTerminalConnection({
   const handleTerminalBinary = useCallback((data: string): void => {
     const encoded = encodeBinaryInput(data);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(encoded);
+      wsRef.current.send(toArrayBuffer(encoded));
     } else {
       inputBufferRef.current.push(encoded);
     }

@@ -245,3 +245,26 @@ embeddings.**
   must disable redirects so version parsing can read the `Location` header, but
   release asset downloads must follow redirects or the extractor will read
   GitHub's redirect response instead of the tarball.
+- In Unix process-management tests, shell redirection can create a PID/ready
+  file before the shell writes content. Poll for non-empty file contents rather
+  than mere file existence to avoid CI flakes.
+- `docker:test` should install only the tools it actually needs in image layers:
+  global `bun` via `mise` and a prebuilt `sccache` binary, with the base Rust
+  image providing `cargo`/`rustc`. Using `mise` for `sccache` hits GitHub API
+  rate limits in Docker builds. Persist project dependency state in named Docker
+  volumes for `CARGO_HOME`, `CARGO_TARGET_DIR`, `SCCACHE_DIR`, Bun cache, and
+  `frontend/node_modules`.
+- Run `docker:test` containers as the host UID/GID after bootstrapping cache
+  volume ownership. Running the Linux test suite as `root` hides permission
+  failures and can invalidate filesystem-behavior tests.
+- Trust the Docker workspace by adding `/work` to `mise` `trusted_config_paths`;
+  that removes the need for per-run `mise trust` commands in the container
+  entrypoint.
+- Keep the Docker entrypoint minimal. For `docker:test`, it only needs cache
+  ownership bootstrap plus a plain `bun install --frozen-lockfile` before the
+  default `mise run test` command so a fresh `frontend/node_modules` volume is
+  populated.
+- `crates/server/tests/terminal_ws.rs` needs a deterministic shell wrapper under
+  a shared test mutex. Real interactive shells can emit prompt/redraw bytes on
+  attach or resize, which makes PTY snapshot assertions flaky on Linux and
+  inside Docker.
