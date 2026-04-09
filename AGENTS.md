@@ -242,6 +242,10 @@ embeddings.**
 
 ## Discoveries
 
+- Node 25 currently exposes experimental Web Storage in a way that breaks the
+  Vitest/jsdom suite here (`localStorage.clear` is missing). Run frontend tests
+  with `NODE_OPTIONS=--no-experimental-webstorage` until that runtime mismatch
+  is gone.
 - `code-server` release handling needs two HTTP client modes: `/releases/latest`
   must disable redirects so version parsing can read the `Location` header, but
   release asset downloads must follow redirects or the extractor will read

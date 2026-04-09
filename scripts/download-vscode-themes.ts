@@ -20,9 +20,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = "microsoft/vscode";
-const ROOT_DIR = dirname(fileURLToPath(import.meta.url));
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = join(SCRIPT_DIR, "..");
 const OUTPUT_DIR = join(
-  ROOT_DIR,
+  REPO_ROOT,
   "apps/server/data/editor-themes/vscode",
 );
 
@@ -242,7 +243,7 @@ async function main() {
   const tarballUrl = `https://github.com/${REPO}/archive/refs/tags/${tag}.tar.gz`;
   console.log(`Downloading tarball: ${tarballUrl}`);
 
-  const tmpDir = join(ROOT_DIR, ".vscode-themes-tmp");
+  const tmpDir = join(SCRIPT_DIR, ".vscode-themes-tmp");
   mkdirSync(tmpDir, { recursive: true });
   const tarPath = join(tmpDir, "vscode.tar.gz");
 
