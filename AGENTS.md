@@ -243,6 +243,9 @@ embeddings.**
 
 ## Discoveries
 
+- Keep TypeScript pinned to 5.9.x for now. The workspace shares one TypeScript
+  version across `apps/web` and `apps/desktop`, and `openapi-typescript@7.13.0`
+  still declares a `^5.x` TypeScript peer.
 - `code-server` release handling needs two HTTP client modes: `/releases/latest`
   must disable redirects so version parsing can read the `Location` header, but
   release asset downloads must follow redirects or the extractor will read

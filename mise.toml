@@ -19,12 +19,13 @@ depends = ["build:web"]
 run = "cargo build --release --features embed-frontend"
 description = "Build server binary (release)"
 
+[tasks."build:desktop-runtime"]
+run = "cargo build --release --bin hubris-desktop-runtime"
+description = "Build the desktop runtime binary (release)"
+
 [tasks."build:desktop"]
-depends = ["build:web"]
-run = [
-  "cargo build --release --bin hubris-desktop-runtime",
-  "bun run --filter hubris-desktop make",
-]
+depends = ["build:web", "build:desktop-runtime"]
+run = "bun run --filter hubris-desktop make"
 description = "Build the Electron desktop app"
 
 [tasks."dev:server"]
