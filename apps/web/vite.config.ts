@@ -11,7 +11,9 @@ const desktopBootstrapToken = process.env.HUBRIS_DESKTOP_BOOTSTRAP_TOKEN;
 const desktopSessionToken = process.env.HUBRIS_DESKTOP_SESSION_TOKEN;
 const isVitest = process.env.VITEST === "true";
 const isVitestSmoke = process.env.HUBRIS_VITEST_SMOKE === "true";
-const isDesktopDev = Boolean(devId && devTmp);
+const isDesktopDev = Boolean(
+  devId && devTmp && desktopBootstrapToken && desktopSessionToken,
+);
 const desktopDevHost = "desktop.internal.hubris.build";
 
 async function waitForBackendState(
