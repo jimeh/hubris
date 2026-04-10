@@ -8,8 +8,8 @@ persistent PTY sessions.
 ```sh
 mise run setup     # install all deps
 mise run dev       # backend + web dev servers
-mise run dev:desktop  # Tauri desktop app in dev mode
-mise run build:desktop  # Tauri desktop app bundle
+mise run dev:desktop  # Electron desktop app in dev mode
+mise run build:desktop  # Electron desktop app bundle
 mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
 mise run test      # web tests + cargo test
@@ -100,7 +100,7 @@ or `pnpm-lock.yaml`.
   store, terminal, Monaco, explorer
 - [Testing](docs/agents/testing.md) — Vitest/jsdom, mock patterns, test
   organization, Rust tests
-- [Desktop](docs/agents/desktop.md) — Tauri build, dev workflow, auth
+- [Desktop](docs/agents/desktop.md) — Electron build, dev workflow, auth
 - [Dev Environment](docs/agents/dev-environment.md) — mise tasks, hot reload,
   socket activation
 
@@ -270,3 +270,6 @@ embeddings.**
   shared test mutex. Real interactive shells can emit prompt/redraw bytes on
   attach or resize, which makes PTY snapshot assertions flaky on Linux and
   inside Docker.
+- Electron desktop packaging writes host-platform bundles to the repo-root
+  `dist/` directory via Forge `outDir`, while transient desktop build artifacts
+  under `apps/desktop/` (`node_modules`, `.vite`) stay ignored locally.

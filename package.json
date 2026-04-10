@@ -1,5 +1,5 @@
 {
   "name": "hubris",
   "private": true,
-  "workspaces": ["apps/web"]
+  "workspaces": ["apps/web", "apps/desktop"]
 }

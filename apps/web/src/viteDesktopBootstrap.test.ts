@@ -55,4 +55,10 @@ describe("handleDesktopBootstrapRequest", () => {
     expect(firstResponse).toEqual(secondResponse);
     expect(secondResponse?.statusCode).toBe(302);
   });
+
+  it("ignores unrelated requests", () => {
+    expect(
+      handleDesktopBootstrapRequest("/", bootstrapToken, sessionToken),
+    ).toBeNull();
+  });
 });

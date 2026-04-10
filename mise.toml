@@ -1,7 +1,6 @@
 [tools]
 rust = "latest"
 bun = "latest"
-"cargo:tauri-cli" = "2"
 "github:mitsuhiko/systemfd" = "latest"
 
 [tasks.build]
@@ -21,11 +20,12 @@ run = "cargo build --release --features embed-frontend"
 description = "Build server binary (release)"
 
 [tasks."build:desktop"]
+depends = ["build:web"]
 run = [
-  "bun install",
-  "cd apps/desktop-tauri && cargo tauri build --bundles app",
+  "cargo build --release --bin hubris-desktop-runtime",
+  "bun run --filter hubris-desktop make",
 ]
-description = "Build the Tauri desktop app"
+description = "Build the Electron desktop app"
 
 [tasks."dev:server"]
 run = "systemfd --no-pid -s http::0 -- mise watch --restart dev:server:raw"
@@ -49,7 +49,14 @@ description = "Run web dev server"
 
 [tasks."dev:desktop"]
 run = ".mise/tasks/dev-desktop"
-description = "Run the Tauri desktop app in dev mode"
+description = "Run the Electron desktop app in dev mode"
+
+[tasks."check:desktop"]
+run = [
+  "bun run --filter hubris-desktop lint",
+  "bun run --filter hubris-desktop check",
+]
+description = "Desktop lint + type check"
 
 [tasks."check:backend"]
 description = "Rust format check + clippy"
@@ -72,7 +79,7 @@ description = "Markdown format check"
 
 [tasks.check]
 description = "Run all checks"
-depends = ["check:backend", "check:web", "check:markdown"]
+depends = ["check:backend", "check:web", "check:desktop", "check:markdown"]
 
 [tasks.lint]
 description = "Alias for check"
@@ -100,6 +107,10 @@ run = [
   "bun run --filter hubris-web test:smoke",
 ]
 description = "Run web tests"
+
+[tasks."test:desktop"]
+run = "bun run --filter hubris-desktop test"
+description = "Run desktop tests"
 
 [tasks."test:backend"]
 run = "cd apps/server && cargo test"
@@ -129,6 +140,7 @@ description = "Run all tests"
 run = [
   "mise run test:backend",
   "mise run test:web",
+  "mise run test:desktop",
 ]
 
 [tasks."setup:web"]
@@ -166,7 +178,7 @@ run = "bun run scripts/download-vscode-themes.ts"
 description = "Download and resolve VS Code built-in themes"
 
 [tasks."clean:web"]
-run = "rm -rf apps/web/dist apps/web/node_modules node_modules"
+run = "rm -rf apps/web/dist apps/web/node_modules apps/desktop/.vite apps/desktop/out dist node_modules"
 description = "Remove web build artifacts"
 
 [tasks.clean]

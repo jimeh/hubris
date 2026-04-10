@@ -1,26 +1,24 @@
-# Desktop (Tauri) Gotchas
+# Desktop (Electron) Gotchas
 
-- **Desktop app serves bundled frontend files from Tauri resources**: the Tauri
-  shell still loads Hubris over loopback HTTP. Production desktop builds bundle
-  `apps/web/dist` as Tauri resources and the embedded server reads those files
-  at runtime instead of using `embed-frontend`. Keep
-  `apps/desktop-tauri/build.rs` creating a placeholder
-  `apps/web/dist/index.html` for clean-checkout `cargo check`, but rely on
-  `bun run --filter hubris-web build` to produce the real frontend before
-  desktop release builds.
-- **Desktop Tauri hooks run from the repo root in this setup**:
-  `apps/desktop-tauri/tauri.conf.json` build hooks should use root-relative
-  workspace commands like `bun run --filter hubris-web build`, not paths
-  relative to `apps/desktop-tauri/`.
-- **Desktop dev dynamically overrides `devUrl` from the frontend state file**:
-  `.mise/tasks/dev-desktop` reuses the shared `HUBRIS_DEV_ID` / `HUBRIS_DEV_TMP`
-  mechanism, waits for `tmp/dev-<id>.frontend.json`, then launches
-  `cargo tauri dev --config` with the actual Vite port. Keep that wrapper in
-  sync with the Vite `devInstancePlugin()` output shape, and keep
-  `apps/desktop-tauri/src/main.rs` reading `app.config().build.dev_url` in debug
-  mode instead of hardcoding a localhost port.
-- **Desktop loopback auth uses a one-time bootstrap plus an `HttpOnly` cookie**:
-  packaged desktop hits `/_hubris/desktop/bootstrap?token=...` on the embedded
-  server, while `mise run dev:desktop` hits the same path on the Vite dev
-  server. The backend trusts only the `hubris_desktop_session` cookie in desktop
-  mode, so keep desktop auth out of frontend JS fetch/SSE/WS code.
+- **Desktop still loads Hubris over loopback HTTP**: Electron is only the shell.
+  In packaged mode it spawns the Rust `hubris-desktop-runtime`, which serves
+  bundled `apps/web/dist` assets from the filesystem and exposes the existing
+  Axum API/SSE/WS surfaces on `127.0.0.1`.
+- **Packaged desktop auth is backend-owned**: Electron generates a fresh session
+  token and bootstrap token, launches the Rust runtime with both, then loads
+  `/_hubris/desktop/bootstrap?token=...`. The backend redeems that bootstrap
+  token once and sets only the `hubris_desktop_session` `HttpOnly` cookie. Keep
+  desktop auth out of frontend JS fetch/SSE/WS code.
+- **Desktop dev keeps the split Vite + backend model**: `mise run dev:desktop`
+  still uses the shared `HUBRIS_DEV_ID` / `HUBRIS_DEV_TMP` state files. Electron
+  waits for `tmp/dev-<id>.frontend.json`, then loads the Vite bootstrap URL
+  while the backend uses `HUBRIS_DESKTOP_SESSION_TOKEN` in api-only desktop
+  mode.
+- **Electron uses an in-memory session partition**: the desktop auth cookie must
+  stay scoped to the Hubris app window instead of leaking into a persistent
+  browser profile. Keep the window partition non-persistent and deny permission
+  requests, `window.open`, and cross-origin navigation.
+- **Desktop packaging depends on prebuilt resources**: `mise run build:desktop`
+  must build `apps/web/dist` and the `hubris-desktop-runtime` release binary
+  before running Electron Forge, because the packaged app copies both in as
+  resources instead of rebuilding them at launch.

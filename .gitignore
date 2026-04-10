@@ -8,6 +8,7 @@
 /apps/desktop-tauri/target/
 /apps/web/dist/
 /apps/web/node_modules/
+/dist/
 /node_modules/
 /target/
 /tmp/
