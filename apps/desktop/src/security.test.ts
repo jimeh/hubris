@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  HUBRIS_SESSION_PARTITION,
-  createHubrisWindowOptions,
-  isAllowedNavigation,
-} from "./security";
+import { createHubrisWindowOptions, isAllowedNavigation } from "./security";
+import { desktopSessionPartition } from "./profile";
 
 describe("createHubrisWindowOptions", () => {
-  it("uses hardened BrowserWindow defaults", () => {
-    const options = createHubrisWindowOptions("/tmp/preload.js");
+  it("uses hardened BrowserWindow defaults in release mode", () => {
+    const options = createHubrisWindowOptions("/tmp/preload.js", "release");
 
     expect(options.title).toBe("Hubris");
     expect(options.width).toBe(1440);
@@ -17,12 +14,23 @@ describe("createHubrisWindowOptions", () => {
     expect(options.minHeight).toBe(720);
     expect(options.webPreferences).toMatchObject({
       preload: "/tmp/preload.js",
-      partition: HUBRIS_SESSION_PARTITION,
+      partition: desktopSessionPartition("release"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
     });
+  });
+
+  it("uses a separate persistent partition in dev mode", () => {
+    const options = createHubrisWindowOptions("/tmp/preload.js", "dev");
+
+    expect(options.webPreferences?.partition).toBe(
+      desktopSessionPartition("dev"),
+    );
+    expect(options.webPreferences?.partition).not.toBe(
+      desktopSessionPartition("release"),
+    );
   });
 });
 

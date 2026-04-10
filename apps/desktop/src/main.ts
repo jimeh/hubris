@@ -15,13 +15,15 @@ import {
   waitForFrontendPort,
   type PackagedRuntimeOptions,
 } from "./runtime";
+import { createHubrisWindowOptions, isAllowedNavigation } from "./security";
 import {
-  HUBRIS_SESSION_PARTITION,
-  createHubrisWindowOptions,
-  isAllowedNavigation,
-} from "./security";
+  configureDesktopProfilePaths,
+  desktopProfileMode,
+  desktopSessionPartition,
+} from "./profile";
 
 const APP_DATA_DIR_NAME = ".hubris";
+const profileMode = desktopProfileMode(app.isPackaged);
 
 let mainWindow: BrowserWindow | null = null;
 let runtimeChild: ReturnType<typeof spawnPackagedRuntime>["child"] | null =
@@ -93,7 +95,9 @@ async function resolveHubrisUrl(): Promise<{
  * Install the session-level permission policy for the Hubris window.
  */
 function configureSessionGuards() {
-  const desktopSession = session.fromPartition(HUBRIS_SESSION_PARTITION);
+  const desktopSession = session.fromPartition(
+    desktopSessionPartition(profileMode),
+  );
   desktopSession.setPermissionRequestHandler((_wc, _permission, callback) => {
     callback(false);
   });
@@ -125,7 +129,9 @@ function configureWebContentsGuards(
 async function createMainWindow() {
   const preloadPath = path.resolve(__dirname, "preload.js");
   const { origin, url } = await resolveHubrisUrl();
-  const window = new BrowserWindow(createHubrisWindowOptions(preloadPath));
+  const window = new BrowserWindow(
+    createHubrisWindowOptions(preloadPath, profileMode),
+  );
   mainWindow = window;
 
   configureWebContentsGuards(window.webContents, origin);
@@ -153,6 +159,8 @@ app.on("activate", async () => {
     await createMainWindow();
   }
 });
+
+configureDesktopProfilePaths(app, profileMode);
 
 void app.whenReady().then(async () => {
   configureSessionGuards();

@@ -1,17 +1,19 @@
 import type { BrowserWindowConstructorOptions } from "electron";
 
+import { desktopSessionPartition, type DesktopProfileMode } from "./profile";
+
 export const HUBRIS_WINDOW_TITLE = "Hubris";
 export const HUBRIS_WINDOW_WIDTH = 1440;
 export const HUBRIS_WINDOW_HEIGHT = 960;
 export const HUBRIS_WINDOW_MIN_WIDTH = 1024;
 export const HUBRIS_WINDOW_MIN_HEIGHT = 720;
-export const HUBRIS_SESSION_PARTITION = "hubris-desktop";
 
 /**
  * Return the hardened BrowserWindow defaults for Hubris.
  */
 export function createHubrisWindowOptions(
   preloadPath: string,
+  mode: DesktopProfileMode,
 ): BrowserWindowConstructorOptions {
   return {
     title: HUBRIS_WINDOW_TITLE,
@@ -22,7 +24,7 @@ export function createHubrisWindowOptions(
     show: false,
     webPreferences: {
       preload: preloadPath,
-      partition: HUBRIS_SESSION_PARTITION,
+      partition: desktopSessionPartition(mode),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,

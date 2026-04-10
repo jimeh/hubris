@@ -273,3 +273,8 @@ embeddings.**
 - Electron desktop packaging writes host-platform bundles to the repo-root
   `dist/` directory via Forge `outDir`, while transient desktop build artifacts
   under `apps/desktop/` (`node_modules`, `.vite`) stay ignored locally.
+- Electron desktop browser storage only survives restarts when the window uses a
+  `persist:` partition and `app.setPath("userData"/"sessionData", ...)` is set
+  before `app.whenReady()`. Keep dev and release on separate OS-native app-data
+  roots (`Hubris Dev` vs `Hubris`) so code-server IndexedDB/localStorage state
+  persists without mixing profiles.

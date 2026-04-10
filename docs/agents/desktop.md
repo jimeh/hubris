@@ -14,10 +14,15 @@
   waits for `tmp/dev-<id>.frontend.json`, then loads the Vite bootstrap URL
   while the backend uses `HUBRIS_DESKTOP_SESSION_TOKEN` in api-only desktop
   mode.
-- **Electron uses an in-memory session partition**: the desktop auth cookie must
-  stay scoped to the Hubris app window instead of leaking into a persistent
-  browser profile. Keep the window partition non-persistent and deny permission
-  requests, `window.open`, and cross-origin navigation.
+- **Electron browser storage lives in native app-data directories**: configure
+  `userData` and `sessionData` before `app.whenReady()` so Chromium persists
+  `localStorage`, IndexedDB, cookies, and cache in stable OS-native paths. Use
+  separate profiles for release (`Hubris`) and dev (`Hubris Dev`) so code-server
+  state survives restarts without mixing dev and packaged data.
+- **Electron uses persistent, mode-specific partitions**: keep release and dev
+  on separate `persist:` partitions so browser storage survives restarts while
+  still isolating `mise run dev:desktop` from packaged builds. Keep permission
+  requests, `window.open`, and cross-origin navigation denied.
 - **Desktop packaging depends on prebuilt resources**: `mise run build:desktop`
   must build `apps/web/dist` and the `hubris-desktop-runtime` release binary
   before running Electron Forge, because the packaged app copies both in as
