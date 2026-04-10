@@ -8,6 +8,8 @@ export const HUBRIS_WINDOW_HEIGHT = 960;
 export const HUBRIS_WINDOW_MIN_WIDTH = 1024;
 export const HUBRIS_WINDOW_MIN_HEIGHT = 720;
 
+export type NavigationTarget = "internal" | "external" | "deny";
+
 /**
  * Return the hardened BrowserWindow defaults for Hubris.
  */
@@ -40,16 +42,35 @@ export function isAllowedNavigation(
   url: string,
   allowedOrigin: string,
 ): boolean {
+  return classifyNavigationTarget(url, allowedOrigin) === "internal";
+}
+
+/**
+ * Classify a navigation target relative to the desktop app origin.
+ */
+export function classifyNavigationTarget(
+  url: string,
+  allowedOrigin: string,
+): NavigationTarget {
   try {
     const target = new URL(url);
     const allowed = new URL(allowedOrigin);
-    return (
+
+    if (
       target.protocol === allowed.protocol &&
       target.host === allowed.host &&
       target.username === allowed.username &&
       target.password === allowed.password
-    );
+    ) {
+      return "internal";
+    }
+
+    if (target.protocol === "http:" || target.protocol === "https:") {
+      return "external";
+    }
+
+    return "deny";
   } catch {
-    return false;
+    return "deny";
   }
 }

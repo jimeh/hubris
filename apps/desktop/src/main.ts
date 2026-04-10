@@ -3,10 +3,10 @@ import {
   app,
   BrowserWindow,
   session,
+  shell,
   type Cookies,
   type Session,
   type WebContents,
-  type Event as ElectronEvent,
 } from "electron";
 
 import {
@@ -23,7 +23,10 @@ import {
   registerHubrisProtocol,
   registerHubrisScheme,
 } from "./protocol";
-import { createHubrisWindowOptions, isAllowedNavigation } from "./security";
+import {
+  classifyNavigationTarget,
+  createHubrisWindowOptions,
+} from "./security";
 import {
   configureDesktopProfilePaths,
   desktopProfileMode,
@@ -130,16 +133,47 @@ function configureWebContentsGuards(
   webContents: WebContents,
   allowedOrigin: string,
 ) {
-  webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  const openExternalUrl = (url: string) => {
+    void shell.openExternal(url).catch((error: unknown) => {
+      console.error("failed to open external URL", { url, error });
+    });
+  };
 
-  const blockIfDisallowed = (event: ElectronEvent, url: string) => {
-    if (!isAllowedNavigation(url, allowedOrigin)) {
-      event.preventDefault();
+  webContents.setWindowOpenHandler(({ url }) => {
+    if (classifyNavigationTarget(url, allowedOrigin) === "external") {
+      openExternalUrl(url);
+    }
+
+    return { action: "deny" };
+  });
+
+  const blockIfDisallowed = ({
+    preventDefault,
+    url,
+  }: {
+    preventDefault: () => void;
+    url: string;
+  }) => {
+    const target = classifyNavigationTarget(url, allowedOrigin);
+    if (target === "internal") {
+      return;
+    }
+
+    preventDefault();
+    if (target === "external") {
+      openExternalUrl(url);
     }
   };
 
-  webContents.on("will-navigate", blockIfDisallowed);
-  webContents.on("will-redirect", blockIfDisallowed);
+  webContents.on("will-navigate", (details) => {
+    blockIfDisallowed(details);
+  });
+  webContents.on("will-frame-navigate", (details) => {
+    blockIfDisallowed(details);
+  });
+  webContents.on("will-redirect", (details) => {
+    blockIfDisallowed(details);
+  });
 }
 
 /**

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createHubrisWindowOptions, isAllowedNavigation } from "./security";
+import {
+  classifyNavigationTarget,
+  createHubrisWindowOptions,
+  isAllowedNavigation,
+} from "./security";
 import { desktopSessionPartition } from "./profile";
 
 describe("createHubrisWindowOptions", () => {
@@ -51,5 +55,40 @@ describe("isAllowedNavigation", () => {
         "https://desktop.internal.hubris.build",
       ),
     ).toBe(false);
+  });
+});
+
+describe("classifyNavigationTarget", () => {
+  const allowedOrigin = "https://desktop.internal.hubris.build";
+
+  it("classifies same-origin URLs as internal", () => {
+    expect(
+      classifyNavigationTarget(
+        "https://desktop.internal.hubris.build/deep/link",
+        allowedOrigin,
+      ),
+    ).toBe("internal");
+  });
+
+  it("classifies external http URLs as external", () => {
+    expect(
+      classifyNavigationTarget("http://example.com/docs", allowedOrigin),
+    ).toBe("external");
+  });
+
+  it("classifies external https URLs as external", () => {
+    expect(
+      classifyNavigationTarget("https://example.com/docs", allowedOrigin),
+    ).toBe("external");
+  });
+
+  it("rejects non-http schemes", () => {
+    expect(
+      classifyNavigationTarget("mailto:test@example.com", allowedOrigin),
+    ).toBe("deny");
+  });
+
+  it("rejects malformed URLs", () => {
+    expect(classifyNavigationTarget("not a url", allowedOrigin)).toBe("deny");
   });
 });
