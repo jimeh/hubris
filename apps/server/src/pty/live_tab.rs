@@ -1,10 +1,12 @@
 use std::collections::{HashMap, VecDeque};
-use std::ffi::CStr;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+#[cfg(target_os = "macos")]
+use std::ffi::CStr;
 
 use portable_pty::{Child, MasterPty, PtySize};
 use tokio::sync::broadcast;
