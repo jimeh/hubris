@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::ffi::CStr;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -19,6 +20,8 @@ pub const DEFAULT_SCROLLBACK: usize = 128 * 1024;
 pub const DEFAULT_PTY_COLS: u16 = 80;
 pub const DEFAULT_PTY_ROWS: u16 = 24;
 const PROCESS_LABEL_CACHE_TTL: Duration = Duration::from_secs(5);
+#[cfg(target_os = "macos")]
+const PROC_PIDPATHINFO_MAXSIZE: usize = libc::PATH_MAX as usize * 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalSize {
@@ -617,15 +620,17 @@ fn resolve_process_label_from_pid(
         return None;
     }
 
-    resolve_process_label_from_procfs(pid).or_else(|| {
-        resolve_process_label_with_cache(
-            process_label_cache,
-            pid,
-            Instant::now(),
-            PROCESS_LABEL_CACHE_TTL,
-            resolve_process_label_from_ps,
-        )
-    })
+    resolve_process_label_with_cache(
+        process_label_cache,
+        pid,
+        Instant::now(),
+        PROCESS_LABEL_CACHE_TTL,
+        |pid| {
+            resolve_process_label_from_procfs(pid)
+                .or_else(|| resolve_process_label_from_libproc(pid))
+                .or_else(|| resolve_process_label_from_ps(pid))
+        },
+    )
 }
 
 #[cfg(unix)]
@@ -634,7 +639,33 @@ fn resolve_process_label_from_procfs(pid: libc::pid_t) -> Option<String> {
     normalize_process_label(&raw)
 }
 
+#[cfg(target_os = "macos")]
+fn resolve_process_label_from_libproc(pid: libc::pid_t) -> Option<String> {
+    let mut path_buf = vec![0 as libc::c_char; PROC_PIDPATHINFO_MAXSIZE];
+    let path_len =
+        unsafe { proc_pidpath(pid, path_buf.as_mut_ptr().cast(), path_buf.len() as u32) };
+    if path_len > 0 {
+        let raw = unsafe { CStr::from_ptr(path_buf.as_ptr()) };
+        return normalize_process_label(&raw.to_string_lossy());
+    }
+
+    let mut name_buf = [0 as libc::c_char; 2 * 16];
+    let name_len = unsafe { proc_name(pid, name_buf.as_mut_ptr().cast(), name_buf.len() as u32) };
+    if name_len > 0 {
+        let raw = unsafe { CStr::from_ptr(name_buf.as_ptr()) };
+        return normalize_process_label(&raw.to_string_lossy());
+    }
+
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn resolve_process_label_from_libproc(_pid: libc::pid_t) -> Option<String> {
+    None
+}
+
 #[cfg(unix)]
+#[cfg(not(target_os = "macos"))]
 fn resolve_process_label_from_ps(pid: libc::pid_t) -> Option<String> {
     let output = std::process::Command::new("ps")
         .args(["-o", "comm=", "-p", &pid.to_string()])
@@ -645,6 +676,11 @@ fn resolve_process_label_from_ps(pid: libc::pid_t) -> Option<String> {
     }
 
     normalize_process_label(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_process_label_from_ps(_pid: libc::pid_t) -> Option<String> {
+    None
 }
 
 fn normalize_process_label(raw: &str) -> Option<String> {
@@ -665,6 +701,12 @@ impl Drop for LiveTab {
         self.kill();
         self._reader_handle.abort();
     }
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn proc_name(pid: libc::c_int, buffer: *mut libc::c_void, buffersize: u32) -> libc::c_int;
+    fn proc_pidpath(pid: libc::c_int, buffer: *mut libc::c_void, buffersize: u32) -> libc::c_int;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
