@@ -395,7 +395,12 @@ fn spawn_terminal_process_label_task(
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    let next_process_label = runtime.resolve_process_label();
+                    let runtime = runtime.clone();
+                    let Ok(next_process_label) = tokio::task::spawn_blocking(move || {
+                        runtime.resolve_process_label()
+                    }).await else {
+                        continue;
+                    };
                     let Some(updated) = ({
                         let Some(mut tab) = tabs.get_mut(&id) else {
                             break;
