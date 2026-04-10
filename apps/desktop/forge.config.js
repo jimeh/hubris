@@ -13,7 +13,7 @@ module.exports = {
   packagerConfig: {
     name: "Hubris",
     executableName: "Hubris",
-    icon: path.resolve(__dirname, "../desktop-tauri/icons/icon"),
+    icon: path.resolve(__dirname, "icons/icon"),
     extraResource: [
       path.resolve(__dirname, "../web/dist"),
       path.resolve(__dirname, "../../target/release", runtimeBinaryName()),
