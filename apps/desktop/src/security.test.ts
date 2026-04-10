@@ -16,7 +16,6 @@ describe("createHubrisWindowOptions", () => {
       preload: "/tmp/preload.js",
       partition: desktopSessionPartition("release"),
       nodeIntegration: false,
-      nodeIntegrationInSubFrames: true,
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
