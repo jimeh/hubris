@@ -18,6 +18,7 @@ use crate::tab::TabInfo;
 pub const DEFAULT_SCROLLBACK: usize = 128 * 1024;
 pub const DEFAULT_PTY_COLS: u16 = 80;
 pub const DEFAULT_PTY_ROWS: u16 = 24;
+const PROCESS_LABEL_CACHE_TTL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalSize {
@@ -182,6 +183,45 @@ fn normalize_osc_title(payload: &[u8]) -> Option<String> {
     (!title.is_empty()).then(|| title.into_owned())
 }
 
+#[derive(Debug, Clone)]
+struct CachedProcessLabel {
+    pid: libc::pid_t,
+    label: Option<String>,
+    expires_at: Instant,
+}
+
+#[derive(Debug, Default)]
+struct ProcessLabelCache {
+    entry: Option<CachedProcessLabel>,
+}
+
+#[cfg(unix)]
+fn resolve_process_label_with_cache<F>(
+    cache: &Mutex<ProcessLabelCache>,
+    pid: libc::pid_t,
+    now: Instant,
+    ttl: Duration,
+    resolve: F,
+) -> Option<String>
+where
+    F: FnOnce(libc::pid_t) -> Option<String>,
+{
+    if let Some(cached) = cache.lock().unwrap().entry.as_ref()
+        && cached.pid == pid
+        && now < cached.expires_at
+    {
+        return cached.label.clone();
+    }
+
+    let label = resolve(pid as libc::pid_t);
+    cache.lock().unwrap().entry = Some(CachedProcessLabel {
+        pid,
+        label: label.clone(),
+        expires_at: now + ttl,
+    });
+    label
+}
+
 /// A live terminal tab with its PTY, scrollback buffer,
 /// and broadcast channels for output fan-out and close
 /// notification.
@@ -198,6 +238,7 @@ pub struct LiveTab {
     pub title_tx: broadcast::Sender<Option<String>>,
     next_attachment_id: AtomicU64,
     attachments: Mutex<AttachmentRegistry>,
+    process_label_cache: Mutex<ProcessLabelCache>,
     resize_update_lock: Mutex<()>,
     _reader_handle: JoinHandle<()>,
 }
@@ -373,6 +414,7 @@ impl LiveTab {
             title_tx,
             next_attachment_id: AtomicU64::new(1),
             attachments: Mutex::new(AttachmentRegistry::new(initial_size)),
+            process_label_cache: Mutex::new(ProcessLabelCache::default()),
             resize_update_lock: Mutex::new(()),
             _reader_handle: reader_handle,
         }
@@ -391,7 +433,7 @@ impl LiveTab {
     }
 
     pub fn resolve_process_label(&self) -> Option<String> {
-        resolve_live_tab_process_label(&self.pty_master)
+        resolve_live_tab_process_label(&self.pty_master, &self.process_label_cache)
     }
 
     /// Attach to this tab's output stream. Returns:
@@ -547,28 +589,43 @@ impl LiveTab {
 }
 
 #[cfg(unix)]
-fn resolve_live_tab_process_label(pty_master: &Mutex<Box<dyn MasterPty + Send>>) -> Option<String> {
+fn resolve_live_tab_process_label(
+    pty_master: &Mutex<Box<dyn MasterPty + Send>>,
+    process_label_cache: &Mutex<ProcessLabelCache>,
+) -> Option<String> {
     let leader = {
         let pty_master = pty_master.lock().unwrap();
         pty_master.process_group_leader()?
     };
-    resolve_process_label_from_pid(leader)
+    resolve_process_label_from_pid(leader, process_label_cache)
 }
 
 #[cfg(not(unix))]
 fn resolve_live_tab_process_label(
     _pty_master: &Mutex<Box<dyn MasterPty + Send>>,
+    _process_label_cache: &Mutex<ProcessLabelCache>,
 ) -> Option<String> {
     None
 }
 
 #[cfg(unix)]
-fn resolve_process_label_from_pid(pid: libc::pid_t) -> Option<String> {
+fn resolve_process_label_from_pid(
+    pid: libc::pid_t,
+    process_label_cache: &Mutex<ProcessLabelCache>,
+) -> Option<String> {
     if pid <= 0 {
         return None;
     }
 
-    resolve_process_label_from_procfs(pid).or_else(|| resolve_process_label_from_ps(pid))
+    resolve_process_label_from_procfs(pid).or_else(|| {
+        resolve_process_label_with_cache(
+            process_label_cache,
+            pid,
+            Instant::now(),
+            PROCESS_LABEL_CACHE_TTL,
+            resolve_process_label_from_ps,
+        )
+    })
 }
 
 #[cfg(unix)]
@@ -703,7 +760,9 @@ impl AttachmentRegistry {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::sync::Arc;
+    use std::sync::Mutex;
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration as StdDuration;
@@ -840,6 +899,72 @@ mod tests {
             Some("cargo".to_string())
         );
         assert_eq!(super::normalize_process_label("  "), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_label_cache_reuses_fresh_entry_for_same_pid() {
+        let cache = Mutex::new(super::ProcessLabelCache::default());
+        let calls = Cell::new(0);
+        let now = Instant::now();
+
+        let first = super::resolve_process_label_with_cache(
+            &cache,
+            123,
+            now,
+            Duration::from_secs(5),
+            |_| {
+                calls.set(calls.get() + 1);
+                Some("cargo".to_string())
+            },
+        );
+        let second = super::resolve_process_label_with_cache(
+            &cache,
+            123,
+            now + Duration::from_secs(1),
+            Duration::from_secs(5),
+            |_| {
+                calls.set(calls.get() + 1);
+                Some("ignored".to_string())
+            },
+        );
+
+        assert_eq!(first, Some("cargo".to_string()));
+        assert_eq!(second, Some("cargo".to_string()));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_label_cache_refreshes_when_entry_expires() {
+        let cache = Mutex::new(super::ProcessLabelCache::default());
+        let calls = Cell::new(0);
+        let now = Instant::now();
+
+        let first = super::resolve_process_label_with_cache(
+            &cache,
+            123,
+            now,
+            Duration::from_secs(5),
+            |_| {
+                calls.set(calls.get() + 1);
+                Some("cargo".to_string())
+            },
+        );
+        let second = super::resolve_process_label_with_cache(
+            &cache,
+            123,
+            now + Duration::from_secs(6),
+            Duration::from_secs(5),
+            |_| {
+                calls.set(calls.get() + 1);
+                Some("bun".to_string())
+            },
+        );
+
+        assert_eq!(first, Some("cargo".to_string()));
+        assert_eq!(second, Some("bun".to_string()));
+        assert_eq!(calls.get(), 2);
     }
 
     fn spawn_test_live_tab() -> Arc<LiveTab> {
