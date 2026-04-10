@@ -3009,50 +3009,62 @@
       "TabInfo": {
         "oneOf": [
           {
-            "type": "object",
-            "required": [
-              "id",
-              "session_id",
-              "worktree_id",
-              "label",
-              "position",
-              "created_at",
-              "preview",
-              "type"
-            ],
-            "properties": {
-              "created_at": {
-                "type": "integer",
-                "format": "int64",
-                "minimum": 0
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TerminalTabLabels"
               },
-              "has_notification": {
-                "type": "boolean"
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "session_id",
+                  "worktree_id",
+                  "label",
+                  "position",
+                  "created_at",
+                  "preview"
+                ],
+                "properties": {
+                  "created_at": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "has_notification": {
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "position": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "preview": {
+                    "type": "boolean"
+                  },
+                  "session_id": {
+                    "type": "string"
+                  },
+                  "worktree_id": {
+                    "type": "string"
+                  }
+                }
               },
-              "id": {
-                "type": "string"
-              },
-              "label": {
-                "type": "string"
-              },
-              "position": {
-                "type": "number",
-                "format": "double"
-              },
-              "preview": {
-                "type": "boolean"
-              },
-              "session_id": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": ["terminal"]
-              },
-              "worktree_id": {
-                "type": "string"
+              {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["terminal"]
+                  }
+                }
               }
-            }
+            ]
           },
           {
             "type": "object",
@@ -3180,6 +3192,9 @@
           },
           "systemFontFamily": {
             "type": "string"
+          },
+          "tabLabelMode": {
+            "$ref": "#/components/schemas/TerminalTabLabelMode"
           }
         }
       },
@@ -3206,6 +3221,34 @@
           },
           "systemFontFamily": {
             "type": ["string", "null"]
+          },
+          "tabLabelMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TerminalTabLabelMode"
+              }
+            ]
+          }
+        }
+      },
+      "TerminalTabLabelMode": {
+        "type": "string",
+        "enum": ["numbered", "process", "title"]
+      },
+      "TerminalTabLabels": {
+        "type": "object",
+        "properties": {
+          "customLabel": {
+            "type": ["string", "null"]
+          },
+          "processLabel": {
+            "type": ["string", "null"]
+          },
+          "titleLabel": {
+            "type": ["string", "null"]
           }
         }
       },
@@ -3220,11 +3263,11 @@
       "UpdateTabRequest": {
         "type": "object",
         "properties": {
+          "custom_label": {
+            "type": ["string", "null"]
+          },
           "has_notification": {
             "type": ["boolean", "null"]
-          },
-          "label": {
-            "type": ["string", "null"]
           },
           "position": {
             "type": ["number", "null"],

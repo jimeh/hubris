@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::Json;
@@ -10,6 +9,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySystem};
 use serde::Deserialize;
+use tokio::time::{self, MissedTickBehavior};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::files::ApiErrorResponse;
@@ -17,9 +17,12 @@ use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
 use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TerminalSize};
 use crate::state::AppState;
-use crate::tab::{GitDiffScope, TabInfo};
+use crate::tab::{GitDiffScope, TabInfo, TerminalTabLabels};
 
 type TerminalCloseReceiver = tokio::sync::broadcast::Receiver<()>;
+type TerminalNotificationReceiver = tokio::sync::broadcast::Receiver<()>;
+type TerminalTitleReceiver = tokio::sync::broadcast::Receiver<Option<String>>;
+
 const MISSING_COMMIT_ID_MESSAGE: &str = "commit_id is required for commit diffs.";
 
 #[derive(Debug)]
@@ -76,7 +79,8 @@ pub enum CreateTabRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateTabRequest {
-    pub label: Option<String>,
+    #[serde(default)]
+    pub custom_label: Option<String>,
     pub position: Option<f64>,
     pub preview: Option<bool>,
     pub has_notification: Option<bool>,
@@ -152,6 +156,21 @@ fn map_status_to_tab_error(status: StatusCode) -> TabsApiError {
     TabsApiError::new(status, message)
 }
 
+fn normalize_custom_label(label: &str) -> Option<String> {
+    let trimmed = label.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn next_terminal_number(state: &AppState, worktree_id: &str) -> u32 {
+    let mut next = state
+        .next_terminal_num_by_worktree
+        .entry(worktree_id.to_string())
+        .or_insert(1);
+    let current = *next;
+    *next += 1;
+    current
+}
+
 fn build_tab_info(
     req: CreateTabRequest,
     id: String,
@@ -169,6 +188,11 @@ fn build_tab_info(
             created_at,
             preview: false,
             has_notification: false,
+            labels: TerminalTabLabels {
+                custom_label: None,
+                process_label: None,
+                title_label: None,
+            },
         },
         CreateTabRequest::File {
             worktree_id,
@@ -243,8 +267,6 @@ fn spawn_terminal_runtime(
     Ok((tab, close_rx))
 }
 
-type TerminalNotificationReceiver = tokio::sync::broadcast::Receiver<()>;
-
 fn spawn_terminal_notification_task(
     state: &AppState,
     id: String,
@@ -297,6 +319,106 @@ fn spawn_terminal_notification_task(
                         session_id: updated
                             .session_id()
                             .to_string(),
+                        tab: updated,
+                    });
+                }
+                _ = close_rx.recv() => break,
+            }
+        }
+    });
+}
+
+fn spawn_terminal_title_task(
+    state: &AppState,
+    id: String,
+    mut title_rx: TerminalTitleReceiver,
+    mut close_rx: TerminalCloseReceiver,
+) {
+    let tabs = state.tabs.clone();
+    let terminal_tabs = state.terminal_tabs.clone();
+    let events = state.events.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                result = title_rx.recv() => {
+                    let next_title = match result {
+                        Ok(title) => title,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    };
+
+                    let Some(updated) = ({
+                        let Some(mut tab) = tabs.get_mut(&id) else {
+                            break;
+                        };
+                        if tab.title_label() == next_title.as_deref() {
+                            None
+                        } else {
+                            tab.set_title_label(next_title.clone());
+                            Some(tab.clone())
+                        }
+                    }) else {
+                        continue;
+                    };
+
+                    if let Some(runtime) = terminal_tabs.get(&id) {
+                        runtime.update_info(|info| {
+                            info.set_title_label(next_title.clone());
+                            info.clone()
+                        });
+                    }
+
+                    events.emit(EventKind::TabUpdated {
+                        session_id: updated.session_id().to_string(),
+                        tab: updated,
+                    });
+                }
+                _ = close_rx.recv() => break,
+            }
+        }
+    });
+}
+
+fn spawn_terminal_process_label_task(
+    state: &AppState,
+    id: String,
+    runtime: Arc<LiveTab>,
+    mut close_rx: TerminalCloseReceiver,
+) {
+    let tabs = state.tabs.clone();
+    let terminal_tabs = state.terminal_tabs.clone();
+    let events = state.events.clone();
+    tokio::spawn(async move {
+        let mut interval = time::interval(std::time::Duration::from_millis(750));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let next_process_label = runtime.resolve_process_label();
+                    let Some(updated) = ({
+                        let Some(mut tab) = tabs.get_mut(&id) else {
+                            break;
+                        };
+                        if tab.process_label() == next_process_label.as_deref() {
+                            None
+                        } else {
+                            tab.set_process_label(next_process_label.clone());
+                            Some(tab.clone())
+                        }
+                    }) else {
+                        continue;
+                    };
+
+                    if let Some(live_tab) = terminal_tabs.get(&id) {
+                        live_tab.update_info(|info| {
+                            info.set_process_label(next_process_label.clone());
+                            info.clone()
+                        });
+                    }
+
+                    events.emit(EventKind::TabUpdated {
+                        session_id: updated.session_id().to_string(),
                         tab: updated,
                     });
                 }
@@ -372,7 +494,7 @@ pub async fn create_tab(
         .ok_or_else(|| map_status_to_tab_error(StatusCode::NOT_FOUND))?;
 
     let terminal_number = if matches!(req, CreateTabRequest::Terminal { .. }) {
-        state.next_tab_num.fetch_add(1, Ordering::Relaxed)
+        next_terminal_number(&state, &worktree_id)
     } else {
         0
     };
@@ -415,6 +537,18 @@ pub async fn create_tab(
             &state,
             tab_id.clone(),
             runtime.notification_tx.subscribe(),
+            runtime.close_tx.subscribe(),
+        );
+        spawn_terminal_title_task(
+            &state,
+            tab_id.clone(),
+            runtime.title_tx.subscribe(),
+            runtime.close_tx.subscribe(),
+        );
+        spawn_terminal_process_label_task(
+            &state,
+            tab_id.clone(),
+            runtime.clone(),
             runtime.close_tx.subscribe(),
         );
         spawn_terminal_cleanup_task(&state, tab_id, close_rx);
@@ -477,10 +611,10 @@ pub async fn update_tab(
         if let Some(preview) = req.preview {
             tab.set_preview(preview);
         }
-        if let Some(label) = req.label
+        if let Some(custom_label) = req.custom_label.as_deref()
             && matches!(&*tab, TabInfo::Terminal { .. })
         {
-            tab.set_label(label);
+            tab.set_custom_label(normalize_custom_label(custom_label));
         }
         if let Some(has_notification) = req.has_notification
             && matches!(&*tab, TabInfo::Terminal { .. })
@@ -497,6 +631,18 @@ pub async fn update_tab(
     {
         lt.update_info(|info| {
             info.set_has_notification(updated.has_notification());
+            if req.custom_label.is_some() {
+                info.set_custom_label(updated.custom_label().map(str::to_string));
+            }
+            info.clone()
+        });
+    }
+    if req.has_notification.is_none()
+        && req.custom_label.is_some()
+        && let Some(lt) = state.terminal_tabs.get(&id)
+    {
+        lt.update_info(|info| {
+            info.set_custom_label(updated.custom_label().map(str::to_string));
             info.clone()
         });
     }

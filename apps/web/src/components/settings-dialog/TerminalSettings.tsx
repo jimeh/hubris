@@ -32,6 +32,46 @@ export default function TerminalSettings() {
     <section className="space-y-3">
       <div className="flex items-center gap-2">
         <Terminal className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-medium">Tabs</h3>
+      </div>
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          Tab Labels
+        </Label>
+        <div className="flex flex-wrap gap-1">
+          <Button
+            variant={
+              settings.tabLabelMode === "numbered" ? "secondary" : "ghost"
+            }
+            size="sm"
+            disabled={writesBlocked}
+            onClick={() => void updateSettings({ tabLabelMode: "numbered" })}
+          >
+            Numbered
+          </Button>
+          <Button
+            variant={
+              settings.tabLabelMode === "process" ? "secondary" : "ghost"
+            }
+            size="sm"
+            disabled={writesBlocked}
+            onClick={() => void updateSettings({ tabLabelMode: "process" })}
+          >
+            Active Process
+          </Button>
+          <Button
+            variant={settings.tabLabelMode === "title" ? "secondary" : "ghost"}
+            size="sm"
+            disabled={writesBlocked}
+            onClick={() => void updateSettings({ tabLabelMode: "title" })}
+          >
+            Process Title
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Terminal className="h-4 w-4 text-muted-foreground" />
         <h3 className="text-sm font-medium">Font</h3>
       </div>
       <div className={settingsRowClass}>

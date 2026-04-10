@@ -9,8 +9,8 @@ use hubris_server::api::code_server::{
 use hubris_server::api::projects::Project;
 use hubris_server::api::settings::{
     AppearanceSettings, ColorScheme, EditorSettings, EditorSettingsPatch, Settings, SettingsState,
-    SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings, WorktreeLocationMode,
-    WorktreeSettings,
+    SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings, TerminalTabLabelMode,
+    WorktreeLocationMode, WorktreeSettings,
 };
 use hubris_server::api::terminal::{ClientControlMessage, ServerControlMessage};
 use hubris_server::api::worktrees::{Worktree, WorktreeUiMode};
@@ -71,6 +71,7 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<Worktree>(&mut sse, &cfg)?;
     push_ts_export::<ColorScheme>(&mut sse, &cfg)?;
     push_ts_export::<TerminalFontSource>(&mut sse, &cfg)?;
+    push_ts_export::<TerminalTabLabelMode>(&mut sse, &cfg)?;
     push_ts_export::<WorktreeLocationMode>(&mut sse, &cfg)?;
     push_ts_export::<AppearanceSettings>(&mut sse, &cfg)?;
     push_ts_export::<TerminalSettings>(&mut sse, &cfg)?;

@@ -168,7 +168,7 @@ fn to_sse_event(event: &Event) -> sse::Event {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tab::TabInfo;
+    use crate::tab::{TabInfo, TerminalTabLabels};
 
     fn make_terminal_tab(session_id: &str) -> TabInfo {
         TabInfo::Terminal {
@@ -180,6 +180,11 @@ mod tests {
             created_at: 0,
             preview: false,
             has_notification: false,
+            labels: TerminalTabLabels {
+                custom_label: None,
+                process_label: None,
+                title_label: None,
+            },
         }
     }
 

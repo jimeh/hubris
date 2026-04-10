@@ -59,9 +59,64 @@ function gitDiffTab(overrides: Partial<GitDiffTab> = {}): GitDiffTab {
 
 describe("tab presentation", () => {
   it("uses a terminal icon for terminal tabs", () => {
-    expect(presentTab(terminalTab(), darkTheme, null)).toEqual({
+    expect(presentTab(terminalTab(), darkTheme, null, "numbered")).toEqual({
       label: "Terminal 1",
       title: "Terminal 1",
+      iconKind: "terminal",
+    });
+  });
+
+  it("prefers custom terminal labels over dynamic labels", () => {
+    expect(
+      presentTab(
+        terminalTab({
+          customLabel: "Deploy",
+          processLabel: "bun",
+          titleLabel: "watch dev",
+        }),
+        darkTheme,
+        null,
+        "process",
+      ),
+    ).toEqual({
+      label: "Deploy",
+      title: "Deploy",
+      iconKind: "terminal",
+    });
+  });
+
+  it("uses the active process label in process mode", () => {
+    expect(
+      presentTab(
+        terminalTab({
+          processLabel: "cargo",
+          titleLabel: "server logs",
+        }),
+        darkTheme,
+        null,
+        "process",
+      ),
+    ).toEqual({
+      label: "cargo",
+      title: "cargo",
+      iconKind: "terminal",
+    });
+  });
+
+  it("uses the process title in title mode", () => {
+    expect(
+      presentTab(
+        terminalTab({
+          processLabel: "cargo",
+          titleLabel: "server logs",
+        }),
+        darkTheme,
+        null,
+        "title",
+      ),
+    ).toEqual({
+      label: "server logs",
+      title: "server logs",
       iconKind: "terminal",
     });
   });
@@ -71,6 +126,7 @@ describe("tab presentation", () => {
       fileTab({ path: "src/lib.rs", label: "lib.rs" }),
       darkTheme,
       null,
+      "numbered",
     );
 
     expect(presentation.iconKind).toBe("material");
@@ -82,14 +138,19 @@ describe("tab presentation", () => {
   });
 
   it("decorates git diff tabs with scope and status", () => {
-    const presentation = presentTab(gitDiffTab(), darkTheme, {
-      generation: 1,
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      unstaged_files: [],
-      staged_files: [{ path: "src/lib.rs", change_type: "modified" }],
-    });
+    const presentation = presentTab(
+      gitDiffTab(),
+      darkTheme,
+      {
+        generation: 1,
+        ahead_count: 0,
+        ahead_commits: [],
+        comparison_available: true,
+        unstaged_files: [],
+        staged_files: [{ path: "src/lib.rs", change_type: "modified" }],
+      },
+      "numbered",
+    );
 
     expect(presentation.label).toBe("lib.rs");
     expect(presentation.labelSuffix).toBe("(Index)");
@@ -121,6 +182,7 @@ describe("tab presentation", () => {
           },
         ],
       },
+      "numbered",
     );
 
     expect(presentation.label).toBe("new-name.ts");
@@ -130,7 +192,7 @@ describe("tab presentation", () => {
   });
 
   it("falls back cleanly when git status is unavailable", () => {
-    const presentation = presentTab(gitDiffTab(), darkTheme, null);
+    const presentation = presentTab(gitDiffTab(), darkTheme, null, "numbered");
 
     expect(presentation.label).toBe("lib.rs");
     expect(presentation.labelSuffix).toBe("(Index)");
@@ -155,6 +217,7 @@ describe("tab presentation", () => {
         staged_files: [{ path: "src/lib.rs", change_type: "modified" }],
         unstaged_files: [],
       },
+      "numbered",
     );
 
     expect(presentation.labelSuffix).toBe("(Commit abcdef1)");

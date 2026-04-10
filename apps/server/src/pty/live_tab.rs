@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -43,50 +44,51 @@ impl TerminalSize {
     }
 }
 
-/// Scans raw PTY output for notification signals:
-/// standalone BEL (0x07), OSC 9, and OSC 777.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TerminalScanResult {
+    notified: bool,
+    title: Option<Option<String>>,
+}
+
+/// Scans raw PTY output for terminal signals:
+/// standalone BEL notifications, OSC 9/777 notifications,
+/// and OSC 0/1/2 title updates.
 ///
 /// Distinguishes standalone BEL from BEL used as a string
 /// sequence terminator by tracking whether we're inside an
 /// OSC, DCS, PM, or APC sequence.
-struct NotificationScanner {
+struct TerminalSignalScanner {
     state: ScanState,
-    /// Number of the current OSC sequence being parsed
-    /// (e.g. 9 for OSC 9, 777 for OSC 777). Only valid
-    /// while `state` is `Osc` or `OscNumber`.
     osc_number: u32,
+    osc_payload: Vec<u8>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ScanState {
-    /// Not inside any escape sequence.
     Normal,
-    /// Saw ESC (0x1b), waiting for next byte.
     Esc,
-    /// Inside an OSC sequence number (digits after `]`).
     OscNumber,
-    /// Inside a string sequence body (OSC payload after
-    /// `;`, or DCS/PM/APC body). BEL here is a terminator,
-    /// not a bell.
-    Osc,
+    OscPayload,
+    OscPayloadEsc,
+    StringPayload,
+    StringPayloadEsc,
 }
 
-impl NotificationScanner {
+impl TerminalSignalScanner {
     fn new() -> Self {
         Self {
             state: ScanState::Normal,
             osc_number: 0,
+            osc_payload: Vec::new(),
         }
     }
 
-    /// Scan a chunk of PTY output. Returns `true` if any
-    /// notification signal was detected in this chunk.
-    fn scan(&mut self, data: &[u8]) -> bool {
-        let mut notified = false;
+    fn scan(&mut self, data: &[u8]) -> TerminalScanResult {
+        let mut result = TerminalScanResult::default();
         for &byte in data {
             match self.state {
                 ScanState::Normal => match byte {
-                    0x07 => notified = true,
+                    0x07 => result.notified = true,
                     0x1b => self.state = ScanState::Esc,
                     _ => {}
                 },
@@ -94,11 +96,10 @@ impl NotificationScanner {
                     b']' => {
                         self.state = ScanState::OscNumber;
                         self.osc_number = 0;
+                        self.osc_payload.clear();
                     }
-                    // DCS, PM, APC — string sequences where
-                    // BEL is a terminator, not a bell.
                     b'P' | b'^' | b'_' => {
-                        self.state = ScanState::Osc;
+                        self.state = ScanState::StringPayload;
                     }
                     _ => self.state = ScanState::Normal,
                 },
@@ -109,34 +110,76 @@ impl NotificationScanner {
                             .wrapping_mul(10)
                             .wrapping_add((byte - b'0') as u32);
                     }
-                    b';' => {
-                        if self.osc_number == 9 || self.osc_number == 777 {
-                            notified = true;
-                        }
-                        self.state = ScanState::Osc;
-                    }
+                    b';' => self.state = ScanState::OscPayload,
                     0x07 => {
-                        // BEL terminates OSC before payload
+                        self.finish_osc(&mut result);
                         self.state = ScanState::Normal;
                     }
-                    0x1b => {
-                        // ESC may start ST or a new sequence
-                        self.state = ScanState::Esc;
+                    0x1b => self.state = ScanState::OscPayloadEsc,
+                    _ => {
+                        self.state = ScanState::OscPayload;
+                        self.osc_payload.push(byte);
                     }
-                    _ => self.state = ScanState::Osc,
                 },
-                ScanState::Osc => match byte {
-                    // BEL terminates OSC — NOT a bell
+                ScanState::OscPayload => match byte {
+                    0x07 => {
+                        self.finish_osc(&mut result);
+                        self.state = ScanState::Normal;
+                    }
+                    0x1b => self.state = ScanState::OscPayloadEsc,
+                    _ => self.osc_payload.push(byte),
+                },
+                ScanState::OscPayloadEsc => match byte {
+                    b'\\' => {
+                        self.finish_osc(&mut result);
+                        self.state = ScanState::Normal;
+                    }
+                    b']' => {
+                        self.state = ScanState::OscNumber;
+                        self.osc_number = 0;
+                        self.osc_payload.clear();
+                    }
+                    b'P' | b'^' | b'_' => self.state = ScanState::StringPayload,
+                    _ => self.state = ScanState::Normal,
+                },
+                ScanState::StringPayload => match byte {
                     0x07 => self.state = ScanState::Normal,
-                    // ESC starts ST (\x1b\\) — back to
-                    // Normal either way
-                    0x1b => self.state = ScanState::Esc,
+                    0x1b => self.state = ScanState::StringPayloadEsc,
                     _ => {}
+                },
+                ScanState::StringPayloadEsc => match byte {
+                    b'\\' => self.state = ScanState::Normal,
+                    b']' => {
+                        self.state = ScanState::OscNumber;
+                        self.osc_number = 0;
+                        self.osc_payload.clear();
+                    }
+                    b'P' | b'^' | b'_' => self.state = ScanState::StringPayload,
+                    _ => self.state = ScanState::Normal,
                 },
             }
         }
-        notified
+        result
     }
+
+    fn finish_osc(&mut self, result: &mut TerminalScanResult) {
+        match self.osc_number {
+            0..=2 => {
+                result.title = Some(normalize_osc_title(&self.osc_payload));
+            }
+            9 | 777 => {
+                result.notified = true;
+            }
+            _ => {}
+        }
+        self.osc_number = 0;
+        self.osc_payload.clear();
+    }
+}
+
+fn normalize_osc_title(payload: &[u8]) -> Option<String> {
+    let title = String::from_utf8_lossy(payload);
+    (!title.is_empty()).then(|| title.into_owned())
 }
 
 /// A live terminal tab with its PTY, scrollback buffer,
@@ -152,6 +195,7 @@ pub struct LiveTab {
     pty_size_tx: broadcast::Sender<TerminalSize>,
     pub close_tx: broadcast::Sender<()>,
     pub notification_tx: broadcast::Sender<()>,
+    pub title_tx: broadcast::Sender<Option<String>>,
     next_attachment_id: AtomicU64,
     attachments: Mutex<AttachmentRegistry>,
     resize_update_lock: Mutex<()>,
@@ -280,22 +324,28 @@ impl LiveTab {
         let (pty_size_tx, _) = broadcast::channel(16);
         let (close_tx, _) = broadcast::channel(1);
         let (notification_tx, _) = broadcast::channel(16);
+        let (title_tx, _) = broadcast::channel(16);
 
         let output_state_clone = output_state.clone();
         let tx = output_tx.clone();
         let ctx = close_tx.clone();
         let ntx = notification_tx.clone();
+        let ttx = title_tx.clone();
 
         let reader_handle = tokio::task::spawn_blocking(move || {
             let mut buf = [0u8; 4096];
-            let mut scanner = NotificationScanner::new();
+            let mut scanner = TerminalSignalScanner::new();
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
                         let data = buf[..n].to_vec();
-                        if scanner.scan(&data) {
+                        let scan = scanner.scan(&data);
+                        if scan.notified {
                             let _ = ntx.send(());
+                        }
+                        if let Some(title) = scan.title {
+                            let _ = ttx.send(title);
                         }
                         {
                             let mut output_state = output_state_clone.lock().unwrap();
@@ -320,6 +370,7 @@ impl LiveTab {
             pty_size_tx,
             close_tx,
             notification_tx,
+            title_tx,
             next_attachment_id: AtomicU64::new(1),
             attachments: Mutex::new(AttachmentRegistry::new(initial_size)),
             resize_update_lock: Mutex::new(()),
@@ -337,6 +388,10 @@ impl LiveTab {
     pub fn update_info(&self, f: impl FnOnce(&mut TabInfo) -> TabInfo) -> TabInfo {
         let mut info = self.info.lock().unwrap();
         f(&mut info)
+    }
+
+    pub fn resolve_process_label(&self) -> Option<String> {
+        resolve_live_tab_process_label(&self.pty_master)
     }
 
     /// Attach to this tab's output stream. Returns:
@@ -491,6 +546,63 @@ impl LiveTab {
     }
 }
 
+#[cfg(unix)]
+fn resolve_live_tab_process_label(pty_master: &Mutex<Box<dyn MasterPty + Send>>) -> Option<String> {
+    let leader = {
+        let pty_master = pty_master.lock().unwrap();
+        pty_master.process_group_leader()?
+    };
+    resolve_process_label_from_pid(leader)
+}
+
+#[cfg(not(unix))]
+fn resolve_live_tab_process_label(
+    _pty_master: &Mutex<Box<dyn MasterPty + Send>>,
+) -> Option<String> {
+    None
+}
+
+#[cfg(unix)]
+fn resolve_process_label_from_pid(pid: libc::pid_t) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+
+    resolve_process_label_from_procfs(pid).or_else(|| resolve_process_label_from_ps(pid))
+}
+
+#[cfg(unix)]
+fn resolve_process_label_from_procfs(pid: libc::pid_t) -> Option<String> {
+    let raw = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    normalize_process_label(&raw)
+}
+
+#[cfg(unix)]
+fn resolve_process_label_from_ps(pid: libc::pid_t) -> Option<String> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "comm=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    normalize_process_label(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn normalize_process_label(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized = Path::new(trimmed)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(trimmed);
+    Some(normalized.to_string())
+}
+
 impl Drop for LiveTab {
     fn drop(&mut self) {
         self.kill();
@@ -602,100 +714,132 @@ mod tests {
 
     use super::{
         AttachmentRegistry, DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS, DEFAULT_SCROLLBACK, LiveTab,
-        NotificationScanner, TabInfo, TerminalSize,
+        TabInfo, TerminalSignalScanner, TerminalSize,
     };
 
     #[test]
     fn scanner_detects_standalone_bel() {
-        let mut s = NotificationScanner::new();
-        assert!(s.scan(b"hello\x07world"));
+        let mut s = TerminalSignalScanner::new();
+        assert!(s.scan(b"hello\x07world").notified);
     }
 
     #[test]
     fn scanner_ignores_bel_as_osc_terminator() {
-        let mut s = NotificationScanner::new();
+        let mut s = TerminalSignalScanner::new();
         // OSC 52 (clipboard) terminated by BEL — not a bell
-        assert!(!s.scan(b"\x1b]52;c;dGVzdA==\x07"));
+        assert!(!s.scan(b"\x1b]52;c;dGVzdA==\x07").notified);
     }
 
     #[test]
     fn scanner_detects_osc_9() {
-        let mut s = NotificationScanner::new();
-        assert!(s.scan(b"\x1b]9;2;task done\x07"));
+        let mut s = TerminalSignalScanner::new();
+        assert!(s.scan(b"\x1b]9;2;task done\x07").notified);
     }
 
     #[test]
     fn scanner_detects_osc_777() {
-        let mut s = NotificationScanner::new();
-        assert!(s.scan(b"\x1b]777;notify;title;body\x07"));
+        let mut s = TerminalSignalScanner::new();
+        assert!(s.scan(b"\x1b]777;notify;title;body\x07").notified);
     }
 
     #[test]
-    fn scanner_ignores_unrelated_osc() {
-        let mut s = NotificationScanner::new();
-        assert!(!s.scan(b"\x1b]0;window title\x07"));
+    fn scanner_extracts_title_from_osc_0() {
+        let mut s = TerminalSignalScanner::new();
+        let result = s.scan(b"\x1b]0;window title\x07");
+        assert!(!result.notified);
+        assert_eq!(result.title, Some(Some("window title".to_string())));
+    }
+
+    #[test]
+    fn scanner_extracts_empty_title_as_clear() {
+        let mut s = TerminalSignalScanner::new();
+        let result = s.scan(b"\x1b]2;\x07");
+        assert_eq!(result.title, Some(None));
     }
 
     #[test]
     fn scanner_handles_osc_with_st_terminator() {
-        let mut s = NotificationScanner::new();
-        assert!(s.scan(b"\x1b]9;2;done\x1b\\"));
+        let mut s = TerminalSignalScanner::new();
+        assert!(s.scan(b"\x1b]9;2;done\x1b\\").notified);
     }
 
     #[test]
     fn scanner_handles_split_chunks() {
-        let mut s = NotificationScanner::new();
+        let mut s = TerminalSignalScanner::new();
         // ESC in first chunk, ] in second
-        assert!(!s.scan(b"output\x1b"));
-        assert!(s.scan(b"]9;task done\x07"));
+        assert!(!s.scan(b"output\x1b").notified);
+        assert!(s.scan(b"]9;task done\x07").notified);
     }
 
     #[test]
     fn scanner_handles_split_osc_number() {
-        let mut s = NotificationScanner::new();
-        assert!(!s.scan(b"\x1b]77"));
-        assert!(s.scan(b"7;notify;title;body\x07"));
+        let mut s = TerminalSignalScanner::new();
+        assert!(!s.scan(b"\x1b]77").notified);
+        assert!(s.scan(b"7;notify;title;body\x07").notified);
+    }
+
+    #[test]
+    fn scanner_handles_split_title_payload() {
+        let mut s = TerminalSignalScanner::new();
+        assert_eq!(s.scan(b"\x1b]2;wind").title, None);
+        assert_eq!(
+            s.scan(b"ow title\x07").title,
+            Some(Some("window title".to_string()))
+        );
     }
 
     #[test]
     fn scanner_no_false_positive_on_plain_text() {
-        let mut s = NotificationScanner::new();
-        assert!(!s.scan(b"just some regular terminal output\r\n"));
+        let mut s = TerminalSignalScanner::new();
+        assert!(!s.scan(b"just some regular terminal output\r\n").notified);
     }
 
     #[test]
     fn scanner_ignores_bel_as_dcs_terminator() {
-        let mut s = NotificationScanner::new();
+        let mut s = TerminalSignalScanner::new();
         // DCS sequence terminated by BEL — not a bell
-        assert!(!s.scan(b"\x1bPq#0;2;0;0;0#1;2;100;100;0\x07"));
+        assert!(!s.scan(b"\x1bPq#0;2;0;0;0#1;2;100;100;0\x07").notified);
     }
 
     #[test]
     fn scanner_ignores_bel_as_pm_terminator() {
-        let mut s = NotificationScanner::new();
+        let mut s = TerminalSignalScanner::new();
         // PM sequence terminated by BEL — not a bell
-        assert!(!s.scan(b"\x1b^some private message\x07"));
+        assert!(!s.scan(b"\x1b^some private message\x07").notified);
     }
 
     #[test]
     fn scanner_ignores_bel_as_apc_terminator() {
-        let mut s = NotificationScanner::new();
+        let mut s = TerminalSignalScanner::new();
         // APC sequence terminated by BEL — not a bell
-        assert!(!s.scan(b"\x1b_Gf=100,a=T;payload\x07"));
+        assert!(!s.scan(b"\x1b_Gf=100,a=T;payload\x07").notified);
     }
 
     #[test]
     fn scanner_detects_bel_after_dcs_ends() {
-        let mut s = NotificationScanner::new();
+        let mut s = TerminalSignalScanner::new();
         // DCS terminated by ST, then standalone BEL
-        assert!(s.scan(b"\x1bPq#0\x1b\\\x07"));
+        assert!(s.scan(b"\x1bPq#0\x1b\\\x07").notified);
     }
 
     #[test]
     fn scanner_esc_in_osc_number_starts_new_sequence() {
-        let mut s = NotificationScanner::new();
+        let mut s = TerminalSignalScanner::new();
         // Malformed OSC interrupted by ESC starting new OSC 9
-        assert!(s.scan(b"\x1b]12\x1b]9;bell\x07"));
+        assert!(s.scan(b"\x1b]12\x1b]9;bell\x07").notified);
+    }
+
+    #[test]
+    fn normalize_process_label_uses_command_basename() {
+        assert_eq!(
+            super::normalize_process_label("/opt/homebrew/bin/bun"),
+            Some("bun".to_string())
+        );
+        assert_eq!(
+            super::normalize_process_label("cargo"),
+            Some("cargo".to_string())
+        );
+        assert_eq!(super::normalize_process_label("  "), None);
     }
 
     fn spawn_test_live_tab() -> Arc<LiveTab> {
@@ -722,6 +866,11 @@ mod tests {
                 created_at: 0,
                 preview: false,
                 has_notification: false,
+                labels: crate::tab::TerminalTabLabels {
+                    custom_label: None,
+                    process_label: None,
+                    title_label: None,
+                },
             },
             pair.master,
             child,

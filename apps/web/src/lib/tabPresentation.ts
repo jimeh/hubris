@@ -4,6 +4,7 @@ import {
   gitChangeTypeLabel,
 } from "@/lib/gitChangePresentation";
 import { resolveMaterialFileIcon } from "@/lib/materialIconTheme";
+import type { TerminalSettings } from "@/lib/theme/types";
 import type { HubrisTheme } from "@/lib/theme/types";
 import type { GitDiffTab, Tab } from "@/lib/types";
 
@@ -76,15 +77,36 @@ function gitDiffChange(
   );
 }
 
+function terminalTabLabel(
+  tab: Extract<Tab, { type: "terminal" }>,
+  tabLabelMode: TerminalSettings["tabLabelMode"],
+): string {
+  if (tab.customLabel) {
+    return tab.customLabel;
+  }
+
+  if (tabLabelMode === "process" && tab.processLabel) {
+    return tab.processLabel;
+  }
+
+  if (tabLabelMode === "title" && tab.titleLabel) {
+    return tab.titleLabel;
+  }
+
+  return tab.label;
+}
+
 export function presentTab(
   tab: Tab,
   theme: HubrisTheme | null,
   gitStatus: WorktreeGitStatus | null,
+  tabLabelMode: TerminalSettings["tabLabelMode"],
 ): TabPresentation {
   if (tab.type === "terminal") {
+    const label = terminalTabLabel(tab, tabLabelMode);
     return {
-      label: tab.label,
-      title: tab.label,
+      label,
+      title: label,
       iconKind: "terminal",
     };
   }

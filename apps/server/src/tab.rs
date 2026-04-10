@@ -10,6 +10,17 @@ pub enum GitDiffScope {
     Commit,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalTabLabels {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_label: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TabInfo {
@@ -24,6 +35,8 @@ pub enum TabInfo {
         preview: bool,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         has_notification: bool,
+        #[serde(flatten)]
+        labels: TerminalTabLabels,
     },
     File {
         id: String,
@@ -123,6 +136,27 @@ impl TabInfo {
         )
     }
 
+    pub fn custom_label(&self) -> Option<&str> {
+        match self {
+            Self::Terminal { labels, .. } => labels.custom_label.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub fn process_label(&self) -> Option<&str> {
+        match self {
+            Self::Terminal { labels, .. } => labels.process_label.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub fn title_label(&self) -> Option<&str> {
+        match self {
+            Self::Terminal { labels, .. } => labels.title_label.as_deref(),
+            _ => None,
+        }
+    }
+
     pub fn set_position(&mut self, next: f64) {
         match self {
             Self::Terminal { position, .. }
@@ -153,6 +187,24 @@ impl TabInfo {
         } = self
         {
             *has_notification = next;
+        }
+    }
+
+    pub fn set_custom_label(&mut self, next: Option<String>) {
+        if let Self::Terminal { labels, .. } = self {
+            labels.custom_label = next;
+        }
+    }
+
+    pub fn set_process_label(&mut self, next: Option<String>) {
+        if let Self::Terminal { labels, .. } = self {
+            labels.process_label = next;
+        }
+    }
+
+    pub fn set_title_label(&mut self, next: Option<String>) {
+        if let Self::Terminal { labels, .. } = self {
+            labels.title_label = next;
         }
     }
 }

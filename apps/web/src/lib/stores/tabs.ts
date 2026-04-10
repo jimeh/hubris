@@ -43,6 +43,11 @@ type TabsState = {
   activeTabId: string | null;
   activeTabByWorktree: Record<string, string>;
   addTerminal: (worktreeId: string) => Promise<Tab>;
+  setTerminalCustomLabel: (
+    id: string,
+    customLabel: string,
+  ) => Promise<Tab | null>;
+  resetTerminalCustomLabel: (id: string) => Promise<Tab | null>;
   openFile: (options: OpenFileOptions) => Promise<Tab>;
   openGitDiff: (options: OpenGitDiffOptions) => Promise<Tab>;
   pin: (id: string) => Promise<Tab | null>;
@@ -104,6 +109,9 @@ function tabKey(tab: Tab): string {
       return [
         tab.id,
         tab.label,
+        tab.customLabel ?? "",
+        tab.processLabel ?? "",
+        tab.titleLabel ?? "",
         tab.position,
         tab.worktree_id,
         tab.preview,
@@ -322,6 +330,33 @@ export const useTabStore = create<TabsState>((set, get) => ({
       };
     });
     return tab;
+  },
+  async setTerminalCustomLabel(id, customLabel) {
+    const existing = get().tabs.find((tab) => tab.id === id) ?? null;
+    if (!existing || existing.type !== "terminal") {
+      return existing;
+    }
+
+    const normalized = customLabel.trim();
+    const nextCustomLabel = normalized.length > 0 ? normalized : null;
+    set((state) => ({
+      tabs: sortedTabs(
+        state.tabs.map((tab) =>
+          tab.id === id && tab.type === "terminal"
+            ? { ...tab, customLabel: nextCustomLabel }
+            : tab,
+        ),
+      ),
+    }));
+
+    try {
+      return await updateTab(id, { custom_label: customLabel });
+    } catch {
+      return { ...existing, customLabel: nextCustomLabel };
+    }
+  },
+  async resetTerminalCustomLabel(id) {
+    return get().setTerminalCustomLabel(id, "");
   },
   async openFile(options) {
     const existing = findFileTab(get().tabs, options.worktreeId, options.path);

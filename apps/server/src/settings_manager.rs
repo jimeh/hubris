@@ -413,6 +413,9 @@ fn apply_terminal_patch(
     if let Some(font_size) = patch.font_size {
         settings.font_size = font_size;
     }
+    if let Some(tab_label_mode) = patch.tab_label_mode {
+        settings.tab_label_mode = tab_label_mode;
+    }
 }
 
 fn apply_editor_patch(
@@ -476,6 +479,9 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
         if let Some(font_size) = terminal.font_size {
             table.insert("fontSize", value(i64::from(font_size)));
         }
+        if let Some(tab_label_mode) = terminal.tab_label_mode {
+            table.insert("tabLabelMode", value(tab_label_mode.as_str()));
+        }
     }
 
     if let Some(editor) = &patch.editor {
@@ -519,6 +525,10 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
         value(settings.terminal.bundled_font.as_str()),
     );
     terminal.insert("fontSize", value(i64::from(settings.terminal.font_size)));
+    terminal.insert(
+        "tabLabelMode",
+        value(settings.terminal.tab_label_mode.as_str()),
+    );
 
     let editor = ensure_table(document, "editor");
     editor.insert(

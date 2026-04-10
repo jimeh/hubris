@@ -1,6 +1,12 @@
 import { memo, type CSSProperties } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import SortableTabView from "./SortableTabView";
 
 type SortableTabProps = {
@@ -19,6 +25,10 @@ type SortableTabProps = {
   notification: boolean;
   locked: boolean;
   dragging: boolean;
+  canRenameTerminal?: boolean;
+  canResetTerminalName?: boolean;
+  onBeginRenameTerminal?: (tabId: string) => void;
+  onResetTerminalName?: (tabId: string) => void;
   onActivateTab: (tabId: string) => void;
   onPinTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
@@ -40,6 +50,10 @@ const SortableTab = memo(function SortableTab({
   notification,
   locked,
   dragging,
+  canRenameTerminal,
+  canResetTerminalName,
+  onBeginRenameTerminal,
+  onResetTerminalName,
   onActivateTab,
   onPinTab,
   onCloseTab,
@@ -60,7 +74,7 @@ const SortableTab = memo(function SortableTab({
     pointerEvents: isDragging ? "none" : undefined,
   };
 
-  return (
+  const tabView = (
     <SortableTabView
       ref={setNodeRef}
       style={style}
@@ -85,6 +99,27 @@ const SortableTab = memo(function SortableTab({
       {...attributes}
       {...listeners}
     />
+  );
+
+  if (!canRenameTerminal) {
+    return tabView;
+  }
+
+  return (
+    <ContextMenu modal={false}>
+      <ContextMenuTrigger asChild>{tabView}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => onBeginRenameTerminal?.(tabId)}>
+          Rename…
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={!canResetTerminalName}
+          onSelect={() => onResetTerminalName?.(tabId)}
+        >
+          Reset Name
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
 
