@@ -16,8 +16,8 @@ mise run test      # web tests + cargo test
 mise run generate  # run all code generators
 ```
 
-Sub-tasks: `check:backend`, `check:web`, `format:backend`, `format:web`.
-`lint` is an alias for `check`.
+Sub-tasks: `check:backend`, `check:web`, `format:backend`, `format:web`. `lint`
+is an alias for `check`.
 
 Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (frontend).
 
@@ -108,8 +108,8 @@ or `pnpm-lock.yaml`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (3205 symbols, 9833
-relationships, 267 execution flows). Use the GitNexus MCP tools to understand
+This project is indexed by GitNexus as **hubris** (3285 symbols, 9992
+relationships, 274 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in

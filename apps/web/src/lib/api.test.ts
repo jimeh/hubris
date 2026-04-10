@@ -787,12 +787,12 @@ describe("API client", () => {
       );
 
       const result = await updateTab("t1", {
-        label: "My Shell",
+        custom_label: "My Shell",
       });
       expect(fetch).toHaveBeenCalledWith("/api/tabs/t1", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: "My Shell" }),
+        body: JSON.stringify({ custom_label: "My Shell" }),
       });
       expect(result).toEqual(mockTab);
     });
@@ -812,6 +812,7 @@ describe("API client", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
+            tabLabelMode: "numbered",
           },
           editor: {
             lightEditorTheme: "hubris-light",
@@ -864,6 +865,7 @@ describe("API client", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
+            tabLabelMode: "numbered",
           },
           editor: {
             lightEditorTheme: "hubris-light",
@@ -943,6 +945,7 @@ describe("API client", () => {
           systemFontFamily: "",
           bundledFont: "hack-nf",
           fontSize: 16,
+          tabLabelMode: "numbered" as const,
         },
         editor: {
           lightEditorTheme: "hubris-light",
@@ -996,6 +999,7 @@ describe("API client", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
+            tabLabelMode: "numbered",
           },
           editor: {
             lightEditorTheme: "hubris-light",
@@ -1029,6 +1033,7 @@ describe("API client", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
+            tabLabelMode: "numbered",
           },
           editor: {
             lightEditorTheme: "hubris-light",

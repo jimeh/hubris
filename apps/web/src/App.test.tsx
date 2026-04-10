@@ -548,4 +548,39 @@ describe("App", () => {
 
     expect(useTabStore.getState().activeTabId).toBe("tab-feature");
   });
+
+  it("reactivates the remembered tab when tabs load after the selected worktree", async () => {
+    useWorktreeStore.setState({ selectedWorktreeId: "w-feature" });
+    useTabStore.setState({
+      tabs: [],
+      activeTabId: null,
+      activeTabByWorktree: {
+        "w-feature": "tab-feature",
+      },
+    });
+
+    render(<App />);
+
+    expect(useTabStore.getState().activeTabId).toBeNull();
+
+    act(() => {
+      useTabStore.setState((state) => ({
+        ...state,
+        tabs: [
+          {
+            id: "tab-feature",
+            label: "feature",
+            position: 1,
+            worktree_id: "w-feature",
+            session_id: "default",
+            type: "terminal",
+            created_at: 0,
+            preview: false,
+          },
+        ],
+      }));
+    });
+
+    expect(useTabStore.getState().activeTabId).toBe("tab-feature");
+  });
 });

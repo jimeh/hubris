@@ -48,6 +48,25 @@ impl TerminalFontSource {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TerminalTabLabelMode {
+    #[default]
+    Numbered,
+    Process,
+    Title,
+}
+
+impl TerminalTabLabelMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Numbered => "numbered",
+            Self::Process => "process",
+            Self::Title => "title",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 pub enum WorktreeLocationMode {
     #[default]
     #[serde(rename = "dataDir")]
@@ -113,6 +132,8 @@ pub struct TerminalSettings {
     pub bundled_font: String,
     #[serde(default = "default_font_size")]
     pub font_size: u32,
+    #[serde(default)]
+    pub tab_label_mode: TerminalTabLabelMode,
 }
 
 impl Default for TerminalSettings {
@@ -122,6 +143,7 @@ impl Default for TerminalSettings {
             system_font_family: String::new(),
             bundled_font: default_bundled_font(),
             font_size: default_font_size(),
+            tab_label_mode: TerminalTabLabelMode::Numbered,
         }
     }
 }
@@ -193,6 +215,8 @@ pub struct TerminalSettingsPatch {
     pub bundled_font: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_label_mode: Option<TerminalTabLabelMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]

@@ -142,6 +142,7 @@ impl EventBus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tab::TerminalTabLabels;
 
     #[tokio::test]
     async fn test_event_bus_emit_subscribe() {
@@ -157,6 +158,11 @@ mod tests {
             created_at: 0,
             preview: false,
             has_notification: false,
+            labels: TerminalTabLabels {
+                custom_label: None,
+                process_label: None,
+                title_label: None,
+            },
         };
 
         bus.emit(EventKind::TabCreated {

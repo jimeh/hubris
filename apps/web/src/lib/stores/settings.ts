@@ -51,6 +51,7 @@ const DEFAULT_SETTINGS: Settings = {
     systemFontFamily: "",
     bundledFont: "jetbrainsmono-nf",
     fontSize: 14,
+    tabLabelMode: "numbered",
   },
   editor: {
     lightEditorTheme: "hubris-light",
@@ -220,12 +221,23 @@ function normalizeTerminalSettings(candidate: unknown): {
     changed = true;
   }
 
+  const tabLabelMode =
+    source.tabLabelMode === "numbered" ||
+    source.tabLabelMode === "process" ||
+    source.tabLabelMode === "title"
+      ? source.tabLabelMode
+      : DEFAULT_SETTINGS.terminal.tabLabelMode;
+  if (tabLabelMode !== source.tabLabelMode) {
+    changed = true;
+  }
+
   return {
     settings: {
       fontSource,
       systemFontFamily,
       bundledFont,
       fontSize,
+      tabLabelMode,
     },
     changed,
   };
@@ -621,7 +633,8 @@ function equalTerminalSettings(
     left.fontSource === right.fontSource &&
     left.systemFontFamily === right.systemFontFamily &&
     left.bundledFont === right.bundledFont &&
-    left.fontSize === right.fontSize
+    left.fontSize === right.fontSize &&
+    left.tabLabelMode === right.tabLabelMode
   );
 }
 

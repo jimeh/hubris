@@ -18,6 +18,8 @@ type Props = {
   onClose: (tabId: string) => void;
   onAdd: () => void;
   onReorder: (orderedIds: string[]) => Promise<void>;
+  onRenameTerminalTab?: (tabId: string, label: string) => Promise<void>;
+  onResetTerminalTabName?: (tabId: string) => Promise<void>;
 };
 
 export default function TabBar({
@@ -31,6 +33,8 @@ export default function TabBar({
   onClose,
   onAdd,
   onReorder,
+  onRenameTerminalTab = async () => {},
+  onResetTerminalTabName = async () => {},
 }: Props) {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -130,6 +134,8 @@ export default function TabBar({
           onPin={onPin}
           onClose={onClose}
           onReorder={onReorder}
+          onRenameTerminalTab={onRenameTerminalTab}
+          onResetTerminalTabName={onResetTerminalTabName}
         />
 
         {canScrollRight ? (

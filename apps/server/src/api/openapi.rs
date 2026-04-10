@@ -21,8 +21,8 @@ use crate::api::projects::{
 use crate::api::settings::{
     AppearanceSettings, AppearanceSettingsPatch, ColorScheme, EditorSettings, EditorSettingsPatch,
     Settings, SettingsPatch, SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource,
-    TerminalSettings, TerminalSettingsPatch, WorktreeLocationMode, WorktreeSettings,
-    WorktreeSettingsPatch,
+    TerminalSettings, TerminalSettingsPatch, TerminalTabLabelMode, WorktreeLocationMode,
+    WorktreeSettings, WorktreeSettingsPatch,
 };
 use crate::api::system::SystemInfo;
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
@@ -142,6 +142,7 @@ use crate::tab::{GitDiffScope, TabInfo};
             ServerControlMessage,
             ColorScheme,
             TerminalFontSource,
+            TerminalTabLabelMode,
             WorktreeLocationMode,
             AppearanceSettings,
             AppearanceSettingsPatch,

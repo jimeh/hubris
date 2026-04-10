@@ -941,7 +941,7 @@ export interface components {
       home_dir?: string | null;
     };
     TabInfo:
-      | {
+      | (components["schemas"]["TerminalTabLabels"] & {
           /** Format: int64 */
           created_at: number;
           has_notification?: boolean;
@@ -951,10 +951,11 @@ export interface components {
           position: number;
           preview: boolean;
           session_id: string;
+          worktree_id: string;
+        } & {
           /** @enum {string} */
           type: "terminal";
-          worktree_id: string;
-        }
+        })
       | {
           /** Format: int64 */
           created_at: number;
@@ -994,6 +995,7 @@ export interface components {
       fontSize?: number;
       fontSource?: components["schemas"]["TerminalFontSource"];
       systemFontFamily?: string;
+      tabLabelMode?: components["schemas"]["TerminalTabLabelMode"];
     };
     TerminalSettingsPatch: {
       bundledFont?: string | null;
@@ -1001,13 +1003,21 @@ export interface components {
       fontSize?: number | null;
       fontSource?: null | components["schemas"]["TerminalFontSource"];
       systemFontFamily?: string | null;
+      tabLabelMode?: null | components["schemas"]["TerminalTabLabelMode"];
+    };
+    /** @enum {string} */
+    TerminalTabLabelMode: "numbered" | "process" | "title";
+    TerminalTabLabels: {
+      customLabel?: string | null;
+      processLabel?: string | null;
+      titleLabel?: string | null;
     };
     UpdateProjectRequest: {
       name?: string | null;
     };
     UpdateTabRequest: {
+      custom_label?: string | null;
       has_notification?: boolean | null;
-      label?: string | null;
       /** Format: double */
       position?: number | null;
       preview?: boolean | null;

@@ -67,4 +67,24 @@ describe("SortableTabView", () => {
     expect(lockIcon.nextElementSibling).toBe(srOnly);
     expect(srOnly.nextElementSibling).toBe(closeButton);
   });
+
+  it("caps tab width so long labels truncate instead of expanding forever", () => {
+    render(
+      <SortableTabView
+        tabId="t1"
+        label="very long process title that should not make the tab infinitely wide"
+        isActive={false}
+        iconKind="terminal"
+      />,
+    );
+
+    expect(screen.getByRole("tab")).toHaveClass("min-w-0");
+    expect(screen.getByRole("tab")).toHaveClass("max-w-72");
+    expect(screen.getByRole("tab")).toHaveClass("overflow-hidden");
+    expect(
+      screen.getByText(
+        "very long process title that should not make the tab infinitely wide",
+      ),
+    ).toHaveClass("truncate");
+  });
 });

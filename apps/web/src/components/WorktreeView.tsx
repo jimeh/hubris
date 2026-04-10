@@ -72,6 +72,12 @@ export default function WorktreeView({ worktree, active }: Props) {
   const activate = useTabStore((state) => state.activate);
   const close = useTabStore((state) => state.close);
   const pin = useTabStore((state) => state.pin);
+  const setTerminalCustomLabel = useTabStore(
+    (state) => state.setTerminalCustomLabel,
+  );
+  const resetTerminalCustomLabel = useTabStore(
+    (state) => state.resetTerminalCustomLabel,
+  );
   const removeLocal = useTabStore((state) => state.removeLocal);
   const saveFile = useFileEditorStore((state) => state.save);
   const saveDiff = useGitDiffStore((state) => state.save);
@@ -164,6 +170,18 @@ export default function WorktreeView({ worktree, active }: Props) {
   const handleReorderTabs = useCallback(
     (orderedIds: string[]) => reorder(worktree.id, orderedIds),
     [reorder, worktree.id],
+  );
+  const handleRenameTerminalTab = useCallback(
+    async (tabId: string, label: string) => {
+      await setTerminalCustomLabel(tabId, label);
+    },
+    [setTerminalCustomLabel],
+  );
+  const handleResetTerminalTabName = useCallback(
+    async (tabId: string) => {
+      await resetTerminalCustomLabel(tabId);
+    },
+    [resetTerminalCustomLabel],
   );
   const viewRef = useRef<HTMLDivElement | null>(null);
   const activeTab = useMemo(
@@ -264,6 +282,8 @@ export default function WorktreeView({ worktree, active }: Props) {
           onClose={handleCloseTab}
           onAdd={handleAddTab}
           onReorder={handleReorderTabs}
+          onRenameTerminalTab={handleRenameTerminalTab}
+          onResetTerminalTabName={handleResetTerminalTabName}
         />
 
         <div className="relative flex-1 overflow-hidden">

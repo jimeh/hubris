@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
 
 use dashmap::DashMap;
 
@@ -19,7 +18,7 @@ pub struct AppState {
     pub tabs: Arc<DashMap<TabId, TabInfo>>,
     pub terminal_tabs: Arc<DashMap<TabId, Arc<LiveTab>>>,
     pub events: Arc<EventBus>,
-    pub next_tab_num: Arc<AtomicU32>,
+    pub next_terminal_num_by_worktree: Arc<DashMap<String, u32>>,
     pub data_dir: PathBuf,
     pub code_server: Arc<CodeServerManager>,
     pub settings: Arc<SettingsManager>,
@@ -40,7 +39,7 @@ impl AppState {
             tabs: Arc::new(DashMap::new()),
             terminal_tabs: Arc::new(DashMap::new()),
             events: events.clone(),
-            next_tab_num: Arc::new(AtomicU32::new(1)),
+            next_terminal_num_by_worktree: Arc::new(DashMap::new()),
             code_server: Arc::new(CodeServerManager::new(
                 data_dir.join("code-server"),
                 events.clone(),

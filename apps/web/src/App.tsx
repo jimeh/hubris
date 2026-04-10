@@ -213,6 +213,14 @@ export default function App() {
   const selectedWorktreeId = useWorktreeStore(
     (state) => state.selectedWorktreeId,
   );
+  const selectedWorktreeTabIds = useTabStore((state) =>
+    !selectedWorktreeId
+      ? ""
+      : state.tabs
+          .filter((tab) => tab.worktree_id === selectedWorktreeId)
+          .map((tab) => tab.id)
+          .join("|"),
+  );
   const worktreesByProject = useWorktreeStore(
     (state) => state.worktreesByProject,
   );
@@ -306,7 +314,7 @@ export default function App() {
     }
 
     switchToWorktree(selectedWorktreeId);
-  }, [selectedWorktreeId, switchToWorktree]);
+  }, [selectedWorktreeId, selectedWorktreeTabIds, switchToWorktree]);
 
   useEffect(() => {
     const ids = allWorktrees.map((worktree) => worktree.id);

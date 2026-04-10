@@ -80,7 +80,7 @@ const SortableTabView = memo(
         style={mergedStyle}
         title={title}
         className={cn(
-          "inline-flex cursor-default select-none items-center gap-1.5 whitespace-nowrap py-2 pl-3 pr-2.5 text-sm transition-colors",
+          "inline-flex min-w-0 max-w-72 cursor-default select-none items-center gap-1.5 overflow-hidden whitespace-nowrap py-2 pl-3 pr-2.5 text-sm transition-colors",
           isActive
             ? "bg-tab-active text-tab-active-foreground shadow-[inset_0_-2px_0_var(--tab-active-border)]"
             : dragging

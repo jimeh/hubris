@@ -119,6 +119,24 @@ async fn list_tabs(client: &reqwest::Client, base: &str) -> Vec<Value> {
     res.json().await.unwrap()
 }
 
+async fn patch_tab_custom_label(
+    client: &reqwest::Client,
+    base: &str,
+    tab_id: &str,
+    custom_label: &str,
+) -> Value {
+    let res = client
+        .patch(format!("{}/api/tabs/{}", base, tab_id))
+        .json(&serde_json::json!({
+            "custom_label": custom_label
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    res.json().await.unwrap()
+}
+
 struct ShellEnvGuard {
     original: Option<OsString>,
 }
@@ -437,7 +455,7 @@ async fn test_update_tab() {
     let res = client
         .patch(format!("{}/api/tabs/{}", base, tab_id))
         .json(&serde_json::json!({
-            "label": "Renamed tab",
+            "custom_label": "Renamed tab",
             "position": 42.5
         }))
         .send()
@@ -446,13 +464,15 @@ async fn test_update_tab() {
     assert_eq!(res.status(), StatusCode::OK);
     let updated: Value = res.json().await.unwrap();
     assert_eq!(updated["id"], tab_id);
-    assert_eq!(updated["label"], "Renamed tab");
+    assert_eq!(updated["label"], "Terminal 1");
+    assert_eq!(updated["customLabel"], "Renamed tab");
     assert_eq!(updated["position"], 42.5);
 
     let body = list_tabs(&client, &base).await;
     assert_eq!(body.len(), 1);
     assert_eq!(body[0]["id"], tab_id);
-    assert_eq!(body[0]["label"], "Renamed tab");
+    assert_eq!(body[0]["label"], "Terminal 1");
+    assert_eq!(body[0]["customLabel"], "Renamed tab");
     assert_eq!(body[0]["position"], 42.5);
 }
 
@@ -596,6 +616,11 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
             created_at: 0,
             preview: false,
             has_notification: false,
+            labels: hubris_server::tab::TerminalTabLabels {
+                custom_label: None,
+                process_label: None,
+                title_label: None,
+            },
         },
     );
     state.tabs.insert(
@@ -609,6 +634,11 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
             created_at: 0,
             preview: false,
             has_notification: false,
+            labels: hubris_server::tab::TerminalTabLabels {
+                custom_label: None,
+                process_label: None,
+                title_label: None,
+            },
         },
     );
 
@@ -678,6 +708,77 @@ async fn test_create_tab_label_increments() {
 
     assert_eq!(first["label"], "Terminal 1");
     assert_eq!(second["label"], "Terminal 2");
+}
+
+#[tokio::test]
+async fn test_create_tab_label_resets_per_worktree() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let first_repo = init_git_repo();
+    let second_repo = init_git_repo();
+
+    let first_project_id =
+        create_project(&client, &base, first_repo.path().to_str().unwrap()).await;
+    let second_project_id =
+        create_project(&client, &base, second_repo.path().to_str().unwrap()).await;
+    let first_worktree = first_worktree_id(&client, &base, &first_project_id).await;
+    let second_worktree = first_worktree_id(&client, &base, &second_project_id).await;
+
+    let first = create_tab(&client, &base, &first_worktree).await;
+    let second = create_tab(&client, &base, &first_worktree).await;
+    let third = create_tab(&client, &base, &second_worktree).await;
+
+    assert_eq!(first["label"], "Terminal 1");
+    assert_eq!(second["label"], "Terminal 2");
+    assert_eq!(third["label"], "Terminal 1");
+}
+
+#[tokio::test]
+async fn test_create_tab_label_stays_monotonic_after_close() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let first = create_tab(&client, &base, &worktree_id).await;
+    let second = create_tab(&client, &base, &worktree_id).await;
+    let second_id = second["id"].as_str().unwrap();
+
+    let res = client
+        .delete(format!("{}/api/tabs/{}", base, second_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let third = create_tab(&client, &base, &worktree_id).await;
+
+    assert_eq!(first["label"], "Terminal 1");
+    assert_eq!(second["label"], "Terminal 2");
+    assert_eq!(third["label"], "Terminal 3");
+}
+
+#[tokio::test]
+async fn test_update_terminal_custom_label() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_tab(&client, &base, &worktree_id).await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let renamed = patch_tab_custom_label(&client, &base, tab_id, "My Shell").await;
+    assert_eq!(renamed["customLabel"], "My Shell");
+
+    let cleared = patch_tab_custom_label(&client, &base, tab_id, "   ").await;
+    assert!(cleared.get("customLabel").is_none());
 }
 
 #[tokio::test]
