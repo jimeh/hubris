@@ -7,6 +7,7 @@ export type DesktopProfileMode = "dev" | "release";
 
 const RELEASE_APP_NAME = "Hubris";
 const DEV_APP_NAME = "Hubris Dev";
+const SESSION_DATA_APP_NAME = "Hubris";
 
 /**
  * Resolve the desktop profile mode from the packaged state.
@@ -46,9 +47,9 @@ export function desktopUserDataPath(
  */
 export function desktopSessionDataPath(
   appDataPath: string,
-  mode: DesktopProfileMode,
+  _mode: DesktopProfileMode,
 ): string {
-  return path.join(desktopUserDataPath(appDataPath, mode), "sessionData");
+  return path.join(appDataPath, SESSION_DATA_APP_NAME, "sessionData");
 }
 
 /**

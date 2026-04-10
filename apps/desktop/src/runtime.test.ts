@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildBootstrapUrl,
   buildPackagedRuntimeEnv,
   parseDesktopStartupMessage,
+  parseDevServerState,
   parseFrontendState,
   runtimeBinaryName,
 } from "./runtime";
@@ -18,11 +18,12 @@ describe("parseFrontendState", () => {
   });
 });
 
-describe("buildBootstrapUrl", () => {
-  it("builds the desktop bootstrap path with the token", () => {
-    expect(buildBootstrapUrl("http://localhost:3001", "abc123")).toBe(
-      "http://localhost:3001/_hubris/desktop/bootstrap?token=abc123",
-    );
+describe("parseDevServerState", () => {
+  it("extracts pid and port from dev state files", () => {
+    expect(parseDevServerState('{"pid":123,"port":3001}')).toEqual({
+      pid: 123,
+      port: 3001,
+    });
   });
 });
 
@@ -56,7 +57,6 @@ describe("buildPackagedRuntimeEnv", () => {
   it("maps runtime options into environment variables", () => {
     const env = buildPackagedRuntimeEnv({
       runtimeExecutable: "/runtime",
-      frontendDistDir: "/dist",
       dataDir: "/data",
       sessionToken: "session-token",
       bootstrapToken: "bootstrap-token",
@@ -65,9 +65,20 @@ describe("buildPackagedRuntimeEnv", () => {
     });
 
     expect(env.HUBRIS_DATA_DIR).toBe("/data");
-    expect(env.HUBRIS_FRONTEND_DIST_DIR).toBe("/dist");
     expect(env.HUBRIS_DESKTOP_SESSION_TOKEN).toBe("session-token");
     expect(env.HUBRIS_DESKTOP_BOOTSTRAP_TOKEN).toBe("bootstrap-token");
+    expect(env.HUBRIS_HOST).toBe("127.0.0.1");
+    expect(env.HUBRIS_PORT).toBe("0");
+  });
+
+  it("defaults packaged runs to an ephemeral loopback port", () => {
+    const env = buildPackagedRuntimeEnv({
+      runtimeExecutable: "/runtime",
+      dataDir: "/data",
+      sessionToken: "session-token",
+      bootstrapToken: "bootstrap-token",
+    });
+
     expect(env.HUBRIS_HOST).toBe("127.0.0.1");
     expect(env.HUBRIS_PORT).toBe("0");
   });

@@ -26,6 +26,7 @@ export function createHubrisWindowOptions(
       preload: preloadPath,
       partition: desktopSessionPartition(mode),
       nodeIntegration: false,
+      nodeIntegrationInSubFrames: true,
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
@@ -41,7 +42,14 @@ export function isAllowedNavigation(
   allowedOrigin: string,
 ): boolean {
   try {
-    return new URL(url).origin === allowedOrigin;
+    const target = new URL(url);
+    const allowed = new URL(allowedOrigin);
+    return (
+      target.protocol === allowed.protocol &&
+      target.host === allowed.host &&
+      target.username === allowed.username &&
+      target.password === allowed.password
+    );
   } catch {
     return false;
   }

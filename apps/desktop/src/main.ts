@@ -3,24 +3,35 @@ import {
   app,
   BrowserWindow,
   session,
+  type Cookies,
+  type Session,
   type WebContents,
   type Event as ElectronEvent,
 } from "electron";
 
 import {
-  buildBootstrapUrl,
   createDesktopToken,
   resolvePackagedPaths,
   spawnPackagedRuntime,
+  waitForBackendPort,
   waitForFrontendPort,
   type PackagedRuntimeOptions,
 } from "./runtime";
+import {
+  HUBRIS_ORIGIN,
+  type DesktopProtocolTargets,
+  registerHubrisProtocol,
+  registerHubrisScheme,
+} from "./protocol";
 import { createHubrisWindowOptions, isAllowedNavigation } from "./security";
 import {
   configureDesktopProfilePaths,
   desktopProfileMode,
   desktopSessionPartition,
 } from "./profile";
+import { installWebSocketBridge } from "./wsBridge";
+
+registerHubrisScheme();
 
 const APP_DATA_DIR_NAME = ".hubris";
 const profileMode = desktopProfileMode(app.isPackaged);
@@ -48,25 +59,33 @@ function stopRuntimeChild() {
 /**
  * Resolve the desktop URL that Electron should load.
  */
-async function resolveHubrisUrl(): Promise<{
-  origin: string;
-  url: string;
+async function resolveProtocolTargets(): Promise<{
+  targets: DesktopProtocolTargets;
+  sessionToken: string;
+  bootstrapToken?: string;
 }> {
   if (!app.isPackaged) {
     const devId = process.env.HUBRIS_DEV_ID;
     const devTmp = process.env.HUBRIS_DEV_TMP;
-    const bootstrapToken = process.env.HUBRIS_DESKTOP_BOOTSTRAP_TOKEN;
+    const sessionToken = process.env.HUBRIS_DESKTOP_SESSION_TOKEN;
 
-    if (!devId || !devTmp || !bootstrapToken) {
+    if (!devId || !devTmp || !sessionToken) {
       throw new Error("missing desktop dev environment configuration");
     }
 
-    const frontendPort = await waitForFrontendPort(devId, devTmp);
-    const origin = `http://localhost:${frontendPort}`;
+    const [frontendPort, backendPort] = await Promise.all([
+      waitForFrontendPort(devId, devTmp),
+      waitForBackendPort(devId, devTmp),
+    ]);
 
     return {
-      origin,
-      url: buildBootstrapUrl(origin, bootstrapToken),
+      targets: {
+        frontendHttpOrigin: `http://localhost:${frontendPort}`,
+        backendHttpOrigin: `http://127.0.0.1:${backendPort}`,
+        backendWsOrigin: `ws://127.0.0.1:${backendPort}`,
+        viteWsOrigin: `ws://localhost:${frontendPort}`,
+      },
+      sessionToken,
     };
   }
 
@@ -75,7 +94,6 @@ async function resolveHubrisUrl(): Promise<{
   const packaged = resolvePackagedPaths(process.resourcesPath);
   const runtime = spawnPackagedRuntime({
     runtimeExecutable: packaged.runtimeExecutable,
-    frontendDistDir: packaged.frontendDistDir,
     dataDir: homeDataDir(),
     sessionToken,
     bootstrapToken,
@@ -83,21 +101,22 @@ async function resolveHubrisUrl(): Promise<{
 
   runtimeChild = runtime.child;
   const startup = await runtime.startup;
-  const origin = `http://127.0.0.1:${startup.port}`;
 
   return {
-    origin,
-    url: buildBootstrapUrl(origin, bootstrapToken),
+    targets: {
+      frontendDistDir: packaged.frontendDistDir,
+      backendHttpOrigin: `http://127.0.0.1:${startup.port}`,
+      backendWsOrigin: `ws://127.0.0.1:${startup.port}`,
+    },
+    sessionToken,
+    bootstrapToken,
   };
 }
 
 /**
  * Install the session-level permission policy for the Hubris window.
  */
-function configureSessionGuards() {
-  const desktopSession = session.fromPartition(
-    desktopSessionPartition(profileMode),
-  );
+function configureSessionGuards(desktopSession: Session) {
   desktopSession.setPermissionRequestHandler((_wc, _permission, callback) => {
     callback(false);
   });
@@ -128,13 +147,33 @@ function configureWebContentsGuards(
  */
 async function createMainWindow() {
   const preloadPath = path.resolve(__dirname, "preload.js");
-  const { origin, url } = await resolveHubrisUrl();
+  const desktopSession = session.fromPartition(
+    desktopSessionPartition(profileMode),
+  );
+  const { targets, sessionToken, bootstrapToken } =
+    await resolveProtocolTargets();
+  const protocolContext = await registerHubrisProtocol(desktopSession, targets);
+  installWebSocketBridge(desktopSession, protocolContext, targets);
+  if (bootstrapToken) {
+    await bootstrapPackagedBackend(
+      targets.backendHttpOrigin,
+      bootstrapToken,
+      sessionToken,
+      desktopSession.cookies,
+    );
+  } else {
+    await seedDesktopSessionCookies(
+      desktopSession.cookies,
+      [HUBRIS_ORIGIN],
+      sessionToken,
+    );
+  }
   const window = new BrowserWindow(
     createHubrisWindowOptions(preloadPath, profileMode),
   );
   mainWindow = window;
 
-  configureWebContentsGuards(window.webContents, origin);
+  configureWebContentsGuards(window.webContents, HUBRIS_ORIGIN);
 
   window.once("ready-to-show", () => {
     window.show();
@@ -143,7 +182,7 @@ async function createMainWindow() {
     mainWindow = null;
   });
 
-  await window.loadURL(url);
+  await window.loadURL(`${HUBRIS_ORIGIN}/`);
 }
 
 app.on("before-quit", () => {
@@ -163,6 +202,45 @@ app.on("activate", async () => {
 configureDesktopProfilePaths(app, profileMode);
 
 void app.whenReady().then(async () => {
-  configureSessionGuards();
+  const desktopSession = session.fromPartition(
+    desktopSessionPartition(profileMode),
+  );
+  configureSessionGuards(desktopSession);
   await createMainWindow();
 });
+
+async function bootstrapPackagedBackend(
+  backendHttpOrigin: string,
+  bootstrapToken: string,
+  sessionToken: string,
+  cookies: Cookies,
+) {
+  const bootstrap = new URL("/_hubris/desktop/bootstrap", backendHttpOrigin);
+  bootstrap.searchParams.set("token", bootstrapToken);
+
+  const response = await fetch(bootstrap, { redirect: "manual" });
+  if (response.status !== 302) {
+    throw new Error(`desktop bootstrap failed with status ${response.status}`);
+  }
+
+  await seedDesktopSessionCookies(cookies, [HUBRIS_ORIGIN], sessionToken);
+}
+
+async function seedDesktopSessionCookies(
+  cookies: Cookies,
+  origins: string[],
+  sessionToken: string,
+) {
+  await Promise.all(
+    origins.map((origin) =>
+      cookies.set({
+        url: `${origin}/`,
+        name: "hubris_desktop_session",
+        value: sessionToken,
+        path: "/",
+        httpOnly: true,
+        sameSite: "strict",
+      }),
+    ),
+  );
+}

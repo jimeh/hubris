@@ -29,18 +29,10 @@ fn cookie_pair(response: &reqwest::Response) -> String {
 }
 
 fn start_runtime() -> (std::process::Child, StartupMessage, TempDir, TempDir) {
-    let assets_tmp = TempDir::new().unwrap();
     let data_tmp = TempDir::new().unwrap();
-    std::fs::create_dir_all(assets_tmp.path()).unwrap();
-    std::fs::write(
-        assets_tmp.path().join("index.html"),
-        "<!doctype html><html><body>desktop runtime</body></html>",
-    )
-    .unwrap();
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_hubris-desktop-runtime"))
         .env("HUBRIS_DATA_DIR", data_tmp.path())
-        .env("HUBRIS_FRONTEND_DIST_DIR", assets_tmp.path())
         .env("HUBRIS_DESKTOP_SESSION_TOKEN", "session-token")
         .env("HUBRIS_DESKTOP_BOOTSTRAP_TOKEN", "bootstrap-token")
         .stdout(Stdio::piped())
@@ -52,12 +44,12 @@ fn start_runtime() -> (std::process::Child, StartupMessage, TempDir, TempDir) {
     let mut lines = BufReader::new(stdout).lines();
     let startup: StartupMessage = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
 
-    (child, startup, assets_tmp, data_tmp)
+    (child, startup, TempDir::new().unwrap(), data_tmp)
 }
 
 #[tokio::test]
-async fn desktop_runtime_emits_startup_contract_and_serves_frontend_after_bootstrap() {
-    let (mut child, startup, _assets_tmp, _data_tmp) = start_runtime();
+async fn desktop_runtime_emits_startup_contract_and_serves_backend_after_bootstrap() {
+    let (mut child, startup, _unused_tmp, _data_tmp) = start_runtime();
     assert!(startup.ready);
     assert!(startup.pid > 0);
     assert!(startup.port > 0);
@@ -83,14 +75,21 @@ async fn desktop_runtime_emits_startup_contract_and_serves_frontend_after_bootst
     assert_eq!(bootstrap.status(), StatusCode::FOUND);
     let cookie = cookie_pair(&bootstrap);
 
-    let frontend = client
-        .get(&base)
+    let api = client
+        .get(format!("{base}/api/projects"))
         .header(reqwest::header::COOKIE, &cookie)
         .send()
         .await
         .unwrap();
-    assert_eq!(frontend.status(), StatusCode::OK);
-    assert!(frontend.text().await.unwrap().contains("desktop runtime"));
+    assert_eq!(api.status(), StatusCode::OK);
+
+    let code_server = client
+        .get(format!("{base}/_hubris/code-server/connection"))
+        .header(reqwest::header::COOKIE, &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(code_server.status(), StatusCode::UNAUTHORIZED);
 
     child.kill().unwrap();
     let _ = child.wait();

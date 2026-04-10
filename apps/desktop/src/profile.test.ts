@@ -53,7 +53,13 @@ describe("desktop path helpers", () => {
       "/config-root/Hubris Dev",
     );
     expect(desktopSessionDataPath("/config-root", "dev")).toBe(
-      "/config-root/Hubris Dev/sessionData",
+      "/config-root/Hubris/sessionData",
+    );
+  });
+
+  it("shares the sessionData root between dev and release", () => {
+    expect(desktopSessionDataPath("/config-root", "dev")).toBe(
+      desktopSessionDataPath("/config-root", "release"),
     );
   });
 });

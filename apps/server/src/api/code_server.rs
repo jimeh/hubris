@@ -70,6 +70,13 @@ pub struct CodeServerStatus {
     pub message: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopCodeServerConnection {
+    pub base_url: String,
+    pub ws_base_url: String,
+}
+
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallCodeServerRequest {
@@ -260,6 +267,17 @@ pub async fn stop_code_server(State(state): State<AppState>) -> Response {
 pub async fn restart_code_server(State(state): State<AppState>) -> Response {
     match state.code_server.restart().await {
         Ok(status) => Json(CodeServerStatus::from(status)).into_response(),
+        Err(error) => code_server_error_response(error),
+    }
+}
+
+pub async fn get_desktop_code_server_connection(State(state): State<AppState>) -> Response {
+    match state.code_server.ensure_ready().await {
+        Ok(connection) => Json(DesktopCodeServerConnection {
+            base_url: connection.http_base_url().to_string(),
+            ws_base_url: connection.ws_base_url(),
+        })
+        .into_response(),
         Err(error) => code_server_error_response(error),
     }
 }

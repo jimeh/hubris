@@ -16,6 +16,7 @@ describe("createHubrisWindowOptions", () => {
       preload: "/tmp/preload.js",
       partition: desktopSessionPartition("release"),
       nodeIntegration: false,
+      nodeIntegrationInSubFrames: true,
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
@@ -38,15 +39,18 @@ describe("isAllowedNavigation", () => {
   it("allows same-origin navigation", () => {
     expect(
       isAllowedNavigation(
-        "http://127.0.0.1:3101/deep/link",
-        "http://127.0.0.1:3101",
+        "https://desktop.internal.hubris.build/deep/link",
+        "https://desktop.internal.hubris.build",
       ),
     ).toBe(true);
   });
 
   it("blocks cross-origin navigation", () => {
     expect(
-      isAllowedNavigation("https://example.com", "http://127.0.0.1:3101"),
+      isAllowedNavigation(
+        "https://example.com",
+        "https://desktop.internal.hubris.build",
+      ),
     ).toBe(false);
   });
 });

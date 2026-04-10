@@ -14,9 +14,13 @@ export type DesktopStartupMessage = {
   error?: string;
 };
 
+export type DevServerState = {
+  pid: number;
+  port: number;
+};
+
 export type PackagedRuntimeOptions = {
   runtimeExecutable: string;
-  frontendDistDir: string;
   dataDir: string;
   sessionToken: string;
   bootstrapToken: string;
@@ -30,9 +34,23 @@ type RuntimeChildProcess = ChildProcessByStdio<null, Readable, Readable>;
  * Parse a Vite dev-state file and return its frontend port.
  */
 export function parseFrontendState(raw: string): number | null {
+  return parseDevServerState(raw)?.port ?? null;
+}
+
+/**
+ * Parse a dev state file emitted by the backend or frontend.
+ */
+export function parseDevServerState(raw: string): DevServerState | null {
   try {
-    const data = JSON.parse(raw) as { port?: unknown };
-    return typeof data.port === "number" ? data.port : null;
+    const data = JSON.parse(raw) as Partial<DevServerState>;
+    if (typeof data.pid !== "number" || typeof data.port !== "number") {
+      return null;
+    }
+
+    return {
+      pid: data.pid,
+      port: data.port,
+    };
   } catch {
     return null;
   }
@@ -73,14 +91,46 @@ export async function waitForFrontendPort(
   devTmp: string,
   timeoutMs = 120_000,
 ): Promise<number> {
-  const stateFile = path.join(devTmp, `dev-${devId}.frontend.json`);
+  const state = await waitForDevServerState(
+    "frontend",
+    devId,
+    devTmp,
+    timeoutMs,
+  );
+  return state.port;
+}
+
+/**
+ * Wait for the backend dev server state file and return its port.
+ */
+export async function waitForBackendPort(
+  devId: string,
+  devTmp: string,
+  timeoutMs = 120_000,
+): Promise<number> {
+  const state = await waitForDevServerState(
+    "backend",
+    devId,
+    devTmp,
+    timeoutMs,
+  );
+  return state.port;
+}
+
+async function waitForDevServerState(
+  kind: "backend" | "frontend",
+  devId: string,
+  devTmp: string,
+  timeoutMs: number,
+): Promise<DevServerState> {
+  const stateFile = path.join(devTmp, `dev-${devId}.${kind}.json`);
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
     try {
-      const port = parseFrontendState(fs.readFileSync(stateFile, "utf-8"));
-      if (port) {
-        return port;
+      const state = parseDevServerState(fs.readFileSync(stateFile, "utf-8"));
+      if (state) {
+        return state;
       }
     } catch {
       // The state file may not exist yet, or the writer may still be flushing.
@@ -89,7 +139,7 @@ export async function waitForFrontendPort(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
-  throw new Error("frontend did not report a port within 120 seconds");
+  throw new Error(`${kind} did not report a port within 120 seconds`);
 }
 
 /**
@@ -141,7 +191,6 @@ export function buildPackagedRuntimeEnv(
   return {
     ...process.env,
     HUBRIS_DATA_DIR: options.dataDir,
-    HUBRIS_FRONTEND_DIST_DIR: options.frontendDistDir,
     HUBRIS_DESKTOP_SESSION_TOKEN: options.sessionToken,
     HUBRIS_DESKTOP_BOOTSTRAP_TOKEN: options.bootstrapToken,
     HUBRIS_HOST: options.host ?? "127.0.0.1",

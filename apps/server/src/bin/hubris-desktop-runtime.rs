@@ -36,7 +36,6 @@ async fn main() {
 
 async fn run() -> io::Result<()> {
     let data_dir = required_path("HUBRIS_DATA_DIR")?;
-    let frontend_dist_dir = required_path("HUBRIS_FRONTEND_DIST_DIR")?;
     let session_token = required_var("HUBRIS_DESKTOP_SESSION_TOKEN")?;
     let bootstrap_token = required_var("HUBRIS_DESKTOP_BOOTSTRAP_TOKEN")?;
     let host = std::env::var("HUBRIS_HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string());
@@ -45,7 +44,6 @@ async fn run() -> io::Result<()> {
         .and_then(|value| value.parse().ok())
         .unwrap_or(DEFAULT_PORT);
 
-    let frontend = FrontendAssets::from_dir(frontend_dist_dir)?;
     std::fs::create_dir_all(&data_dir)?;
 
     let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await?;
@@ -62,7 +60,7 @@ async fn run() -> io::Result<()> {
         listener,
         data_dir,
         ServerOptions {
-            frontend,
+            frontend: FrontendAssets::disabled(),
             access: ServerAccess::DesktopLocked(DesktopAccess::packaged(
                 session_token,
                 bootstrap_token,

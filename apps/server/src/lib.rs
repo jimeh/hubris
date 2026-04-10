@@ -31,8 +31,8 @@ pub use access::{
 };
 use access::{desktop_auth_middleware, desktop_bootstrap_handler};
 use api::code_server::{
-    check_code_server_update, get_code_server_status, install_code_server, restart_code_server,
-    start_code_server, stop_code_server,
+    check_code_server_update, get_code_server_status, get_desktop_code_server_connection,
+    install_code_server, restart_code_server, start_code_server, stop_code_server,
 };
 use api::editor_themes::{
     delete_editor_theme, discover_editor_themes, get_editor_theme, import_extension_theme,
@@ -323,8 +323,7 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route("/code", any(proxy_code_request))
         .route("/code/", any(proxy_code_request))
         .route("/code/{*path}", any(proxy_code_request))
-        .nest("/api", api)
-        .with_state(state);
+        .nest("/api", api);
 
     if access
         .desktop()
@@ -332,6 +331,15 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
     {
         router = router.route(DESKTOP_BOOTSTRAP_PATH, get(desktop_bootstrap_handler));
     }
+
+    if access.desktop().is_some() {
+        router = router.route(
+            "/_hubris/code-server/connection",
+            get(get_desktop_code_server_connection),
+        );
+    }
+
+    let router = router.with_state(state);
 
     let redact_query = access.is_desktop_locked();
     let trace =

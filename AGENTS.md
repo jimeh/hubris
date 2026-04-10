@@ -275,6 +275,17 @@ embeddings.**
   under `apps/desktop/` (`node_modules`, `.vite`) stay ignored locally.
 - Electron desktop browser storage only survives restarts when the window uses a
   `persist:` partition and `app.setPath("userData"/"sessionData", ...)` is set
-  before `app.whenReady()`. Keep dev and release on separate OS-native app-data
-  roots (`Hubris Dev` vs `Hubris`) so code-server IndexedDB/localStorage state
-  persists without mixing profiles.
+  before `app.whenReady()`. Keep `sessionData` under the shared native
+  `Hubris/sessionData` root and isolate dev/release with separate `persist:`
+  partition names.
+- Packaged Electron must keep a stable renderer origin without relying on a
+  fixed loopback port. Hubris now uses a handled
+  `https://desktop.internal.hubris.build` origin: Electron serves bundled
+  frontend assets on that origin, proxies `/api` and `/_hubris` to the loopback
+  Rust backend, redeems the one-time desktop bootstrap token itself, and seeds
+  cookies into the `https://desktop.internal.hubris.build` session jar.
+- Desktop no longer routes `/code` through Hubris’ Rust reverse proxy. Electron
+  resolves the live code-server upstream via the authenticated
+  `/_hubris/code-server/connection` endpoint, proxies `/code/*` directly, and
+  bridges same-origin WebSockets for code-server, terminal I/O, and Vite HMR in
+  preload/main-process code instead of rewriting browser-visible loopback URLs.
