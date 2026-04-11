@@ -5,6 +5,7 @@ pub mod events;
 mod frontend;
 mod fs_sync;
 pub mod git;
+pub mod process_manager;
 pub mod pty;
 mod settings_manager;
 pub mod state;
@@ -44,6 +45,10 @@ use api::files::{
     list_project_worktree_files, put_project_worktree_file_content, rename_project_worktree_file,
 };
 use api::openapi::{openapi_json, spec as openapi_spec_impl};
+use api::processes::{
+    get_managed_process, list_managed_processes, restart_managed_process, start_managed_process,
+    stop_managed_process,
+};
 use api::projects::{add_project, delete_project, list_projects, reorder_projects, update_project};
 use api::settings::{get_settings, patch_settings, put_settings};
 use api::system::get_system_info;
@@ -285,6 +290,11 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route("/events", get(event_stream))
         .route("/terminal/ws", get(ws_handler))
         .route("/system", get(get_system_info))
+        .route("/processes", get(list_managed_processes))
+        .route("/processes/{id}", get(get_managed_process))
+        .route("/processes/{id}/start", post(start_managed_process))
+        .route("/processes/{id}/stop", post(stop_managed_process))
+        .route("/processes/{id}/restart", post(restart_managed_process))
         .route("/code-server", get(get_code_server_status))
         .route("/code-server/check-update", post(check_code_server_update))
         .route("/code-server/install", post(install_code_server))
@@ -413,8 +423,8 @@ where
             result.map_err(std::io::Error::other)?
         }
         _ = shutdown_signal.wait() => {
-            if let Err(error) = state.code_server.shutdown().await {
-                tracing::warn!("failed to shut down shared code server: {error}");
+            if let Err(error) = state.processes.shutdown_all().await {
+                tracing::warn!("failed to shut down managed processes: {error}");
             }
 
             let result = match tokio::time::timeout(
@@ -438,9 +448,9 @@ where
     };
 
     if !shutdown_signal.is_triggered()
-        && let Err(error) = state.code_server.shutdown().await
+        && let Err(error) = state.processes.shutdown_all().await
     {
-        tracing::warn!("failed to shut down shared code server: {error}");
+        tracing::warn!("failed to shut down managed processes: {error}");
     }
 
     result

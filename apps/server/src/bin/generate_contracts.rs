@@ -6,6 +6,9 @@ use hubris_server::api::code_server::{
     CodeServerInstallPhase, CodeServerInstallProgress, CodeServerLatestCheck,
     CodeServerProcessStatus, CodeServerStatus,
 };
+use hubris_server::api::processes::{
+    ManagedProcessExitInfo, ManagedProcessLifecycleStateValue, ManagedProcessStatus,
+};
 use hubris_server::api::projects::Project;
 use hubris_server::api::settings::{
     AppearanceSettings, ColorScheme, EditorSettings, EditorSettingsPatch, Settings, SettingsState,
@@ -87,6 +90,9 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<CodeServerLatestCheck>(&mut sse, &cfg)?;
     push_ts_export::<CodeServerProcessStatus>(&mut sse, &cfg)?;
     push_ts_export::<CodeServerStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ManagedProcessLifecycleStateValue>(&mut sse, &cfg)?;
+    push_ts_export::<ManagedProcessExitInfo>(&mut sse, &cfg)?;
+    push_ts_export::<ManagedProcessStatus>(&mut sse, &cfg)?;
     push_ts_export::<EventKind>(&mut sse, &cfg)?;
     fs::write(&sse_path, sse)?;
 

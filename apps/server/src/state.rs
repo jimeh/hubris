@@ -6,6 +6,7 @@ use dashmap::DashMap;
 use crate::api::projects::Project;
 use crate::code_server::CodeServerManager;
 use crate::events::EventBus;
+use crate::process_manager::ManagedProcessService;
 use crate::pty::live_tab::LiveTab;
 use crate::settings_manager::SettingsManager;
 use crate::tab::TabInfo;
@@ -20,6 +21,7 @@ pub struct AppState {
     pub events: Arc<EventBus>,
     pub next_terminal_num_by_worktree: Arc<DashMap<String, u32>>,
     pub data_dir: PathBuf,
+    pub processes: Arc<ManagedProcessService>,
     pub code_server: Arc<CodeServerManager>,
     pub settings: Arc<SettingsManager>,
     pub worktree_files: Arc<WorktreeFilesService>,
@@ -34,17 +36,23 @@ impl AppState {
                 .unwrap_or_else(|error| panic!("failed to initialize settings manager: {error}")),
         );
         settings.start_sync(events.clone());
+        let processes = Arc::new(ManagedProcessService::new(events.clone()));
+        let code_server = Arc::new(CodeServerManager::new(
+            data_dir.join("code-server"),
+            events.clone(),
+            processes.clone(),
+        ));
+        processes.register_controller(code_server.clone());
+        code_server.register_process_callback().await;
 
         Self {
             tabs: Arc::new(DashMap::new()),
             terminal_tabs: Arc::new(DashMap::new()),
             events: events.clone(),
             next_terminal_num_by_worktree: Arc::new(DashMap::new()),
-            code_server: Arc::new(CodeServerManager::new(
-                data_dir.join("code-server"),
-                events.clone(),
-            )),
             data_dir,
+            processes,
+            code_server,
             settings,
             worktree_files: Arc::new(WorktreeFilesService::new(events.clone())),
         }

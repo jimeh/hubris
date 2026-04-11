@@ -219,6 +219,86 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/processes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_managed_processes"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/processes/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_managed_process"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/processes/{id}/restart": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["restart_managed_process"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/processes/{id}/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["start_managed_process"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/processes/{id}/stop": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["stop_managed_process"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/projects": {
     parameters: {
       query?: never;
@@ -848,6 +928,31 @@ export interface components {
     ListWorktreesResponse: {
       git_error?: string | null;
       worktrees: components["schemas"]["Worktree"][];
+    };
+    ManagedProcessExitInfo: {
+      /** Format: int32 */
+      code?: number | null;
+      finishedAt: string;
+      /** Format: int32 */
+      signal?: number | null;
+    };
+    /** @enum {string} */
+    ManagedProcessLifecycleStateValue:
+      | "stopped"
+      | "starting"
+      | "running"
+      | "stopping"
+      | "exited"
+      | "error";
+    ManagedProcessStatus: {
+      id: string;
+      kind: string;
+      lastError?: string | null;
+      lastExit?: null | components["schemas"]["ManagedProcessExitInfo"];
+      lifecycleState: components["schemas"]["ManagedProcessLifecycleStateValue"];
+      /** Format: int32 */
+      pid?: number | null;
+      startedAt?: string | null;
     };
     Project: {
       git_error?: string | null;
@@ -1615,6 +1720,154 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  list_managed_processes: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Managed processes */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ManagedProcessStatus"][];
+        };
+      };
+    };
+  };
+  get_managed_process: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Managed process id */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Managed process status */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ManagedProcessStatus"];
+        };
+      };
+      /** @description Unknown managed process */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  restart_managed_process: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Managed process id */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Restarted process */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ManagedProcessStatus"];
+        };
+      };
+      /** @description Unknown managed process */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  start_managed_process: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Managed process id */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Started process */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ManagedProcessStatus"];
+        };
+      };
+      /** @description Unknown managed process */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  stop_managed_process: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Managed process id */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Stopped process */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ManagedProcessStatus"];
+        };
+      };
+      /** @description Unknown managed process */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
     };
   };

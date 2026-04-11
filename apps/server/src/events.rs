@@ -6,6 +6,7 @@ use tokio::sync::broadcast;
 use ts_rs::TS;
 
 use crate::api::code_server::CodeServerStatus;
+use crate::api::processes::ManagedProcessStatus;
 use crate::api::projects::Project;
 use crate::api::settings::{Settings, SettingsState, SettingsStatus};
 use crate::api::worktrees::Worktree;
@@ -30,6 +31,7 @@ pub enum EventKind {
         settings_generation: String,
         settings_status: SettingsStatus,
         code_server: Box<CodeServerStatus>,
+        managed_processes: Vec<ManagedProcessStatus>,
     },
     #[serde(rename = "tab_created")]
     TabCreated { session_id: String, tab: TabInfo },
@@ -87,6 +89,8 @@ pub enum EventKind {
     SettingsUpdated(SettingsState),
     #[serde(rename = "code_server_updated")]
     CodeServerUpdated(Box<CodeServerStatus>),
+    #[serde(rename = "managed_process_updated")]
+    ManagedProcessUpdated(Box<ManagedProcessStatus>),
 }
 
 impl EventKind {
@@ -109,6 +113,7 @@ impl EventKind {
             EventKind::WorktreeGitStatusUpdated { .. } => "worktree_git_status_updated",
             EventKind::SettingsUpdated(_) => "settings_updated",
             EventKind::CodeServerUpdated(_) => "code_server_updated",
+            EventKind::ManagedProcessUpdated(_) => "managed_process_updated",
         }
     }
 }
@@ -210,6 +215,7 @@ mod tests {
                     install_progress: None,
                     message: None,
                 }),
+                managed_processes: vec![],
             }
             .event_name(),
             "snapshot"
@@ -233,6 +239,19 @@ mod tests {
             }))
             .event_name(),
             "code_server_updated"
+        );
+        assert_eq!(
+            EventKind::ManagedProcessUpdated(Box::new(ManagedProcessStatus {
+                id: "code_server".into(),
+                kind: "code-server".into(),
+                lifecycle_state: crate::api::processes::ManagedProcessLifecycleStateValue::Stopped,
+                pid: None,
+                started_at: None,
+                last_exit: None,
+                last_error: None,
+            }))
+            .event_name(),
+            "managed_process_updated"
         );
     }
 }

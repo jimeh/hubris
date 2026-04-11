@@ -103,7 +103,8 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         | EventKind::WorktreeFilesUpdated { .. }
         | EventKind::WorktreeGitStatusUpdated { .. }
         | EventKind::SettingsUpdated(_)
-        | EventKind::CodeServerUpdated(_) => true,
+        | EventKind::CodeServerUpdated(_)
+        | EventKind::ManagedProcessUpdated(_) => true,
     }
 }
 
@@ -131,6 +132,14 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
     let mut project_errors = HashMap::new();
     let settings = state.settings.get().await;
     let code_server = state.code_server.status().await.into();
+    let managed_processes = state
+        .processes
+        .list()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<_>>();
 
     for project in &projects {
         match list_worktrees_for_project(state, project).await {
@@ -153,6 +162,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         settings_generation: settings.generation,
         settings_status: settings.status,
         code_server: Box::new(code_server),
+        managed_processes,
     };
     sse::Event::default()
         .event("snapshot")

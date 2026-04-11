@@ -469,6 +469,183 @@
         }
       }
     },
+    "/api/processes": {
+      "get": {
+        "tags": ["crate::api::processes"],
+        "operationId": "list_managed_processes",
+        "responses": {
+          "200": {
+            "description": "Managed processes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ManagedProcessStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/processes/{id}": {
+      "get": {
+        "tags": ["crate::api::processes"],
+        "operationId": "get_managed_process",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Managed process id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Managed process status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedProcessStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown managed process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/processes/{id}/restart": {
+      "post": {
+        "tags": ["crate::api::processes"],
+        "operationId": "restart_managed_process",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Managed process id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Restarted process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedProcessStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown managed process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/processes/{id}/start": {
+      "post": {
+        "tags": ["crate::api::processes"],
+        "operationId": "start_managed_process",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Managed process id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Started process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedProcessStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown managed process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/processes/{id}/stop": {
+      "post": {
+        "tags": ["crate::api::processes"],
+        "operationId": "stop_managed_process",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Managed process id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stopped process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedProcessStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown managed process",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects": {
       "get": {
         "tags": ["crate::api::projects"],
@@ -2710,6 +2887,70 @@
             "items": {
               "$ref": "#/components/schemas/Worktree"
             }
+          }
+        }
+      },
+      "ManagedProcessExitInfo": {
+        "type": "object",
+        "required": ["finishedAt"],
+        "properties": {
+          "code": {
+            "type": ["integer", "null"],
+            "format": "int32"
+          },
+          "finishedAt": {
+            "type": "string"
+          },
+          "signal": {
+            "type": ["integer", "null"],
+            "format": "int32"
+          }
+        }
+      },
+      "ManagedProcessLifecycleStateValue": {
+        "type": "string",
+        "enum": [
+          "stopped",
+          "starting",
+          "running",
+          "stopping",
+          "exited",
+          "error"
+        ]
+      },
+      "ManagedProcessStatus": {
+        "type": "object",
+        "required": ["id", "kind", "lifecycleState"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": ["string", "null"]
+          },
+          "lastExit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManagedProcessExitInfo"
+              }
+            ]
+          },
+          "lifecycleState": {
+            "$ref": "#/components/schemas/ManagedProcessLifecycleStateValue"
+          },
+          "pid": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "startedAt": {
+            "type": ["string", "null"]
           }
         }
       },

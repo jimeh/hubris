@@ -6,6 +6,7 @@ pub mod files;
 #[path = "monaco_languages.generated.rs"]
 pub mod monaco_languages_generated;
 pub mod openapi;
+pub mod processes;
 pub mod projects;
 pub mod settings;
 pub mod system;

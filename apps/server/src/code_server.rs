@@ -2,7 +2,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use axum::body::{Body, to_bytes};
 use axum::extract::ws::{Message as AxumWsMessage, WebSocket, WebSocketUpgrade};
@@ -20,15 +20,21 @@ use reqwest::Method;
 use semver::Version;
 use tar::Archive;
 use tokio::io::AsyncWriteExt;
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio::sync::{Mutex, Notify};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use uuid::Uuid;
 
-use crate::api::code_server::CodeServerStatus;
 use crate::events::{EventBus, EventKind};
+#[cfg(target_os = "linux")]
+use crate::process_manager::configure_parent_death_signal;
+use crate::process_manager::{
+    ManagedChildProcess, ManagedProcessActionError, ManagedProcessController, ManagedProcessHandle,
+    ManagedProcessLifecycleState, ManagedProcessRuntime, ManagedProcessService,
+    ManagedProcessStatusSnapshot, ManagedProcessStopTarget, now_timestamp_string,
+};
 use crate::state::AppState;
 
 const PUBLIC_BASE_PATH: &str = "/code";
@@ -43,8 +49,6 @@ const USER_DIR: &str = "user";
 const EXTENSIONS_DIR: &str = "extensions";
 const CONFIG_DIR: &str = "config";
 const TMP_DIR: &str = "tmp";
-const SHUTDOWN_GRACE_TIMEOUT: Duration = Duration::from_secs(10);
-const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 type FetchLatestFn =
     Arc<dyn Fn() -> BoxFuture<'static, Result<String, CodeServerError>> + Send + Sync>;
@@ -160,6 +164,7 @@ pub struct CodeServerManager {
     download_runtime: DownloadRuntimeFn,
     launch: LaunchFn,
     root_dir: PathBuf,
+    process_handle: ManagedProcessHandle,
 }
 
 impl fmt::Debug for CodeServerManager {
@@ -172,49 +177,16 @@ impl fmt::Debug for CodeServerManager {
 
 #[derive(Debug)]
 struct ManagerState {
-    lifecycle: LifecycleState,
     latest: Option<ManagerCodeServerLatestCheck>,
     install_progress: Option<ManagerCodeServerInstallProgress>,
-}
-
-#[derive(Debug)]
-enum LifecycleState {
-    Stopped,
-    Starting,
-    Stopping,
-    Installing,
-    Running(Box<RunningCodeServer>),
-    Error(String),
+    install_running: bool,
+    connection: Option<CodeServerConnection>,
 }
 
 #[derive(Debug)]
 struct RunningCodeServer {
     connection: CodeServerConnection,
-    process: RunningCodeServerProcess,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone)]
-struct TestProcessProbe {
-    alive: Arc<std::sync::atomic::AtomicBool>,
-    shutdowns: Arc<std::sync::atomic::AtomicUsize>,
-    drop_kills: Arc<std::sync::atomic::AtomicUsize>,
-}
-
-#[derive(Debug)]
-enum RunningCodeServerProcess {
-    Child(ManagedChildProcess),
-    #[cfg(test)]
-    External,
-    #[cfg(test)]
-    TestProbe(TestProcessProbe),
-}
-
-#[derive(Debug)]
-struct ManagedChildProcess {
-    child: Child,
-    #[cfg(unix)]
-    process_group_id: Option<i32>,
+    process: ManagedProcessRuntime,
 }
 
 enum UpgradeOutcome {
@@ -340,7 +312,11 @@ impl From<axum::Error> for CodeServerError {
 
 impl CodeServerManager {
     /// Create a manager that launches a shared `code-server` instance.
-    pub fn new(root_dir: PathBuf, events: Arc<EventBus>) -> Self {
+    pub fn new(
+        root_dir: PathBuf,
+        events: Arc<EventBus>,
+        processes: Arc<ManagedProcessService>,
+    ) -> Self {
         let metadata_client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -361,9 +337,10 @@ impl CodeServerManager {
 
         Self {
             inner: Arc::new(Mutex::new(ManagerState {
-                lifecycle: LifecycleState::Stopped,
                 latest: None,
                 install_progress: None,
+                install_running: false,
+                connection: None,
             })),
             notify: Arc::new(Notify::new()),
             client: reqwest::Client::builder()
@@ -377,6 +354,7 @@ impl CodeServerManager {
             download_runtime,
             launch,
             root_dir,
+            process_handle: processes.register_process("code_server", "code-server"),
         }
     }
 
@@ -387,6 +365,7 @@ impl CodeServerManager {
         download_runtime: DownloadRuntimeFn,
         launch: LaunchFn,
     ) -> Self {
+        let events = Arc::new(EventBus::new());
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -394,17 +373,20 @@ impl CodeServerManager {
 
         Self {
             inner: Arc::new(Mutex::new(ManagerState {
-                lifecycle: LifecycleState::Stopped,
                 latest: None,
                 install_progress: None,
+                install_running: false,
+                connection: None,
             })),
             notify: Arc::new(Notify::new()),
             client,
-            events: None,
+            events: Some(events.clone()),
             fetch_latest,
             download_runtime,
             launch,
             root_dir,
+            process_handle: ManagedProcessService::new(events)
+                .register_process("code_server", "code-server"),
         }
     }
 
@@ -412,48 +394,83 @@ impl CodeServerManager {
         &self.client
     }
 
+    pub async fn register_process_callback(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        self.process_handle
+            .set_on_change(Arc::new(move |_| {
+                let weak = weak.clone();
+                Box::pin(async move {
+                    if let Some(manager) = weak.upgrade() {
+                        manager.notify.notify_waiters();
+                        manager.publish_status_update().await;
+                    }
+                })
+            }))
+            .await;
+    }
+
     pub async fn status(&self) -> CodeServerStatusSnapshot {
         let supported = detect_platform().is_ok();
         let installed = self.find_installed_runtime().await.ok().flatten();
+        let process = self.process_handle.status().await.ok();
         let mut state = self.inner.lock().await;
-        let exited = normalize_dead_process(&mut state).unwrap_or_default();
+        if process
+            .as_ref()
+            .is_none_or(|status| status.lifecycle_state != ManagedProcessLifecycleState::Running)
+        {
+            state.connection = None;
+        }
 
-        let (process_status, mut message) = match &state.lifecycle {
-            LifecycleState::Running(_) => (CodeServerProcessStatusValue::Running, None),
-            LifecycleState::Starting => (CodeServerProcessStatusValue::Starting, None),
-            LifecycleState::Stopping => (CodeServerProcessStatusValue::Stopping, None),
-            LifecycleState::Installing => (CodeServerProcessStatusValue::Installing, None),
-            LifecycleState::Stopped => (CodeServerProcessStatusValue::Stopped, None),
-            LifecycleState::Error(message) => {
-                (CodeServerProcessStatusValue::Error, Some(message.clone()))
+        let (process_status, mut message) = if state.install_running {
+            (CodeServerProcessStatusValue::Installing, None)
+        } else {
+            match process.as_ref().map(|status| status.lifecycle_state) {
+                Some(ManagedProcessLifecycleState::Running) => {
+                    (CodeServerProcessStatusValue::Running, None)
+                }
+                Some(ManagedProcessLifecycleState::Starting) => {
+                    (CodeServerProcessStatusValue::Starting, None)
+                }
+                Some(ManagedProcessLifecycleState::Stopping) => {
+                    (CodeServerProcessStatusValue::Stopping, None)
+                }
+                Some(ManagedProcessLifecycleState::Stopped) | None => {
+                    (CodeServerProcessStatusValue::Stopped, None)
+                }
+                Some(ManagedProcessLifecycleState::Exited) => (
+                    CodeServerProcessStatusValue::Error,
+                    Some("code-server exited".to_string()),
+                ),
+                Some(ManagedProcessLifecycleState::Error) => (
+                    CodeServerProcessStatusValue::Error,
+                    process
+                        .as_ref()
+                        .and_then(|status| status.last_error.clone()),
+                ),
             }
         };
 
         if message.is_none() {
             if let Err(error) = detect_platform() {
                 message = Some(error.to_string());
-            } else if exited {
+            } else if process
+                .as_ref()
+                .and_then(|status| status.last_exit.as_ref())
+                .is_some()
+                && process_status == CodeServerProcessStatusValue::Error
+            {
                 message = Some("code-server exited".to_string());
             }
         }
 
-        let snapshot = CodeServerStatusSnapshot {
+        CodeServerStatusSnapshot {
             supported,
             installed_version: installed.map(|runtime| runtime.version),
             process_status,
             latest: state.latest.clone(),
             install_progress: state.install_progress.clone(),
             message,
-        };
-        drop(state);
-
-        if exited && let Some(events) = &self.events {
-            events.emit(EventKind::CodeServerUpdated(Box::new(
-                CodeServerStatus::from(snapshot.clone()),
-            )));
         }
-
-        snapshot
     }
 
     pub async fn check_for_update(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
@@ -486,65 +503,72 @@ impl CodeServerManager {
         force: bool,
     ) -> Result<CodeServerStatusSnapshot, CodeServerError> {
         loop {
-            let mut state = self.inner.lock().await;
-            normalize_dead_process(&mut state)?;
+            let process = self
+                .process_handle
+                .status()
+                .await
+                .map_err(map_managed_process_error)?;
+            let state = self.inner.lock().await;
 
-            match state.lifecycle {
-                LifecycleState::Installing => {
-                    drop(state);
-                    return Ok(self.status().await);
-                }
-                LifecycleState::Starting | LifecycleState::Stopping => {
-                    let notified = self.notify.notified();
-                    drop(state);
-                    notified.await;
-                }
-                _ => {
-                    drop(state);
-                    break;
-                }
+            if state.install_running {
+                drop(state);
+                return Ok(self.status().await);
             }
+
+            if matches!(
+                process.lifecycle_state,
+                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
+            ) {
+                let notified = self.notify.notified();
+                drop(state);
+                notified.await;
+                continue;
+            }
+
+            drop(state);
+            break;
         }
 
         let plan = self.prepare_install_plan(requested_version, force).await?;
 
         loop {
+            let process = self
+                .process_handle
+                .status()
+                .await
+                .map_err(map_managed_process_error)?;
             let mut state = self.inner.lock().await;
-            normalize_dead_process(&mut state)?;
 
-            match state.lifecycle {
-                LifecycleState::Installing => {
-                    drop(state);
-                    return Ok(self.status().await);
-                }
-                LifecycleState::Starting | LifecycleState::Stopping => {
-                    let notified = self.notify.notified();
-                    drop(state);
-                    notified.await;
-                }
-                _ => {
-                    let previous =
-                        match std::mem::replace(&mut state.lifecycle, LifecycleState::Installing) {
-                            LifecycleState::Running(server) => Some(server),
-                            LifecycleState::Stopped | LifecycleState::Error(_) => None,
-                            LifecycleState::Starting
-                            | LifecycleState::Stopping
-                            | LifecycleState::Installing => unreachable!(),
-                        };
-                    state.install_progress = Some(preparing_install_progress());
-                    drop(state);
-
-                    self.notify.notify_waiters();
-                    self.publish_status_update().await;
-
-                    let manager = self.clone();
-                    tokio::spawn(async move {
-                        manager.run_install_task(previous, plan).await;
-                    });
-
-                    return Ok(self.status().await);
-                }
+            if state.install_running {
+                drop(state);
+                return Ok(self.status().await);
             }
+
+            if matches!(
+                process.lifecycle_state,
+                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
+            ) {
+                let notified = self.notify.notified();
+                drop(state);
+                notified.await;
+                continue;
+            }
+
+            state.install_running = true;
+            state.install_progress = Some(preparing_install_progress());
+            state.connection = None;
+            drop(state);
+
+            self.notify.notify_waiters();
+            self.publish_status_update().await;
+            let initial_status = self.status().await;
+
+            let manager = self.clone();
+            tokio::spawn(async move {
+                manager.run_install_task(plan).await;
+            });
+
+            return Ok(initial_status);
         }
     }
 
@@ -554,11 +578,7 @@ impl CodeServerManager {
     }
 
     pub async fn stop(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        let previous = self
-            .begin_lifecycle_transition(LifecycleTransition::Stopping)
-            .await?;
-        shutdown_previous(previous).await?;
-        self.finish_stopped().await;
+        self.stop_managed_process().await?;
         Ok(self.status().await)
     }
 
@@ -568,120 +588,44 @@ impl CodeServerManager {
     }
 
     pub async fn shutdown(&self) -> Result<(), CodeServerError> {
-        let previous = self
-            .begin_lifecycle_transition(LifecycleTransition::Stopping)
-            .await?;
-        shutdown_previous(previous).await?;
-        self.finish_stopped().await;
-        Ok(())
+        self.stop_managed_process().await
     }
 
     pub async fn ensure_ready(&self) -> Result<CodeServerConnection, CodeServerError> {
         loop {
-            let runtime = self.find_installed_runtime().await?;
-            let mut state = self.inner.lock().await;
-            normalize_dead_process(&mut state)?;
-            match &state.lifecycle {
-                LifecycleState::Running(server) => {
-                    return Ok(server.connection.clone());
-                }
-                LifecycleState::Starting
-                | LifecycleState::Stopping
-                | LifecycleState::Installing => {
-                    let notified = self.notify.notified();
-                    drop(state);
-                    notified.await;
-                    continue;
-                }
-                LifecycleState::Stopped | LifecycleState::Error(_) => {
-                    let runtime = runtime.ok_or(CodeServerError::NotInstalled)?;
-                    state.lifecycle = LifecycleState::Starting;
-                    state.install_progress = None;
-                    drop(state);
-                    self.notify.notify_waiters();
-                    self.publish_status_update().await;
+            let process = self
+                .process_handle
+                .status()
+                .await
+                .map_err(map_managed_process_error)?;
+            let state = self.inner.lock().await;
 
-                    let result =
-                        (self.launch)(build_launch_request(&self.root_dir, &runtime)).await;
-                    match result {
-                        Ok(server) => {
-                            let connection = server.connection.clone();
-                            self.finish_with_running(server).await;
-                            return Ok(connection);
-                        }
-                        Err(error) => {
-                            self.finish_with_error(error.to_string()).await;
-                            return Err(error);
-                        }
-                    }
-                }
+            if state.install_running {
+                let notified = self.notify.notified();
+                drop(state);
+                notified.await;
+                continue;
             }
-        }
-    }
 
-    async fn begin_lifecycle_transition(
-        &self,
-        next: LifecycleTransition,
-    ) -> Result<Option<Box<RunningCodeServer>>, CodeServerError> {
-        loop {
-            let mut state = self.inner.lock().await;
-            normalize_dead_process(&mut state)?;
-
-            match state.lifecycle {
-                LifecycleState::Starting
-                | LifecycleState::Stopping
-                | LifecycleState::Installing => {
-                    let notified = self.notify.notified();
-                    drop(state);
-                    notified.await;
-                }
-                _ => {
-                    let previous = match std::mem::replace(
-                        &mut state.lifecycle,
-                        match next {
-                            LifecycleTransition::Stopping => LifecycleState::Stopping,
-                        },
-                    ) {
-                        LifecycleState::Running(server) => Some(server),
-                        LifecycleState::Stopped | LifecycleState::Error(_) => None,
-                        LifecycleState::Starting
-                        | LifecycleState::Stopping
-                        | LifecycleState::Installing => unreachable!(),
-                    };
-                    drop(state);
-                    self.notify.notify_waiters();
-                    self.publish_status_update().await;
-                    return Ok(previous);
-                }
+            if process.lifecycle_state == ManagedProcessLifecycleState::Running
+                && let Some(connection) = state.connection.clone()
+            {
+                return Ok(connection);
             }
+
+            if matches!(
+                process.lifecycle_state,
+                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
+            ) {
+                let notified = self.notify.notified();
+                drop(state);
+                notified.await;
+                continue;
+            }
+
+            drop(state);
+            return self.start_managed_process().await;
         }
-    }
-
-    async fn finish_stopped(&self) {
-        let mut state = self.inner.lock().await;
-        state.lifecycle = LifecycleState::Stopped;
-        state.install_progress = None;
-        drop(state);
-        self.notify.notify_waiters();
-        self.publish_status_update().await;
-    }
-
-    async fn finish_with_running(&self, server: RunningCodeServer) {
-        let mut state = self.inner.lock().await;
-        state.lifecycle = LifecycleState::Running(Box::new(server));
-        state.install_progress = None;
-        drop(state);
-        self.notify.notify_waiters();
-        self.publish_status_update().await;
-    }
-
-    async fn finish_with_error(&self, message: String) {
-        let mut state = self.inner.lock().await;
-        state.lifecycle = LifecycleState::Error(message);
-        state.install_progress = None;
-        drop(state);
-        self.notify.notify_waiters();
-        self.publish_status_update().await;
     }
 
     async fn find_installed_runtime(&self) -> Result<Option<InstalledRuntime>, CodeServerError> {
@@ -692,13 +636,9 @@ impl CodeServerManager {
             .map_err(|error| CodeServerError::Spawn(error.to_string()))?
     }
 
-    async fn run_install_task(
-        self,
-        previous: Option<Box<RunningCodeServer>>,
-        plan: CodeServerInstallPlan,
-    ) {
+    async fn run_install_task(self, plan: CodeServerInstallPlan) {
         let result = async {
-            shutdown_previous(previous).await?;
+            self.stop_managed_process_for_install().await?;
 
             let runtime = (self.download_runtime)(CodeServerDownloadRequest {
                 root_dir: self.root_dir.clone(),
@@ -733,13 +673,27 @@ impl CodeServerManager {
             .await;
 
             let server = (self.launch)(build_launch_request(&self.root_dir, &runtime)).await?;
-            self.finish_with_running(server).await;
+            {
+                let mut state = self.inner.lock().await;
+                state.install_running = false;
+                state.install_progress = None;
+                state.connection = Some(server.connection.clone());
+            }
+            self.notify.notify_waiters();
+            self.process_handle.finish_running(server.process).await;
             Ok::<(), CodeServerError>(())
         }
         .await;
 
         if let Err(error) = result {
-            self.finish_with_error(error.to_string()).await;
+            {
+                let mut state = self.inner.lock().await;
+                state.install_running = false;
+                state.install_progress = None;
+                state.connection = None;
+            }
+            self.notify.notify_waiters();
+            self.process_handle.finish_error(error.to_string()).await;
         }
     }
 
@@ -802,179 +756,147 @@ impl CodeServerManager {
             force,
         })
     }
-}
 
-#[derive(Clone, Copy)]
-enum LifecycleTransition {
-    Stopping,
-}
+    async fn start_managed_process(&self) -> Result<CodeServerConnection, CodeServerError> {
+        let runtime = self.find_installed_runtime().await?;
+        let runtime = runtime.ok_or(CodeServerError::NotInstalled)?;
+        if let Some(status) = self
+            .process_handle
+            .begin_start()
+            .await
+            .map_err(map_managed_process_error)?
+            && status.lifecycle_state == ManagedProcessLifecycleState::Running
+        {
+            let state = self.inner.lock().await;
+            if let Some(connection) = state.connection.clone() {
+                return Ok(connection);
+            }
+        }
 
-impl RunningCodeServer {
-    fn is_alive(&mut self) -> Result<bool, CodeServerError> {
-        self.process.is_alive()
-    }
-
-    async fn shutdown(&mut self) -> Result<(), CodeServerError> {
-        self.process.shutdown().await
-    }
-}
-
-impl ManagedChildProcess {
-    fn new(child: Child) -> Self {
-        Self {
-            #[cfg(unix)]
-            process_group_id: child.id().and_then(|pid| i32::try_from(pid).ok()),
-            child,
+        let result = (self.launch)(build_launch_request(&self.root_dir, &runtime)).await;
+        match result {
+            Ok(server) => {
+                let connection = server.connection.clone();
+                {
+                    let mut state = self.inner.lock().await;
+                    state.install_progress = None;
+                    state.connection = Some(connection.clone());
+                }
+                self.notify.notify_waiters();
+                self.process_handle.finish_running(server.process).await;
+                Ok(connection)
+            }
+            Err(error) => {
+                {
+                    let mut state = self.inner.lock().await;
+                    state.install_progress = None;
+                    state.connection = None;
+                }
+                self.notify.notify_waiters();
+                self.process_handle.finish_error(error.to_string()).await;
+                Err(error)
+            }
         }
     }
 
-    fn is_alive(&mut self) -> Result<bool, CodeServerError> {
-        Ok(self.child.try_wait()?.is_none())
+    async fn stop_managed_process(&self) -> Result<(), CodeServerError> {
+        self.stop_managed_process_impl(true).await
     }
 
-    async fn shutdown(&mut self) -> Result<(), CodeServerError> {
-        self.shutdown_with_timeout(SHUTDOWN_GRACE_TIMEOUT).await
+    async fn stop_managed_process_for_install(&self) -> Result<(), CodeServerError> {
+        self.stop_managed_process_impl(false).await
     }
 
-    async fn shutdown_with_timeout(&mut self, timeout: Duration) -> Result<(), CodeServerError> {
-        if self.child.try_wait()?.is_some() {
-            return Ok(());
+    async fn stop_managed_process_impl(
+        &self,
+        wait_for_install: bool,
+    ) -> Result<(), CodeServerError> {
+        loop {
+            let state = self.inner.lock().await;
+            if wait_for_install && state.install_running {
+                let notified = self.notify.notified();
+                drop(state);
+                notified.await;
+                continue;
+            }
+            drop(state);
+            break;
         }
 
-        self.send_graceful_shutdown()?;
-        if wait_for_child_exit(&mut self.child, timeout).await? {
-            return Ok(());
+        match self
+            .process_handle
+            .begin_stop()
+            .await
+            .map_err(map_managed_process_error)?
+        {
+            ManagedProcessStopTarget::Running(mut runtime) => {
+                runtime
+                    .shutdown()
+                    .await
+                    .map_err(map_managed_process_error)?;
+            }
+            ManagedProcessStopTarget::NotRunning => {}
         }
 
-        tracing::warn!("code-server did not exit after SIGTERM; forcing shutdown");
-        self.force_kill()?;
-        let _ = self.child.wait().await?;
+        {
+            let mut state = self.inner.lock().await;
+            state.install_progress = None;
+            state.connection = None;
+        }
+        self.notify.notify_waiters();
+        self.process_handle.finish_stopped().await;
         Ok(())
     }
+}
 
-    fn send_graceful_shutdown(&mut self) -> std::io::Result<()> {
-        #[cfg(unix)]
-        if let Some(process_group_id) = self.process_group_id {
-            return send_signal_to_process_group(process_group_id, libc::SIGTERM);
-        }
-
-        self.child.start_kill()
+impl ManagedProcessController for CodeServerManager {
+    fn id(&self) -> &str {
+        self.process_handle.id()
     }
 
-    fn force_kill(&mut self) -> std::io::Result<()> {
-        #[cfg(unix)]
-        if let Some(process_group_id) = self.process_group_id {
-            return send_signal_to_process_group(process_group_id, libc::SIGKILL);
-        }
+    fn kind(&self) -> &str {
+        self.process_handle.kind()
+    }
 
-        self.child.start_kill()
+    fn start(
+        &self,
+    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
+        Box::pin(async move {
+            self.start_managed_process()
+                .await
+                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
+            self.process_handle.status().await
+        })
+    }
+
+    fn stop(
+        &self,
+    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
+        Box::pin(async move {
+            self.stop_managed_process()
+                .await
+                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
+            self.process_handle.status().await
+        })
+    }
+
+    fn restart(
+        &self,
+    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
+        Box::pin(async move {
+            self.stop_managed_process()
+                .await
+                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
+            self.start_managed_process()
+                .await
+                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
+            self.process_handle.status().await
+        })
     }
 }
 
-impl RunningCodeServerProcess {
-    fn is_alive(&mut self) -> Result<bool, CodeServerError> {
-        match self {
-            Self::Child(child) => child.is_alive(),
-            #[cfg(test)]
-            Self::External => Ok(true),
-            #[cfg(test)]
-            Self::TestProbe(probe) => Ok(probe.alive.load(std::sync::atomic::Ordering::Relaxed)),
-        }
-    }
-
-    async fn shutdown(&mut self) -> Result<(), CodeServerError> {
-        match self {
-            Self::Child(child) => child.shutdown().await,
-            #[cfg(test)]
-            Self::External => Ok(()),
-            #[cfg(test)]
-            Self::TestProbe(probe) => {
-                probe
-                    .shutdowns
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                probe
-                    .alive
-                    .store(false, std::sync::atomic::Ordering::Relaxed);
-                Ok(())
-            }
-        }
-    }
-}
-
-impl Drop for RunningCodeServerProcess {
-    fn drop(&mut self) {
-        match self {
-            Self::Child(child) => {
-                let _ = child.force_kill();
-            }
-            #[cfg(test)]
-            Self::External => {}
-            #[cfg(test)]
-            Self::TestProbe(probe) => {
-                if probe
-                    .alive
-                    .swap(false, std::sync::atomic::Ordering::Relaxed)
-                {
-                    probe
-                        .drop_kills
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                }
-            }
-        }
-    }
-}
-
-#[cfg(unix)]
-fn send_signal_to_process_group(process_group_id: i32, signal: libc::c_int) -> std::io::Result<()> {
-    let result = unsafe { libc::kill(-process_group_id, signal) };
-    if result == 0 {
-        return Ok(());
-    }
-
-    let error = std::io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) {
-        return Ok(());
-    }
-
-    Err(error)
-}
-
-async fn wait_for_child_exit(
-    child: &mut Child,
-    timeout: Duration,
-) -> Result<bool, CodeServerError> {
-    let deadline = tokio::time::Instant::now() + timeout;
-    loop {
-        if child.try_wait()?.is_some() {
-            return Ok(true);
-        }
-
-        if tokio::time::Instant::now() >= deadline {
-            return Ok(false);
-        }
-
-        tokio::time::sleep(SHUTDOWN_POLL_INTERVAL).await;
-    }
-}
-
-async fn shutdown_previous(
-    previous: Option<Box<RunningCodeServer>>,
-) -> Result<(), CodeServerError> {
-    if let Some(mut server) = previous {
-        server.shutdown().await?;
-    }
-    Ok(())
-}
-
-fn normalize_dead_process(state: &mut ManagerState) -> Result<bool, CodeServerError> {
-    let exited = match &mut state.lifecycle {
-        LifecycleState::Running(server) => !server.is_alive()?,
-        _ => false,
-    };
-    if exited {
-        state.lifecycle = LifecycleState::Error("code-server exited".to_string());
-    }
-    Ok(exited)
+fn map_managed_process_error(error: ManagedProcessActionError) -> CodeServerError {
+    CodeServerError::Spawn(error.to_string())
 }
 
 async fn try_extract_websocket_upgrade(
@@ -1241,14 +1163,6 @@ fn detect_platform() -> Result<CodeServerPlatform, CodeServerError> {
     };
 
     Ok(CodeServerPlatform { os, arch })
-}
-
-fn now_timestamp_string() -> String {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        .to_string()
 }
 
 fn normalize_version(raw: &str) -> Result<String, CodeServerError> {
@@ -1636,27 +1550,8 @@ async fn launch_code_server(
 
     Ok(RunningCodeServer {
         connection,
-        process: RunningCodeServerProcess::Child(ManagedChildProcess::new(child)),
+        process: ManagedProcessRuntime::Child(ManagedChildProcess::new(child)),
     })
-}
-
-#[cfg(target_os = "linux")]
-fn configure_parent_death_signal(command: &mut Command) {
-    let parent_pid = unsafe { libc::getpid() };
-    unsafe {
-        command.pre_exec(move || {
-            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-
-            // Close the race where the parent exits between fork and prctl.
-            if libc::getppid() != parent_pid {
-                return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
-            }
-
-            Ok(())
-        });
-    }
 }
 
 async fn prepare_dirs(request: &CodeServerLaunchRequest) -> Result<(), CodeServerError> {
@@ -1705,7 +1600,7 @@ async fn wait_for_ready(
 mod tests {
     use std::io::Write;
     use std::path::Path;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use axum::extract::Request as AxumRequest;
     use axum::routing::any;
@@ -1715,26 +1610,12 @@ mod tests {
     use tar::Builder;
 
     use super::*;
+    use crate::process_manager::TestProcessProbe;
     use crate::{AppState, build_router};
     #[cfg(unix)]
     use std::fs::Permissions;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-
-    #[cfg(test)]
-    impl TestProcessProbe {
-        fn new(alive: bool) -> Self {
-            Self {
-                alive: Arc::new(AtomicBool::new(alive)),
-                shutdowns: Arc::new(AtomicUsize::new(0)),
-                drop_kills: Arc::new(AtomicUsize::new(0)),
-            }
-        }
-
-        fn process(&self) -> RunningCodeServerProcess {
-            RunningCodeServerProcess::TestProbe(self.clone())
-        }
-    }
 
     fn static_fetch_latest(version: &'static str) -> FetchLatestFn {
         Arc::new(move || Box::pin(async move { Ok(version.to_string()) }))
@@ -2145,7 +2026,7 @@ mod tests {
                     connection: CodeServerConnection {
                         base_url: format!("http://{}:{}", request.host, request.port),
                     },
-                    process: RunningCodeServerProcess::External,
+                    process: ManagedProcessRuntime::External,
                 })
             })
         });
@@ -2283,7 +2164,7 @@ mod tests {
                         connection: CodeServerConnection {
                             base_url: "http://127.0.0.1:1234".into(),
                         },
-                        process: RunningCodeServerProcess::External,
+                        process: ManagedProcessRuntime::External,
                     })
                 })
             }),
@@ -2292,21 +2173,22 @@ mod tests {
 
         {
             let mut state = manager.inner.lock().await;
-            state.lifecycle = LifecycleState::Running(Box::new(RunningCodeServer {
-                connection: CodeServerConnection {
-                    base_url: "http://127.0.0.1:1234".into(),
-                },
-                process: probe.process(),
-            }));
+            state.connection = Some(CodeServerConnection {
+                base_url: "http://127.0.0.1:1234".into(),
+            });
         }
+        manager.process_handle.finish_running(probe.runtime()).await;
 
         manager.shutdown().await.unwrap();
 
         assert_eq!(probe.shutdowns.load(Ordering::Relaxed), 1);
         assert_eq!(probe.drop_kills.load(Ordering::Relaxed), 0);
 
-        let state = manager.inner.lock().await;
-        assert!(matches!(state.lifecycle, LifecycleState::Stopped));
+        let status = manager.process_handle.status().await.unwrap();
+        assert_eq!(
+            status.lifecycle_state,
+            ManagedProcessLifecycleState::Stopped
+        );
     }
 
     #[tokio::test]
@@ -2389,7 +2271,7 @@ mod tests {
                     connection: CodeServerConnection {
                         base_url: format!("http://{}", upstream_addr),
                     },
-                    process: RunningCodeServerProcess::External,
+                    process: ManagedProcessRuntime::External,
                 })
             })
         });
@@ -2515,7 +2397,7 @@ mod tests {
                     connection: CodeServerConnection {
                         base_url: format!("http://{}:{}", request.host, request.port),
                     },
-                    process: RunningCodeServerProcess::External,
+                    process: ManagedProcessRuntime::External,
                 })
             })
         });
@@ -2643,7 +2525,7 @@ mod tests {
                     connection: CodeServerConnection {
                         base_url: format!("http://{}:{}", request.host, request.port),
                     },
-                    process: RunningCodeServerProcess::External,
+                    process: ManagedProcessRuntime::External,
                 })
             })
         });
@@ -2711,16 +2593,18 @@ mod tests {
                     connection: CodeServerConnection {
                         base_url: "http://127.0.0.1:1234".into(),
                     },
-                    process: RunningCodeServerProcess::External,
+                    process: ManagedProcessRuntime::External,
                 })
             })
         });
         let tmp = tempfile::TempDir::new().unwrap();
-        let manager = CodeServerManager {
+        let process_service = Arc::new(ManagedProcessService::new(events.clone()));
+        let manager = Arc::new(CodeServerManager {
             inner: Arc::new(Mutex::new(ManagerState {
-                lifecycle: LifecycleState::Stopped,
                 latest: None,
                 install_progress: None,
+                install_running: false,
+                connection: None,
             })),
             notify: Arc::new(Notify::new()),
             client: reqwest::Client::builder()
@@ -2732,7 +2616,9 @@ mod tests {
             download_runtime: download,
             launch,
             root_dir: tmp.path().join("code-server"),
-        };
+            process_handle: process_service.register_process("code_server", "code-server"),
+        });
+        manager.register_process_callback().await;
 
         let initial = manager
             .install(Some("4.114.1".to_string()), false)
