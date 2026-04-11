@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +10,7 @@ import {
   parseDevServerState,
   parseFrontendState,
   runtimeBinaryName,
+  waitForFrontendPort,
 } from "./runtime";
 
 describe("parseFrontendState", () => {
@@ -81,5 +86,19 @@ describe("buildPackagedRuntimeEnv", () => {
 
     expect(env.HUBRIS_HOST).toBe("127.0.0.1");
     expect(env.HUBRIS_PORT).toBe("0");
+  });
+});
+
+describe("waitForFrontendPort", () => {
+  it("reports the configured timeout in its error message", async () => {
+    const devTmp = fs.mkdtempSync(path.join(os.tmpdir(), "hubris-desktop-"));
+
+    try {
+      await expect(waitForFrontendPort("dev-id", devTmp, 250)).rejects.toThrow(
+        "frontend did not report a port within 0.25 seconds",
+      );
+    } finally {
+      fs.rmSync(devTmp, { recursive: true, force: true });
+    }
   });
 });

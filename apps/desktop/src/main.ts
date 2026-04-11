@@ -42,6 +42,7 @@ const profileMode = desktopProfileMode(app.isPackaged);
 let mainWindow: BrowserWindow | null = null;
 let runtimeChild: ReturnType<typeof spawnPackagedRuntime>["child"] | null =
   null;
+let mainWindowStartup: Promise<BrowserWindow> | null = null;
 
 function homeDataDir(): string {
   return path.join(app.getPath("home"), APP_DATA_DIR_NAME);
@@ -217,6 +218,26 @@ async function createMainWindow() {
   });
 
   await window.loadURL(`${HUBRIS_ORIGIN}/`);
+  return window;
+}
+
+/**
+ * Create the main window once, even if multiple startup paths race.
+ */
+function getOrCreateMainWindow(): Promise<BrowserWindow> {
+  if (mainWindow) {
+    return Promise.resolve(mainWindow);
+  }
+
+  if (mainWindowStartup) {
+    return mainWindowStartup;
+  }
+
+  mainWindowStartup = createMainWindow().finally(() => {
+    mainWindowStartup = null;
+  });
+
+  return mainWindowStartup;
 }
 
 app.on("before-quit", () => {
@@ -227,12 +248,6 @@ app.on("window-all-closed", () => {
   app.quit();
 });
 
-app.on("activate", async () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    await createMainWindow();
-  }
-});
-
 configureDesktopProfilePaths(app, profileMode);
 
 void app.whenReady().then(async () => {
@@ -240,7 +255,13 @@ void app.whenReady().then(async () => {
     desktopSessionPartition(profileMode),
   );
   configureSessionGuards(desktopSession);
-  await createMainWindow();
+  await getOrCreateMainWindow();
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void getOrCreateMainWindow();
+    }
+  });
 });
 
 async function bootstrapPackagedBackend(

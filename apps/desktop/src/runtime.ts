@@ -139,7 +139,9 @@ async function waitForDevServerState(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
-  throw new Error(`${kind} did not report a port within 120 seconds`);
+  throw new Error(
+    `${kind} did not report a port within ${timeoutMs / 1000} seconds`,
+  );
 }
 
 /**

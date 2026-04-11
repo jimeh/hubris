@@ -292,3 +292,7 @@ embeddings.**
   `/_hubris/code-server/connection` endpoint, proxies `/code/*` directly, and
   bridges same-origin WebSockets for code-server, terminal I/O, and Vite HMR in
   preload/main-process code instead of rewriting browser-visible loopback URLs.
+- Electron desktop startup should only register the macOS `activate` handler
+  after the initial `whenReady()` bootstrap finishes, or guard window creation
+  with a single-flight helper. Registering `activate` too early can race the
+  first async window/runtime startup and spawn duplicate packaged runtimes.
