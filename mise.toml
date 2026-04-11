@@ -2,6 +2,8 @@
 rust = "latest"
 bun = "latest"
 "github:mitsuhiko/systemfd" = "latest"
+zig = "latest"
+cargo-binstall = "latest"
 
 [tasks.build]
 depends = ["build:web", "build:server"]
@@ -23,10 +25,45 @@ description = "Build server binary (release)"
 run = "cargo build --release --bin hubris-desktop-runtime"
 description = "Build the desktop runtime binary (release)"
 
+[tasks."build:server:linux-x64"]
+depends = ["build:web"]
+run = ".mise/tasks/build-rust-target hubris-server x86_64-unknown-linux-gnu --features embed-frontend"
+description = "Build the standalone server for Linux x64"
+
+[tasks."build:server:linux-arm64"]
+depends = ["build:web"]
+run = ".mise/tasks/build-rust-target hubris-server aarch64-unknown-linux-gnu --features embed-frontend"
+description = "Build the standalone server for Linux arm64"
+
+[tasks."build:server:macos-x64"]
+depends = ["build:web"]
+run = ".mise/tasks/build-rust-target hubris-server x86_64-apple-darwin --features embed-frontend"
+description = "Build the standalone server for macOS x64"
+
+[tasks."build:server:macos-arm64"]
+depends = ["build:web"]
+run = ".mise/tasks/build-rust-target hubris-server aarch64-apple-darwin --features embed-frontend"
+description = "Build the standalone server for macOS arm64"
+
+[tasks."build:desktop-runtime:macos-x64"]
+run = ".mise/tasks/build-rust-target hubris-desktop-runtime x86_64-apple-darwin"
+description = "Build the desktop runtime for macOS x64"
+
+[tasks."build:desktop-runtime:macos-arm64"]
+run = ".mise/tasks/build-rust-target hubris-desktop-runtime aarch64-apple-darwin"
+description = "Build the desktop runtime for macOS arm64"
+
 [tasks."build:desktop"]
-depends = ["build:web", "build:desktop-runtime"]
-run = "bun run --filter hubris-desktop make"
+run = ".mise/tasks/build-desktop-native"
 description = "Build the Electron desktop app"
+
+[tasks."build:desktop:macos-x64"]
+run = ".mise/tasks/build-desktop-target darwin x64 x86_64-apple-darwin"
+description = "Build the Electron desktop app for macOS x64"
+
+[tasks."build:desktop:macos-arm64"]
+run = ".mise/tasks/build-desktop-target darwin arm64 aarch64-apple-darwin"
+description = "Build the Electron desktop app for macOS arm64"
 
 [tasks."dev:server"]
 run = "systemfd --no-pid -s http::0 -- mise watch --restart dev:server:raw"

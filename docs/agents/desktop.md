@@ -48,6 +48,18 @@
   must build `apps/web/dist` and the `hubris-desktop-runtime` release binary
   before running Electron Forge, because the packaged app copies both in as
   resources instead of rebuilding them at launch.
+- **Cross-target packaging reads the runtime path from the environment**:
+  `HUBRIS_DESKTOP_RUNTIME_PATH` overrides Forge's default
+  `target/release/hubris-desktop-runtime` lookup. Use that for
+  `mise run build:desktop:<platform>-<arch>` tasks so cross-built runtimes are
+  copied into packaged apps without moving files around.
+- **macOS desktop builds are the only packaged desktop targets**: the target-
+  aware desktop tasks only build `darwin` zips now. Keep Linux packaging out of
+  the desktop matrix until a reliable distributable path exists.
+- **Non-macOS hosts need explicit Apple SDK/linker setup for macOS Rust
+  binaries**: cross-building `*-apple-darwin` targets off macOS is only
+  supported when `SDKROOT` and the matching `CARGO_TARGET_<TRIPLE>_LINKER`
+  environment variable point at a valid macOS SDK toolchain.
 - **Closing the last desktop window does not exit Hubris**: the Electron app and
   packaged Rust runtime stay alive so background work can continue. Reopen the
   UI through the normal app relaunch path: Electron uses a single-instance lock

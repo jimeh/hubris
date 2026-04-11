@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+  echo "usage: build-rust-target <bin> <target> [cargo args...]" >&2
+  exit 1
+fi
+
+BIN_NAME=$1
+TARGET=$2
+shift 2
+
+target_env_name() {
+  printf '%s' "$1" | tr '[:lower:]-' '[:upper:]_'
+}
+
+ensure_rust_target() {
+  local target=$1
+
+  if rustup target list --installed | rg -qx "$target"; then
+    return
+  fi
+
+  rustup target add "$target"
+}
+
+ensure_cargo_zigbuild() {
+  if cargo zigbuild --help >/dev/null 2>&1; then
+    return
+  fi
+
+  if command -v cargo-binstall >/dev/null 2>&1; then
+    cargo binstall --no-confirm cargo-zigbuild
+    return
+  fi
+
+  cargo install cargo-zigbuild --locked
+}
+
+host_os=$(uname -s)
+
+case "$TARGET" in
+  *-unknown-linux-gnu)
+    if ! command -v zig >/dev/null 2>&1; then
+      echo "zig is required to cross-build Linux targets" >&2
+      exit 1
+    fi
+
+    ensure_rust_target "$TARGET"
+    ensure_cargo_zigbuild
+    cargo zigbuild --release --bin "$BIN_NAME" --target "$TARGET" "$@"
+    ;;
+  *-apple-darwin)
+    ensure_rust_target "$TARGET"
+
+    if [[ "$host_os" != "Darwin" ]]; then
+      linker_var="CARGO_TARGET_$(target_env_name "$TARGET")_LINKER"
+
+      if [[ -z "${SDKROOT:-}" ]]; then
+        echo "SDKROOT is required for non-macOS apple-darwin builds" >&2
+        exit 1
+      fi
+
+      if [[ -z "${!linker_var:-}" ]]; then
+        echo "${linker_var} is required for non-macOS apple-darwin builds" >&2
+        exit 1
+      fi
+    fi
+
+    cargo build --release --bin "$BIN_NAME" --target "$TARGET" "$@"
+    ;;
+  *)
+    echo "unsupported target: $TARGET" >&2
+    exit 1
+    ;;
+esac

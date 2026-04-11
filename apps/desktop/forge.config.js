@@ -8,15 +8,28 @@ function runtimeBinaryName(platform = process.platform) {
     : "hubris-desktop-runtime";
 }
 
+function runtimeResourcePath(platform = process.platform) {
+  if (process.env.HUBRIS_DESKTOP_RUNTIME_PATH) {
+    return path.resolve(process.env.HUBRIS_DESKTOP_RUNTIME_PATH);
+  }
+
+  return path.resolve(
+    __dirname,
+    "../../target/release",
+    runtimeBinaryName(platform),
+  );
+}
+
 module.exports = {
   outDir: path.resolve(__dirname, "../../dist"),
   packagerConfig: {
     name: "Hubris",
     executableName: "Hubris",
     icon: path.resolve(__dirname, "icons/icon"),
+    overwrite: true,
     extraResource: [
       path.resolve(__dirname, "../web/dist"),
-      path.resolve(__dirname, "../../target/release", runtimeBinaryName()),
+      runtimeResourcePath(),
     ],
   },
   makers: [new MakerZIP({}, ["darwin"])],
