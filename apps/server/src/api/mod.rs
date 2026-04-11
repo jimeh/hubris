@@ -1,4 +1,3 @@
-pub mod code_server;
 pub mod editor_themes;
 pub mod errors;
 pub mod events;
@@ -12,4 +11,5 @@ pub mod settings;
 pub mod system;
 pub mod tabs;
 pub mod terminal;
+pub mod vscode;
 pub mod worktrees;

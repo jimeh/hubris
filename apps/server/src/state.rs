@@ -4,12 +4,12 @@ use std::sync::Arc;
 use dashmap::DashMap;
 
 use crate::api::projects::Project;
-use crate::code_server::CodeServerManager;
 use crate::events::EventBus;
 use crate::process_manager::ManagedProcessService;
 use crate::pty::live_tab::LiveTab;
 use crate::settings_manager::SettingsManager;
 use crate::tab::TabInfo;
+use crate::vscode::{CodeServerManager, VscodeCliManager, VscodeManager};
 use crate::worktree_files::WorktreeFilesService;
 
 pub type TabId = String;
@@ -22,7 +22,7 @@ pub struct AppState {
     pub next_terminal_num_by_worktree: Arc<DashMap<String, u32>>,
     pub data_dir: PathBuf,
     pub processes: Arc<ManagedProcessService>,
-    pub code_server: Arc<CodeServerManager>,
+    pub vscode: Arc<VscodeManager>,
     pub settings: Arc<SettingsManager>,
     pub worktree_files: Arc<WorktreeFilesService>,
 }
@@ -42,8 +42,22 @@ impl AppState {
             events.clone(),
             processes.clone(),
         ));
+        let vscode_cli = Arc::new(VscodeCliManager::new(
+            data_dir.join("vscode-cli"),
+            events.clone(),
+            processes.clone(),
+        ));
+        let vscode = Arc::new(VscodeManager::new(
+            settings.clone(),
+            events.clone(),
+            code_server.clone(),
+            vscode_cli.clone(),
+        ));
         processes.register_controller(code_server.clone());
+        processes.register_controller(vscode_cli.clone());
         code_server.register_process_callback().await;
+        vscode_cli.register_process_callback().await;
+        vscode.register_status_callbacks().await;
 
         Self {
             tabs: Arc::new(DashMap::new()),
@@ -52,7 +66,7 @@ impl AppState {
             next_terminal_num_by_worktree: Arc::new(DashMap::new()),
             data_dir,
             processes,
-            code_server,
+            vscode,
             settings,
             worktree_files: Arc::new(WorktreeFilesService::new(events.clone())),
         }

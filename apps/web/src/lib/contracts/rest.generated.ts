@@ -4,102 +4,6 @@
  */
 
 export interface paths {
-  "/api/code-server": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations["get_code_server_status"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/code-server/check-update": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["check_code_server_update"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/code-server/install": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["install_code_server"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/code-server/restart": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["restart_code_server"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/code-server/start": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["start_code_server"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/code-server/stop": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations["stop_code_server"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/api/editor-themes": {
     parameters: {
       query?: never;
@@ -703,6 +607,102 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/vscode": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_vscode_status"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/vscode/check-update": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["check_vscode_update"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/vscode/install": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["install_vscode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/vscode/restart": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["restart_vscode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/vscode/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["start_vscode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/vscode/stop": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["stop_vscode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -731,45 +731,6 @@ export interface components {
       /** @enum {string} */
       type: "resize";
       visible: boolean;
-    };
-    /** @enum {string} */
-    CodeServerInstallPhase:
-      | "preparing"
-      | "downloading"
-      | "extracting"
-      | "cleaning"
-      | "starting";
-    CodeServerInstallProgress: {
-      /** Format: int64 */
-      downloadedBytes?: number | null;
-      /** Format: int32 */
-      percent: number;
-      phase: components["schemas"]["CodeServerInstallPhase"];
-      /** Format: int64 */
-      totalBytes?: number | null;
-    };
-    CodeServerLatestCheck: {
-      checkedAt?: string | null;
-      latestVersion?: string | null;
-      updateAvailable: boolean;
-    };
-    /** @enum {string} */
-    CodeServerProcessStatus:
-      | "running"
-      | "stopped"
-      | "starting"
-      | "stopping"
-      | "installing"
-      | "error";
-    CodeServerStatus: {
-      installProgress?:
-        | null
-        | components["schemas"]["CodeServerInstallProgress"];
-      installedVersion?: string | null;
-      latest?: null | components["schemas"]["CodeServerLatestCheck"];
-      message?: string | null;
-      processStatus: components["schemas"]["CodeServerProcessStatus"];
-      supported: boolean;
     };
     /** @enum {string} */
     ColorScheme: "auto" | "light" | "dark";
@@ -896,8 +857,7 @@ export interface components {
       id: string;
       path: string;
     };
-    InstallCodeServerRequest: {
-      /** @description Force a fresh reinstall of the target runtime version. */
+    InstallVscodeRequest: {
       force?: boolean;
       version?: string | null;
     };
@@ -1014,12 +974,14 @@ export interface components {
       appearance?: components["schemas"]["AppearanceSettings"];
       editor?: components["schemas"]["EditorSettings"];
       terminal?: components["schemas"]["TerminalSettings"];
+      vscode?: components["schemas"]["VscodeSettings"];
       worktree?: components["schemas"]["WorktreeSettings"];
     };
     SettingsPatch: {
       appearance?: null | components["schemas"]["AppearanceSettingsPatch"];
       editor?: null | components["schemas"]["EditorSettingsPatch"];
       terminal?: null | components["schemas"]["TerminalSettingsPatch"];
+      vscode?: null | components["schemas"]["VscodeSettingsPatch"];
       worktree?: null | components["schemas"]["WorktreeSettingsPatch"];
     };
     SettingsState: {
@@ -1131,6 +1093,65 @@ export interface components {
       name?: string | null;
       source_ref?: string | null;
       ui_mode?: null | components["schemas"]["WorktreeUiMode"];
+    };
+    VscodeConnectionInfo: {
+      baseUrl: string;
+      connectionToken?: string | null;
+      pathMode: components["schemas"]["VscodePathMode"];
+      runtime: components["schemas"]["VscodeRuntimeKind"];
+      wsBaseUrl: string;
+    };
+    /** @enum {string} */
+    VscodeInstallPhase:
+      | "preparing"
+      | "downloading"
+      | "extracting"
+      | "cleaning"
+      | "starting";
+    VscodeInstallProgress: {
+      /** Format: int64 */
+      downloadedBytes?: number | null;
+      /** Format: int32 */
+      percent: number;
+      phase: components["schemas"]["VscodeInstallPhase"];
+      /** Format: int64 */
+      totalBytes?: number | null;
+    };
+    VscodeLatestCheck: {
+      checkedAt?: string | null;
+      latestVersion?: string | null;
+      updateAvailable: boolean;
+    };
+    /** @enum {string} */
+    VscodePathMode: "stripPublicBasePath" | "preservePublicBasePath";
+    /** @enum {string} */
+    VscodeProcessStatus:
+      | "running"
+      | "stopped"
+      | "starting"
+      | "stopping"
+      | "installing"
+      | "error";
+    /** @enum {string} */
+    VscodeRuntimeKind: "vscodeCli" | "codeServer";
+    VscodeRuntimeStatus: {
+      installProgress?: null | components["schemas"]["VscodeInstallProgress"];
+      installedVersion?: string | null;
+      latest?: null | components["schemas"]["VscodeLatestCheck"];
+      message?: string | null;
+      processStatus: components["schemas"]["VscodeProcessStatus"];
+      supported: boolean;
+    };
+    VscodeSettings: {
+      runtime?: components["schemas"]["VscodeRuntimeKind"];
+    };
+    VscodeSettingsPatch: {
+      runtime?: null | components["schemas"]["VscodeRuntimeKind"];
+    };
+    VscodeStatus: {
+      codeServer: components["schemas"]["VscodeRuntimeStatus"];
+      selectedRuntime: components["schemas"]["VscodeRuntimeKind"];
+      vscodeCli: components["schemas"]["VscodeRuntimeStatus"];
     };
     VscodeThemeJson: {
       colors?: {
@@ -1253,211 +1274,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-  get_code_server_status: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Current code-server status */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CodeServerStatus"];
-        };
-      };
-    };
-  };
-  check_code_server_update: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Latest release checked */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CodeServerStatus"];
-        };
-      };
-      /** @description Unsupported platform or invalid release metadata */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ApiErrorResponse"];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ApiErrorResponse"];
-        };
-      };
-    };
-  };
-  install_code_server: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["InstallCodeServerRequest"];
-      };
-    };
-    responses: {
-      /** @description Started installing or upgrading code-server */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CodeServerStatus"];
-        };
-      };
-      /** @description Unsupported platform or invalid request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ApiErrorResponse"];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ApiErrorResponse"];
-        };
-      };
-    };
-  };
-  restart_code_server: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Restarted code-server */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CodeServerStatus"];
-        };
-      };
-      /** @description code-server is not installed or unsupported */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ApiErrorResponse"];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ApiErrorResponse"];
-        };
-      };
-    };
-  };
-  start_code_server: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Started code-server */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CodeServerStatus"];
-        };
-      };
-      /** @description code-server is not installed or unsupported */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ApiErrorResponse"];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ApiErrorResponse"];
-        };
-      };
-    };
-  };
-  stop_code_server: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Stopped code-server */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CodeServerStatus"];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ApiErrorResponse"];
-        };
-      };
-    };
-  };
   list_editor_themes: {
     parameters: {
       query?: never;
@@ -3375,6 +3191,211 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  get_vscode_status: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current VS Code runtime status */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VscodeStatus"];
+        };
+      };
+    };
+  };
+  check_vscode_update: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Latest release checked */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VscodeStatus"];
+        };
+      };
+      /** @description Unsupported platform or invalid release metadata */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  install_vscode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["InstallVscodeRequest"];
+      };
+    };
+    responses: {
+      /** @description Started installing or upgrading the selected VS Code runtime */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VscodeStatus"];
+        };
+      };
+      /** @description Unsupported platform or invalid request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  restart_vscode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Restarted the selected VS Code runtime */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VscodeStatus"];
+        };
+      };
+      /** @description Runtime is not installed or unsupported */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  start_vscode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Started the selected VS Code runtime */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VscodeStatus"];
+        };
+      };
+      /** @description Runtime is not installed or unsupported */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  stop_vscode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Stopped the selected VS Code runtime */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["VscodeStatus"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
     };
   };

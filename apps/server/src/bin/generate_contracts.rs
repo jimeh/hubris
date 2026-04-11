@@ -2,10 +2,6 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use hubris_server::api::code_server::{
-    CodeServerInstallPhase, CodeServerInstallProgress, CodeServerLatestCheck,
-    CodeServerProcessStatus, CodeServerStatus,
-};
 use hubris_server::api::processes::{
     ManagedProcessExitInfo, ManagedProcessLifecycleStateValue, ManagedProcessStatus,
 };
@@ -13,9 +9,13 @@ use hubris_server::api::projects::Project;
 use hubris_server::api::settings::{
     AppearanceSettings, ColorScheme, EditorSettings, EditorSettingsPatch, Settings, SettingsState,
     SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings, TerminalTabLabelMode,
-    WorktreeLocationMode, WorktreeSettings,
+    VscodeRuntimeKind, VscodeSettings, WorktreeLocationMode, WorktreeSettings,
 };
 use hubris_server::api::terminal::{ClientControlMessage, ServerControlMessage};
+use hubris_server::api::vscode::{
+    VscodeInstallPhase, VscodeInstallProgress, VscodeLatestCheck, VscodeProcessStatus,
+    VscodeRuntimeStatus, VscodeStatus,
+};
 use hubris_server::api::worktrees::{Worktree, WorktreeUiMode};
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
@@ -81,15 +81,18 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<EditorSettings>(&mut sse, &cfg)?;
     push_ts_export::<EditorSettingsPatch>(&mut sse, &cfg)?;
     push_ts_export::<WorktreeSettings>(&mut sse, &cfg)?;
+    push_ts_export::<VscodeRuntimeKind>(&mut sse, &cfg)?;
+    push_ts_export::<VscodeSettings>(&mut sse, &cfg)?;
     push_ts_export::<Settings>(&mut sse, &cfg)?;
     push_ts_export::<SettingsStatusKind>(&mut sse, &cfg)?;
     push_ts_export::<SettingsStatus>(&mut sse, &cfg)?;
     push_ts_export::<SettingsState>(&mut sse, &cfg)?;
-    push_ts_export::<CodeServerInstallPhase>(&mut sse, &cfg)?;
-    push_ts_export::<CodeServerInstallProgress>(&mut sse, &cfg)?;
-    push_ts_export::<CodeServerLatestCheck>(&mut sse, &cfg)?;
-    push_ts_export::<CodeServerProcessStatus>(&mut sse, &cfg)?;
-    push_ts_export::<CodeServerStatus>(&mut sse, &cfg)?;
+    push_ts_export::<VscodeInstallPhase>(&mut sse, &cfg)?;
+    push_ts_export::<VscodeInstallProgress>(&mut sse, &cfg)?;
+    push_ts_export::<VscodeLatestCheck>(&mut sse, &cfg)?;
+    push_ts_export::<VscodeProcessStatus>(&mut sse, &cfg)?;
+    push_ts_export::<VscodeRuntimeStatus>(&mut sse, &cfg)?;
+    push_ts_export::<VscodeStatus>(&mut sse, &cfg)?;
     push_ts_export::<ManagedProcessLifecycleStateValue>(&mut sse, &cfg)?;
     push_ts_export::<ManagedProcessExitInfo>(&mut sse, &cfg)?;
     push_ts_export::<ManagedProcessStatus>(&mut sse, &cfg)?;

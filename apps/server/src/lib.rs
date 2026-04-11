@@ -1,6 +1,5 @@
 mod access;
 pub mod api;
-mod code_server;
 pub mod events;
 mod frontend;
 mod fs_sync;
@@ -10,6 +9,7 @@ pub mod pty;
 mod settings_manager;
 pub mod state;
 pub mod tab;
+mod vscode;
 pub mod worktree_files;
 pub mod worktree_path_policy;
 
@@ -31,10 +31,6 @@ pub use access::{
     DESKTOP_BOOTSTRAP_PATH, DESKTOP_SESSION_COOKIE_NAME, DesktopAccess, ServerAccess,
 };
 use access::{desktop_auth_middleware, desktop_bootstrap_handler};
-use api::code_server::{
-    check_code_server_update, get_code_server_status, get_desktop_code_server_connection,
-    install_code_server, restart_code_server, start_code_server, stop_code_server,
-};
 use api::editor_themes::{
     delete_editor_theme, discover_editor_themes, get_editor_theme, import_extension_theme,
     list_editor_themes, upload_editor_theme,
@@ -54,6 +50,10 @@ use api::settings::{get_settings, patch_settings, put_settings};
 use api::system::get_system_info;
 use api::tabs::{create_tab, delete_tab, list_tabs, reorder_tabs, update_tab};
 use api::terminal::ws_handler;
+use api::vscode::{
+    check_vscode_update, get_desktop_vscode_connection, get_vscode_status, install_vscode,
+    restart_vscode, start_vscode, stop_vscode,
+};
 use api::worktrees::{
     create_project_worktree, delete_project_worktree, discard_project_worktree_path,
     get_project_worktree_commit_details, get_project_worktree_git_status, import_project_worktree,
@@ -61,10 +61,10 @@ use api::worktrees::{
     rename_worktree_branch, reorder_project_worktrees, stage_project_worktree_path,
     unstage_project_worktree_path, update_project_worktree,
 };
-use code_server::proxy_code_request;
 pub use frontend::FrontendAssets;
 use frontend::apply_frontend_fallback;
 pub use state::AppState;
+use vscode::proxy_code_request;
 
 /// Runtime options for the Hubris server.
 #[derive(Clone, Debug)]
@@ -295,12 +295,12 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route("/processes/{id}/start", post(start_managed_process))
         .route("/processes/{id}/stop", post(stop_managed_process))
         .route("/processes/{id}/restart", post(restart_managed_process))
-        .route("/code-server", get(get_code_server_status))
-        .route("/code-server/check-update", post(check_code_server_update))
-        .route("/code-server/install", post(install_code_server))
-        .route("/code-server/start", post(start_code_server))
-        .route("/code-server/stop", post(stop_code_server))
-        .route("/code-server/restart", post(restart_code_server))
+        .route("/vscode", get(get_vscode_status))
+        .route("/vscode/check-update", post(check_vscode_update))
+        .route("/vscode/install", post(install_vscode))
+        .route("/vscode/start", post(start_vscode))
+        .route("/vscode/stop", post(stop_vscode))
+        .route("/vscode/restart", post(restart_vscode))
         .route(
             "/settings",
             get(get_settings).put(put_settings).patch(patch_settings),
@@ -344,8 +344,8 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
 
     if access.desktop().is_some() {
         router = router.route(
-            "/_hubris/code-server/connection",
-            get(get_desktop_code_server_connection),
+            "/_hubris/vscode/connection",
+            get(get_desktop_vscode_connection),
         );
     }
 

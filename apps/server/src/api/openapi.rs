@@ -1,10 +1,6 @@
 use axum::Json;
 use utoipa::OpenApi;
 
-use crate::api::code_server::{
-    CodeServerInstallPhase, CodeServerInstallProgress, CodeServerLatestCheck,
-    CodeServerProcessStatus, CodeServerStatus, InstallCodeServerRequest,
-};
 use crate::api::editor_themes::{
     DiscoveredExtension, DiscoveredTheme, EditorThemeEntry, ImportThemeRequest, VscodeThemeJson,
     VscodeTokenColor, VscodeTokenColorSettings, VscodeTokenScope,
@@ -30,6 +26,10 @@ use crate::api::settings::{
 use crate::api::system::SystemInfo;
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
+use crate::api::vscode::{
+    InstallVscodeRequest, VscodeConnectionInfo, VscodeInstallPhase, VscodeInstallProgress,
+    VscodeLatestCheck, VscodePathMode, VscodeProcessStatus, VscodeRuntimeStatus, VscodeStatus,
+};
 use crate::api::worktrees::{
     CreateWorktreeRequest, GitCommitDetailsResponse, GitCommitPerson, GitCommitSummary,
     GitFileChange, GitFileChangeType, ImportWorktreeRequest, ImportableWorktree,
@@ -43,12 +43,12 @@ use crate::tab::{GitDiffScope, TabInfo};
 #[openapi(
     paths(
         openapi_json,
-        crate::api::code_server::get_code_server_status,
-        crate::api::code_server::check_code_server_update,
-        crate::api::code_server::install_code_server,
-        crate::api::code_server::start_code_server,
-        crate::api::code_server::stop_code_server,
-        crate::api::code_server::restart_code_server,
+        crate::api::vscode::get_vscode_status,
+        crate::api::vscode::check_vscode_update,
+        crate::api::vscode::install_vscode,
+        crate::api::vscode::start_vscode,
+        crate::api::vscode::stop_vscode,
+        crate::api::vscode::restart_vscode,
         crate::api::processes::list_managed_processes,
         crate::api::processes::get_managed_process,
         crate::api::processes::start_managed_process,
@@ -102,12 +102,15 @@ use crate::tab::{GitDiffScope, TabInfo};
             DirEntry,
             ListFilesResponse,
             ApiErrorResponse,
-            CodeServerInstallPhase,
-            CodeServerInstallProgress,
-            CodeServerProcessStatus,
-            CodeServerLatestCheck,
-            CodeServerStatus,
-            InstallCodeServerRequest,
+            VscodeInstallPhase,
+            VscodeInstallProgress,
+            VscodeProcessStatus,
+            VscodeLatestCheck,
+            VscodeRuntimeStatus,
+            VscodeStatus,
+            VscodePathMode,
+            VscodeConnectionInfo,
+            InstallVscodeRequest,
             ManagedProcessLifecycleStateValue,
             ManagedProcessExitInfo,
             ManagedProcessStatus,

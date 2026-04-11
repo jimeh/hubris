@@ -32,6 +32,8 @@ import type {
   TerminalSettings,
   TerminalSettingsPatch,
   ThemeListEntry,
+  VscodeSettings,
+  VscodeSettingsPatch,
   WorktreeSettings,
   WorktreeSettingsPatch,
 } from "@/lib/theme/types";
@@ -59,6 +61,9 @@ const DEFAULT_SETTINGS: Settings = {
   },
   worktree: {
     locationMode: "dataDir",
+  },
+  vscode: {
+    runtime: "vscodeCli",
   },
 };
 
@@ -101,6 +106,7 @@ type SettingsStoreState = {
   ) => void;
   updateEditor: (partial: EditorSettingsPatch) => void;
   updateWorktree: (partial: WorktreeSettingsPatch) => void;
+  updateVscode: (partial: VscodeSettingsPatch) => void;
 };
 
 type CachedSettingsState = Pick<SettingsState, "settings" | "generation">;
@@ -290,6 +296,22 @@ function normalizeWorktreeSettings(candidate: unknown): {
   };
 }
 
+function normalizeVscodeSettings(candidate: unknown): {
+  settings: VscodeSettings;
+  changed: boolean;
+} {
+  const source = (candidate ?? {}) as Partial<VscodeSettings>;
+  const runtime =
+    source.runtime === "codeServer" || source.runtime === "vscodeCli"
+      ? source.runtime
+      : DEFAULT_SETTINGS.vscode.runtime;
+
+  return {
+    settings: { runtime },
+    changed: runtime !== source.runtime,
+  };
+}
+
 function normalizeSettings(candidate: unknown): {
   settings: Settings;
   changed: boolean;
@@ -299,6 +321,7 @@ function normalizeSettings(candidate: unknown): {
   const terminal = normalizeTerminalSettings(source.terminal);
   const editor = normalizeEditorSettings(source.editor);
   const worktree = normalizeWorktreeSettings(source.worktree);
+  const vscode = normalizeVscodeSettings(source.vscode);
 
   return {
     settings: {
@@ -306,12 +329,14 @@ function normalizeSettings(candidate: unknown): {
       terminal: terminal.settings,
       editor: editor.settings,
       worktree: worktree.settings,
+      vscode: vscode.settings,
     },
     changed:
       appearance.changed ||
       terminal.changed ||
       editor.changed ||
-      worktree.changed,
+      worktree.changed ||
+      vscode.changed,
   };
 }
 
@@ -421,6 +446,9 @@ function stripEmptyPatch(patch: SettingsPatch): SettingsPatch {
   if (patch.worktree && Object.keys(patch.worktree).length > 0) {
     next.worktree = patch.worktree;
   }
+  if (patch.vscode && Object.keys(patch.vscode).length > 0) {
+    next.vscode = patch.vscode;
+  }
 
   return next;
 }
@@ -432,7 +460,8 @@ function hasPatch(patch: SettingsPatch | null | undefined): boolean {
     stripped.appearance !== undefined ||
     stripped.terminal !== undefined ||
     stripped.editor !== undefined ||
-    stripped.worktree !== undefined
+    stripped.worktree !== undefined ||
+    stripped.vscode !== undefined
   );
 }
 
@@ -468,6 +497,10 @@ function applyPatchToSettings(
     worktree: {
       ...settings.worktree,
       ...(patch.worktree ?? {}),
+    },
+    vscode: {
+      ...settings.vscode,
+      ...(patch.vscode ?? {}),
     },
   };
   return normalizeSettings(next).settings;
@@ -655,6 +688,13 @@ function equalWorktreeSettings(
   return left.locationMode === right.locationMode;
 }
 
+function equalVscodeSettings(
+  left: VscodeSettings,
+  right: VscodeSettings,
+): boolean {
+  return left.runtime === right.runtime;
+}
+
 function stabilizeSettingsSections(
   current: Settings,
   next: Settings,
@@ -674,12 +714,16 @@ function stabilizeSettingsSections(
   const worktree = equalWorktreeSettings(current.worktree, next.worktree)
     ? current.worktree
     : next.worktree;
+  const vscode = equalVscodeSettings(current.vscode, next.vscode)
+    ? current.vscode
+    : next.vscode;
 
   if (
     appearance === current.appearance &&
     terminal === current.terminal &&
     editor === current.editor &&
-    worktree === current.worktree
+    worktree === current.worktree &&
+    vscode === current.vscode
   ) {
     return current;
   }
@@ -689,6 +733,7 @@ function stabilizeSettingsSections(
     terminal,
     editor,
     worktree,
+    vscode,
   };
 }
 
@@ -931,6 +976,9 @@ export const useSettingsStore = create<SettingsStoreState>(() => ({
   },
   updateWorktree(partial) {
     applyOptimisticPatch({ worktree: partial });
+  },
+  updateVscode(partial) {
+    applyOptimisticPatch({ vscode: partial });
   },
 }));
 

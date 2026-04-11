@@ -9,214 +9,6 @@
     "version": "0.1.0"
   },
   "paths": {
-    "/api/code-server": {
-      "get": {
-        "tags": ["crate::api::code_server"],
-        "operationId": "get_code_server_status",
-        "responses": {
-          "200": {
-            "description": "Current code-server status",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CodeServerStatus"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/code-server/check-update": {
-      "post": {
-        "tags": ["crate::api::code_server"],
-        "operationId": "check_code_server_update",
-        "responses": {
-          "200": {
-            "description": "Latest release checked",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CodeServerStatus"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unsupported platform or invalid release metadata",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/code-server/install": {
-      "post": {
-        "tags": ["crate::api::code_server"],
-        "operationId": "install_code_server",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InstallCodeServerRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "Started installing or upgrading code-server",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CodeServerStatus"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unsupported platform or invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/code-server/restart": {
-      "post": {
-        "tags": ["crate::api::code_server"],
-        "operationId": "restart_code_server",
-        "responses": {
-          "200": {
-            "description": "Restarted code-server",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CodeServerStatus"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "code-server is not installed or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/code-server/start": {
-      "post": {
-        "tags": ["crate::api::code_server"],
-        "operationId": "start_code_server",
-        "responses": {
-          "200": {
-            "description": "Started code-server",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CodeServerStatus"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "code-server is not installed or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/code-server/stop": {
-      "post": {
-        "tags": ["crate::api::code_server"],
-        "operationId": "stop_code_server",
-        "responses": {
-          "200": {
-            "description": "Stopped code-server",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CodeServerStatus"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/editor-themes": {
       "get": {
         "tags": ["crate::api::editor_themes"],
@@ -2263,6 +2055,214 @@
           }
         }
       }
+    },
+    "/api/vscode": {
+      "get": {
+        "tags": ["crate::api::vscode"],
+        "operationId": "get_vscode_status",
+        "responses": {
+          "200": {
+            "description": "Current VS Code runtime status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VscodeStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vscode/check-update": {
+      "post": {
+        "tags": ["crate::api::vscode"],
+        "operationId": "check_vscode_update",
+        "responses": {
+          "200": {
+            "description": "Latest release checked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VscodeStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported platform or invalid release metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vscode/install": {
+      "post": {
+        "tags": ["crate::api::vscode"],
+        "operationId": "install_vscode",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallVscodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Started installing or upgrading the selected VS Code runtime",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VscodeStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unsupported platform or invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vscode/restart": {
+      "post": {
+        "tags": ["crate::api::vscode"],
+        "operationId": "restart_vscode",
+        "responses": {
+          "200": {
+            "description": "Restarted the selected VS Code runtime",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VscodeStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Runtime is not installed or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vscode/start": {
+      "post": {
+        "tags": ["crate::api::vscode"],
+        "operationId": "start_vscode",
+        "responses": {
+          "200": {
+            "description": "Started the selected VS Code runtime",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VscodeStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Runtime is not installed or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vscode/stop": {
+      "post": {
+        "tags": ["crate::api::vscode"],
+        "operationId": "stop_vscode",
+        "responses": {
+          "200": {
+            "description": "Stopped the selected VS Code runtime",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VscodeStatus"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2346,104 +2346,6 @@
             }
           }
         ]
-      },
-      "CodeServerInstallPhase": {
-        "type": "string",
-        "enum": [
-          "preparing",
-          "downloading",
-          "extracting",
-          "cleaning",
-          "starting"
-        ]
-      },
-      "CodeServerInstallProgress": {
-        "type": "object",
-        "required": ["phase", "percent"],
-        "properties": {
-          "downloadedBytes": {
-            "type": ["integer", "null"],
-            "format": "int64",
-            "minimum": 0
-          },
-          "percent": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "phase": {
-            "$ref": "#/components/schemas/CodeServerInstallPhase"
-          },
-          "totalBytes": {
-            "type": ["integer", "null"],
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
-      "CodeServerLatestCheck": {
-        "type": "object",
-        "required": ["updateAvailable"],
-        "properties": {
-          "checkedAt": {
-            "type": ["string", "null"]
-          },
-          "latestVersion": {
-            "type": ["string", "null"]
-          },
-          "updateAvailable": {
-            "type": "boolean"
-          }
-        }
-      },
-      "CodeServerProcessStatus": {
-        "type": "string",
-        "enum": [
-          "running",
-          "stopped",
-          "starting",
-          "stopping",
-          "installing",
-          "error"
-        ]
-      },
-      "CodeServerStatus": {
-        "type": "object",
-        "required": ["supported", "processStatus"],
-        "properties": {
-          "installProgress": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CodeServerInstallProgress"
-              }
-            ]
-          },
-          "installedVersion": {
-            "type": ["string", "null"]
-          },
-          "latest": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CodeServerLatestCheck"
-              }
-            ]
-          },
-          "message": {
-            "type": ["string", "null"]
-          },
-          "processStatus": {
-            "$ref": "#/components/schemas/CodeServerProcessStatus"
-          },
-          "supported": {
-            "type": "boolean"
-          }
-        }
       },
       "ColorScheme": {
         "type": "string",
@@ -2788,12 +2690,11 @@
           }
         }
       },
-      "InstallCodeServerRequest": {
+      "InstallVscodeRequest": {
         "type": "object",
         "properties": {
           "force": {
-            "type": "boolean",
-            "description": "Force a fresh reinstall of the target runtime version."
+            "type": "boolean"
           },
           "version": {
             "type": ["string", "null"]
@@ -3132,6 +3033,9 @@
           "terminal": {
             "$ref": "#/components/schemas/TerminalSettings"
           },
+          "vscode": {
+            "$ref": "#/components/schemas/VscodeSettings"
+          },
           "worktree": {
             "$ref": "#/components/schemas/WorktreeSettings"
           }
@@ -3167,6 +3071,16 @@
               },
               {
                 "$ref": "#/components/schemas/TerminalSettingsPatch"
+              }
+            ]
+          },
+          "vscode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VscodeSettingsPatch"
               }
             ]
           },
@@ -3537,6 +3451,171 @@
                 "$ref": "#/components/schemas/WorktreeUiMode"
               }
             ]
+          }
+        }
+      },
+      "VscodeConnectionInfo": {
+        "type": "object",
+        "required": ["runtime", "baseUrl", "wsBaseUrl", "pathMode"],
+        "properties": {
+          "baseUrl": {
+            "type": "string"
+          },
+          "connectionToken": {
+            "type": ["string", "null"]
+          },
+          "pathMode": {
+            "$ref": "#/components/schemas/VscodePathMode"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/VscodeRuntimeKind"
+          },
+          "wsBaseUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "VscodeInstallPhase": {
+        "type": "string",
+        "enum": [
+          "preparing",
+          "downloading",
+          "extracting",
+          "cleaning",
+          "starting"
+        ]
+      },
+      "VscodeInstallProgress": {
+        "type": "object",
+        "required": ["phase", "percent"],
+        "properties": {
+          "downloadedBytes": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "percent": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "phase": {
+            "$ref": "#/components/schemas/VscodeInstallPhase"
+          },
+          "totalBytes": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "VscodeLatestCheck": {
+        "type": "object",
+        "required": ["updateAvailable"],
+        "properties": {
+          "checkedAt": {
+            "type": ["string", "null"]
+          },
+          "latestVersion": {
+            "type": ["string", "null"]
+          },
+          "updateAvailable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "VscodePathMode": {
+        "type": "string",
+        "enum": ["stripPublicBasePath", "preservePublicBasePath"]
+      },
+      "VscodeProcessStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "stopped",
+          "starting",
+          "stopping",
+          "installing",
+          "error"
+        ]
+      },
+      "VscodeRuntimeKind": {
+        "type": "string",
+        "enum": ["vscodeCli", "codeServer"]
+      },
+      "VscodeRuntimeStatus": {
+        "type": "object",
+        "required": ["supported", "processStatus"],
+        "properties": {
+          "installProgress": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VscodeInstallProgress"
+              }
+            ]
+          },
+          "installedVersion": {
+            "type": ["string", "null"]
+          },
+          "latest": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VscodeLatestCheck"
+              }
+            ]
+          },
+          "message": {
+            "type": ["string", "null"]
+          },
+          "processStatus": {
+            "$ref": "#/components/schemas/VscodeProcessStatus"
+          },
+          "supported": {
+            "type": "boolean"
+          }
+        }
+      },
+      "VscodeSettings": {
+        "type": "object",
+        "properties": {
+          "runtime": {
+            "$ref": "#/components/schemas/VscodeRuntimeKind"
+          }
+        }
+      },
+      "VscodeSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "runtime": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VscodeRuntimeKind"
+              }
+            ]
+          }
+        }
+      },
+      "VscodeStatus": {
+        "type": "object",
+        "required": ["selectedRuntime", "codeServer", "vscodeCli"],
+        "properties": {
+          "codeServer": {
+            "$ref": "#/components/schemas/VscodeRuntimeStatus"
+          },
+          "selectedRuntime": {
+            "$ref": "#/components/schemas/VscodeRuntimeKind"
+          },
+          "vscodeCli": {
+            "$ref": "#/components/schemas/VscodeRuntimeStatus"
           }
         }
       },

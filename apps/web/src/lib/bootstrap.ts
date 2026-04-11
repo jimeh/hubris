@@ -25,9 +25,9 @@ import {
   resetWorktreeRightSidebarStoreForTests,
 } from "@/lib/stores/worktreeRightSidebar";
 import {
-  initializeCodeServerStore,
-  resetCodeServerStoreForTests,
-} from "@/lib/stores/codeServer";
+  initializeVscodeStore,
+  resetVscodeStoreForTests,
+} from "@/lib/stores/vscode";
 import {
   initializeSettingsStore,
   resetSettingsStoreForTests,
@@ -50,7 +50,7 @@ export function bootstrapApp(): void {
   initializeGitDiffStore();
   initializeWorktreeFileManagerStore();
   initializeWorktreeRightSidebarStore();
-  initializeCodeServerStore();
+  initializeVscodeStore();
   initializeSettingsStore();
   initializeSystemStore();
 
@@ -66,7 +66,7 @@ export function resetBootstrapForTests(): void {
   resetGitDiffStoreForTests();
   resetWorktreeFileManagerStoreForTests();
   resetWorktreeRightSidebarStoreForTests();
-  resetCodeServerStoreForTests();
+  resetVscodeStoreForTests();
   resetSettingsStoreForTests();
   resetSystemStoreForTests();
   getEventClient().disconnect();

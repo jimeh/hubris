@@ -103,7 +103,7 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         | EventKind::WorktreeFilesUpdated { .. }
         | EventKind::WorktreeGitStatusUpdated { .. }
         | EventKind::SettingsUpdated(_)
-        | EventKind::CodeServerUpdated(_)
+        | EventKind::VscodeUpdated(_)
         | EventKind::ManagedProcessUpdated(_) => true,
     }
 }
@@ -131,7 +131,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
     let mut worktrees = HashMap::new();
     let mut project_errors = HashMap::new();
     let settings = state.settings.get().await;
-    let code_server = state.code_server.status().await.into();
+    let vscode = state.vscode.status().await.into();
     let managed_processes = state
         .processes
         .list()
@@ -161,7 +161,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         settings: Box::new(settings.settings),
         settings_generation: settings.generation,
         settings_status: settings.status,
-        code_server: Box::new(code_server),
+        vscode: Box::new(vscode),
         managed_processes,
     };
     sse::Event::default()

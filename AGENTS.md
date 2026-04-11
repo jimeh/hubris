@@ -318,3 +318,12 @@ embeddings.**
   HTML props like `className` and `onContextMenu` to their root DOM node.
   Otherwise `SidebarMenuButton`/`ContextMenuTrigger` props stop at the custom
   component boundary and row-level context menus never open.
+- The official VS Code CLI install path uses the same managed-process stop
+  semantics as `code-server`: once the runtime state is set to `Installing`, the
+  install task must not call a stop helper that waits for installs to finish, or
+  it deadlocks itself and the UI sits forever at the initial 5% preparing state.
+- `code serve-web` can reject stale `vscode-tkn` cookies with a plain
+  `403 Forbidden` after the runtime restarts and rotates its connection token.
+  In Hubris proxies, only treat a cookie/query token as valid when it matches
+  the current runtime token; otherwise upsert the current `?tkn=` so the browser
+  can mint a fresh cookie.

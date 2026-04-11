@@ -4,11 +4,12 @@ import {
   HUBRIS_ORIGIN,
   HUBRIS_WS_ORIGIN,
   appHtmlInjection,
+  authorizedVscodePath,
   buildDesktopRuntimeConfig,
   classifyHubrisRequest,
   classifyHubrisWebSocket,
   injectHtmlScript,
-  rewriteCodeServerPath,
+  rewriteVscodePath,
 } from "./protocol";
 
 describe("classifyHubrisRequest", () => {
@@ -74,14 +75,59 @@ describe("classifyHubrisWebSocket", () => {
   });
 });
 
-describe("rewriteCodeServerPath", () => {
-  it("strips the public /code prefix", () => {
-    expect(rewriteCodeServerPath("/code")).toBe("/");
-    expect(rewriteCodeServerPath("/code/")).toBe("/");
-    expect(rewriteCodeServerPath("/code/?folder=%2Ftmp")).toBe(
-      "/?folder=%2Ftmp",
-    );
-    expect(rewriteCodeServerPath("/code/static/out.js")).toBe("/static/out.js");
+describe("rewriteVscodePath", () => {
+  it("strips the public /code prefix for code-server", () => {
+    expect(rewriteVscodePath("/code", "stripPublicBasePath")).toBe("/");
+    expect(rewriteVscodePath("/code/", "stripPublicBasePath")).toBe("/");
+    expect(
+      rewriteVscodePath("/code/?folder=%2Ftmp", "stripPublicBasePath"),
+    ).toBe("/?folder=%2Ftmp");
+    expect(
+      rewriteVscodePath("/code/static/out.js", "stripPublicBasePath"),
+    ).toBe("/static/out.js");
+  });
+
+  it("preserves the public /code prefix for serve-web", () => {
+    expect(rewriteVscodePath("/code", "preservePublicBasePath")).toBe("/code");
+    expect(
+      rewriteVscodePath("/code/static/out.js", "preservePublicBasePath"),
+    ).toBe("/code/static/out.js");
+  });
+});
+
+describe("authorizedVscodePath", () => {
+  const vscodeCliConnection = {
+    runtime: "vscodeCli" as const,
+    baseUrl: "http://127.0.0.1:1234",
+    wsBaseUrl: "ws://127.0.0.1:1234",
+    pathMode: "preservePublicBasePath" as const,
+    connectionToken: "fresh-token",
+  };
+
+  it("adds the current token when the cookie is missing", () => {
+    expect(
+      authorizedVscodePath("/code?folder=%2Ftmp", vscodeCliConnection, null),
+    ).toBe("/code?folder=%2Ftmp&tkn=fresh-token");
+  });
+
+  it("replaces stale query auth when the cookie is stale", () => {
+    expect(
+      authorizedVscodePath(
+        "/code?folder=%2Ftmp&tkn=stale-query",
+        vscodeCliConnection,
+        "vscode-tkn=stale-cookie; theme=dark",
+      ),
+    ).toBe("/code?folder=%2Ftmp&tkn=fresh-token");
+  });
+
+  it("preserves a matching current cookie without appending a query token", () => {
+    expect(
+      authorizedVscodePath(
+        "/code?folder=%2Ftmp",
+        vscodeCliConnection,
+        "vscode-tkn=fresh-token; theme=dark",
+      ),
+    ).toBe("/code?folder=%2Ftmp");
   });
 });
 
