@@ -29,13 +29,27 @@ export default function ProjectHeaderRow({
 }: ProjectHeaderRowProps) {
   const FolderIcon = isExpanded ? FolderOpen : Folder;
   const ChevronIcon = isExpanded ? ChevronDown : ChevronRight;
+  const actionArea = actionSlot ? (
+    <div
+      className={cn(
+        "flex max-w-0 items-center gap-0.5 overflow-hidden transition-[max-width,opacity] duration-150",
+        "pointer-events-none opacity-0",
+        !isSorting &&
+          "group-hover/project-row:max-w-24 group-hover/project-row:opacity-100 group-hover/project-row:pointer-events-auto",
+        !isSorting &&
+          "group-focus-within/project-row:max-w-24 group-focus-within/project-row:opacity-100 group-focus-within/project-row:pointer-events-auto",
+      )}
+    >
+      {actionSlot}
+    </div>
+  ) : null;
 
   return (
     <div
       className={cn(
         "group/project-row flex min-h-8 w-full items-center gap-1 rounded-md px-2 py-1 text-sm transition-colors",
         !isSorting &&
-          "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-within:bg-sidebar-accent focus-within:text-sidebar-accent-foreground",
         rowClassName,
       )}
       {...rowProps}
@@ -107,7 +121,7 @@ export default function ProjectHeaderRow({
           ) : null}
         </div>
       )}
-      {actionSlot}
+      {actionArea}
     </div>
   );
 }

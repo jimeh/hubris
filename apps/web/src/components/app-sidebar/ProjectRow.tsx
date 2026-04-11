@@ -93,15 +93,7 @@ export default function ProjectRow({
                 onToggleExpand();
               }}
               actionSlot={
-                <div
-                  className={cn(
-                    "ml-auto flex items-center gap-0.5 transition-opacity",
-                    isSorting
-                      ? "pointer-events-none opacity-0"
-                      : "opacity-0 group-hover/project-row:opacity-70",
-                  )}
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
+                <>
                   <ProjectActionMenu
                     onRename={onRenameProject}
                     onRemove={onRemoveProject}
@@ -113,6 +105,7 @@ export default function ProjectRow({
                         type="button"
                         className="inline-flex size-6 items-center justify-center text-sidebar-foreground/55 transition-[color,opacity] outline-none hover:opacity-100 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground"
                         aria-label="New worktree"
+                        onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => {
                           event.stopPropagation();
                           onAddWorktree();
@@ -123,7 +116,7 @@ export default function ProjectRow({
                     </TooltipTrigger>
                     <TooltipContent side="right">New worktree</TooltipContent>
                   </Tooltip>
-                </div>
+                </>
               }
             />
           </SidebarMenuButton>
