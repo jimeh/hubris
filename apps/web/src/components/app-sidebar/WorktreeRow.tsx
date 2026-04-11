@@ -3,7 +3,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import type { Worktree } from "@/lib/types";
 import { AlertTriangle } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
@@ -60,16 +59,16 @@ export default function WorktreeRow({
         trailingSlot={<VscodeWorkbenchIndicator worktreeId={worktree.id} />}
         contentSlot={
           <button
-            className="flex min-w-0 flex-1 items-center text-left"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
             onClick={onSelect}
             type="button"
           >
-            <span className="truncate">{worktree.name}</span>
+            <span className="min-w-0 flex-1 truncate">{worktree.name}</span>
             {worktree.missing_on_disk ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span
-                    className="ml-2 inline-flex items-center text-destructive"
+                    className="inline-flex items-center text-destructive"
                     aria-label="Worktree missing on disk"
                   >
                     <AlertTriangle className="h-3.5 w-3.5" />
@@ -84,16 +83,7 @@ export default function WorktreeRow({
           </button>
         }
         actionSlot={
-          <div
-            className={cn(
-              "pointer-events-none absolute top-1/2 right-1 z-10 -translate-y-1/2 transition-opacity",
-              isSorting
-                ? "opacity-0"
-                : "opacity-0 group-hover/worktree-item:pointer-events-auto group-hover/worktree-item:opacity-70 hover:opacity-100",
-            )}
-          >
-            <WorktreeActionMenu onRename={onRename} onRemove={onRemove} />
-          </div>
+          <WorktreeActionMenu onRename={onRename} onRemove={onRemove} />
         }
       />
     </div>

@@ -247,4 +247,49 @@ describe("AppSidebarRoot", () => {
       1,
     );
   });
+
+  it("collapses project actions until hover or focus within", () => {
+    renderSidebar();
+
+    act(() => {
+      mockEvents.emit("snapshot", {
+        projects: [makeProject({ id: "p1", name: "Devbox" })],
+        worktrees: {
+          p1: [
+            makeWorktree({
+              id: "w-local",
+              project_id: "p1",
+              name: "local",
+              is_local: true,
+              position: 1,
+            }),
+          ],
+        },
+        project_errors: {},
+      });
+    });
+
+    const actionContainer =
+      screen.getByLabelText("Project actions").parentElement;
+
+    expect(actionContainer).toHaveClass("max-w-0");
+    expect(actionContainer).toHaveClass("overflow-hidden");
+    expect(actionContainer).toHaveClass("pointer-events-none");
+    expect(actionContainer).toHaveClass("opacity-0");
+    expect(actionContainer).toHaveClass("group-hover/project-row:max-w-24");
+    expect(actionContainer).toHaveClass("group-hover/project-row:opacity-100");
+    expect(actionContainer).toHaveClass(
+      "group-focus-within/project-row:max-w-24",
+    );
+    expect(actionContainer).toHaveClass(
+      "group-focus-within/project-row:opacity-100",
+    );
+    expect(actionContainer).toHaveClass(
+      "group-has-data-[state=open]/project-row:max-w-24",
+    );
+    expect(actionContainer).toHaveClass(
+      "group-has-data-[state=open]/project-row:opacity-100",
+    );
+    expect(actionContainer).not.toHaveClass("ml-auto");
+  });
 });

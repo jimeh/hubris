@@ -36,7 +36,7 @@ describe("WorktreeRowContent", () => {
   it("does not apply the hover background class to selected rows", () => {
     render(<WorktreeRowContent isSelected contentSlot={<span>local</span>} />);
 
-    const row = screen.getByText("local").closest("div");
+    const row = screen.getByText("local").closest("div.group\\/worktree-row");
 
     expect(row).not.toHaveClass("hover:bg-sidebar-accent");
     expect(row).toHaveClass("bg-sidebar-primary");
@@ -50,9 +50,100 @@ describe("WorktreeRowContent", () => {
       />,
     );
 
-    const row = screen.getByText("feature-a").closest("div");
+    const row = screen
+      .getByText("feature-a")
+      .closest("div.group\\/worktree-row");
 
     expect(row).toHaveClass("hover:bg-sidebar-accent");
+  });
+
+  it("collapses the action area until hover or focus within", () => {
+    render(
+      <WorktreeRowContent
+        isSelected={false}
+        contentSlot={<span>feature-a</span>}
+        actionSlot={<button type="button">Actions</button>}
+      />,
+    );
+
+    const row = screen
+      .getByText("feature-a")
+      .closest("div.group\\/worktree-row");
+    const actionContainer = screen.getByRole("button", {
+      name: "Actions",
+    }).parentElement;
+
+    expect(row).not.toHaveClass("pr-8");
+    expect(actionContainer).toHaveClass("max-w-0");
+    expect(actionContainer).toHaveClass("overflow-hidden");
+    expect(actionContainer).toHaveClass("pointer-events-none");
+    expect(actionContainer).toHaveClass("opacity-0");
+    expect(actionContainer).toHaveClass("group-hover/worktree-row:max-w-24");
+    expect(actionContainer).toHaveClass("group-hover/worktree-row:opacity-100");
+    expect(actionContainer).toHaveClass(
+      "group-focus-within/worktree-row:max-w-24",
+    );
+    expect(actionContainer).toHaveClass(
+      "group-focus-within/worktree-row:opacity-100",
+    );
+    expect(actionContainer).toHaveClass(
+      "group-has-data-[state=open]/worktree-row:max-w-24",
+    );
+    expect(actionContainer).toHaveClass(
+      "group-has-data-[state=open]/worktree-row:opacity-100",
+    );
+  });
+
+  it("makes the shared content wrapper a flex item so child buttons can shrink", () => {
+    render(
+      <WorktreeRowContent
+        isSelected={false}
+        contentSlot={<button type="button">feature-a</button>}
+      />,
+    );
+
+    const contentWrapper = screen.getByRole("button", {
+      name: "feature-a",
+    }).parentElement;
+
+    expect(contentWrapper).toHaveClass("flex");
+    expect(contentWrapper).toHaveClass("min-w-0");
+    expect(contentWrapper).toHaveClass("flex-1");
+  });
+
+  it("gives worktree labels constrained flex width for ellipsis truncation", () => {
+    render(
+      <TooltipProvider>
+        <WorktreeRow
+          worktree={{
+            id: "long-name",
+            project_id: "project-1",
+            path: "/tmp/long-name",
+            branch: "feature/some-very-long-branch-name",
+            source_ref: null,
+            ui_mode: "hubris",
+            name: "some-very-long-worktree-name",
+            position: 2,
+            is_local: false,
+            missing_on_disk: false,
+          }}
+          isSelected={false}
+          isSorting={false}
+          onSelect={() => {}}
+          onRename={() => {}}
+          onRemove={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    const label = screen.getByText("some-very-long-worktree-name");
+    const button = label.closest("button");
+
+    expect(button).toHaveClass("min-w-0");
+    expect(button).toHaveClass("flex-1");
+    expect(label).toHaveClass("min-w-0");
+    expect(label).toHaveClass("flex-1");
+    expect(label).toHaveClass("truncate");
   });
 
   it("labels the missing-worktree warning icon for assistive tech", () => {

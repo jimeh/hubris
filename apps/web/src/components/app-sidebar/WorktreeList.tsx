@@ -87,11 +87,11 @@ export default function WorktreeList({
           }
           contentSlot={
             <button
-              className="flex min-w-0 flex-1 items-center text-left"
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
               onClick={() => onSelectWorktree(localWorktree.id)}
               type="button"
             >
-              <span className="truncate">local</span>
+              <span className="min-w-0 flex-1 truncate">local</span>
             </button>
           }
         />

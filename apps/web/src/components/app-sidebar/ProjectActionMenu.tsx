@@ -26,6 +26,7 @@ export default function ProjectActionMenu({
             "hover:opacity-100 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground",
             triggerClassName,
           )}
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
           title="Project actions"
           aria-label="Project actions"
