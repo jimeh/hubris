@@ -275,7 +275,7 @@ impl SettingsManager {
         let manager = Arc::clone(self);
         let watched_path = self.path.clone();
         tokio::spawn(async move {
-            let mut last_modified = read_last_modified(&watched_path).await;
+            let mut last_modified = None;
             let mut interval = tokio::time::interval(Duration::from_millis(250));
             loop {
                 interval.tick().await;
