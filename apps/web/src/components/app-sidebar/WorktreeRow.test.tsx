@@ -186,12 +186,34 @@ describe("WorktreeRow", () => {
   it("opens the worktree menu from the keyboard context menu key", () => {
     renderWorktreeRow();
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "feature-a" }), {
+    const button = screen.getByRole("button", { name: "feature-a" });
+    let dispatchedCoordinates: { clientX: number; clientY: number } | null =
+      null;
+
+    Object.defineProperty(button, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        left: 40,
+        top: 16,
+        width: 140,
+        height: 28,
+      }),
+    });
+
+    button.addEventListener("contextmenu", (event) => {
+      dispatchedCoordinates = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+    });
+
+    fireEvent.keyDown(button, {
       key: "ContextMenu",
     });
 
     expect(screen.getByRole("button", { name: "Rename" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(dispatchedCoordinates).toEqual({ clientX: 110, clientY: 30 });
   });
 
   it("does not expose a context menu for the local worktree row", () => {

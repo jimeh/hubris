@@ -84,10 +84,13 @@ export default function ProjectRow({
 
     event.preventDefault();
     event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
     event.currentTarget.dispatchEvent(
       new MouseEvent("contextmenu", {
         bubbles: true,
         cancelable: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
       }),
     );
   }

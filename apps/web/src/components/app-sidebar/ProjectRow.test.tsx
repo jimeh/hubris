@@ -191,13 +191,35 @@ describe("ProjectRow", () => {
   it("opens the project menu from the keyboard context menu shortcut", () => {
     renderProjectRow();
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "Devbox" }), {
+    const button = screen.getByRole("button", { name: "Devbox" });
+    let dispatchedCoordinates: { clientX: number; clientY: number } | null =
+      null;
+
+    Object.defineProperty(button, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        left: 20,
+        top: 10,
+        width: 120,
+        height: 24,
+      }),
+    });
+
+    button.addEventListener("contextmenu", (event) => {
+      dispatchedCoordinates = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+    });
+
+    fireEvent.keyDown(button, {
       key: "F10",
       shiftKey: true,
     });
 
     expect(screen.getByRole("button", { name: "Rename" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+    expect(dispatchedCoordinates).toEqual({ clientX: 80, clientY: 22 });
   });
 
   it("keeps the new worktree button working without opening the menu", () => {
