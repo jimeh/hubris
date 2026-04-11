@@ -95,6 +95,7 @@ class TerminalLinkTooltipController {
       "decoration-primary/50 underline-offset-2 transition-colors " +
       "hover:text-primary/80 hover:decoration-primary focus-visible:outline-none " +
       "focus-visible:ring-2 focus-visible:ring-ring";
+    this.followLinkButton.textContent = "Follow link";
     this.followLinkButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -107,6 +108,7 @@ class TerminalLinkTooltipController {
     });
 
     this.modifierHint.className = "text-muted-foreground";
+    this.modifierHint.textContent = `(${followLinkModifierLabel()}+click)`;
     this.uriLabel.className =
       "max-w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-sm " +
       "bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground";
@@ -185,8 +187,6 @@ class TerminalLinkTooltipController {
       return;
     }
 
-    this.followLinkButton.textContent = "Follow link";
-    this.modifierHint.textContent = `(${followLinkModifierLabel()}+click)`;
     this.uriLabel.textContent = this.currentUri;
     this.tooltip.hidden = false;
 
