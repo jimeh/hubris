@@ -300,3 +300,7 @@ embeddings.**
   platforms. Keep shutdown tied to explicit app quit paths, and use the
   single-instance `second-instance` flow plus macOS `activate` to reopen or
   recreate the main window without reinitializing backend/protocol state.
+- Linux-only Rust paths still compile in CI even when local macOS checks look
+  clean. Keep `#[cfg(target_os = "linux")]` helpers self-contained with their
+  Linux-only imports and concrete type paths, especially around
+  `tokio::process::Command` and `CommandExt`.

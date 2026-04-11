@@ -179,8 +179,36 @@ impl fmt::Debug for CodeServerManager {
 struct ManagerState {
     latest: Option<ManagerCodeServerLatestCheck>,
     install_progress: Option<ManagerCodeServerInstallProgress>,
-    install_running: bool,
-    connection: Option<CodeServerConnection>,
+    runtime: ManagerRuntimeState,
+}
+
+#[derive(Debug, Clone)]
+enum ManagerRuntimeState {
+    Idle,
+    Installing,
+    Ready(CodeServerConnection),
+}
+
+impl ManagerRuntimeState {
+    fn is_installing(&self) -> bool {
+        matches!(self, Self::Installing)
+    }
+
+    fn connection(&self) -> Option<CodeServerConnection> {
+        match self {
+            Self::Ready(connection) => Some(connection.clone()),
+            Self::Idle | Self::Installing => None,
+        }
+    }
+
+    fn clear_ready(&mut self) -> bool {
+        if matches!(self, Self::Ready(_)) {
+            *self = Self::Idle;
+            return true;
+        }
+
+        false
+    }
 }
 
 #[derive(Debug)]
@@ -339,8 +367,7 @@ impl CodeServerManager {
             inner: Arc::new(Mutex::new(ManagerState {
                 latest: None,
                 install_progress: None,
-                install_running: false,
-                connection: None,
+                runtime: ManagerRuntimeState::Idle,
             })),
             notify: Arc::new(Notify::new()),
             client: reqwest::Client::builder()
@@ -375,8 +402,7 @@ impl CodeServerManager {
             inner: Arc::new(Mutex::new(ManagerState {
                 latest: None,
                 install_progress: None,
-                install_running: false,
-                connection: None,
+                runtime: ManagerRuntimeState::Idle,
             })),
             notify: Arc::new(Notify::new()),
             client,
@@ -397,10 +423,11 @@ impl CodeServerManager {
     pub async fn register_process_callback(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         self.process_handle
-            .set_on_change(Arc::new(move |_| {
+            .set_on_change(Arc::new(move |snapshot| {
                 let weak = weak.clone();
                 Box::pin(async move {
                     if let Some(manager) = weak.upgrade() {
+                        manager.apply_process_snapshot(&snapshot).await;
                         manager.notify.notify_waiters();
                         manager.publish_status_update().await;
                     }
@@ -409,19 +436,22 @@ impl CodeServerManager {
             .await;
     }
 
+    async fn apply_process_snapshot(&self, snapshot: &ManagedProcessStatusSnapshot) {
+        if snapshot.lifecycle_state == ManagedProcessLifecycleState::Running {
+            return;
+        }
+
+        let mut state = self.inner.lock().await;
+        state.runtime.clear_ready();
+    }
+
     pub async fn status(&self) -> CodeServerStatusSnapshot {
         let supported = detect_platform().is_ok();
         let installed = self.find_installed_runtime().await.ok().flatten();
         let process = self.process_handle.status().await.ok();
-        let mut state = self.inner.lock().await;
-        if process
-            .as_ref()
-            .is_none_or(|status| status.lifecycle_state != ManagedProcessLifecycleState::Running)
-        {
-            state.connection = None;
-        }
+        let state = self.inner.lock().await;
 
-        let (process_status, mut message) = if state.install_running {
+        let (process_status, mut message) = if state.runtime.is_installing() {
             (CodeServerProcessStatusValue::Installing, None)
         } else {
             match process.as_ref().map(|status| status.lifecycle_state) {
@@ -510,7 +540,7 @@ impl CodeServerManager {
                 .map_err(map_managed_process_error)?;
             let state = self.inner.lock().await;
 
-            if state.install_running {
+            if state.runtime.is_installing() {
                 drop(state);
                 return Ok(self.status().await);
             }
@@ -539,7 +569,7 @@ impl CodeServerManager {
                 .map_err(map_managed_process_error)?;
             let mut state = self.inner.lock().await;
 
-            if state.install_running {
+            if state.runtime.is_installing() {
                 drop(state);
                 return Ok(self.status().await);
             }
@@ -554,9 +584,8 @@ impl CodeServerManager {
                 continue;
             }
 
-            state.install_running = true;
+            state.runtime = ManagerRuntimeState::Installing;
             state.install_progress = Some(preparing_install_progress());
-            state.connection = None;
             drop(state);
 
             self.notify.notify_waiters();
@@ -600,17 +629,22 @@ impl CodeServerManager {
                 .map_err(map_managed_process_error)?;
             let state = self.inner.lock().await;
 
-            if state.install_running {
+            if state.runtime.is_installing() {
                 let notified = self.notify.notified();
                 drop(state);
                 notified.await;
                 continue;
             }
 
-            if process.lifecycle_state == ManagedProcessLifecycleState::Running
-                && let Some(connection) = state.connection.clone()
-            {
-                return Ok(connection);
+            if process.lifecycle_state == ManagedProcessLifecycleState::Running {
+                if let Some(connection) = state.runtime.connection() {
+                    return Ok(connection);
+                }
+
+                let notified = self.notify.notified();
+                drop(state);
+                notified.await;
+                continue;
             }
 
             if matches!(
@@ -673,27 +707,27 @@ impl CodeServerManager {
             .await;
 
             let server = (self.launch)(build_launch_request(&self.root_dir, &runtime)).await?;
+            self.process_handle.finish_running(server.process).await;
             {
                 let mut state = self.inner.lock().await;
-                state.install_running = false;
                 state.install_progress = None;
-                state.connection = Some(server.connection.clone());
+                state.runtime = ManagerRuntimeState::Ready(server.connection.clone());
             }
             self.notify.notify_waiters();
-            self.process_handle.finish_running(server.process).await;
+            self.publish_status_update().await;
             Ok::<(), CodeServerError>(())
         }
         .await;
 
         if let Err(error) = result {
+            self.process_handle.finish_error(error.to_string()).await;
             {
                 let mut state = self.inner.lock().await;
-                state.install_running = false;
                 state.install_progress = None;
-                state.connection = None;
+                state.runtime = ManagerRuntimeState::Idle;
             }
             self.notify.notify_waiters();
-            self.process_handle.finish_error(error.to_string()).await;
+            self.publish_status_update().await;
         }
     }
 
@@ -760,40 +794,50 @@ impl CodeServerManager {
     async fn start_managed_process(&self) -> Result<CodeServerConnection, CodeServerError> {
         let runtime = self.find_installed_runtime().await?;
         let runtime = runtime.ok_or(CodeServerError::NotInstalled)?;
-        if let Some(status) = self
-            .process_handle
-            .begin_start()
-            .await
-            .map_err(map_managed_process_error)?
-            && status.lifecycle_state == ManagedProcessLifecycleState::Running
-        {
-            let state = self.inner.lock().await;
-            if let Some(connection) = state.connection.clone() {
-                return Ok(connection);
+        loop {
+            if let Some(status) = self
+                .process_handle
+                .begin_start()
+                .await
+                .map_err(map_managed_process_error)?
+            {
+                let state = self.inner.lock().await;
+                if let Some(connection) = state.runtime.connection() {
+                    return Ok(connection);
+                }
+
+                if status.lifecycle_state == ManagedProcessLifecycleState::Running {
+                    let notified = self.notify.notified();
+                    drop(state);
+                    notified.await;
+                    continue;
+                }
             }
+
+            break;
         }
 
         let result = (self.launch)(build_launch_request(&self.root_dir, &runtime)).await;
         match result {
             Ok(server) => {
                 let connection = server.connection.clone();
+                self.process_handle.finish_running(server.process).await;
                 {
                     let mut state = self.inner.lock().await;
                     state.install_progress = None;
-                    state.connection = Some(connection.clone());
+                    state.runtime = ManagerRuntimeState::Ready(connection.clone());
                 }
                 self.notify.notify_waiters();
-                self.process_handle.finish_running(server.process).await;
                 Ok(connection)
             }
             Err(error) => {
+                self.process_handle.finish_error(error.to_string()).await;
                 {
                     let mut state = self.inner.lock().await;
                     state.install_progress = None;
-                    state.connection = None;
+                    state.runtime = ManagerRuntimeState::Idle;
                 }
                 self.notify.notify_waiters();
-                self.process_handle.finish_error(error.to_string()).await;
                 Err(error)
             }
         }
@@ -813,7 +857,7 @@ impl CodeServerManager {
     ) -> Result<(), CodeServerError> {
         loop {
             let state = self.inner.lock().await;
-            if wait_for_install && state.install_running {
+            if wait_for_install && state.runtime.is_installing() {
                 let notified = self.notify.notified();
                 drop(state);
                 notified.await;
@@ -841,7 +885,9 @@ impl CodeServerManager {
         {
             let mut state = self.inner.lock().await;
             state.install_progress = None;
-            state.connection = None;
+            if wait_for_install || !state.runtime.is_installing() {
+                state.runtime = ManagerRuntimeState::Idle;
+            }
         }
         self.notify.notify_waiters();
         self.process_handle.finish_stopped().await;
@@ -2051,6 +2097,66 @@ mod tests {
         assert_eq!(launches.load(Ordering::Relaxed), 2);
     }
 
+    #[tokio::test]
+    async fn ensure_ready_waits_for_install_completion_without_relaunching() {
+        let launches = Arc::new(AtomicUsize::new(0));
+        let launches_for_download = launches.clone();
+        let download: DownloadRuntimeFn = Arc::new(move |request: CodeServerDownloadRequest| {
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                let dir_name = runtime_dir_name(&request.version, request.platform);
+                let runtime_dir = request.root_dir.join(RUNTIMES_DIR).join(&dir_name);
+                tokio::fs::create_dir_all(runtime_dir.join("bin")).await?;
+                tokio::fs::write(runtime_dir.join("bin").join("code-server"), "#!/bin/sh\n")
+                    .await?;
+                Ok(InstalledRuntime {
+                    version: request.version.clone(),
+                    version_semver: Version::parse(&request.version).unwrap(),
+                    platform: request.platform,
+                    runtime_dir: runtime_dir.clone(),
+                    binary_path: runtime_dir.join("bin").join("code-server"),
+                })
+            })
+        });
+        let launch: LaunchFn = Arc::new(move |request| {
+            let launches = launches_for_download.clone();
+            Box::pin(async move {
+                launches.fetch_add(1, Ordering::Relaxed);
+                Ok(RunningCodeServer {
+                    connection: CodeServerConnection {
+                        base_url: format!("http://{}:{}", request.host, request.port),
+                    },
+                    process: ManagedProcessRuntime::External,
+                })
+            })
+        });
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let manager = CodeServerManager::with_hooks(
+            tmp.path().join("code-server"),
+            static_fetch_latest("4.114.1"),
+            download,
+            launch,
+        );
+
+        let install = manager
+            .install(Some("4.114.1".to_string()), false)
+            .await
+            .unwrap();
+        assert_eq!(
+            install.process_status,
+            CodeServerProcessStatusValue::Installing
+        );
+
+        let connection = tokio::time::timeout(Duration::from_secs(2), manager.ensure_ready())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(connection.base_url.starts_with("http://127.0.0.1:"));
+        assert_eq!(launches.load(Ordering::Relaxed), 1);
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn managed_child_shutdown_terminates_process_group_gracefully() {
@@ -2173,7 +2279,7 @@ mod tests {
 
         {
             let mut state = manager.inner.lock().await;
-            state.connection = Some(CodeServerConnection {
+            state.runtime = ManagerRuntimeState::Ready(CodeServerConnection {
                 base_url: "http://127.0.0.1:1234".into(),
             });
         }
@@ -2603,8 +2709,7 @@ mod tests {
             inner: Arc::new(Mutex::new(ManagerState {
                 latest: None,
                 install_progress: None,
-                install_running: false,
-                connection: None,
+                runtime: ManagerRuntimeState::Idle,
             })),
             notify: Arc::new(Notify::new()),
             client: reqwest::Client::builder()

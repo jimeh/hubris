@@ -399,11 +399,21 @@ impl ManagedProcessService {
             .cloned()
             .collect::<Vec<_>>();
 
+        let mut last_error = None;
         for controller in controllers {
-            controller.stop().await?;
+            if let Err(error) = controller.stop().await {
+                tracing::warn!(
+                    process_id = controller.id(),
+                    "failed to stop managed process during shutdown: {error}"
+                );
+                last_error = Some(error);
+            }
         }
 
-        Ok(())
+        match last_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
 
@@ -422,14 +432,11 @@ impl ManagedProcessHandle {
     }
 
     pub async fn status(&self) -> Result<ManagedProcessStatusSnapshot, ManagedProcessActionError> {
-        let changed = {
+        let (changed, snapshot) = {
             let mut state = self.slot.state.lock().await;
-            normalize_dead_process(&mut state)?
-        };
-
-        let snapshot = {
-            let state = self.slot.state.lock().await;
-            self.slot.snapshot(&state)
+            let changed = normalize_dead_process(&mut state)?;
+            let snapshot = self.slot.snapshot(&state);
+            (changed, snapshot)
         };
 
         if changed {
@@ -753,7 +760,9 @@ pub fn now_timestamp_string() -> String {
 }
 
 #[cfg(target_os = "linux")]
-pub fn configure_parent_death_signal(command: &mut Command) {
+pub fn configure_parent_death_signal(command: &mut tokio::process::Command) {
+    use std::os::unix::process::CommandExt;
+
     let parent_pid = unsafe { libc::getpid() };
     unsafe {
         command.pre_exec(move || {
@@ -871,10 +880,12 @@ mod tests {
     struct TestController {
         handle: ManagedProcessHandle,
         launches: Arc<AtomicUsize>,
+        stops: Arc<AtomicUsize>,
         active_starts: Arc<AtomicUsize>,
         max_active_starts: Arc<AtomicUsize>,
         delay: Duration,
         fail_start: bool,
+        fail_stop: bool,
     }
 
     impl ManagedProcessController for TestController {
@@ -919,6 +930,11 @@ mod tests {
         ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>>
         {
             Box::pin(async move {
+                self.stops.fetch_add(1, Ordering::Relaxed);
+                if self.fail_stop {
+                    return Err(ManagedProcessActionError::internal("test stop failure"));
+                }
+
                 match self.handle.begin_stop().await? {
                     ManagedProcessStopTarget::Running(mut runtime) => runtime.shutdown().await?,
                     ManagedProcessStopTarget::NotRunning => {}
@@ -1006,14 +1022,17 @@ mod tests {
         handle: ManagedProcessHandle,
         delay: Duration,
         fail_start: bool,
+        fail_stop: bool,
     ) -> Arc<TestController> {
         Arc::new(TestController {
             handle,
             launches: Arc::new(AtomicUsize::new(0)),
+            stops: Arc::new(AtomicUsize::new(0)),
             active_starts: Arc::new(AtomicUsize::new(0)),
             max_active_starts: Arc::new(AtomicUsize::new(0)),
             delay,
             fail_start,
+            fail_stop,
         })
     }
 
@@ -1033,7 +1052,7 @@ mod tests {
     async fn concurrent_start_calls_serialize_for_one_process() {
         let service = ManagedProcessService::new(Arc::new(EventBus::new()));
         let handle = service.register_process("code_server", "code-server");
-        let controller = test_controller(handle.clone(), Duration::from_millis(40), false);
+        let controller = test_controller(handle.clone(), Duration::from_millis(40), false, false);
         let launches = controller.launches.clone();
         service.register_controller(controller);
 
@@ -1054,8 +1073,8 @@ mod tests {
         let service = ManagedProcessService::new(Arc::new(EventBus::new()));
         let handle_a = service.register_process("a", "kind-a");
         let handle_b = service.register_process("b", "kind-b");
-        let controller_a = test_controller(handle_a, Duration::from_millis(40), false);
-        let controller_b = test_controller(handle_b, Duration::from_millis(40), false);
+        let controller_a = test_controller(handle_a, Duration::from_millis(40), false, false);
+        let controller_b = test_controller(handle_b, Duration::from_millis(40), false, false);
         let max_a = controller_a.max_active_starts.clone();
         let max_b = controller_b.max_active_starts.clone();
         service.register_controller(controller_a);
@@ -1087,7 +1106,7 @@ mod tests {
     async fn launch_failure_becomes_visible_error_state() {
         let service = ManagedProcessService::new(Arc::new(EventBus::new()));
         let handle = service.register_process("code_server", "code-server");
-        let controller = test_controller(handle.clone(), Duration::from_millis(10), true);
+        let controller = test_controller(handle.clone(), Duration::from_millis(10), true, false);
         service.register_controller(controller);
 
         let error = service.start("code_server").await.unwrap_err();
@@ -1096,6 +1115,33 @@ mod tests {
         let status = handle.status().await.unwrap();
         assert_eq!(status.lifecycle_state, ManagedProcessLifecycleState::Error);
         assert_eq!(status.last_error.as_deref(), Some("test start failure"));
+    }
+
+    #[tokio::test]
+    async fn shutdown_all_attempts_every_registered_controller() {
+        let service = ManagedProcessService::new(Arc::new(EventBus::new()));
+        let handle_a = service.register_process("a", "kind-a");
+        let handle_b = service.register_process("b", "kind-b");
+        let controller_a = test_controller(handle_a, Duration::from_millis(0), false, true);
+        let controller_b =
+            test_controller(handle_b.clone(), Duration::from_millis(0), false, false);
+        let stop_calls_a = controller_a.stops.clone();
+        let stop_calls_b = controller_b.stops.clone();
+        service.register_controller(controller_a);
+        service.register_controller(controller_b);
+
+        handle_b
+            .finish_running(ManagedProcessRuntime::External)
+            .await;
+
+        let error = service.shutdown_all().await.unwrap_err();
+        assert_eq!(error.kind(), ManagedProcessActionErrorKind::Internal);
+        assert_eq!(stop_calls_a.load(Ordering::Relaxed), 1);
+        assert_eq!(stop_calls_b.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            handle_b.status().await.unwrap().lifecycle_state,
+            ManagedProcessLifecycleState::Stopped
+        );
     }
 
     #[cfg(unix)]
