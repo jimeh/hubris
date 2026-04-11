@@ -309,10 +309,9 @@ embeddings.**
   browser-tab close or full app quit. Renderer reloads and main-window
   close/reopen need to detach and later reattach the existing views so Chromium
   history survives within the running app session.
-- Web-mode browser previews use the same-origin `/_hubris/browser-preview/...`
-  proxy only for loopback targets (`localhost`, `127.0.0.1`, `[::1]`). Keep
-  external sites as direct iframes with explicit fallback to opening them
-  externally.
+- Web-mode browser tabs are direct iframes only. Do not add same-origin proxy
+  routing for localhost previews; that path breaks dev/release frontend behavior
+  and still cannot make arbitrary external sites embeddable.
 - Linux-only Rust paths still compile in CI even when local macOS checks look
   clean. Keep `#[cfg(target_os = "linux")]` helpers self-contained with their
   Linux-only imports and concrete type paths, especially around

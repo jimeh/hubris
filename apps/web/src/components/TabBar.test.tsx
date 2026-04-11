@@ -2,10 +2,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { act, useCallback, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabBar, { SortableTabView } from "@/components/TabBar";
-import {
-  resetBrowserSurfaceOcclusionStoreForTests,
-  useBrowserSurfaceOcclusionStore,
-} from "@/lib/stores/browserSurfaceOcclusion";
 import type { TerminalTab } from "@/lib/types";
 
 let resizeCallback: ResizeObserverCallback | null = null;
@@ -109,7 +105,6 @@ describe("TabBar", () => {
   beforeEach(() => {
     resizeCallback = null;
     vi.restoreAllMocks();
-    resetBrowserSurfaceOcclusionStoreForTests();
     window.ResizeObserver = ResizeObserverMock;
     window.requestAnimationFrame = (callback: FrameRequestCallback) => {
       callback(0);
@@ -203,41 +198,18 @@ describe("TabBar", () => {
     expect(window.cancelAnimationFrame).toHaveBeenCalledWith(77);
   });
 
-  it("opens the add menu for terminal and browser tabs", async () => {
+  it("renders dedicated create buttons for terminal and browser tabs", async () => {
     const props = baseProps();
 
     render(<TabBar {...props} tabs={[makeTab("a", 1)]} />);
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Add tab" }));
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "New Terminal" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "New Terminal" }));
     expect(props.onAddTerminal).toHaveBeenCalledTimes(1);
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Add tab" }));
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "New Browser" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "New Browser" }));
 
     await waitFor(() => {
       expect(props.onAddBrowser).toHaveBeenCalledWith();
-    });
-  });
-
-  it("marks browser surfaces occluded while the add menu is open", async () => {
-    render(<TabBar {...baseProps()} tabs={[makeTab("a", 1)]} />);
-
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Add tab" }));
-    await screen.findByRole("menuitem", { name: "New Browser" });
-
-    expect(
-      Object.keys(useBrowserSurfaceOcclusionStore.getState().reasons),
-    ).toEqual(["tab-bar-add-menu:w1"]);
-
-    fireEvent.keyDown(document.body, { key: "Escape" });
-
-    await waitFor(() => {
-      expect(useBrowserSurfaceOcclusionStore.getState().reasons).toEqual({});
     });
   });
 

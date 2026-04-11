@@ -17,7 +17,6 @@ vi.mock("@/lib/desktopBrowser", () => ({
 }));
 
 import BrowserTab from "@/components/BrowserTab";
-import { resetBrowserSurfaceOcclusionStoreForTests } from "@/lib/stores/browserSurfaceOcclusion";
 import {
   resetBrowserTabStoreForTests,
   useBrowserTabStore,
@@ -47,7 +46,6 @@ describe("BrowserTab", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockUpdateTab.mockReset();
-    resetBrowserSurfaceOcclusionStoreForTests();
     resetBrowserTabStoreForTests();
     resetTabStoreForTests();
     window.requestAnimationFrame = (callback: FrameRequestCallback) => {
@@ -138,7 +136,7 @@ describe("BrowserTab", () => {
     });
   });
 
-  it("loads loopback previews through the same-origin proxy", () => {
+  it("loads localhost previews directly in the iframe", () => {
     const tab = makeBrowserTab({
       label: "localhost",
       url: "http://localhost:3000/docs",
@@ -155,7 +153,7 @@ describe("BrowserTab", () => {
 
     expect(screen.getByTitle("localhost")).toHaveAttribute(
       "src",
-      "/_hubris/browser-preview/http/localhost%3A3000/docs",
+      "http://localhost:3000/docs",
     );
   });
 });

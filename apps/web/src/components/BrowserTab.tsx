@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   type FormEvent,
   type KeyboardEvent,
@@ -9,11 +8,8 @@ import {
 import { ArrowLeft, ArrowRight, ExternalLink, RefreshCcw } from "lucide-react";
 import {
   BLANK_BROWSER_URL,
-  browserFrameSrc,
   browserInputValue,
   browserLabelFromUrl,
-  decodeBrowserPreviewProxyUrl,
-  isLoopbackBrowserUrl,
   parseBrowserUrlInput,
 } from "@/lib/browserTabs";
 import type { BrowserTab as BrowserTabInfo } from "@/lib/types";
@@ -24,7 +20,6 @@ import {
   hasDesktopBrowserBridge,
   type DesktopBrowserState,
 } from "@/lib/desktopBrowser";
-import { useBrowserSurfaceOcclusionStore } from "@/lib/stores/browserSurfaceOcclusion";
 import { useBrowserTabStore } from "@/lib/stores/browserTabs";
 import { useTabStore } from "@/lib/stores/tabs";
 
@@ -105,7 +100,6 @@ export default function BrowserTab({ tab, visible }: Props) {
   const isDesktop = hasDesktopBrowserBridge();
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const inputFocusedRef = useRef(false);
   const previousUrlRef = useRef(tab.url);
   const ensureSession = useBrowserTabStore((state) => state.ensureSession);
@@ -122,9 +116,6 @@ export default function BrowserTab({ tab, visible }: Props) {
   const removeSession = useBrowserTabStore((state) => state.removeSession);
   const session = useBrowserTabStore((state) => state.sessions[tab.id] ?? null);
   const setBrowserState = useTabStore((state) => state.setBrowserState);
-  const isOccluded = useBrowserSurfaceOcclusionStore(
-    (state) => Object.keys(state.reasons).length > 0,
-  );
 
   const canGoBack = isDesktop
     ? (session?.canGoBack ?? false)
@@ -132,66 +123,8 @@ export default function BrowserTab({ tab, visible }: Props) {
   const canGoForward = isDesktop
     ? (session?.canGoForward ?? false)
     : tab.history_index < tab.history.length - 1;
-  const iframeKey = useMemo(
-    () => `${tab.id}:${tab.url}:${session?.reloadKey ?? 0}`,
-    [session?.reloadKey, tab.id, tab.url],
-  );
-  const frameSrc = useMemo(() => browserFrameSrc(tab.url), [tab.url]);
-  const isLoopbackPreview = useMemo(
-    () => isLoopbackBrowserUrl(tab.url),
-    [tab.url],
-  );
 
-  const syncWebIframeState = useCallback(async () => {
-    if (!visible || isDesktop || !isLoopbackPreview) {
-      return;
-    }
-
-    const frame = iframeRef.current;
-    const href = frame?.contentWindow?.location.href;
-    if (!href) {
-      return;
-    }
-
-    const nextUrl = decodeBrowserPreviewProxyUrl(href);
-    if (!nextUrl) {
-      return;
-    }
-
-    const nextTitle = frame?.contentDocument?.title?.trim();
-    const nextHistory = nextBrowserHistory(tab, nextUrl);
-    setLoading(tab.id, false);
-    setError(tab.id, null);
-    setShowEmbedHelp(tab.id, false);
-    if (!inputFocusedRef.current) {
-      setDraftUrl(tab.id, browserInputValue(nextUrl));
-    }
-
-    if (
-      nextUrl === tab.url &&
-      nextHistory.history_index === tab.history_index &&
-      nextHistory.history.length === tab.history.length
-    ) {
-      return;
-    }
-
-    await setBrowserState(tab.id, {
-      label: nextTitle || browserLabelFromUrl(nextUrl),
-      url: nextUrl,
-      history: nextHistory.history,
-      historyIndex: nextHistory.history_index,
-    });
-  }, [
-    isDesktop,
-    isLoopbackPreview,
-    setBrowserState,
-    setDraftUrl,
-    setError,
-    setLoading,
-    setShowEmbedHelp,
-    tab,
-    visible,
-  ]);
+  const iframeKey = `${tab.id}:${tab.url}:${session?.reloadKey ?? 0}`;
 
   const applyDesktopState = useCallback(
     async (state: DesktopBrowserState) => {
@@ -350,15 +283,15 @@ export default function BrowserTab({ tab, visible }: Props) {
       return;
     }
 
-    if (visible && !isOccluded) {
+    if (visible) {
       bridge.show({ tabId: tab.id });
     } else {
       bridge.hide({ tabId: tab.id });
     }
-  }, [isDesktop, isOccluded, tab.id, visible]);
+  }, [isDesktop, tab.id, visible]);
 
   useEffect(() => {
-    if (!isDesktop || !visible || isOccluded) {
+    if (!isDesktop || !visible) {
       return;
     }
 
@@ -390,19 +323,7 @@ export default function BrowserTab({ tab, visible }: Props) {
       observer.disconnect();
       window.removeEventListener("resize", updateBounds);
     };
-  }, [isDesktop, isOccluded, tab.id, visible]);
-
-  useEffect(() => {
-    if (isDesktop || !visible) {
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      void syncWebIframeState();
-    }, 400);
-
-    return () => window.clearInterval(interval);
-  }, [isDesktop, syncWebIframeState, visible]);
+  }, [isDesktop, tab.id, visible]);
 
   async function navigateTo(rawUrl: string) {
     let url: string;
@@ -576,9 +497,10 @@ export default function BrowserTab({ tab, visible }: Props) {
 
       {!isDesktop && session?.showEmbedHelp ? (
         <div className="border-b bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-          Some sites block embedding in the web app, and direct external pages
-          still have limited history sync. Open this page in your external
-          browser if it refuses to load here.
+          Embedded pages in the web app are best-effort only. Some sites,
+          including localhost previews, will load fine, others may block
+          embedding or keep their own history. Open the page in your external
+          browser if it behaves incorrectly here.
         </div>
       ) : null}
 
@@ -587,17 +509,11 @@ export default function BrowserTab({ tab, visible }: Props) {
           <div ref={hostRef} className="absolute inset-0 bg-background" />
         ) : (
           <iframe
-            ref={iframeRef}
             key={iframeKey}
             title={tab.label || tab.url}
-            src={frameSrc}
+            src={tab.url}
             className="absolute inset-0 h-full w-full border-0 bg-background"
             onLoad={() => {
-              if (isLoopbackPreview) {
-                void syncWebIframeState();
-                return;
-              }
-
               setLoading(tab.id, false);
               setError(tab.id, null);
               setShowEmbedHelp(tab.id, false);

@@ -1,5 +1,4 @@
 export const BLANK_BROWSER_URL = "about:blank";
-export const BROWSER_PREVIEW_PROXY_BASE_PATH = "/_hubris/browser-preview";
 export const MISSING_BROWSER_URL_MESSAGE = "Enter a URL.";
 export const INVALID_BROWSER_URL_MESSAGE =
   "Only http:// and https:// URLs are supported.";
@@ -105,83 +104,6 @@ export function normalizeBrowserUrl(
 /** Show an empty location bar for the blank browser-tab bootstrap state. */
 export function browserInputValue(url: string): string {
   return url === BLANK_BROWSER_URL ? "" : url;
-}
-
-/** Whether the URL targets a loopback preview host we can proxy safely. */
-export function isLoopbackBrowserUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1" ||
-      parsed.hostname === "::1"
-    );
-  } catch {
-    return false;
-  }
-}
-
-/** Build the same-origin preview proxy path for loopback browser tabs. */
-export function browserPreviewProxyUrl(url: string): string | null {
-  if (!isLoopbackBrowserUrl(url)) {
-    return null;
-  }
-
-  const parsed = parseUrl(url);
-  const scheme = parsed.protocol.slice(0, -1);
-  const authority = encodeURIComponent(parsed.host);
-  return `${BROWSER_PREVIEW_PROXY_BASE_PATH}/${scheme}/${authority}${
-    parsed.pathname || "/"
-  }${parsed.search}`;
-}
-
-/** Decode a same-origin proxy iframe URL back into the underlying loopback URL. */
-export function decodeBrowserPreviewProxyUrl(
-  url: string,
-  origin = window.location.origin,
-): string | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(url, origin);
-  } catch {
-    return null;
-  }
-
-  if (parsed.origin !== origin) {
-    return null;
-  }
-
-  const path = parsed.pathname;
-  if (!path.startsWith(`${BROWSER_PREVIEW_PROXY_BASE_PATH}/`)) {
-    return null;
-  }
-
-  const remainder = path.slice(BROWSER_PREVIEW_PROXY_BASE_PATH.length + 1);
-  const parts = remainder.split("/");
-  const [scheme, encodedAuthority, ...rest] = parts;
-  if (!scheme || !encodedAuthority) {
-    return null;
-  }
-
-  let authority: string;
-  try {
-    authority = decodeURIComponent(encodedAuthority);
-  } catch {
-    return null;
-  }
-  const upstreamPath = rest.length > 0 ? `/${rest.join("/")}` : "/";
-  const candidate = `${scheme}://${authority}${upstreamPath}${parsed.search}`;
-
-  return isLoopbackBrowserUrl(candidate) ? candidate : null;
-}
-
-/** Derive the iframe source, preferring the same-origin loopback proxy. */
-export function browserFrameSrc(url: string): string {
-  if (url === BLANK_BROWSER_URL) {
-    return url;
-  }
-
-  return browserPreviewProxyUrl(url) ?? url;
 }
 
 /** Derive a compact tab label from a browser-tab URL. */

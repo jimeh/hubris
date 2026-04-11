@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronsLeft, ChevronsRight, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { useBrowserSurfaceOcclusionStore } from "@/lib/stores/browserSurfaceOcclusion";
+  ChevronsLeft,
+  ChevronsRight,
+  Globe,
+  SquareTerminal,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { Tab } from "@/lib/types";
 import SortableTabStrip from "./tab-bar/SortableTabStrip";
 
@@ -48,12 +46,8 @@ export default function TabBar({
 }: Props) {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const tabListRef = useRef<HTMLDivElement | null>(null);
   const prevTabCountRef = useRef(tabs.length);
-  const setOcclusionReason = useBrowserSurfaceOcclusionStore(
-    (state) => state.setReason,
-  );
 
   function updateScrollState(): void {
     const node = tabListRef.current;
@@ -167,38 +161,34 @@ export default function TabBar({
           </button>
         ) : null}
       </div>
-      <DropdownMenu
-        open={addMenuOpen}
-        onOpenChange={(open) => {
-          setAddMenuOpen(open);
-          setOcclusionReason(`tab-bar-add-menu:${worktreeId}`, open);
-        }}
-        modal={false}
-      >
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0"
-            aria-label="Add tab"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={onAddTerminal}>
-            New Terminal
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() => {
-              setAddMenuOpen(false);
-              void onAddBrowser();
-            }}
-          >
-            New Browser
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <div className="ml-1 flex shrink-0 items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2"
+          aria-label="New Terminal"
+          title="New Terminal"
+          onClick={onAddTerminal}
+        >
+          <SquareTerminal className="h-3.5 w-3.5" />
+          <span className="text-xs">Terminal</span>
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2"
+          aria-label="New Browser"
+          title="New Browser"
+          onClick={() => {
+            void onAddBrowser();
+          }}
+        >
+          <Globe className="h-3.5 w-3.5" />
+          <span className="text-xs">Browser</span>
+        </Button>
+      </div>
     </div>
   );
 }

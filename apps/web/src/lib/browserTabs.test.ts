@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   BLANK_BROWSER_URL,
-  browserFrameSrc,
   browserInputValue,
   browserLabelFromUrl,
-  browserPreviewProxyUrl,
-  decodeBrowserPreviewProxyUrl,
   normalizeBrowserUrl,
   parseBrowserUrlInput,
 } from "./browserTabs";
@@ -28,19 +25,12 @@ describe("browserTabs helpers", () => {
     expect(browserLabelFromUrl(BLANK_BROWSER_URL)).toBe("New Browser");
   });
 
-  it("maps loopback URLs through the preview proxy and back", () => {
-    const upstream = "http://localhost:3000/docs/getting-started?mode=dev";
-    const proxied = browserPreviewProxyUrl(upstream);
-
-    expect(proxied).toBe(
-      "/_hubris/browser-preview/http/localhost%3A3000/docs/getting-started?mode=dev",
+  it("keeps direct iframe URLs for localhost previews and external pages", () => {
+    expect(normalizeBrowserUrl("localhost:3000/docs")).toBe(
+      "http://localhost:3000/docs",
     );
-    expect(browserFrameSrc(upstream)).toBe(proxied);
-    expect(
-      decodeBrowserPreviewProxyUrl(
-        "http://localhost:3005/_hubris/browser-preview/http/localhost%3A3000/docs/getting-started?mode=dev",
-        "http://localhost:3005",
-      ),
-    ).toBe(upstream);
+    expect(normalizeBrowserUrl("https://github.com/openai")).toBe(
+      "https://github.com/openai",
+    );
   });
 });
