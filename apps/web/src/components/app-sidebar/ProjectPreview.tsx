@@ -45,10 +45,6 @@ export default function ProjectPreview({
                   className="inline-flex size-6 shrink-0"
                   aria-hidden="true"
                 />
-                <span
-                  className="inline-flex size-6 shrink-0"
-                  aria-hidden="true"
-                />
               </div>
             }
           />

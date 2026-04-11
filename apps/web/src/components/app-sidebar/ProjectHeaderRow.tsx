@@ -89,9 +89,9 @@ export default function ProjectHeaderRow({
               )}
             />
           </span>
-          <span className="truncate">{projectName}</span>
+          <span className="min-w-0 flex-1 truncate">{projectName}</span>
           {projectError ? (
-            <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive">
+            <span className="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive">
               git error
             </span>
           ) : null}
@@ -121,9 +121,9 @@ export default function ProjectHeaderRow({
               )}
             />
           </span>
-          <span className="truncate">{projectName}</span>
+          <span className="min-w-0 flex-1 truncate">{projectName}</span>
           {projectError ? (
-            <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive">
+            <span className="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive">
               git error
             </span>
           ) : null}

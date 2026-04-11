@@ -131,10 +131,6 @@ export default function ProjectRow({
                         event.stopPropagation();
                       }}
                     >
-                      <span
-                        className="inline-flex size-6 shrink-0"
-                        aria-hidden="true"
-                      />
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button

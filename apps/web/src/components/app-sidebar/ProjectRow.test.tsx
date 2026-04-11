@@ -212,4 +212,18 @@ describe("ProjectRow", () => {
       screen.queryByRole("button", { name: "Rename" }),
     ).not.toBeInTheDocument();
   });
+
+  it("lets the project label own the flexible truncation width", () => {
+    renderProjectRow({
+      project: makeProject({
+        name: "all-about-color-all-about-color",
+      }),
+    });
+
+    expect(screen.getByText("all-about-color-all-about-color")).toHaveClass(
+      "min-w-0",
+      "flex-1",
+      "truncate",
+    );
+  });
 });
