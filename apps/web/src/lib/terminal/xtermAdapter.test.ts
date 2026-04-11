@@ -13,6 +13,19 @@ type WebLinksAddonOptions = {
     text: string,
     range: { start: { x: number; y: number }; end: { x: number; y: number } },
   ) => void;
+  allowNonHttpProtocols?: boolean;
+};
+
+type LinkRange = {
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+};
+
+type TerminalLinkHandler = {
+  activate: (event: MouseEvent, text: string, range: LinkRange) => void;
+  hover?: (event: MouseEvent, text: string, range: LinkRange) => void;
+  leave?: (event: MouseEvent, text: string, range: LinkRange) => void;
+  allowNonHttpProtocols?: boolean;
 };
 
 const {
@@ -144,6 +157,12 @@ function getTooltip() {
   return document.body.querySelector("div.bg-popover") as HTMLDivElement | null;
 }
 
+function getTerminalLinkHandler() {
+  return terminalInstances[0]?.options.linkHandler as
+    | TerminalLinkHandler
+    | undefined;
+}
+
 describe("createXtermAdapter", () => {
   beforeEach(() => {
     terminalInstances.length = 0;
@@ -239,6 +258,52 @@ describe("createXtermAdapter", () => {
     );
   });
 
+  it("configures a shared xterm link handler with HTTP-only schemes", () => {
+    const adapter = createXtermAdapter();
+    const { container } = mountTerminalContainer();
+
+    adapter.open(container);
+
+    expect(getTerminalLinkHandler()).toMatchObject({
+      activate: expect.any(Function),
+      hover: expect.any(Function),
+      leave: expect.any(Function),
+      allowNonHttpProtocols: false,
+    });
+    expect(webLinksAddonOptions[0]?.allowNonHttpProtocols).toBe(false);
+  });
+
+  it("requires Cmd+click on OSC 8 links", () => {
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(null as unknown as Window);
+    const adapter = createXtermAdapter();
+    const { container } = mountTerminalContainer();
+
+    adapter.open(container);
+    const linkHandler = getTerminalLinkHandler();
+
+    linkHandler?.activate(new MouseEvent("click"), "https://example.com/osc8", {
+      start: { x: 2, y: 3 },
+      end: { x: 12, y: 3 },
+    });
+    linkHandler?.activate(
+      new MouseEvent("click", { metaKey: true }),
+      "https://example.com/osc8",
+      {
+        start: { x: 2, y: 3 },
+        end: { x: 12, y: 3 },
+      },
+    );
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://example.com/osc8",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
   it("shows a delayed tooltip above hovered links", () => {
     vi.useFakeTimers();
     const adapter = createXtermAdapter();
@@ -277,6 +342,7 @@ describe("createXtermAdapter", () => {
     expect(renderedTooltip?.hidden).toBe(false);
     expect(document.body.textContent).toContain("Follow link");
     expect(document.body.textContent).toContain("(Cmd+click)");
+    expect(document.body.textContent).toContain("https://example.com/docs");
     expect(renderedTooltip).not.toBeNull();
     expect(renderedTooltip?.className).toContain("bg-popover");
     expect(renderedTooltip?.className).toContain("absolute");
@@ -314,6 +380,54 @@ describe("createXtermAdapter", () => {
       "_blank",
       "noopener,noreferrer",
     );
+  });
+
+  it("shows the destination URI for hovered OSC 8 links", () => {
+    vi.useFakeTimers();
+    const adapter = createXtermAdapter();
+    const { container } = mountTerminalContainer();
+
+    adapter.open(container);
+    const tooltip = getTooltip();
+    expect(tooltip?.hidden).toBe(true);
+    vi.spyOn(tooltip!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 156,
+      bottom: 44,
+      width: 156,
+      height: 44,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    const linkHandler = getTerminalLinkHandler();
+    linkHandler?.hover?.(
+      new MouseEvent("mousemove", { clientX: 160, clientY: 140 }),
+      "https://example.com/rich",
+      {
+        start: { x: 8, y: 6 },
+        end: { x: 14, y: 6 },
+      },
+    );
+
+    vi.advanceTimersByTime(500);
+
+    expect(getTooltip()?.hidden).toBe(false);
+    expect(document.body.textContent).toContain("https://example.com/rich");
+
+    linkHandler?.leave?.(
+      new MouseEvent("mouseleave"),
+      "https://example.com/rich",
+      {
+        start: { x: 8, y: 6 },
+        end: { x: 14, y: 6 },
+      },
+    );
+    vi.advanceTimersByTime(120);
+
+    expect(getTooltip()?.hidden).toBe(true);
   });
 
   it("cancels the delayed tooltip when leaving early", () => {

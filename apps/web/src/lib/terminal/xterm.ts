@@ -47,8 +47,11 @@ class TerminalLinkTooltipController {
   private readonly wrapper: HTMLElement;
   private readonly term: Terminal;
   private readonly tooltip = document.createElement("div");
+  private readonly tooltipBody = document.createElement("div");
+  private readonly tooltipHeader = document.createElement("div");
   private readonly followLinkButton = document.createElement("button");
   private readonly modifierHint = document.createElement("span");
+  private readonly uriLabel = document.createElement("code");
   private readonly onTooltipEnter = () => {
     this.clearHideTimer();
   };
@@ -64,18 +67,20 @@ class TerminalLinkTooltipController {
     this.wrapper = wrapper;
     this.term = term;
     this.tooltip.className =
-      "xterm-hover pointer-events-auto absolute z-50 inline-flex items-center gap-1 " +
-      "rounded-md border border-border bg-popover px-3 py-1.5 text-xs " +
+      "xterm-hover pointer-events-auto absolute z-50 max-w-sm rounded-md " +
+      "border border-border bg-popover px-3 py-2 text-xs " +
       "text-popover-foreground shadow-md";
     this.tooltip.hidden = true;
+    this.tooltipBody.className = "flex flex-col gap-1";
+    this.tooltipHeader.className =
+      "flex items-center justify-center gap-1.5 text-center";
 
     this.followLinkButton.type = "button";
     this.followLinkButton.className =
-      "cursor-pointer rounded-sm font-medium text-primary underline " +
+      "cursor-pointer rounded-sm text-center font-medium text-primary underline " +
       "decoration-primary/50 underline-offset-2 transition-colors " +
       "hover:text-primary/80 hover:decoration-primary focus-visible:outline-none " +
       "focus-visible:ring-2 focus-visible:ring-ring";
-    this.followLinkButton.textContent = "Follow link";
     this.followLinkButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -88,8 +93,13 @@ class TerminalLinkTooltipController {
     });
 
     this.modifierHint.className = "text-muted-foreground";
+    this.uriLabel.className =
+      "max-w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-sm " +
+      "bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground";
 
-    this.tooltip.append(this.followLinkButton, this.modifierHint);
+    this.tooltipHeader.append(this.followLinkButton, this.modifierHint);
+    this.tooltipBody.append(this.tooltipHeader, this.uriLabel);
+    this.tooltip.append(this.tooltipBody);
     this.tooltip.addEventListener("mouseenter", this.onTooltipEnter);
     this.tooltip.addEventListener("mouseleave", this.onTooltipLeave);
     this.wrapper.appendChild(this.tooltip);
@@ -161,7 +171,9 @@ class TerminalLinkTooltipController {
       return;
     }
 
+    this.followLinkButton.textContent = "Follow link";
     this.modifierHint.textContent = `(${followLinkModifierLabel()}+click)`;
+    this.uriLabel.textContent = this.currentUri;
     this.tooltip.hidden = false;
 
     const wrapperRect = this.wrapper.getBoundingClientRect();
@@ -250,24 +262,29 @@ export function createXtermAdapter(opts?: {
         term,
       );
 
+      const terminalLinkHandler = {
+        activate(event: MouseEvent, uri: string) {
+          if (!shouldFollowTerminalLink(event)) {
+            return;
+          }
+
+          event.preventDefault();
+          openTerminalLink(uri);
+        },
+        hover(_event: MouseEvent, uri: string, range: IViewportRange) {
+          linkTooltipController?.scheduleShow(uri, range);
+        },
+        leave() {
+          linkTooltipController?.scheduleHide();
+        },
+        allowNonHttpProtocols: false,
+      };
+      term.options.linkHandler = terminalLinkHandler;
+
       term.loadAddon(
         new WebLinksAddon(
-          (event, uri) => {
-            if (!shouldFollowTerminalLink(event)) {
-              return;
-            }
-
-            event.preventDefault();
-            openTerminalLink(uri);
-          },
-          {
-            hover: (_event, uri, range) => {
-              linkTooltipController?.scheduleShow(uri, range);
-            },
-            leave: () => {
-              linkTooltipController?.scheduleHide();
-            },
-          },
+          (event, uri) => terminalLinkHandler.activate(event, uri),
+          terminalLinkHandler,
         ),
       );
 
