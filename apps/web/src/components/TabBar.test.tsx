@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { act, useCallback, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabBar, { SortableTabView } from "@/components/TabBar";
@@ -28,6 +28,19 @@ function makeTab(id: string, position: number): TerminalTab {
     type: "terminal",
     created_at: 0,
     preview: false,
+  };
+}
+
+function baseProps() {
+  return {
+    worktreeId: "w1",
+    activeTabId: "a",
+    onActivate: vi.fn(),
+    onPin: vi.fn(),
+    onClose: vi.fn(),
+    onAddTerminal: vi.fn(),
+    onAddBrowser: vi.fn().mockResolvedValue(undefined),
+    onReorder: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -101,21 +114,9 @@ describe("TabBar", () => {
   });
 
   it("renders the active tab style and keeps close separate from activate", () => {
-    const onActivate = vi.fn();
-    const onClose = vi.fn();
+    const props = baseProps();
 
-    render(
-      <TabBar
-        worktreeId="w1"
-        tabs={[makeTab("a", 1), makeTab("b", 2)]}
-        activeTabId="a"
-        onActivate={onActivate}
-        onPin={vi.fn()}
-        onClose={onClose}
-        onAdd={vi.fn()}
-        onReorder={vi.fn().mockResolvedValue(undefined)}
-      />,
-    );
+    render(<TabBar {...props} tabs={[makeTab("a", 1), makeTab("b", 2)]} />);
 
     const activeTab = screen.getByRole("tab", { selected: true });
     expect(activeTab).toHaveClass("bg-tab-active");
@@ -124,24 +125,20 @@ describe("TabBar", () => {
     );
 
     fireEvent.click(screen.getByText("Tab B"));
-    expect(onActivate).toHaveBeenCalledWith("b");
+    expect(props.onActivate).toHaveBeenCalledWith("b");
 
     fireEvent.click(screen.getByRole("button", { name: "Close Tab B" }));
-    expect(onClose).toHaveBeenCalledWith("b");
-    expect(onActivate).toHaveBeenCalledTimes(1);
+    expect(props.onClose).toHaveBeenCalledWith("b");
+    expect(props.onActivate).toHaveBeenCalledTimes(1);
   });
 
   it("shows overflow chevrons and scrolls the tab strip", () => {
+    const props = baseProps();
+
     render(
       <TabBar
-        worktreeId="w1"
+        {...props}
         tabs={[makeTab("a", 1), makeTab("b", 2), makeTab("c", 3)]}
-        activeTabId="a"
-        onActivate={vi.fn()}
-        onPin={vi.fn()}
-        onClose={vi.fn()}
-        onAdd={vi.fn()}
-        onReorder={vi.fn().mockResolvedValue(undefined)}
       />,
     );
 
@@ -161,15 +158,7 @@ describe("TabBar", () => {
   });
 
   it("auto-scrolls to the end when a tab is added", () => {
-    const props = {
-      worktreeId: "w1",
-      activeTabId: "a",
-      onActivate: vi.fn(),
-      onPin: vi.fn(),
-      onClose: vi.fn(),
-      onAdd: vi.fn(),
-      onReorder: vi.fn().mockResolvedValue(undefined),
-    };
+    const props = baseProps();
 
     const { rerender } = render(<TabBar {...props} tabs={[makeTab("a", 1)]} />);
 
@@ -191,16 +180,7 @@ describe("TabBar", () => {
     window.requestAnimationFrame = vi.fn(() => 77);
 
     const { rerender, unmount } = render(
-      <TabBar
-        worktreeId="w1"
-        tabs={[makeTab("a", 1)]}
-        activeTabId="a"
-        onActivate={vi.fn()}
-        onPin={vi.fn()}
-        onClose={vi.fn()}
-        onAdd={vi.fn()}
-        onReorder={vi.fn().mockResolvedValue(undefined)}
-      />,
+      <TabBar {...baseProps()} tabs={[makeTab("a", 1)]} />,
     );
 
     const tabList = screen.getByRole("tablist");
@@ -210,21 +190,37 @@ describe("TabBar", () => {
     });
 
     rerender(
-      <TabBar
-        worktreeId="w1"
-        tabs={[makeTab("a", 1), makeTab("b", 2)]}
-        activeTabId="a"
-        onActivate={vi.fn()}
-        onPin={vi.fn()}
-        onClose={vi.fn()}
-        onAdd={vi.fn()}
-        onReorder={vi.fn().mockResolvedValue(undefined)}
-      />,
+      <TabBar {...baseProps()} tabs={[makeTab("a", 1), makeTab("b", 2)]} />,
     );
 
     unmount();
 
     expect(window.cancelAnimationFrame).toHaveBeenCalledWith(77);
+  });
+
+  it("opens the add menu for terminal and browser tabs", async () => {
+    const props = baseProps();
+
+    render(<TabBar {...props} tabs={[makeTab("a", 1)]} />);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Add tab" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "New Terminal" }),
+    );
+    expect(props.onAddTerminal).toHaveBeenCalledTimes(1);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Add tab" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open URL…" }));
+
+    const input = await screen.findByRole("textbox", {
+      name: "Browser tab URL",
+    });
+    fireEvent.change(input, { target: { value: "localhost:3000" } });
+    fireEvent.submit(input.closest("form")!);
+
+    await waitFor(() => {
+      expect(props.onAddBrowser).toHaveBeenCalledWith("http://localhost:3000/");
+    });
   });
 
   it("does not rerender a tab view when its props stay stable", () => {

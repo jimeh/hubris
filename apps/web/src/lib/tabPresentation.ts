@@ -1,4 +1,5 @@
 import type { WorktreeGitFileChange, WorktreeGitStatus } from "@/lib/api";
+import { browserLabelFromUrl } from "@/lib/browserTabs";
 import {
   gitChangeTypeClass,
   gitChangeTypeLabel,
@@ -13,7 +14,7 @@ export type TabPresentation = {
   labelSuffix?: string;
   statusLabel?: string;
   title: string;
-  iconKind: "terminal" | "material";
+  iconKind: "terminal" | "material" | "browser";
   iconPath?: string;
   iconId?: string;
   toneClass?: string;
@@ -108,6 +109,15 @@ export function presentTab(
       label,
       title: label,
       iconKind: "terminal",
+    };
+  }
+
+  if (tab.type === "browser") {
+    const label = tab.label || browserLabelFromUrl(tab.url);
+    return {
+      label,
+      title: tab.url,
+      iconKind: "browser",
     };
   }
 

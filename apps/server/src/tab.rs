@@ -65,12 +65,28 @@ pub enum TabInfo {
         #[serde(skip_serializing_if = "Option::is_none")]
         commit_id: Option<String>,
     },
+    Browser {
+        id: String,
+        session_id: String,
+        worktree_id: String,
+        label: String,
+        position: f64,
+        #[ts(type = "number")]
+        created_at: u64,
+        preview: bool,
+        url: String,
+        history: Vec<String>,
+        history_index: usize,
+    },
 }
 
 impl TabInfo {
     pub fn id(&self) -> &str {
         match self {
-            Self::Terminal { id, .. } | Self::File { id, .. } | Self::GitDiff { id, .. } => id,
+            Self::Terminal { id, .. }
+            | Self::File { id, .. }
+            | Self::GitDiff { id, .. }
+            | Self::Browser { id, .. } => id,
         }
     }
 
@@ -78,7 +94,8 @@ impl TabInfo {
         match self {
             Self::Terminal { session_id, .. }
             | Self::File { session_id, .. }
-            | Self::GitDiff { session_id, .. } => session_id,
+            | Self::GitDiff { session_id, .. }
+            | Self::Browser { session_id, .. } => session_id,
         }
     }
 
@@ -86,7 +103,8 @@ impl TabInfo {
         match self {
             Self::Terminal { worktree_id, .. }
             | Self::File { worktree_id, .. }
-            | Self::GitDiff { worktree_id, .. } => worktree_id,
+            | Self::GitDiff { worktree_id, .. }
+            | Self::Browser { worktree_id, .. } => worktree_id,
         }
     }
 
@@ -94,7 +112,8 @@ impl TabInfo {
         match self {
             Self::Terminal { label, .. }
             | Self::File { label, .. }
-            | Self::GitDiff { label, .. } => label,
+            | Self::GitDiff { label, .. }
+            | Self::Browser { label, .. } => label,
         }
     }
 
@@ -102,7 +121,8 @@ impl TabInfo {
         match self {
             Self::Terminal { position, .. }
             | Self::File { position, .. }
-            | Self::GitDiff { position, .. } => *position,
+            | Self::GitDiff { position, .. }
+            | Self::Browser { position, .. } => *position,
         }
     }
 
@@ -110,7 +130,8 @@ impl TabInfo {
         match self {
             Self::Terminal { created_at, .. }
             | Self::File { created_at, .. }
-            | Self::GitDiff { created_at, .. } => *created_at,
+            | Self::GitDiff { created_at, .. }
+            | Self::Browser { created_at, .. } => *created_at,
         }
     }
 
@@ -118,12 +139,17 @@ impl TabInfo {
         match self {
             Self::Terminal { preview, .. }
             | Self::File { preview, .. }
-            | Self::GitDiff { preview, .. } => *preview,
+            | Self::GitDiff { preview, .. }
+            | Self::Browser { preview, .. } => *preview,
         }
     }
 
     pub fn is_terminal(&self) -> bool {
         matches!(self, Self::Terminal { .. })
+    }
+
+    pub fn is_browser(&self) -> bool {
+        matches!(self, Self::Browser { .. })
     }
 
     pub fn has_notification(&self) -> bool {
@@ -157,11 +183,33 @@ impl TabInfo {
         }
     }
 
+    pub fn url(&self) -> Option<&str> {
+        match self {
+            Self::Browser { url, .. } => Some(url),
+            _ => None,
+        }
+    }
+
+    pub fn history(&self) -> Option<&[String]> {
+        match self {
+            Self::Browser { history, .. } => Some(history),
+            _ => None,
+        }
+    }
+
+    pub fn history_index(&self) -> Option<usize> {
+        match self {
+            Self::Browser { history_index, .. } => Some(*history_index),
+            _ => None,
+        }
+    }
+
     pub fn set_position(&mut self, next: f64) {
         match self {
             Self::Terminal { position, .. }
             | Self::File { position, .. }
-            | Self::GitDiff { position, .. } => *position = next,
+            | Self::GitDiff { position, .. }
+            | Self::Browser { position, .. } => *position = next,
         }
     }
 
@@ -169,7 +217,8 @@ impl TabInfo {
         match self {
             Self::Terminal { preview, .. }
             | Self::File { preview, .. }
-            | Self::GitDiff { preview, .. } => *preview = next,
+            | Self::GitDiff { preview, .. }
+            | Self::Browser { preview, .. } => *preview = next,
         }
     }
 
@@ -177,7 +226,8 @@ impl TabInfo {
         match self {
             Self::Terminal { label, .. }
             | Self::File { label, .. }
-            | Self::GitDiff { label, .. } => *label = next,
+            | Self::GitDiff { label, .. }
+            | Self::Browser { label, .. } => *label = next,
         }
     }
 
@@ -205,6 +255,24 @@ impl TabInfo {
     pub fn set_title_label(&mut self, next: Option<String>) {
         if let Self::Terminal { labels, .. } = self {
             labels.title_label = next;
+        }
+    }
+
+    pub fn set_url(&mut self, next: String) {
+        if let Self::Browser { url, .. } = self {
+            *url = next;
+        }
+    }
+
+    pub fn set_history(&mut self, next: Vec<String>) {
+        if let Self::Browser { history, .. } = self {
+            *history = next;
+        }
+    }
+
+    pub fn set_history_index(&mut self, next: usize) {
+        if let Self::Browser { history_index, .. } = self {
+            *history_index = next;
         }
     }
 }

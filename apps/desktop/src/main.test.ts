@@ -81,6 +81,18 @@ async function loadMainModule({
     setPermissionCheckHandler: vi.fn(() => {
       events.push("guard-check");
     }),
+    on: vi.fn(),
+  };
+  const browserSession = {
+    setPermissionRequestHandler: vi.fn(() => {
+      events.push("browser-guard-request");
+    }),
+    setPermissionCheckHandler: vi.fn(() => {
+      events.push("browser-guard-check");
+    }),
+    on: vi.fn((event: string) => {
+      events.push(`browser-session-${event}`);
+    }),
   };
 
   const app = {
@@ -143,7 +155,9 @@ async function loadMainModule({
     app,
     BrowserWindow: BrowserWindowMock,
     session: {
-      fromPartition: vi.fn(() => desktopSession),
+      fromPartition: vi.fn((partition: string) =>
+        partition.includes("browser") ? browserSession : desktopSession,
+      ),
     },
     shell: {
       openExternal: vi.fn(async () => {}),
@@ -176,7 +190,19 @@ async function loadMainModule({
       events.push("profile-configured");
     }),
     desktopProfileMode: vi.fn(() => "dev"),
+    desktopBrowserSessionPartition: vi.fn(
+      () => "persist:hubris-desktop-browser-dev",
+    ),
     desktopSessionPartition: vi.fn(() => "persist:hubris-desktop-dev"),
+  }));
+
+  vi.doMock("./browserViews", () => ({
+    disposeBrowserViewBridge: vi.fn(() => {
+      events.push("browser-bridge-disposed");
+    }),
+    installBrowserViewBridge: vi.fn(() => {
+      events.push("browser-bridge-installed");
+    }),
   }));
 
   vi.doMock("./wsBridge", () => ({
@@ -197,6 +223,7 @@ async function loadMainModule({
     appOnHandlers,
     createHubrisWindowOptions,
     createdWindows,
+    browserSession,
     desktopSession,
     events,
     loadDesktopWindowState,
@@ -245,7 +272,15 @@ describe("desktop main process startup", () => {
 
     expect(state.events.indexOf("guard-request")).toBeGreaterThan(-1);
     expect(state.events.indexOf("guard-check")).toBeGreaterThan(-1);
+    expect(state.events.indexOf("browser-guard-request")).toBeGreaterThan(-1);
+    expect(state.events.indexOf("browser-guard-check")).toBeGreaterThan(-1);
+    expect(
+      state.events.indexOf("browser-session-will-download"),
+    ).toBeGreaterThan(-1);
     expect(state.events.indexOf("window-created")).toBeGreaterThan(-1);
+    expect(state.events.indexOf("browser-bridge-installed")).toBeGreaterThan(
+      -1,
+    );
     expect(state.events.indexOf("activate-registered")).toBeGreaterThan(-1);
     expect(state.events.indexOf("guard-request")).toBeLessThan(
       state.events.indexOf("window-created"),
@@ -342,6 +377,7 @@ describe("desktop main process startup", () => {
 
     state.windows.length = 0;
     existingWindow.handlers.closed?.();
+    expect(state.events).toContain("browser-bridge-disposed");
 
     secondInstance?.();
 

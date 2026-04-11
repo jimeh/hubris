@@ -109,6 +109,26 @@ async fn create_tab(client: &reqwest::Client, base: &str, worktree_id: &str) -> 
     res.json().await.unwrap()
 }
 
+async fn create_browser_tab(
+    client: &reqwest::Client,
+    base: &str,
+    worktree_id: &str,
+    url: &str,
+) -> Value {
+    let res = client
+        .post(format!("{}/api/tabs", base))
+        .json(&serde_json::json!({
+            "type": "browser",
+            "worktree_id": worktree_id,
+            "url": url
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    res.json().await.unwrap()
+}
+
 async fn list_tabs(client: &reqwest::Client, base: &str) -> Vec<Value> {
     let res = client
         .get(format!("{}/api/tabs", base))
@@ -197,6 +217,58 @@ async fn test_create_tab() {
     assert_eq!(tab["type"], "terminal");
     assert!(tab["position"].is_f64());
     assert!(tab["created_at"].is_u64());
+}
+
+#[tokio::test]
+async fn test_create_browser_tab() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_browser_tab(&client, &base, &worktree_id, "localhost:4173/docs").await;
+
+    assert_eq!(tab["type"], "browser");
+    assert_eq!(tab["worktree_id"], worktree_id);
+    assert_eq!(tab["label"], "localhost");
+    assert_eq!(tab["url"], "http://localhost:4173/docs");
+    assert_eq!(
+        tab["history"],
+        serde_json::json!(["http://localhost:4173/docs"])
+    );
+    assert_eq!(tab["history_index"], 0);
+    assert_eq!(tab["preview"], false);
+}
+
+#[tokio::test]
+async fn test_create_browser_tab_rejects_invalid_url() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let res = client
+        .post(format!("{}/api/tabs", base))
+        .json(&serde_json::json!({
+            "type": "browser",
+            "worktree_id": worktree_id,
+            "url": "javascript:alert(1)"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(
+        body["message"],
+        "Browser tabs only support http:// and https:// URLs."
+    );
 }
 
 #[tokio::test]
@@ -474,6 +546,100 @@ async fn test_update_tab() {
     assert_eq!(body[0]["label"], "Terminal 1");
     assert_eq!(body[0]["customLabel"], "Renamed tab");
     assert_eq!(body[0]["position"], 42.5);
+}
+
+#[tokio::test]
+async fn test_update_browser_tab() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_browser_tab(&client, &base, &worktree_id, "http://localhost:4173").await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let res = client
+        .patch(format!("{}/api/tabs/{}", base, tab_id))
+        .json(&serde_json::json!({
+            "label": "Docs",
+            "url": "localhost:4173/reference",
+            "history": [
+                "http://localhost:4173",
+                "http://localhost:4173/reference"
+            ],
+            "history_index": 1
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let updated: Value = res.json().await.unwrap();
+    assert_eq!(updated["label"], "Docs");
+    assert_eq!(updated["url"], "http://localhost:4173/reference");
+    assert_eq!(
+        updated["history"],
+        serde_json::json!(["http://localhost:4173/", "http://localhost:4173/reference"])
+    );
+    assert_eq!(updated["history_index"], 1);
+}
+
+#[tokio::test]
+async fn test_update_browser_fields_rejects_non_browser_tab() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_tab(&client, &base, &worktree_id).await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let res = client
+        .patch(format!("{}/api/tabs/{}", base, tab_id))
+        .json(&serde_json::json!({
+            "url": "http://localhost:4173"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(
+        body["message"],
+        "Browser tab fields can only be updated on browser tabs."
+    );
+}
+
+#[tokio::test]
+async fn test_update_browser_tab_rejects_invalid_history_index() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_browser_tab(&client, &base, &worktree_id, "http://localhost:4173").await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let res = client
+        .patch(format!("{}/api/tabs/{}", base, tab_id))
+        .json(&serde_json::json!({
+            "history": ["http://localhost:4173"],
+            "history_index": 2
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(
+        body["message"],
+        "history_index must point at an entry in history."
+    );
 }
 
 #[tokio::test]

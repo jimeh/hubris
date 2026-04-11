@@ -8,6 +8,7 @@ import {
   type CSSProperties,
   type MouseEvent,
 } from "react";
+import BrowserTab from "@/components/BrowserTab";
 import { useShallow } from "zustand/react/shallow";
 import FileEditorTab from "@/components/FileEditorTab";
 import GitDiffTab from "@/components/GitDiffTab";
@@ -78,6 +79,7 @@ export default function WorktreeView({ worktree, active }: Props) {
   const resetTerminalCustomLabel = useTabStore(
     (state) => state.resetTerminalCustomLabel,
   );
+  const openBrowser = useTabStore((state) => state.openBrowser);
   const removeLocal = useTabStore((state) => state.removeLocal);
   const saveFile = useFileEditorStore((state) => state.save);
   const saveDiff = useGitDiffStore((state) => state.save);
@@ -164,9 +166,15 @@ export default function WorktreeView({ worktree, active }: Props) {
     },
     [close],
   );
-  const handleAddTab = useCallback(() => {
+  const handleAddTerminalTab = useCallback(() => {
     void addTerminal(worktree.id);
   }, [addTerminal, worktree.id]);
+  const handleAddBrowserTab = useCallback(
+    async (url: string) => {
+      await openBrowser({ worktreeId: worktree.id, url });
+    },
+    [openBrowser, worktree.id],
+  );
   const handleReorderTabs = useCallback(
     (orderedIds: string[]) => reorder(worktree.id, orderedIds),
     [reorder, worktree.id],
@@ -280,7 +288,8 @@ export default function WorktreeView({ worktree, active }: Props) {
           onActivate={handleActivateTab}
           onPin={handlePinTab}
           onClose={handleCloseTab}
-          onAdd={handleAddTab}
+          onAddTerminal={handleAddTerminalTab}
+          onAddBrowser={handleAddBrowserTab}
           onReorder={handleReorderTabs}
           onRenameTerminalTab={handleRenameTerminalTab}
           onResetTerminalTabName={handleResetTerminalTabName}
@@ -312,6 +321,8 @@ export default function WorktreeView({ worktree, active }: Props) {
                   tab={tab}
                   visible={tab.id === activeTabId}
                 />
+              ) : tab.type === "browser" ? (
+                <BrowserTab tab={tab} visible={tab.id === activeTabId} />
               ) : null}
             </div>
           ))}
@@ -429,6 +440,10 @@ export default function WorktreeView({ worktree, active }: Props) {
 function tabTitle(tab: Tab | null): string {
   if (!tab || tab.type === "terminal") {
     return tab?.label ?? "this file";
+  }
+
+  if (tab.type === "browser") {
+    return tab.label || tab.url;
   }
 
   return tab.path.split("/").filter(Boolean).at(-1) ?? tab.path;

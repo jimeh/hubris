@@ -8,7 +8,13 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
-import type { FileTab, GitDiffTab, TerminalTab, Worktree } from "@/lib/types";
+import type {
+  BrowserTab,
+  FileTab,
+  GitDiffTab,
+  TerminalTab,
+  Worktree,
+} from "@/lib/types";
 import WorktreeView from "./WorktreeView";
 import {
   resetFileEditorStoreForTests,
@@ -35,11 +41,19 @@ vi.mock("@/components/TabBar", () => ({
   default: ({
     tabs,
     onClose,
+    onAddTerminal,
+    onAddBrowser,
   }: {
     tabs: Array<{ id: string }>;
     onClose: (tabId: string) => void;
+    onAddTerminal?: () => void;
+    onAddBrowser?: (url: string) => Promise<void>;
   }) => (
     <div>
+      <button onClick={() => onAddTerminal?.()}>Add terminal</button>
+      <button onClick={() => void onAddBrowser?.("http://localhost:3000/")}>
+        Add browser
+      </button>
       {tabs.map((tab) => (
         <button key={tab.id} onClick={() => onClose(tab.id)}>
           Close {tab.id}
@@ -81,6 +95,20 @@ vi.mock("@/components/FileEditorTab", () => ({
 
 vi.mock("@/components/GitDiffTab", () => ({
   default: () => <div>Git diff</div>,
+}));
+
+vi.mock("@/components/BrowserTab", () => ({
+  default: ({
+    tab,
+    visible,
+  }: {
+    tab: { id: string; url: string };
+    visible: boolean;
+  }) => (
+    <div data-testid={`browser-${tab.id}`} data-visible={visible}>
+      {tab.url}
+    </div>
+  ),
 }));
 
 function getTerminalRenderCounts(): Record<string, number> {
@@ -160,6 +188,26 @@ function makeGitDiffTab(
     path,
     scope: overrides.scope ?? "unstaged",
     original_path: overrides.original_path ?? null,
+  };
+}
+
+function makeBrowserTab(
+  id: string,
+  worktreeId: string,
+  overrides: Partial<BrowserTab> = {},
+): BrowserTab {
+  return {
+    id,
+    label: overrides.label ?? "localhost",
+    position: overrides.position ?? 1,
+    worktree_id: worktreeId,
+    session_id: overrides.session_id ?? "default",
+    type: "browser",
+    created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? false,
+    url: overrides.url ?? "http://localhost:3000/",
+    history: overrides.history ?? [overrides.url ?? "http://localhost:3000/"],
+    history_index: overrides.history_index ?? 0,
   };
 }
 
@@ -459,6 +507,48 @@ describe("WorktreeView", () => {
     });
 
     expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+  });
+
+  it("keeps browser panes mounted and switches visibility with the active tab", () => {
+    const worktree = makeWorktree();
+    const browserA = makeBrowserTab("browser-a", worktree.id, {
+      position: 1,
+      url: "http://localhost:3000/",
+    });
+    const browserB = makeBrowserTab("browser-b", worktree.id, {
+      position: 2,
+      url: "https://example.com/docs",
+    });
+
+    useTabStore.setState({
+      tabs: [browserA, browserB],
+      activeTabId: browserA.id,
+      activeTabByWorktree: { [worktree.id]: browserA.id },
+    });
+
+    render(<WorktreeView worktree={worktree} active />);
+
+    expect(screen.getByTestId("browser-browser-a")).toHaveAttribute(
+      "data-visible",
+      "true",
+    );
+    expect(screen.getByTestId("browser-browser-b")).toHaveAttribute(
+      "data-visible",
+      "false",
+    );
+
+    act(() => {
+      useTabStore.getState().activate(browserB.id);
+    });
+
+    expect(screen.getByTestId("browser-browser-a")).toHaveAttribute(
+      "data-visible",
+      "false",
+    );
+    expect(screen.getByTestId("browser-browser-b")).toHaveAttribute(
+      "data-visible",
+      "true",
+    );
   });
 
   it("keeps the save dialog open when saving a dirty file tab fails", async () => {

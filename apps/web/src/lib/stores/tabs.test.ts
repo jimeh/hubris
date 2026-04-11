@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
-import type { FileTab, GitDiffTab, TerminalTab } from "@/lib/types";
+import type { BrowserTab, FileTab, GitDiffTab, TerminalTab } from "@/lib/types";
 import {
   initializeTabStore,
   resetTabStoreForTests,
@@ -120,6 +120,24 @@ function makeGitDiffTab(
     scope: overrides.scope ?? "unstaged",
     original_path: overrides.original_path ?? null,
     commit_id: overrides.commit_id ?? null,
+  };
+}
+
+function makeBrowserTab(
+  overrides: Partial<BrowserTab> & { id: string; url: string },
+): BrowserTab {
+  return {
+    id: overrides.id,
+    label: overrides.label ?? "localhost",
+    position: overrides.position ?? 1,
+    worktree_id: overrides.worktree_id ?? "w1",
+    session_id: overrides.session_id ?? "default",
+    type: "browser",
+    created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? false,
+    url: overrides.url,
+    history: overrides.history ?? [overrides.url],
+    history_index: overrides.history_index ?? 0,
   };
 }
 
@@ -519,5 +537,73 @@ describe("Tab store", () => {
     expect(previewTab.preview).toBe(false);
     expect(pinnedTab.preview).toBe(false);
     expect(store.tabsForWorktree("w1")[0]?.preview).toBe(false);
+  });
+
+  it("openBrowser creates and activates a browser tab", async () => {
+    const store = await getStore();
+    const tab = makeBrowserTab({
+      id: "browser-1",
+      worktree_id: "w1",
+      position: 1,
+      url: "http://localhost:3000/",
+    });
+    mockCreateTab.mockResolvedValue(tab);
+
+    const created = await store.useTabStore.getState().openBrowser({
+      worktreeId: "w1",
+      url: "localhost:3000",
+    });
+
+    expect(mockCreateTab).toHaveBeenCalledWith({
+      type: "browser",
+      worktree_id: "w1",
+      url: "http://localhost:3000/",
+    });
+    expect(created).toEqual(tab);
+    expect(store.useTabStore.getState().activeTabId).toBe(tab.id);
+    expect(store.tabsForWorktree("w1")).toEqual([tab]);
+  });
+
+  it("setBrowserState normalizes and persists browser navigation", async () => {
+    const store = await getStore();
+    const browserTab = makeBrowserTab({
+      id: "browser-2",
+      worktree_id: "w1",
+      url: "http://localhost:3000/",
+    });
+    const updated = makeBrowserTab({
+      ...browserTab,
+      label: "docs",
+      url: "https://example.com/docs",
+      history: ["http://localhost:3000/", "https://example.com/docs"],
+      history_index: 1,
+    });
+    mockUpdateTab.mockResolvedValue(updated);
+
+    mockEvents.emit("snapshot", {
+      tabs: [browserTab],
+    });
+
+    const result = await store.useTabStore
+      .getState()
+      .setBrowserState(browserTab.id, {
+        label: "docs",
+        url: "https://example.com/docs",
+        history: ["localhost:3000", "https://example.com/docs"],
+        historyIndex: 1,
+      });
+
+    expect(mockUpdateTab).toHaveBeenCalledWith(browserTab.id, {
+      label: "docs",
+      url: "https://example.com/docs",
+      history: ["http://localhost:3000/", "https://example.com/docs"],
+      history_index: 1,
+    });
+    expect(result).toEqual(updated);
+    expect(store.tabsForWorktree("w1")[0]).toMatchObject({
+      url: "https://example.com/docs",
+      history: ["http://localhost:3000/", "https://example.com/docs"],
+      history_index: 1,
+    });
   });
 });

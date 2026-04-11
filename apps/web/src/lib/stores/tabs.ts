@@ -6,9 +6,10 @@ import {
   reorderTabs,
   updateTab,
 } from "@/lib/api";
+import { browserLabelFromUrl, normalizeBrowserUrl } from "@/lib/browserTabs";
 import { getEventClient } from "@/lib/events";
 import { scheduleDisposeTabModels } from "@/lib/monaco";
-import type { GitDiffScope, GitDiffTab, Tab } from "@/lib/types";
+import type { BrowserTab, GitDiffScope, GitDiffTab, Tab } from "@/lib/types";
 
 const LS_ACTIVE_TAB = "hubris-active-tab";
 const LS_TAB_BY_WORKTREE = "hubris-active-tab-by-worktree";
@@ -31,6 +32,18 @@ type OpenGitDiffOptions = {
   preview: boolean;
 };
 
+type OpenBrowserOptions = {
+  worktreeId: string;
+  url: string;
+};
+
+type BrowserTabUpdate = {
+  label?: string;
+  url?: string;
+  history?: string[];
+  historyIndex?: number;
+};
+
 type PendingGitDiffOpen = {
   state: {
     shouldPin: boolean;
@@ -50,6 +63,11 @@ type TabsState = {
   resetTerminalCustomLabel: (id: string) => Promise<Tab | null>;
   openFile: (options: OpenFileOptions) => Promise<Tab>;
   openGitDiff: (options: OpenGitDiffOptions) => Promise<Tab>;
+  openBrowser: (options: OpenBrowserOptions) => Promise<Tab>;
+  setBrowserState: (
+    id: string,
+    updates: BrowserTabUpdate,
+  ) => Promise<BrowserTab | null>;
   pin: (id: string) => Promise<Tab | null>;
   close: (id: string) => Promise<void>;
   removeLocal: (id: string) => void;
@@ -140,6 +158,18 @@ function tabKey(tab: Tab): string {
         tab.scope,
         tab.original_path ?? "",
         tab.commit_id ?? "",
+      ].join("|");
+    case "browser":
+      return [
+        tab.id,
+        tab.label,
+        tab.position,
+        tab.worktree_id,
+        tab.preview,
+        tab.type,
+        tab.url,
+        tab.history.join("||"),
+        tab.history_index,
       ].join("|");
   }
 }
@@ -491,6 +521,84 @@ export const useTabStore = create<TabsState>((set, get) => ({
     });
 
     return pendingPromise;
+  },
+  async openBrowser(options) {
+    const url = normalizeBrowserUrl(options.url);
+    const tab = await createTab({
+      type: "browser",
+      worktree_id: options.worktreeId,
+      url,
+    });
+    set((state) => {
+      const tabs = addTabIfMissing(state.tabs, tab);
+      return {
+        tabs,
+        ...activateLocal(
+          {
+            ...state,
+            tabs,
+          } as TabsState,
+          tab.id,
+        ),
+      };
+    });
+    return tab;
+  },
+  async setBrowserState(id, updates) {
+    const existing =
+      get().tabs.find(
+        (tab): tab is BrowserTab => tab.id === id && tab.type === "browser",
+      ) ?? null;
+    if (!existing) {
+      return existing;
+    }
+
+    const nextUrl = updates.url
+      ? normalizeBrowserUrl(updates.url)
+      : existing.url;
+    const nextHistory = updates.history
+      ? updates.history.map((entry) => normalizeBrowserUrl(entry))
+      : existing.history;
+    const nextHistoryIndex = updates.historyIndex ?? existing.history_index;
+    if (nextHistory.length === 0 || nextHistoryIndex >= nextHistory.length) {
+      throw new Error("history_index must point at an entry in history.");
+    }
+    const nextLabel =
+      updates.label ?? existing.label ?? browserLabelFromUrl(nextUrl);
+
+    if (
+      nextLabel === existing.label &&
+      nextUrl === existing.url &&
+      nextHistoryIndex === existing.history_index &&
+      nextHistory.length === existing.history.length &&
+      nextHistory.every((entry, index) => entry === existing.history[index])
+    ) {
+      return existing;
+    }
+
+    const optimistic: BrowserTab = {
+      ...existing,
+      label: nextLabel,
+      url: nextUrl,
+      history: nextHistory,
+      history_index: nextHistoryIndex,
+    };
+    set((state) => ({
+      tabs: sortedTabs(
+        state.tabs.map((tab) => (tab.id === id ? optimistic : tab)),
+      ),
+    }));
+
+    try {
+      return (await updateTab(id, {
+        label: nextLabel,
+        url: nextUrl,
+        history: nextHistory,
+        history_index: nextHistoryIndex,
+      })) as BrowserTab;
+    } catch {
+      return optimistic;
+    }
   },
   async pin(id) {
     const existing = get().tabs.find((tab) => tab.id === id) ?? null;
