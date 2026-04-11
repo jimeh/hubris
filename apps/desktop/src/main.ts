@@ -253,11 +253,12 @@ async function createMainWindow() {
   wireDesktopWindowStatePersistence(window, userDataPath);
 
   configureWebContentsGuards(window.webContents, HUBRIS_ORIGIN);
-  if (savedWindowState?.isMaximized) {
-    window.maximize();
-  }
-
   window.once("ready-to-show", () => {
+    if (savedWindowState?.isMaximized) {
+      window.maximize();
+      return;
+    }
+
     window.show();
   });
   window.on("closed", () => {

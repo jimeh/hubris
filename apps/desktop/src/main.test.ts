@@ -297,11 +297,17 @@ describe("desktop main process startup", () => {
       width: 1280,
       height: 840,
     });
-    expect(window.maximize).toHaveBeenCalledTimes(1);
+    expect(window.maximize).not.toHaveBeenCalled();
     expect(state.wireDesktopWindowStatePersistence).toHaveBeenCalledWith(
       window,
       "/Users/tester/Library",
     );
+
+    window.show.mockClear();
+    window.handlers["ready-to-show"]?.();
+
+    expect(window.maximize).toHaveBeenCalledTimes(1);
+    expect(window.show).not.toHaveBeenCalled();
   });
 
   it("reopens the existing window on second-instance without reinitializing desktop state", async () => {
