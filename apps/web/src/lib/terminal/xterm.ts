@@ -2,7 +2,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
-import type { IViewportRange } from "@xterm/xterm";
+import type { IBufferRange, IViewportRange } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalAdapter, TerminalViewport } from "./adapter";
 import { DEFAULT_FONT_FAMILY } from "./fonts";
@@ -43,12 +43,29 @@ function shouldFollowTerminalLink(event: MouseEvent): boolean {
   return isMacPlatform() ? event.metaKey : event.ctrlKey;
 }
 
+function toViewportRange(term: Terminal, range: IBufferRange): IViewportRange {
+  const viewportY = term.buffer.active.viewportY;
+  return {
+    start: {
+      x: range.start.x - 1,
+      y: range.start.y - viewportY - 1,
+    },
+    end: {
+      x: range.end.x,
+      y: range.end.y - viewportY - 1,
+    },
+  };
+}
+
 class TerminalLinkTooltipController {
   private readonly wrapper: HTMLElement;
   private readonly term: Terminal;
   private readonly tooltip = document.createElement("div");
+  private readonly tooltipBody = document.createElement("div");
+  private readonly tooltipHeader = document.createElement("div");
   private readonly followLinkButton = document.createElement("button");
   private readonly modifierHint = document.createElement("span");
+  private readonly uriLabel = document.createElement("code");
   private readonly onTooltipEnter = () => {
     this.clearHideTimer();
   };
@@ -64,14 +81,17 @@ class TerminalLinkTooltipController {
     this.wrapper = wrapper;
     this.term = term;
     this.tooltip.className =
-      "xterm-hover pointer-events-auto absolute z-50 inline-flex items-center gap-1 " +
-      "rounded-md border border-border bg-popover px-3 py-1.5 text-xs " +
+      "xterm-hover pointer-events-auto absolute z-50 max-w-sm rounded-md " +
+      "border border-border bg-popover px-3 py-2 text-xs " +
       "text-popover-foreground shadow-md";
     this.tooltip.hidden = true;
+    this.tooltipBody.className = "flex flex-col gap-1";
+    this.tooltipHeader.className =
+      "flex items-center justify-center gap-1.5 text-center";
 
     this.followLinkButton.type = "button";
     this.followLinkButton.className =
-      "cursor-pointer rounded-sm font-medium text-primary underline " +
+      "cursor-pointer rounded-sm text-center font-medium text-primary underline " +
       "decoration-primary/50 underline-offset-2 transition-colors " +
       "hover:text-primary/80 hover:decoration-primary focus-visible:outline-none " +
       "focus-visible:ring-2 focus-visible:ring-ring";
@@ -88,8 +108,14 @@ class TerminalLinkTooltipController {
     });
 
     this.modifierHint.className = "text-muted-foreground";
+    this.modifierHint.textContent = `(${followLinkModifierLabel()}+click)`;
+    this.uriLabel.className =
+      "max-w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-sm " +
+      "bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground";
 
-    this.tooltip.append(this.followLinkButton, this.modifierHint);
+    this.tooltipHeader.append(this.followLinkButton, this.modifierHint);
+    this.tooltipBody.append(this.tooltipHeader, this.uriLabel);
+    this.tooltip.append(this.tooltipBody);
     this.tooltip.addEventListener("mouseenter", this.onTooltipEnter);
     this.tooltip.addEventListener("mouseleave", this.onTooltipLeave);
     this.wrapper.appendChild(this.tooltip);
@@ -161,7 +187,7 @@ class TerminalLinkTooltipController {
       return;
     }
 
-    this.modifierHint.textContent = `(${followLinkModifierLabel()}+click)`;
+    this.uriLabel.textContent = this.currentUri;
     this.tooltip.hidden = false;
 
     const wrapperRect = this.wrapper.getBoundingClientRect();
@@ -250,25 +276,43 @@ export function createXtermAdapter(opts?: {
         term,
       );
 
-      term.loadAddon(
-        new WebLinksAddon(
-          (event, uri) => {
-            if (!shouldFollowTerminalLink(event)) {
-              return;
-            }
+      const activateTerminalLink = (event: MouseEvent, uri: string) => {
+        if (!shouldFollowTerminalLink(event)) {
+          return;
+        }
 
-            event.preventDefault();
-            openTerminalLink(uri);
+        event.preventDefault();
+        openTerminalLink(uri);
+      };
+      const hideTerminalLinkTooltip = () => {
+        linkTooltipController?.scheduleHide();
+      };
+      const terminalLinkHandler = {
+        activate(event: MouseEvent, uri: string) {
+          activateTerminalLink(event, uri);
+        },
+        hover(_event: MouseEvent, uri: string, range: IBufferRange) {
+          linkTooltipController?.scheduleShow(
+            uri,
+            toViewportRange(term, range),
+          );
+        },
+        leave() {
+          hideTerminalLinkTooltip();
+        },
+        allowNonHttpProtocols: false,
+      };
+      term.options.linkHandler = terminalLinkHandler;
+
+      term.loadAddon(
+        new WebLinksAddon(activateTerminalLink, {
+          hover(_event, uri, range) {
+            linkTooltipController?.scheduleShow(uri, range);
           },
-          {
-            hover: (_event, uri, range) => {
-              linkTooltipController?.scheduleShow(uri, range);
-            },
-            leave: () => {
-              linkTooltipController?.scheduleHide();
-            },
+          leave() {
+            hideTerminalLinkTooltip();
           },
-        ),
+        }),
       );
 
       try {
