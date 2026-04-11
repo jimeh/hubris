@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, KeyboardEventHandler, ReactNode } from "react";
 import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -10,10 +10,11 @@ type ProjectHeaderRowProps = {
   forceChevron?: boolean;
   rowClassName?: string;
   contentClassName?: string;
-  actionSlot: ReactNode;
+  actionSlot?: ReactNode;
   rowProps?: HTMLAttributes<HTMLDivElement>;
   onToggleExpand?: () => void;
-};
+  onContentKeyDown?: KeyboardEventHandler<HTMLButtonElement>;
+} & HTMLAttributes<HTMLDivElement>;
 
 export default function ProjectHeaderRow({
   projectName,
@@ -26,6 +27,9 @@ export default function ProjectHeaderRow({
   actionSlot,
   rowProps,
   onToggleExpand,
+  onContentKeyDown,
+  className: _className,
+  ...rootProps
 }: ProjectHeaderRowProps) {
   const FolderIcon = isExpanded ? FolderOpen : Folder;
   const ChevronIcon = isExpanded ? ChevronDown : ChevronRight;
@@ -54,6 +58,7 @@ export default function ProjectHeaderRow({
           "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-within:bg-sidebar-accent focus-within:text-sidebar-accent-foreground",
         rowClassName,
       )}
+      {...rootProps}
       {...rowProps}
     >
       {onToggleExpand ? (
@@ -62,6 +67,7 @@ export default function ProjectHeaderRow({
             "m-0 flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left appearance-none",
             contentClassName,
           )}
+          onKeyDown={onContentKeyDown}
           onClick={onToggleExpand}
           type="button"
         >

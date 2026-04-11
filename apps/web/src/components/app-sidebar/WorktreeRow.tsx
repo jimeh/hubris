@@ -1,3 +1,5 @@
+import type { KeyboardEvent } from "react";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -43,49 +45,72 @@ export default function WorktreeRow({
     pointerEvents: isDragging ? ("none" as const) : undefined,
   };
 
+  function handleContextMenuKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+  ): void {
+    const isKeyboardContextMenu =
+      event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);
+
+    if (!isKeyboardContextMenu) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="group/worktree-item relative"
-      data-worktree-drag-item="true"
-      {...attributes}
-      {...listeners}
-    >
-      <WorktreeRowContent
-        isSelected={isSelected}
-        isSorting={isSorting}
-        leadingSlot={<WorktreeIndicator worktreeId={worktree.id} />}
-        trailingSlot={<VscodeWorkbenchIndicator worktreeId={worktree.id} />}
-        contentSlot={
-          <button
-            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-            onClick={onSelect}
-            type="button"
-          >
-            <span className="min-w-0 flex-1 truncate">{worktree.name}</span>
-            {worktree.missing_on_disk ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    className="inline-flex items-center text-destructive"
-                    aria-label="Worktree missing on disk"
-                  >
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" align="center">
-                  This worktree was deleted outside Hubris. Remove it from
-                  Hubris to clear this entry.
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
-          </button>
-        }
-        actionSlot={
-          <WorktreeActionMenu onRename={onRename} onRemove={onRemove} />
-        }
-      />
-    </div>
+    <ContextMenu modal={false}>
+      <ContextMenuTrigger asChild>
+        <div
+          ref={setNodeRef}
+          style={style}
+          className="group/worktree-item relative"
+          data-worktree-drag-item="true"
+          {...attributes}
+          {...listeners}
+        >
+          <WorktreeRowContent
+            isSelected={isSelected}
+            isSorting={isSorting}
+            leadingSlot={<WorktreeIndicator worktreeId={worktree.id} />}
+            trailingSlot={<VscodeWorkbenchIndicator worktreeId={worktree.id} />}
+            contentSlot={
+              <button
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                onKeyDown={handleContextMenuKeyDown}
+                onClick={onSelect}
+                type="button"
+              >
+                <span className="min-w-0 flex-1 truncate">{worktree.name}</span>
+                {worktree.missing_on_disk ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className="inline-flex items-center text-destructive"
+                        aria-label="Worktree missing on disk"
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" align="center">
+                      This worktree was deleted outside Hubris. Remove it from
+                      Hubris to clear this entry.
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </button>
+            }
+          />
+        </div>
+      </ContextMenuTrigger>
+      <WorktreeActionMenu onRename={onRename} onRemove={onRemove} />
+    </ContextMenu>
   );
 }

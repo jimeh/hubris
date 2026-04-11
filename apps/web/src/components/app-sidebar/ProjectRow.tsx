@@ -1,7 +1,9 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import type { KeyboardEvent } from "react";
 import { Plus } from "lucide-react";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import {
   Tooltip,
@@ -70,56 +72,101 @@ export default function ProjectRow({
     pointerEvents: isDragging ? ("none" as const) : undefined,
   };
 
+  function handleContextMenuKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+  ): void {
+    const isKeyboardContextMenu =
+      event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);
+
+    if (!isKeyboardContextMenu) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
   return (
     <div ref={setNodeRef} style={style} className="relative rounded-lg">
       <Collapsible open={isExpanded} onOpenChange={onToggleExpand}>
         <SidebarMenuItem>
-          <SidebarMenuButton
-            asChild
-            size="default"
-            className="relative h-auto items-start px-0 py-0"
-          >
-            <ProjectHeaderRow
-              projectName={project.name}
-              isExpanded={isExpanded}
-              projectError={currentProjectError}
-              isSorting={isSorting}
-              rowProps={{ ...attributes, ...listeners }}
-              onToggleExpand={() => {
-                if (dragLock) {
-                  return;
-                }
+          <ContextMenu modal={false}>
+            <ContextMenuTrigger asChild>
+              <SidebarMenuButton
+                asChild
+                size="default"
+                className="relative h-auto items-start px-0 py-0"
+              >
+                <ProjectHeaderRow
+                  projectName={project.name}
+                  isExpanded={isExpanded}
+                  projectError={currentProjectError}
+                  isSorting={isSorting}
+                  rowProps={{ ...attributes, ...listeners }}
+                  onContentKeyDown={handleContextMenuKeyDown}
+                  onToggleExpand={() => {
+                    if (dragLock) {
+                      return;
+                    }
 
-                onToggleExpand();
-              }}
-              actionSlot={
-                <>
-                  <ProjectActionMenu
-                    onRename={onRenameProject}
-                    onRemove={onRemoveProject}
-                    triggerClassName="text-sidebar-foreground/55"
-                  />
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="inline-flex size-6 items-center justify-center text-sidebar-foreground/55 transition-[color,opacity] outline-none hover:opacity-100 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground"
-                        aria-label="New worktree"
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onAddWorktree();
-                        }}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">New worktree</TooltipContent>
-                  </Tooltip>
-                </>
-              }
+                    onToggleExpand();
+                  }}
+                  actionSlot={
+                    <div
+                      className={cn(
+                        "ml-auto flex items-center gap-0.5 transition-opacity",
+                        isSorting
+                          ? "pointer-events-none opacity-0"
+                          : "opacity-0 group-hover/project-row:opacity-70",
+                      )}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                    >
+                      <span
+                        className="inline-flex size-6 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex size-6 items-center justify-center text-sidebar-foreground/55 transition-[color,opacity] outline-none hover:opacity-100 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground"
+                            aria-label="New worktree"
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onAddWorktree();
+                            }}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          New worktree
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  }
+                />
+              </SidebarMenuButton>
+            </ContextMenuTrigger>
+            <ProjectActionMenu
+              onRename={onRenameProject}
+              onRemove={onRemoveProject}
             />
-          </SidebarMenuButton>
+          </ContextMenu>
 
           <CollapsibleContent
             className={cn(

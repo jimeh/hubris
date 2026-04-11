@@ -1,5 +1,4 @@
-import { AlertTriangle, Ellipsis, Plus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { AlertTriangle } from "lucide-react";
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import type { Project, Worktree } from "@/lib/types";
 import ProjectHeaderRow from "./ProjectHeaderRow";
@@ -41,13 +40,15 @@ export default function ProjectPreview({
             forceChevron
             rowClassName="bg-sidebar-accent text-sidebar-accent-foreground shadow-md hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             actionSlot={
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon-xs" tabIndex={-1}>
-                  <Ellipsis className="h-3.5 w-3.5" />
-                </Button>
-                <Button variant="ghost" size="icon-xs" tabIndex={-1}>
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
+              <div className="invisible ml-auto flex items-center gap-0.5">
+                <span
+                  className="inline-flex size-6 shrink-0"
+                  aria-hidden="true"
+                />
+                <span
+                  className="inline-flex size-6 shrink-0"
+                  aria-hidden="true"
+                />
               </div>
             }
           />
@@ -114,11 +115,6 @@ function ProjectPreviewWorktreeList({
                     </span>
                   ) : null}
                 </div>
-              }
-              actionSlot={
-                <span className="pointer-events-none inline-flex size-6 items-center justify-center rounded-md">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </span>
               }
             />
           </div>
