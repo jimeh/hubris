@@ -47,6 +47,8 @@ export default function WorktreeRowContent({
               "group-hover/worktree-row:max-w-24 group-hover/worktree-row:opacity-100 group-hover/worktree-row:pointer-events-auto",
             !isSorting &&
               "group-focus-within/worktree-row:max-w-24 group-focus-within/worktree-row:opacity-100 group-focus-within/worktree-row:pointer-events-auto",
+            !isSorting &&
+              "group-has-data-[state=open]/worktree-row:max-w-24 group-has-data-[state=open]/worktree-row:opacity-100 group-has-data-[state=open]/worktree-row:pointer-events-auto",
           )}
         >
           {actionSlot}

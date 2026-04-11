@@ -284,6 +284,12 @@ describe("AppSidebarRoot", () => {
     expect(actionContainer).toHaveClass(
       "group-focus-within/project-row:opacity-100",
     );
+    expect(actionContainer).toHaveClass(
+      "group-has-data-[state=open]/project-row:max-w-24",
+    );
+    expect(actionContainer).toHaveClass(
+      "group-has-data-[state=open]/project-row:opacity-100",
+    );
     expect(actionContainer).not.toHaveClass("ml-auto");
   });
 });

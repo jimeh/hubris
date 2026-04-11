@@ -38,6 +38,8 @@ export default function ProjectHeaderRow({
           "group-hover/project-row:max-w-24 group-hover/project-row:opacity-100 group-hover/project-row:pointer-events-auto",
         !isSorting &&
           "group-focus-within/project-row:max-w-24 group-focus-within/project-row:opacity-100 group-focus-within/project-row:pointer-events-auto",
+        !isSorting &&
+          "group-has-data-[state=open]/project-row:max-w-24 group-has-data-[state=open]/project-row:opacity-100 group-has-data-[state=open]/project-row:pointer-events-auto",
       )}
     >
       {actionSlot}

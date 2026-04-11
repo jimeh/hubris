@@ -86,6 +86,12 @@ describe("WorktreeRowContent", () => {
     expect(actionContainer).toHaveClass(
       "group-focus-within/worktree-row:opacity-100",
     );
+    expect(actionContainer).toHaveClass(
+      "group-has-data-[state=open]/worktree-row:max-w-24",
+    );
+    expect(actionContainer).toHaveClass(
+      "group-has-data-[state=open]/worktree-row:opacity-100",
+    );
   });
 
   it("makes the shared content wrapper a flex item so child buttons can shrink", () => {
