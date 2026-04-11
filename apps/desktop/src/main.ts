@@ -32,6 +32,10 @@ import {
   desktopProfileMode,
   desktopSessionPartition,
 } from "./profile";
+import {
+  loadDesktopWindowState,
+  wireDesktopWindowStatePersistence,
+} from "./windowState";
 import { installWebSocketBridge } from "./wsBridge";
 
 registerHubrisScheme();
@@ -238,15 +242,23 @@ async function createMainWindow() {
   const preloadPath = path.resolve(__dirname, "preload.js");
 
   await initializeDesktop();
+  const userDataPath = app.getPath("userData");
+  const savedWindowState = loadDesktopWindowState(userDataPath);
 
-  const window = new BrowserWindow(
-    createHubrisWindowOptions(preloadPath, profileMode),
-  );
+  const window = new BrowserWindow({
+    ...createHubrisWindowOptions(preloadPath, profileMode),
+    ...savedWindowState?.bounds,
+  });
   mainWindow = window;
+  wireDesktopWindowStatePersistence(window, userDataPath);
 
   configureWebContentsGuards(window.webContents, HUBRIS_ORIGIN);
-
   window.once("ready-to-show", () => {
+    if (savedWindowState?.isMaximized) {
+      window.maximize();
+      return;
+    }
+
     window.show();
   });
   window.on("closed", () => {

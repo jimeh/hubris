@@ -29,6 +29,7 @@ async function waitUntil(assertion: () => void, timeoutMs = 1_000) {
 }
 
 type MockWindow = {
+  options: unknown;
   webContents: {
     setWindowOpenHandler: ReturnType<typeof vi.fn>;
     on: ReturnType<typeof vi.fn>;
@@ -39,6 +40,7 @@ type MockWindow = {
   on: ReturnType<typeof vi.fn>;
   focus: ReturnType<typeof vi.fn>;
   loadURL: ReturnType<typeof vi.fn>;
+  maximize: ReturnType<typeof vi.fn>;
   restore: ReturnType<typeof vi.fn>;
   show: ReturnType<typeof vi.fn>;
 };
@@ -47,10 +49,15 @@ async function loadMainModule({
   frontendPorts = [Promise.resolve(3001)],
   backendPorts = [Promise.resolve(4001)],
   singleInstanceLock = true,
+  savedWindowState = null,
 }: {
   frontendPorts?: Array<Promise<number>>;
   backendPorts?: Array<Promise<number>>;
   singleInstanceLock?: boolean;
+  savedWindowState?: {
+    bounds: { x: number; y: number; width: number; height: number };
+    isMaximized: boolean;
+  } | null;
 } = {}) {
   vi.resetModules();
 
@@ -95,6 +102,7 @@ async function loadMainModule({
       return windows;
     }
 
+    options: unknown;
     webContents = {
       setWindowOpenHandler: vi.fn(),
       on: vi.fn(),
@@ -112,10 +120,12 @@ async function loadMainModule({
     });
     focus = vi.fn();
     loadURL = vi.fn(async () => {});
+    maximize = vi.fn();
     restore = vi.fn();
     show = vi.fn();
 
-    constructor() {
+    constructor(options?: unknown) {
+      this.options = options;
       windows.push(this);
       createdWindows.push(this);
       events.push("window-created");
@@ -125,6 +135,9 @@ async function loadMainModule({
   const waitForFrontendPort = vi.fn(() => frontendPorts.shift()!);
   const waitForBackendPort = vi.fn(() => backendPorts.shift()!);
   const registerHubrisProtocol = vi.fn(async () => ({}));
+  const createHubrisWindowOptions = vi.fn(() => ({ title: "Hubris" }));
+  const loadDesktopWindowState = vi.fn(() => savedWindowState);
+  const wireDesktopWindowStatePersistence = vi.fn();
 
   vi.doMock("electron", () => ({
     app,
@@ -155,7 +168,7 @@ async function loadMainModule({
 
   vi.doMock("./security", () => ({
     classifyNavigationTarget: vi.fn(() => "internal"),
-    createHubrisWindowOptions: vi.fn(() => ({})),
+    createHubrisWindowOptions,
   }));
 
   vi.doMock("./profile", () => ({
@@ -172,18 +185,26 @@ async function loadMainModule({
     }),
   }));
 
+  vi.doMock("./windowState", () => ({
+    loadDesktopWindowState,
+    wireDesktopWindowStatePersistence,
+  }));
+
   await import("./main.js");
 
   return {
     app,
     appOnHandlers,
+    createHubrisWindowOptions,
     createdWindows,
     desktopSession,
     events,
+    loadDesktopWindowState,
     ready,
     registerHubrisProtocol,
     waitForBackendPort,
     waitForFrontendPort,
+    wireDesktopWindowStatePersistence,
     windows,
   };
 }
@@ -249,6 +270,44 @@ describe("desktop main process startup", () => {
     windowAllClosed?.();
 
     expect(state.app.quit).not.toHaveBeenCalled();
+  });
+
+  it("restores saved bounds and maximized state for the main window", async () => {
+    const state = await loadMainModule({
+      savedWindowState: {
+        bounds: { x: 48, y: 64, width: 1280, height: 840 },
+        isMaximized: true,
+      },
+    });
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.createdWindows).toHaveLength(1);
+    });
+
+    const window = state.createdWindows[0]!;
+    expect(state.loadDesktopWindowState).toHaveBeenCalledWith(
+      "/Users/tester/Library",
+    );
+    expect(window.options).toMatchObject({
+      title: "Hubris",
+      x: 48,
+      y: 64,
+      width: 1280,
+      height: 840,
+    });
+    expect(window.maximize).not.toHaveBeenCalled();
+    expect(state.wireDesktopWindowStatePersistence).toHaveBeenCalledWith(
+      window,
+      "/Users/tester/Library",
+    );
+
+    window.show.mockClear();
+    window.handlers["ready-to-show"]?.();
+
+    expect(window.maximize).toHaveBeenCalledTimes(1);
+    expect(window.show).not.toHaveBeenCalled();
   });
 
   it("reopens the existing window on second-instance without reinitializing desktop state", async () => {
