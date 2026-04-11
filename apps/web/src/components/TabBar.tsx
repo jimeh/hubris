@@ -165,20 +165,17 @@ export default function TabBar({
         <Button
           type="button"
           variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-2"
+          size="icon-sm"
           aria-label="New Terminal"
           title="New Terminal"
           onClick={onAddTerminal}
         >
           <SquareTerminal className="h-3.5 w-3.5" />
-          <span className="text-xs">Terminal</span>
         </Button>
         <Button
           type="button"
           variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-2"
+          size="icon-sm"
           aria-label="New Browser"
           title="New Browser"
           onClick={() => {
@@ -186,7 +183,6 @@ export default function TabBar({
           }}
         >
           <Globe className="h-3.5 w-3.5" />
-          <span className="text-xs">Browser</span>
         </Button>
       </div>
     </div>
