@@ -2,7 +2,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
-import type { IViewportRange } from "@xterm/xterm";
+import type { IBufferRange, IViewportRange } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalAdapter, TerminalViewport } from "./adapter";
 import { DEFAULT_FONT_FAMILY } from "./fonts";
@@ -41,6 +41,20 @@ function followLinkModifierLabel(): "Cmd" | "Ctrl" {
 
 function shouldFollowTerminalLink(event: MouseEvent): boolean {
   return isMacPlatform() ? event.metaKey : event.ctrlKey;
+}
+
+function toViewportRange(term: Terminal, range: IBufferRange): IViewportRange {
+  const viewportY = term.buffer.active.viewportY;
+  return {
+    start: {
+      x: range.start.x - 1,
+      y: range.start.y - viewportY - 1,
+    },
+    end: {
+      x: range.end.x - 1,
+      y: range.end.y - viewportY - 1,
+    },
+  };
 }
 
 class TerminalLinkTooltipController {
@@ -262,30 +276,43 @@ export function createXtermAdapter(opts?: {
         term,
       );
 
+      const activateTerminalLink = (event: MouseEvent, uri: string) => {
+        if (!shouldFollowTerminalLink(event)) {
+          return;
+        }
+
+        event.preventDefault();
+        openTerminalLink(uri);
+      };
+      const hideTerminalLinkTooltip = () => {
+        linkTooltipController?.scheduleHide();
+      };
       const terminalLinkHandler = {
         activate(event: MouseEvent, uri: string) {
-          if (!shouldFollowTerminalLink(event)) {
-            return;
-          }
-
-          event.preventDefault();
-          openTerminalLink(uri);
+          activateTerminalLink(event, uri);
         },
-        hover(_event: MouseEvent, uri: string, range: IViewportRange) {
-          linkTooltipController?.scheduleShow(uri, range);
+        hover(_event: MouseEvent, uri: string, range: IBufferRange) {
+          linkTooltipController?.scheduleShow(
+            uri,
+            toViewportRange(term, range),
+          );
         },
         leave() {
-          linkTooltipController?.scheduleHide();
+          hideTerminalLinkTooltip();
         },
         allowNonHttpProtocols: false,
       };
       term.options.linkHandler = terminalLinkHandler;
 
       term.loadAddon(
-        new WebLinksAddon(
-          (event, uri) => terminalLinkHandler.activate(event, uri),
-          terminalLinkHandler,
-        ),
+        new WebLinksAddon(activateTerminalLink, {
+          hover(_event, uri, range) {
+            linkTooltipController?.scheduleShow(uri, range);
+          },
+          leave() {
+            hideTerminalLinkTooltip();
+          },
+        }),
       );
 
       try {

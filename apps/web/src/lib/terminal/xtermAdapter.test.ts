@@ -28,6 +28,8 @@ type TerminalLinkHandler = {
   allowNonHttpProtocols?: boolean;
 };
 
+let currentViewportY = 0;
+
 const {
   terminalInstances,
   fitAddonInstances,
@@ -48,6 +50,13 @@ const {
     element?: HTMLElement;
     rows = 24;
     cols = 80;
+    buffer = {
+      active: {
+        get viewportY() {
+          return currentViewportY;
+        },
+      },
+    };
     loadAddon = vi.fn();
     open = vi.fn((container: HTMLElement) => {
       this.element = container;
@@ -169,6 +178,7 @@ describe("createXtermAdapter", () => {
     fitAddonInstances.length = 0;
     webLinksAddonHandlers.length = 0;
     webLinksAddonOptions.length = 0;
+    currentViewportY = 0;
     setNavigatorPlatform("MacIntel");
   });
 
@@ -270,7 +280,6 @@ describe("createXtermAdapter", () => {
       leave: expect.any(Function),
       allowNonHttpProtocols: false,
     });
-    expect(webLinksAddonOptions[0]?.allowNonHttpProtocols).toBe(false);
   });
 
   it("requires Cmd+click on OSC 8 links", () => {
@@ -428,6 +437,72 @@ describe("createXtermAdapter", () => {
     vi.advanceTimersByTime(120);
 
     expect(getTooltip()?.hidden).toBe(true);
+  });
+
+  it("converts OSC 8 hover coordinates from buffer space to viewport space", () => {
+    vi.useFakeTimers();
+    currentViewportY = 40;
+    const adapter = createXtermAdapter();
+    const { container } = mountTerminalContainer();
+
+    adapter.open(container);
+    const tooltip = getTooltip();
+    expect(tooltip?.hidden).toBe(true);
+    vi.spyOn(tooltip!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 156,
+      bottom: 44,
+      width: 156,
+      height: 44,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    const linkHandler = getTerminalLinkHandler();
+    linkHandler?.hover?.(
+      new MouseEvent("mousemove", { clientX: 160, clientY: 140 }),
+      "https://example.com/scrollback",
+      {
+        start: { x: 3, y: 45 },
+        end: { x: 9, y: 45 },
+      },
+    );
+
+    vi.advanceTimersByTime(500);
+
+    const renderedTooltip = getTooltip();
+    const osc8Left = renderedTooltip?.style.left;
+    const osc8Top = renderedTooltip?.style.top;
+
+    expect(renderedTooltip?.hidden).toBe(false);
+
+    linkHandler?.leave?.(
+      new MouseEvent("mouseleave"),
+      "https://example.com/scrollback",
+      {
+        start: { x: 3, y: 45 },
+        end: { x: 9, y: 45 },
+      },
+    );
+    vi.advanceTimersByTime(120);
+
+    webLinksAddonOptions[0]?.hover?.(
+      new MouseEvent("mousemove", { clientX: 160, clientY: 140 }),
+      "https://example.com/viewport",
+      {
+        start: { x: 2, y: 4 },
+        end: { x: 8, y: 4 },
+      },
+    );
+    vi.advanceTimersByTime(500);
+
+    const viewportTooltip = getTooltip();
+
+    expect(viewportTooltip?.hidden).toBe(false);
+    expect(viewportTooltip?.style.left).toBe(osc8Left);
+    expect(viewportTooltip?.style.top).toBe(osc8Top);
   });
 
   it("cancels the delayed tooltip when leaving early", () => {
