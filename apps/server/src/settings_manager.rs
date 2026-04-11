@@ -14,7 +14,7 @@ use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 use crate::api::settings::{
     AppearanceSettingsPatch, EditorSettingsPatch, Settings, SettingsPatch, SettingsState,
-    SettingsStatus, TerminalSettingsPatch, WorktreeSettingsPatch,
+    SettingsStatus, TerminalSettingsPatch, VscodeSettingsPatch, WorktreeSettingsPatch,
 };
 use crate::events::{EventBus, EventKind};
 use crate::fs_sync::sync_parent_directory;
@@ -380,6 +380,9 @@ fn apply_patch_to_settings(settings: &mut Settings, patch: &SettingsPatch) {
     if let Some(worktree) = &patch.worktree {
         apply_worktree_patch(&mut settings.worktree, worktree);
     }
+    if let Some(vscode) = &patch.vscode {
+        apply_vscode_patch(&mut settings.vscode, vscode);
+    }
 }
 
 fn apply_appearance_patch(
@@ -436,6 +439,15 @@ fn apply_worktree_patch(
 ) {
     if let Some(location_mode) = patch.location_mode {
         settings.location_mode = location_mode;
+    }
+}
+
+fn apply_vscode_patch(
+    settings: &mut crate::api::settings::VscodeSettings,
+    patch: &VscodeSettingsPatch,
+) {
+    if let Some(runtime) = patch.runtime {
+        settings.runtime = runtime;
     }
 }
 
@@ -500,6 +512,13 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
             table.insert("locationMode", value(location_mode.as_str()));
         }
     }
+
+    if let Some(vscode) = &patch.vscode {
+        let table = ensure_table(document, "vscode");
+        if let Some(runtime) = vscode.runtime {
+            table.insert("runtime", value(runtime.as_str()));
+        }
+    }
 }
 
 fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
@@ -545,6 +564,9 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
         "locationMode",
         value(settings.worktree.location_mode.as_str()),
     );
+
+    let vscode = ensure_table(document, "vscode");
+    vscode.insert("runtime", value(settings.vscode.runtime.as_str()));
 }
 
 async fn persist_document(

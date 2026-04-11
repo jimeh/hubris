@@ -1,16 +1,16 @@
 import { create } from "zustand";
-import type { CodeServerStatus as RestCodeServerStatus } from "@/lib/api";
-import type { CodeServerStatus as SseCodeServerStatus } from "@/lib/contracts/sse.generated";
+import type { VscodeStatus as RestVscodeStatus } from "@/lib/api";
+import type { VscodeStatus as SseVscodeStatus } from "@/lib/contracts/sse.generated";
 import { getEventClient } from "@/lib/events";
 
-type CodeServerStatus = RestCodeServerStatus;
-type RawCodeServerStatus = RestCodeServerStatus | SseCodeServerStatus;
+type VscodeStatus = RestVscodeStatus;
+type RawVscodeStatus = RestVscodeStatus | SseVscodeStatus;
 
-type CodeServerStoreState = {
-  status: CodeServerStatus | null;
+type VscodeStoreState = {
+  status: VscodeStatus | null;
 };
 
-export const useCodeServerStore = create<CodeServerStoreState>(() => ({
+export const useVscodeStore = create<VscodeStoreState>(() => ({
   status: null,
 }));
 
@@ -26,9 +26,7 @@ function normalizeBytes(
   return value;
 }
 
-function normalizeCodeServerStatus(
-  status: RawCodeServerStatus,
-): CodeServerStatus {
+function normalizeRuntimeStatus(status: RawVscodeStatus["codeServer"]) {
   return {
     supported: status.supported,
     installedVersion: status.installedVersion,
@@ -54,7 +52,15 @@ function normalizeCodeServerStatus(
   };
 }
 
-export function initializeCodeServerStore(): void {
+function normalizeVscodeStatus(status: RawVscodeStatus): VscodeStatus {
+  return {
+    selectedRuntime: status.selectedRuntime,
+    codeServer: normalizeRuntimeStatus(status.codeServer),
+    vscodeCli: normalizeRuntimeStatus(status.vscodeCli),
+  };
+}
+
+export function initializeVscodeStore(): void {
   if (initialized) {
     return;
   }
@@ -63,25 +69,25 @@ export function initializeCodeServerStore(): void {
   const events = getEventClient();
   eventUnsubscribers = [
     events.on("snapshot", (data) => {
-      useCodeServerStore.setState({
-        status: normalizeCodeServerStatus(data.code_server),
+      useVscodeStore.setState({
+        status: normalizeVscodeStatus(data.vscode),
       });
     }),
-    events.on("code_server_updated", (data) => {
-      useCodeServerStore.setState({ status: normalizeCodeServerStatus(data) });
+    events.on("vscode_updated", (data) => {
+      useVscodeStore.setState({ status: normalizeVscodeStatus(data) });
     }),
   ];
 }
 
-export function setCodeServerStatus(status: RawCodeServerStatus): void {
-  useCodeServerStore.setState({ status: normalizeCodeServerStatus(status) });
+export function setVscodeStatus(status: RawVscodeStatus): void {
+  useVscodeStore.setState({ status: normalizeVscodeStatus(status) });
 }
 
-export function resetCodeServerStoreForTests(): void {
+export function resetVscodeStoreForTests(): void {
   for (const unsubscribe of eventUnsubscribers) {
     unsubscribe();
   }
   eventUnsubscribers = [];
   initialized = false;
-  useCodeServerStore.setState({ status: null });
+  useVscodeStore.setState({ status: null });
 }

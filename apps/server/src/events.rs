@@ -5,10 +5,10 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 use ts_rs::TS;
 
-use crate::api::code_server::CodeServerStatus;
 use crate::api::processes::ManagedProcessStatus;
 use crate::api::projects::Project;
 use crate::api::settings::{Settings, SettingsState, SettingsStatus};
+use crate::api::vscode::VscodeStatus;
 use crate::api::worktrees::Worktree;
 use crate::tab::TabInfo;
 
@@ -30,7 +30,7 @@ pub enum EventKind {
         settings: Box<Settings>,
         settings_generation: String,
         settings_status: SettingsStatus,
-        code_server: Box<CodeServerStatus>,
+        vscode: Box<VscodeStatus>,
         managed_processes: Vec<ManagedProcessStatus>,
     },
     #[serde(rename = "tab_created")]
@@ -87,8 +87,8 @@ pub enum EventKind {
     },
     #[serde(rename = "settings_updated")]
     SettingsUpdated(SettingsState),
-    #[serde(rename = "code_server_updated")]
-    CodeServerUpdated(Box<CodeServerStatus>),
+    #[serde(rename = "vscode_updated")]
+    VscodeUpdated(Box<VscodeStatus>),
     #[serde(rename = "managed_process_updated")]
     ManagedProcessUpdated(Box<ManagedProcessStatus>),
 }
@@ -112,7 +112,7 @@ impl EventKind {
             EventKind::WorktreeFilesUpdated { .. } => "worktree_files_updated",
             EventKind::WorktreeGitStatusUpdated { .. } => "worktree_git_status_updated",
             EventKind::SettingsUpdated(_) => "settings_updated",
-            EventKind::CodeServerUpdated(_) => "code_server_updated",
+            EventKind::VscodeUpdated(_) => "vscode_updated",
             EventKind::ManagedProcessUpdated(_) => "managed_process_updated",
         }
     }
@@ -207,13 +207,24 @@ mod tests {
                 settings: Box::new(Settings::default()),
                 settings_generation: "0".to_string(),
                 settings_status: SettingsStatus::ok(),
-                code_server: Box::new(CodeServerStatus {
-                    supported: true,
-                    installed_version: None,
-                    process_status: crate::api::code_server::CodeServerProcessStatus::Stopped,
-                    latest: None,
-                    install_progress: None,
-                    message: None,
+                vscode: Box::new(VscodeStatus {
+                    selected_runtime: crate::api::settings::VscodeRuntimeKind::VscodeCli,
+                    code_server: crate::api::vscode::VscodeRuntimeStatus {
+                        supported: true,
+                        installed_version: None,
+                        process_status: crate::api::vscode::VscodeProcessStatus::Stopped,
+                        latest: None,
+                        install_progress: None,
+                        message: None,
+                    },
+                    vscode_cli: crate::api::vscode::VscodeRuntimeStatus {
+                        supported: true,
+                        installed_version: None,
+                        process_status: crate::api::vscode::VscodeProcessStatus::Stopped,
+                        latest: None,
+                        install_progress: None,
+                        message: None,
+                    },
                 }),
                 managed_processes: vec![],
             }
@@ -229,16 +240,27 @@ mod tests {
             "tab_closed"
         );
         assert_eq!(
-            EventKind::CodeServerUpdated(Box::new(CodeServerStatus {
-                supported: true,
-                installed_version: None,
-                process_status: crate::api::code_server::CodeServerProcessStatus::Stopped,
-                latest: None,
-                install_progress: None,
-                message: None,
+            EventKind::VscodeUpdated(Box::new(VscodeStatus {
+                selected_runtime: crate::api::settings::VscodeRuntimeKind::VscodeCli,
+                code_server: crate::api::vscode::VscodeRuntimeStatus {
+                    supported: true,
+                    installed_version: None,
+                    process_status: crate::api::vscode::VscodeProcessStatus::Stopped,
+                    latest: None,
+                    install_progress: None,
+                    message: None,
+                },
+                vscode_cli: crate::api::vscode::VscodeRuntimeStatus {
+                    supported: true,
+                    installed_version: None,
+                    process_status: crate::api::vscode::VscodeProcessStatus::Stopped,
+                    latest: None,
+                    install_progress: None,
+                    message: None,
+                },
             }))
             .event_name(),
-            "code_server_updated"
+            "vscode_updated"
         );
         assert_eq!(
             EventKind::ManagedProcessUpdated(Box::new(ManagedProcessStatus {

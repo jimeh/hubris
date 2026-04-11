@@ -16,11 +16,14 @@ describe("EventClient typing", () => {
       expectTypeOf(payload.project_id).toEqualTypeOf<string>();
     });
 
-    client.on("code_server_updated", (payload) => {
-      expectTypeOf(payload.processStatus).toEqualTypeOf<
+    client.on("vscode_updated", (payload) => {
+      expectTypeOf(payload.selectedRuntime).toEqualTypeOf<
+        "codeServer" | "vscodeCli"
+      >();
+      expectTypeOf(payload.vscodeCli.processStatus).toEqualTypeOf<
         "error" | "running" | "starting" | "stopped" | "stopping" | "installing"
       >();
-      expectTypeOf(payload.installProgress).toEqualTypeOf<{
+      expectTypeOf(payload.codeServer.installProgress).toEqualTypeOf<{
         phase:
           | "preparing"
           | "downloading"

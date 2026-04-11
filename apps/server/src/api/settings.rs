@@ -84,6 +84,24 @@ impl WorktreeLocationMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+pub enum VscodeRuntimeKind {
+    #[default]
+    #[serde(rename = "vscodeCli")]
+    VscodeCli,
+    #[serde(rename = "codeServer")]
+    CodeServer,
+}
+
+impl VscodeRuntimeKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::VscodeCli => "vscodeCli",
+            Self::CodeServer => "codeServer",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AppearanceSettings {
@@ -181,6 +199,21 @@ pub struct WorktreeSettings {
     pub location_mode: WorktreeLocationMode,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct VscodeSettings {
+    #[serde(default)]
+    pub runtime: VscodeRuntimeKind,
+}
+
+impl Default for VscodeSettings {
+    fn default() -> Self {
+        Self {
+            runtime: VscodeRuntimeKind::VscodeCli,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 pub struct Settings {
     #[serde(default)]
@@ -191,6 +224,8 @@ pub struct Settings {
     pub editor: EditorSettings,
     #[serde(default)]
     pub worktree: WorktreeSettings,
+    #[serde(default)]
+    pub vscode: VscodeSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
@@ -236,6 +271,13 @@ pub struct WorktreeSettingsPatch {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct VscodeSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<VscodeRuntimeKind>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 pub struct SettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub appearance: Option<AppearanceSettingsPatch>,
@@ -245,6 +287,8 @@ pub struct SettingsPatch {
     pub editor: Option<EditorSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<WorktreeSettingsPatch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vscode: Option<VscodeSettingsPatch>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]

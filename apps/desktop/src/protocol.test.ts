@@ -1,15 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   HUBRIS_ORIGIN,
   HUBRIS_WS_ORIGIN,
   appHtmlInjection,
+  authorizedVscodePath,
   buildDesktopRuntimeConfig,
   classifyHubrisRequest,
   classifyHubrisWebSocket,
+  createDesktopProtocolContext,
   injectHtmlScript,
-  rewriteCodeServerPath,
+  rewriteVscodePath,
 } from "./protocol";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("classifyHubrisRequest", () => {
   it("routes backend paths to the backend proxy", () => {
@@ -74,14 +80,59 @@ describe("classifyHubrisWebSocket", () => {
   });
 });
 
-describe("rewriteCodeServerPath", () => {
-  it("strips the public /code prefix", () => {
-    expect(rewriteCodeServerPath("/code")).toBe("/");
-    expect(rewriteCodeServerPath("/code/")).toBe("/");
-    expect(rewriteCodeServerPath("/code/?folder=%2Ftmp")).toBe(
-      "/?folder=%2Ftmp",
-    );
-    expect(rewriteCodeServerPath("/code/static/out.js")).toBe("/static/out.js");
+describe("rewriteVscodePath", () => {
+  it("strips the public /code prefix for code-server", () => {
+    expect(rewriteVscodePath("/code", "stripPublicBasePath")).toBe("/");
+    expect(rewriteVscodePath("/code/", "stripPublicBasePath")).toBe("/");
+    expect(
+      rewriteVscodePath("/code/?folder=%2Ftmp", "stripPublicBasePath"),
+    ).toBe("/?folder=%2Ftmp");
+    expect(
+      rewriteVscodePath("/code/static/out.js", "stripPublicBasePath"),
+    ).toBe("/static/out.js");
+  });
+
+  it("preserves the public /code prefix for serve-web", () => {
+    expect(rewriteVscodePath("/code", "preservePublicBasePath")).toBe("/code");
+    expect(
+      rewriteVscodePath("/code/static/out.js", "preservePublicBasePath"),
+    ).toBe("/code/static/out.js");
+  });
+});
+
+describe("authorizedVscodePath", () => {
+  const vscodeCliConnection = {
+    runtime: "vscodeCli" as const,
+    baseUrl: "http://127.0.0.1:1234",
+    wsBaseUrl: "ws://127.0.0.1:1234",
+    pathMode: "preservePublicBasePath" as const,
+    connectionToken: "fresh-token",
+  };
+
+  it("adds the current token when the cookie is missing", () => {
+    expect(
+      authorizedVscodePath("/code?folder=%2Ftmp", vscodeCliConnection, null),
+    ).toBe("/code?folder=%2Ftmp&tkn=fresh-token");
+  });
+
+  it("replaces stale query auth when the cookie is stale", () => {
+    expect(
+      authorizedVscodePath(
+        "/code?folder=%2Ftmp&tkn=stale-query",
+        vscodeCliConnection,
+        "vscode-tkn=stale-cookie; theme=dark",
+      ),
+    ).toBe("/code?folder=%2Ftmp&tkn=fresh-token");
+  });
+
+  it("preserves a matching current cookie without appending a query token", () => {
+    expect(
+      authorizedVscodePath(
+        "/code?folder=%2Ftmp",
+        vscodeCliConnection,
+        "vscode-tkn=fresh-token; theme=dark",
+      ),
+    ).toBe("/code?folder=%2Ftmp");
   });
 });
 
@@ -93,6 +144,74 @@ describe("buildDesktopRuntimeConfig", () => {
       terminalWsBase: `${HUBRIS_WS_ORIGIN}/api/terminal/ws`,
       codeBase: `${HUBRIS_ORIGIN}/code/`,
     });
+  });
+});
+
+describe("createDesktopProtocolContext", () => {
+  it("refreshes the vscode upstream on top-level /code navigations", async () => {
+    const cookies = {
+      get: vi.fn().mockResolvedValue([]),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    const context = createDesktopProtocolContext(cookies as never, {
+      backendHttpOrigin: "http://backend.local",
+      backendWsOrigin: "ws://backend.local",
+    });
+    const connectionResponses = [
+      {
+        runtime: "codeServer",
+        baseUrl: "http://code-server.local",
+        wsBaseUrl: "ws://code-server.local",
+        pathMode: "stripPublicBasePath",
+      },
+      {
+        runtime: "vscodeCli",
+        baseUrl: "http://serve-web.local",
+        wsBaseUrl: "ws://serve-web.local",
+        pathMode: "preservePublicBasePath",
+      },
+    ];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url === "http://backend.local/_hubris/vscode/connection") {
+          return new Response(JSON.stringify(connectionResponses.shift()), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (url === "http://code-server.local/?folder=%2Ftmp") {
+          return new Response("<html>code-server</html>", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        }
+
+        if (url === "http://serve-web.local/code/?folder=%2Ftmp") {
+          return new Response("<html>serve-web</html>", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        }
+
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+    const first = await context.handleRequest(
+      new Request(`${HUBRIS_ORIGIN}/code/?folder=%2Ftmp`),
+    );
+    const second = await context.handleRequest(
+      new Request(`${HUBRIS_ORIGIN}/code/?folder=%2Ftmp`),
+    );
+
+    await expect(first.text()).resolves.toContain("code-server");
+    await expect(second.text()).resolves.toContain("serve-web");
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) =>
+          (input instanceof Request ? input.url : String(input)) ===
+          "http://backend.local/_hubris/vscode/connection",
+      ),
+    ).toHaveLength(2);
   });
 });
 

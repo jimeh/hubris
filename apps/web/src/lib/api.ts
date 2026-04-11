@@ -746,17 +746,16 @@ export type ImportThemeRequest = {
   overwriteId?: string;
 };
 
-export type CodeServerLatestCheck =
-  components["schemas"]["CodeServerLatestCheck"];
-export type CodeServerInstallPhase =
-  components["schemas"]["CodeServerInstallPhase"];
-export type CodeServerInstallProgress =
-  components["schemas"]["CodeServerInstallProgress"];
-export type CodeServerProcessStatus =
-  components["schemas"]["CodeServerProcessStatus"];
-export type CodeServerStatus = components["schemas"]["CodeServerStatus"];
-type InstallCodeServerRequest =
-  components["schemas"]["InstallCodeServerRequest"];
+export type VscodeLatestCheck = components["schemas"]["VscodeLatestCheck"];
+export type VscodeInstallPhase = components["schemas"]["VscodeInstallPhase"];
+export type VscodeInstallProgress =
+  components["schemas"]["VscodeInstallProgress"];
+export type VscodeProcessStatus = components["schemas"]["VscodeProcessStatus"];
+export type VscodeRuntimeStatus = components["schemas"]["VscodeRuntimeStatus"];
+export type VscodeStatus = components["schemas"]["VscodeStatus"];
+export type VscodeConnectionInfo =
+  components["schemas"]["VscodeConnectionInfo"];
+type InstallVscodeRequest = components["schemas"]["InstallVscodeRequest"];
 
 export async function discoverExtensionThemes(): Promise<
   DiscoveredExtension[]
@@ -774,16 +773,16 @@ export async function fetchSystemInfo(): Promise<SystemInfo> {
   return res.json();
 }
 
-export async function getCodeServerStatus(): Promise<CodeServerStatus> {
-  const res = await fetch(`${BASE}/code-server`);
+export async function getVscodeStatus(): Promise<VscodeStatus> {
+  const res = await fetch(`${BASE}/vscode`);
   if (!res.ok) {
     throwStatusError(res.status);
   }
   return res.json();
 }
 
-export async function checkCodeServerUpdate(): Promise<CodeServerStatus> {
-  const res = await fetch(`${BASE}/code-server/check-update`, {
+export async function checkVscodeUpdate(): Promise<VscodeStatus> {
+  const res = await fetch(`${BASE}/vscode/check-update`, {
     method: "POST",
   });
   if (!res.ok) {
@@ -793,18 +792,18 @@ export async function checkCodeServerUpdate(): Promise<CodeServerStatus> {
   return res.json();
 }
 
-export async function installCodeServer(
+export async function installVscode(
   version?: string,
   force = false,
-): Promise<CodeServerStatus> {
-  const payload: InstallCodeServerRequest = {};
+): Promise<VscodeStatus> {
+  const payload: InstallVscodeRequest = {};
   if (version) {
     payload.version = version;
   }
   if (force) {
     payload.force = force;
   }
-  const res = await fetch(`${BASE}/code-server/install`, {
+  const res = await fetch(`${BASE}/vscode/install`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -816,8 +815,8 @@ export async function installCodeServer(
   return res.json();
 }
 
-export async function startCodeServer(): Promise<CodeServerStatus> {
-  const res = await fetch(`${BASE}/code-server/start`, {
+export async function startVscode(): Promise<VscodeStatus> {
+  const res = await fetch(`${BASE}/vscode/start`, {
     method: "POST",
   });
   if (!res.ok) {
@@ -827,8 +826,8 @@ export async function startCodeServer(): Promise<CodeServerStatus> {
   return res.json();
 }
 
-export async function stopCodeServer(): Promise<CodeServerStatus> {
-  const res = await fetch(`${BASE}/code-server/stop`, {
+export async function stopVscode(): Promise<VscodeStatus> {
+  const res = await fetch(`${BASE}/vscode/stop`, {
     method: "POST",
   });
   if (!res.ok) {
@@ -838,8 +837,8 @@ export async function stopCodeServer(): Promise<CodeServerStatus> {
   return res.json();
 }
 
-export async function restartCodeServer(): Promise<CodeServerStatus> {
-  const res = await fetch(`${BASE}/code-server/restart`, {
+export async function restartVscode(): Promise<VscodeStatus> {
+  const res = await fetch(`${BASE}/vscode/restart`, {
     method: "POST",
   });
   if (!res.ok) {

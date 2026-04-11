@@ -16,18 +16,26 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
-  checkCodeServerUpdate,
-  installCodeServer,
-  restartCodeServer,
-  startCodeServer,
-  stopCodeServer,
-  type CodeServerInstallProgress,
-  type CodeServerStatus,
-} from "@/lib/api";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
-  setCodeServerStatus,
-  useCodeServerStore,
-} from "@/lib/stores/codeServer";
+  checkVscodeUpdate,
+  installVscode,
+  restartVscode,
+  startVscode,
+  stopVscode,
+  type VscodeInstallProgress,
+  type VscodeRuntimeStatus,
+  type VscodeStatus,
+} from "@/lib/api";
+import { useSettingsStore } from "@/lib/stores/settings";
+import { setVscodeStatus, useVscodeStore } from "@/lib/stores/vscode";
+
+type VscodeRuntimeKind = "vscodeCli" | "codeServer";
 
 const settingsRowClass =
   "grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-start sm:gap-3";
@@ -42,7 +50,30 @@ type ActionKind =
   | "restart"
   | null;
 
-function statusBadgeVariant(status: CodeServerStatus["processStatus"]) {
+const RUNTIME_META: Record<
+  VscodeRuntimeKind,
+  {
+    label: string;
+    managedBy: string;
+    readyLabel: string;
+    downloadLabel: string;
+  }
+> = {
+  vscodeCli: {
+    label: "Official VS Code CLI",
+    managedBy: "Official VS Code CLI",
+    readyLabel: "VS Code CLI serve-web is ready for /code.",
+    downloadLabel: "VS Code CLI",
+  },
+  codeServer: {
+    label: "coder/code-server",
+    managedBy: "coder/code-server",
+    readyLabel: "coder/code-server is ready for /code.",
+    downloadLabel: "coder/code-server",
+  },
+};
+
+function statusBadgeVariant(status: VscodeRuntimeStatus["processStatus"]) {
   switch (status) {
     case "running":
       return "default";
@@ -58,7 +89,7 @@ function statusBadgeVariant(status: CodeServerStatus["processStatus"]) {
   }
 }
 
-function statusLabel(status: CodeServerStatus["processStatus"]) {
+function statusLabel(status: VscodeRuntimeStatus["processStatus"]) {
   switch (status) {
     case "running":
       return "Running";
@@ -84,7 +115,7 @@ function displayVersion(version: string | null | undefined): string | null {
   return version.replace(/^v/i, "");
 }
 
-function statusSummary(status: CodeServerStatus | null): string {
+function statusSummary(status: VscodeRuntimeStatus | null | undefined): string {
   if (!status) {
     return "Loading...";
   }
@@ -110,7 +141,7 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
-function installPhaseLabel(progress: CodeServerInstallProgress): string {
+function installPhaseLabel(progress: VscodeInstallProgress): string {
   switch (progress.phase) {
     case "preparing":
       return "Preparing install";
@@ -127,49 +158,93 @@ function installPhaseLabel(progress: CodeServerInstallProgress): string {
   }
 }
 
-function installPhaseDescription(progress: CodeServerInstallProgress): string {
+function installPhaseDescription(
+  progress: VscodeInstallProgress,
+  runtime: VscodeRuntimeKind,
+): string {
+  const meta = RUNTIME_META[runtime];
   if (
     progress.phase === "downloading" &&
     typeof progress.downloadedBytes === "number" &&
     typeof progress.totalBytes === "number"
   ) {
-    return `Downloading coder/code-server ${progress.percent}% (${formatBytes(progress.downloadedBytes)} of ${formatBytes(progress.totalBytes)})`;
+    return `Downloading ${meta.downloadLabel} ${progress.percent}% (${formatBytes(progress.downloadedBytes)} of ${formatBytes(progress.totalBytes)})`;
   }
 
   if (
     progress.phase === "downloading" &&
     typeof progress.downloadedBytes === "number"
   ) {
-    return `Downloading coder/code-server (${formatBytes(progress.downloadedBytes)})`;
+    return `Downloading ${meta.downloadLabel} (${formatBytes(progress.downloadedBytes)})`;
   }
 
   switch (progress.phase) {
     case "preparing":
-      return "Preparing coder/code-server download and runtime paths.";
+      return `Preparing ${meta.downloadLabel} download and runtime paths.`;
     case "extracting":
-      return "Extracting the standalone coder/code-server archive.";
+      return `Extracting the standalone ${meta.downloadLabel} archive.`;
     case "cleaning":
       return "Removing older runtimes for this host platform.";
     case "starting":
-      return "Launching coder/code-server and waiting for it to become ready.";
+      return `Launching ${meta.downloadLabel} and waiting for it to become ready.`;
     default:
-      return "Installing coder/code-server.";
+      return `Installing ${meta.downloadLabel}.`;
   }
 }
 
+function runtimeStatus(
+  status: VscodeStatus | null,
+  runtime: VscodeRuntimeKind,
+): VscodeRuntimeStatus | null {
+  if (!status) {
+    return null;
+  }
+  return runtime === "codeServer" ? status.codeServer : status.vscodeCli;
+}
+
 export default function VscodeSettings() {
-  const status = useCodeServerStore((state) => state.status);
+  const status = useVscodeStore((state) => state.status);
+  const selectedRuntimeSetting = useSettingsStore(
+    (state) => state.settings.vscode.runtime,
+  );
+  const updateVscodeSettings = useSettingsStore((state) => state.updateVscode);
   const [pendingAction, setPendingAction] = useState<ActionKind>(null);
+
+  const selectedRuntime = selectedRuntimeSetting ?? "vscodeCli";
+  const activeStatus = runtimeStatus(status, selectedRuntime);
+  const latest = activeStatus?.latest ?? null;
+  const installProgress = activeStatus?.installProgress ?? null;
+  const processStatus = activeStatus?.processStatus ?? "stopped";
+  const busy =
+    pendingAction !== null ||
+    processStatus === "starting" ||
+    processStatus === "stopping" ||
+    processStatus === "installing";
+  const canInstall = activeStatus?.supported && !activeStatus.installedVersion;
+  const canStart =
+    activeStatus?.supported &&
+    !!activeStatus.installedVersion &&
+    (processStatus === "stopped" || processStatus === "error");
+  const canStop = activeStatus?.supported && processStatus === "running";
+  const canRestart = activeStatus?.supported && processStatus === "running";
+  const canUpgrade =
+    activeStatus?.supported &&
+    !!activeStatus.installedVersion &&
+    !!latest?.updateAvailable &&
+    !!latest.latestVersion;
+  const canReinstall =
+    activeStatus?.supported && !!activeStatus.installedVersion;
+  const runtimeMeta = RUNTIME_META[selectedRuntime];
 
   async function runAction(
     action: Exclude<ActionKind, null>,
-    request: () => Promise<CodeServerStatus>,
+    request: () => Promise<VscodeStatus>,
     successMessage?: string,
   ) {
     setPendingAction(action);
     try {
       const nextStatus = await request();
-      setCodeServerStatus(nextStatus);
+      setVscodeStatus(nextStatus);
       if (successMessage) {
         toast.success(successMessage);
       }
@@ -183,33 +258,58 @@ export default function VscodeSettings() {
     }
   }
 
-  const processStatus = status?.processStatus ?? "stopped";
-  const latest = status?.latest;
-  const installProgress = status?.installProgress ?? null;
-  const busy =
-    pendingAction !== null ||
-    processStatus === "starting" ||
-    processStatus === "stopping" ||
-    processStatus === "installing";
-  const canInstall = status?.supported && !status.installedVersion;
-  const canStart =
-    status?.supported &&
-    !!status.installedVersion &&
-    (processStatus === "stopped" || processStatus === "error");
-  const canStop = status?.supported && processStatus === "running";
-  const canRestart = status?.supported && processStatus === "running";
-  const canUpgrade =
-    status?.supported &&
-    !!status.installedVersion &&
-    !!latest?.updateAvailable &&
-    !!latest.latestVersion;
-  const canReinstall = status?.supported && !!status.installedVersion;
-
   return (
     <section className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Managed by <code>coder/code-server</code>
+        Hubris keeps <code>/code</code> stable while managing either supported
+        runtime.
       </p>
+
+      <div className="space-y-3">
+        <h4 className="flex items-center gap-2 text-sm font-medium">
+          <Package className="h-4 w-4 text-muted-foreground" />
+          Runtime
+        </h4>
+
+        <div className={settingsRowClass}>
+          <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+            Managed by
+          </Label>
+          <div className="max-w-sm">
+            <Select
+              value={selectedRuntime}
+              onValueChange={(value: VscodeRuntimeKind) =>
+                updateVscodeSettings({ runtime: value })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="vscodeCli">Official VS Code CLI</SelectItem>
+                <SelectItem value="codeServer">coder/code-server</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className={settingsRowClass}>
+          <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+            Installed
+          </Label>
+          <div className="flex min-h-8 flex-wrap items-center gap-2">
+            {(["vscodeCli", "codeServer"] as const).map((runtime) => (
+              <Badge
+                key={runtime}
+                variant={runtime === selectedRuntime ? "secondary" : "outline"}
+              >
+                {RUNTIME_META[runtime].label}:{" "}
+                {statusSummary(runtimeStatus(status, runtime))}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <div className="space-y-3">
         <h4 className="flex items-center gap-2 text-sm font-medium">
@@ -219,17 +319,17 @@ export default function VscodeSettings() {
 
         <div className={settingsRowClass}>
           <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
-            Installed
+            Selected
           </Label>
           <div className="flex min-h-8 flex-wrap items-center gap-2">
-            <Badge variant={status?.installedVersion ? "secondary" : "outline"}>
-              {statusSummary(status)}
+            <Badge
+              variant={activeStatus?.installedVersion ? "secondary" : "outline"}
+            >
+              {statusSummary(activeStatus)}
             </Badge>
-            {status?.installedVersion ? (
-              <span className="text-xs text-muted-foreground">
-                coder/code-server runtime
-              </span>
-            ) : null}
+            <span className="text-xs text-muted-foreground">
+              {runtimeMeta.managedBy}
+            </span>
           </div>
         </div>
 
@@ -252,7 +352,7 @@ export default function VscodeSettings() {
                 aria-label="Install progress"
               />
               <p className="text-xs text-muted-foreground">
-                {installPhaseDescription(installProgress)}
+                {installPhaseDescription(installProgress, selectedRuntime)}
               </p>
             </div>
           </div>
@@ -268,11 +368,11 @@ export default function VscodeSettings() {
             </Badge>
             {latest?.updateAvailable ? (
               <span className="text-xs text-muted-foreground">
-                New coder/code-server release available
+                New {runtimeMeta.label} release available
               </span>
-            ) : latest?.latestVersion && status?.installedVersion ? (
+            ) : latest?.latestVersion && activeStatus?.installedVersion ? (
               <span className="text-xs text-muted-foreground">
-                coder/code-server is up to date
+                {runtimeMeta.label} is up to date
               </span>
             ) : null}
           </div>
@@ -286,12 +386,12 @@ export default function VscodeSettings() {
             <Button
               variant="outline"
               size="sm"
-              disabled={!status?.supported || busy}
+              disabled={!activeStatus?.supported || busy}
               onClick={() =>
                 void runAction(
                   "check",
-                  checkCodeServerUpdate,
-                  "Checked coder/code-server for updates",
+                  checkVscodeUpdate,
+                  `Checked ${runtimeMeta.label} for updates`,
                 )
               }
             >
@@ -310,8 +410,8 @@ export default function VscodeSettings() {
                 onClick={() =>
                   void runAction(
                     "install",
-                    () => installCodeServer(),
-                    "Started coder/code-server install",
+                    () => installVscode(),
+                    `Started ${runtimeMeta.label} install`,
                   )
                 }
               >
@@ -331,8 +431,8 @@ export default function VscodeSettings() {
                 onClick={() =>
                   void runAction(
                     "upgrade",
-                    () => installCodeServer(latest?.latestVersion ?? undefined),
-                    `Started coder/code-server upgrade to ${displayVersion(latest?.latestVersion)}`,
+                    () => installVscode(latest?.latestVersion ?? undefined),
+                    `Started ${runtimeMeta.label} upgrade to ${displayVersion(latest?.latestVersion)}`,
                   )
                 }
               >
@@ -354,11 +454,11 @@ export default function VscodeSettings() {
                   void runAction(
                     "reinstall",
                     () =>
-                      installCodeServer(
-                        status.installedVersion ?? undefined,
+                      installVscode(
+                        activeStatus?.installedVersion ?? undefined,
                         true,
                       ),
-                    "Started coder/code-server reinstall",
+                    `Started ${runtimeMeta.label} reinstall`,
                   )
                 }
               >
@@ -371,7 +471,7 @@ export default function VscodeSettings() {
               </Button>
             ) : null}
 
-            {status && !status.supported ? (
+            {activeStatus && !activeStatus.supported ? (
               <Button variant="ghost" size="sm" disabled>
                 <CircleOff data-icon="inline-start" />
                 Unsupported host
@@ -396,13 +496,13 @@ export default function VscodeSettings() {
               {busy ? <Loader2 className="animate-spin" /> : null}
               {statusLabel(processStatus)}
             </Badge>
-            {status?.message ? (
+            {activeStatus?.message ? (
               <span className="text-xs text-muted-foreground">
-                {status.message}
+                {activeStatus.message}
               </span>
             ) : processStatus === "running" ? (
               <span className="text-xs text-muted-foreground">
-                coder/code-server is ready for <code>/code</code>.
+                {runtimeMeta.readyLabel}
               </span>
             ) : null}
           </div>
@@ -420,8 +520,8 @@ export default function VscodeSettings() {
                 onClick={() =>
                   void runAction(
                     "start",
-                    startCodeServer,
-                    "Started coder/code-server",
+                    startVscode,
+                    `Started ${runtimeMeta.label}`,
                   )
                 }
               >
@@ -442,8 +542,8 @@ export default function VscodeSettings() {
                 onClick={() =>
                   void runAction(
                     "stop",
-                    stopCodeServer,
-                    "Stopped coder/code-server",
+                    stopVscode,
+                    `Stopped ${runtimeMeta.label}`,
                   )
                 }
               >
@@ -464,8 +564,8 @@ export default function VscodeSettings() {
                 onClick={() =>
                   void runAction(
                     "restart",
-                    restartCodeServer,
-                    "Restarted coder/code-server",
+                    restartVscode,
+                    `Restarted ${runtimeMeta.label}`,
                   )
                 }
               >

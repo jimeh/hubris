@@ -954,6 +954,9 @@ describe("API client", () => {
         worktree: {
           locationMode: "repoLocalDotHubris" as const,
         },
+        vscode: {
+          runtime: "vscodeCli" as const,
+        },
       };
       const response = {
         settings: payload,
@@ -1008,6 +1011,9 @@ describe("API client", () => {
           worktree: {
             locationMode: "dataDir",
           },
+          vscode: {
+            runtime: "vscodeCli",
+          },
         }),
       ).rejects.toThrow("500");
     });
@@ -1041,6 +1047,9 @@ describe("API client", () => {
           },
           worktree: {
             locationMode: "dataDir",
+          },
+          vscode: {
+            runtime: "vscodeCli",
           },
         }),
       ).rejects.toMatchObject({

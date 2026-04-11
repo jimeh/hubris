@@ -1,44 +1,50 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CodeServerStatus } from "@/lib/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { VscodeStatus } from "@/lib/api";
 import {
-  resetCodeServerStoreForTests,
-  setCodeServerStatus,
-} from "@/lib/stores/codeServer";
+  resetSettingsStoreForTests,
+  useSettingsStore,
+} from "@/lib/stores/settings";
+import { resetVscodeStoreForTests, setVscodeStatus } from "@/lib/stores/vscode";
 import VscodeSettings from "./VscodeSettings";
 
-const mockCheckCodeServerUpdate = vi.fn();
-const mockInstallCodeServer = vi.fn();
-const mockStartCodeServer = vi.fn();
-const mockStopCodeServer = vi.fn();
-const mockRestartCodeServer = vi.fn();
+const mockCheckVscodeUpdate = vi.fn();
+const mockInstallVscode = vi.fn();
+const mockStartVscode = vi.fn();
+const mockStopVscode = vi.fn();
+const mockRestartVscode = vi.fn();
 const mockToastError = vi.fn();
 const mockToastSuccess = vi.fn();
 
-vi.mock("@/lib/api", () => ({
-  checkCodeServerUpdate: () => mockCheckCodeServerUpdate(),
-  installCodeServer: (version?: string, force?: boolean) =>
-    mockInstallCodeServer(version, force),
-  startCodeServer: () => mockStartCodeServer(),
-  stopCodeServer: () => mockStopCodeServer(),
-  restartCodeServer: () => mockRestartCodeServer(),
-}));
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return {
+    ...actual,
+    checkVscodeUpdate: () => mockCheckVscodeUpdate(),
+    installVscode: (version?: string, force?: boolean) =>
+      mockInstallVscode(version, force),
+    startVscode: () => mockStartVscode(),
+    stopVscode: () => mockStopVscode(),
+    restartVscode: () => mockRestartVscode(),
+  };
+});
 
 vi.mock("sonner", () => ({
   toast: {
     error: (...args: unknown[]) => mockToastError(...args),
     success: (...args: unknown[]) => mockToastSuccess(...args),
+    warning: vi.fn(),
   },
 }));
 
-function makeStatus(
-  overrides: Partial<CodeServerStatus> = {},
-): CodeServerStatus {
+function makeRuntimeStatus(
+  overrides: Partial<VscodeStatus["vscodeCli"]> = {},
+): VscodeStatus["vscodeCli"] {
   return {
     supported: true,
     installedVersion: null,
-    processStatus: "stopped" as const,
+    processStatus: "stopped",
     latest: null,
     installProgress: null,
     message: null,
@@ -46,126 +52,160 @@ function makeStatus(
   };
 }
 
+function makeStatus(overrides: Partial<VscodeStatus> = {}): VscodeStatus {
+  return {
+    selectedRuntime: "vscodeCli",
+    codeServer: makeRuntimeStatus(),
+    vscodeCli: makeRuntimeStatus(),
+    ...overrides,
+  };
+}
+
 describe("VscodeSettings", () => {
   beforeEach(() => {
-    resetCodeServerStoreForTests();
-    mockCheckCodeServerUpdate.mockReset();
-    mockInstallCodeServer.mockReset();
-    mockStartCodeServer.mockReset();
-    mockStopCodeServer.mockReset();
-    mockRestartCodeServer.mockReset();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async () => ({
+        ok: true,
+        json: async () => ({
+          settings: useSettingsStore.getState().settings,
+          generation: "1",
+          status: {
+            kind: "ok",
+            writesBlocked: false,
+            message: null,
+          },
+        }),
+      })),
+    );
+    resetSettingsStoreForTests();
+    resetVscodeStoreForTests();
+    useSettingsStore.getState().updateVscode({ runtime: "vscodeCli" });
+    mockCheckVscodeUpdate.mockReset();
+    mockInstallVscode.mockReset();
+    mockStartVscode.mockReset();
+    mockStopVscode.mockReset();
+    mockRestartVscode.mockReset();
     mockToastError.mockReset();
     mockToastSuccess.mockReset();
   });
 
-  it("shows the install state when code-server is not installed", async () => {
-    setCodeServerStatus(makeStatus());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the selected runtime and install state when not installed", async () => {
+    setVscodeStatus(makeStatus());
 
     render(<VscodeSettings />);
 
+    expect(screen.getByText("Runtime")).toBeInTheDocument();
     expect(screen.getByText("Installation")).toBeInTheDocument();
     expect(screen.getByText("Process")).toBeInTheDocument();
-    expect(await screen.findByText("Not installed")).toBeInTheDocument();
-    expect(screen.getByText("Managed by")).toBeInTheDocument();
-    expect(
-      screen.getByText("coder/code-server", { selector: "code" }),
-    ).toBeInTheDocument();
+    expect(await screen.findAllByText("Not installed")).not.toHaveLength(0);
+    expect(screen.getByText(/Hubris keeps/)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Install latest" }),
     ).toBeEnabled();
   });
 
-  it("renders install progress from the shared code-server store", async () => {
-    setCodeServerStatus(
+  it("renders install progress for the selected runtime", async () => {
+    setVscodeStatus(
       makeStatus({
-        processStatus: "installing",
-        installProgress: {
-          phase: "downloading",
-          percent: 42,
-          downloadedBytes: 42 * 1024 * 1024,
-          totalBytes: 100 * 1024 * 1024,
-        },
+        vscodeCli: makeRuntimeStatus({
+          processStatus: "installing",
+          installProgress: {
+            phase: "downloading",
+            percent: 42,
+            downloadedBytes: 42 * 1024 * 1024,
+            totalBytes: 100 * 1024 * 1024,
+          },
+        }),
       }),
     );
 
     render(<VscodeSettings />);
 
     expect(await screen.findByText("Downloading runtime")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Downloading coder\/code-server 42%/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Downloading VS Code CLI 42%/)).toBeInTheDocument();
     expect(screen.getByLabelText("Install progress")).toBeInTheDocument();
   });
 
   it("checks for updates and offers an upgrade when a newer version exists", async () => {
     const user = userEvent.setup();
-    setCodeServerStatus(
+    setVscodeStatus(
       makeStatus({
-        installedVersion: "4.113.0",
+        vscodeCli: makeRuntimeStatus({
+          installedVersion: "1.114.0",
+        }),
       }),
     );
-    mockCheckCodeServerUpdate.mockResolvedValue(
+    mockCheckVscodeUpdate.mockResolvedValue(
       makeStatus({
-        installedVersion: "4.113.0",
-        latest: {
-          latestVersion: "4.114.1",
-          updateAvailable: true,
-        },
+        vscodeCli: makeRuntimeStatus({
+          installedVersion: "1.114.0",
+          latest: {
+            latestVersion: "1.115.0",
+            updateAvailable: true,
+          },
+        }),
       }),
     );
 
     render(<VscodeSettings />);
 
-    await screen.findByText("4.113.0");
+    await screen.findByText("Official VS Code CLI: 1.114.0");
     await user.click(screen.getByRole("button", { name: "Check for Update" }));
 
-    expect(mockCheckCodeServerUpdate).toHaveBeenCalledTimes(1);
+    expect(mockCheckVscodeUpdate).toHaveBeenCalledTimes(1);
     expect(
-      await screen.findByRole("button", { name: "Upgrade to 4.114.1" }),
+      await screen.findByRole("button", { name: "Upgrade to 1.115.0" }),
     ).toBeInTheDocument();
   });
 
-  it("shows runtime controls for a running installation", async () => {
+  it("switches runtime selection through settings", async () => {
     const user = userEvent.setup();
-    setCodeServerStatus(
+    setVscodeStatus(
       makeStatus({
-        installedVersion: "4.114.1",
-        processStatus: "running",
-      }),
-    );
-    mockRestartCodeServer.mockResolvedValue(
-      makeStatus({
-        installedVersion: "4.114.1",
-        processStatus: "running",
+        codeServer: makeRuntimeStatus({
+          installedVersion: "4.114.1",
+          processStatus: "running",
+        }),
       }),
     );
 
     render(<VscodeSettings />);
 
-    await screen.findByText("4.114.1");
+    await user.click(screen.getByRole("combobox"));
+    await user.click(screen.getByText("coder/code-server"));
 
-    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Restart" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Restart" }));
-
-    await waitFor(() => {
-      expect(mockRestartCodeServer).toHaveBeenCalledTimes(1);
-    });
+    expect(useSettingsStore.getState().settings.vscode.runtime).toBe(
+      "codeServer",
+    );
+    expect(
+      await screen.findByText("coder/code-server: 4.114.1"),
+    ).toBeInTheDocument();
   });
 
-  it("offers reinstall for an installed runtime", async () => {
+  it("offers reinstall for the selected runtime", async () => {
     const user = userEvent.setup();
-    setCodeServerStatus(
+    setVscodeStatus(
       makeStatus({
-        installedVersion: "v4.114.1",
-        processStatus: "running",
+        selectedRuntime: "codeServer",
+        codeServer: makeRuntimeStatus({
+          installedVersion: "4.114.1",
+          processStatus: "running",
+        }),
       }),
     );
-    mockInstallCodeServer.mockResolvedValue(
+    useSettingsStore.getState().updateVscode({ runtime: "codeServer" });
+    mockInstallVscode.mockResolvedValue(
       makeStatus({
-        installedVersion: "4.114.1",
-        processStatus: "installing",
+        selectedRuntime: "codeServer",
+        codeServer: makeRuntimeStatus({
+          installedVersion: "4.114.1",
+          processStatus: "installing",
+        }),
       }),
     );
 
@@ -174,7 +214,7 @@ describe("VscodeSettings", () => {
     await user.click(screen.getByRole("button", { name: "Reinstall" }));
 
     await waitFor(() => {
-      expect(mockInstallCodeServer).toHaveBeenCalledWith("v4.114.1", true);
+      expect(mockInstallVscode).toHaveBeenCalledWith("4.114.1", true);
     });
   });
 });

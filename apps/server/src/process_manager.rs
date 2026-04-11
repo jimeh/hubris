@@ -1328,8 +1328,16 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let body: serde_json::Value = response.json().await.unwrap();
-        assert_eq!(body.as_array().unwrap().len(), 1);
-        assert_eq!(body[0]["id"], "code_server");
+        let ids = body
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            vec!["code_server".to_string(), "vscode_cli".to_string()]
+        );
     }
 
     #[tokio::test]
