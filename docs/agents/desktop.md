@@ -1,26 +1,55 @@
-# Desktop (Tauri) Gotchas
+# Desktop (Electron) Gotchas
 
-- **Desktop app serves bundled frontend files from Tauri resources**: the Tauri
-  shell still loads Hubris over loopback HTTP. Production desktop builds bundle
-  `apps/web/dist` as Tauri resources and the embedded server reads those files
-  at runtime instead of using `embed-frontend`. Keep
-  `apps/desktop-tauri/build.rs` creating a placeholder
-  `apps/web/dist/index.html` for clean-checkout `cargo check`, but rely on
-  `bun run --filter hubris-web build` to produce the real frontend before
-  desktop release builds.
-- **Desktop Tauri hooks run from the repo root in this setup**:
-  `apps/desktop-tauri/tauri.conf.json` build hooks should use root-relative
-  workspace commands like `bun run --filter hubris-web build`, not paths
-  relative to `apps/desktop-tauri/`.
-- **Desktop dev dynamically overrides `devUrl` from the frontend state file**:
-  `.mise/tasks/dev-desktop` reuses the shared `HUBRIS_DEV_ID` / `HUBRIS_DEV_TMP`
-  mechanism, waits for `tmp/dev-<id>.frontend.json`, then launches
-  `cargo tauri dev --config` with the actual Vite port. Keep that wrapper in
-  sync with the Vite `devInstancePlugin()` output shape, and keep
-  `apps/desktop-tauri/src/main.rs` reading `app.config().build.dev_url` in debug
-  mode instead of hardcoding a localhost port.
-- **Desktop loopback auth uses a one-time bootstrap plus an `HttpOnly` cookie**:
-  packaged desktop hits `/_hubris/desktop/bootstrap?token=...` on the embedded
-  server, while `mise run dev:desktop` hits the same path on the Vite dev
-  server. The backend trusts only the `hubris_desktop_session` cookie in desktop
-  mode, so keep desktop auth out of frontend JS fetch/SSE/WS code.
+- **Electron owns the stable desktop origin**: the renderer always loads
+  `https://desktop.internal.hubris.build/`, never raw loopback URLs. In dev,
+  Electron proxies frontend asset requests to Vite and backend requests to the
+  Rust dev server. In packaged mode, Electron serves bundled `apps/web/dist`
+  files itself and proxies `/api` and `/_hubris` to the packaged Rust runtime on
+  an ephemeral loopback port.
+- **Packaged desktop auth is still backend-owned, but Electron redeems it**:
+  Electron generates a fresh session token and bootstrap token, launches the
+  Rust runtime with both, performs the one-time
+  `/_hubris/desktop/bootstrap?token=...` request itself, and then seeds the
+  `hubris_desktop_session` cookie into the
+  `https://desktop.internal.hubris.build` session jar. Keep desktop auth out of
+  frontend JS fetch/SSE/WS code.
+- **Desktop dev still uses the shared dev-state handshake**:
+  `mise run dev:desktop` still relies on `HUBRIS_DEV_ID` / `HUBRIS_DEV_TMP`.
+  Electron waits for both `tmp/dev-<id>.frontend.json` and
+  `tmp/dev-<id>.backend.json`, then proxies
+  `https://desktop.internal.hubris.build/` to those live dev targets. The
+  backend stays in `api_only` desktop mode in dev.
+- **Electron browser storage lives in native app-data directories**: configure
+  `userData` and `sessionData` before `app.whenReady()` so Chromium persists
+  `localStorage`, IndexedDB, cookies, and cache in stable OS-native paths. Keep
+  `sessionData` under the shared native `Hubris/sessionData` root so Chromium
+  storage survives across builds, with dev/release still isolated by their
+  separate `persist:` partition names.
+- **Electron uses persistent, mode-specific partitions**: keep release and dev
+  on separate `persist:` partitions so browser storage survives restarts while
+  still isolating `mise run dev:desktop` from packaged builds. Keep permission
+  requests, `window.open`, and cross-origin navigation denied.
+- **Code-server needs the stable desktop origin too**: browser storage is
+  origin-scoped, so code-server must also load under
+  `https://desktop.internal.hubris.build/code/...`. Electron now proxies
+  `/code/*` directly to the live code-server upstream after resolving it via the
+  authenticated `/_hubris/code-server/connection` endpoint, so desktop no longer
+  double-proxies code-server through Hubris’ Rust `/code` route.
+- **Desktop WebSockets are Electron-bridged, not browser-visible loopback**: the
+  preload script replaces same-origin `WebSocket` connections with a narrow
+  main-process bridge. That bridge forwards cookies and the stable desktop
+  `Origin` header to the real upstream target, and it is used for code-server,
+  terminal WebSockets, and Vite HMR in dev.
+- **The packaged Rust runtime is backend-only**: do not reintroduce frontend
+  asset serving in `hubris-desktop-runtime`. In packaged desktop, Electron owns
+  the Hubris frontend files; the Rust runtime only serves `/api` and `/_hubris`
+  for desktop.
+- **Desktop packaging depends on prebuilt resources**: `mise run build:desktop`
+  must build `apps/web/dist` and the `hubris-desktop-runtime` release binary
+  before running Electron Forge, because the packaged app copies both in as
+  resources instead of rebuilding them at launch.
+- **Closing the last desktop window does not exit Hubris**: the Electron app and
+  packaged Rust runtime stay alive so background work can continue. Reopen the
+  UI through the normal app relaunch path: Electron uses a single-instance lock
+  and `second-instance`/`activate` handlers to show or recreate the main window
+  instead of starting a duplicate app process.

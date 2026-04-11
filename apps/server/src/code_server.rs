@@ -97,13 +97,12 @@ pub struct CodeServerConnection {
 }
 
 impl CodeServerConnection {
-    fn http_url(&self, path_and_query: &str) -> String {
-        format!("{}{}", self.base_url.trim_end_matches('/'), path_and_query)
+    pub fn http_base_url(&self) -> &str {
+        &self.base_url
     }
 
-    fn ws_url(&self, path_and_query: &str) -> String {
-        let base = self
-            .base_url
+    pub fn ws_base_url(&self) -> String {
+        self.base_url
             .strip_prefix("http://")
             .map(|value| format!("ws://{value}"))
             .or_else(|| {
@@ -111,7 +110,15 @@ impl CodeServerConnection {
                     .strip_prefix("https://")
                     .map(|value| format!("wss://{value}"))
             })
-            .unwrap_or_else(|| self.base_url.clone());
+            .unwrap_or_else(|| self.base_url.clone())
+    }
+
+    fn http_url(&self, path_and_query: &str) -> String {
+        format!("{}{}", self.base_url.trim_end_matches('/'), path_and_query)
+    }
+
+    fn ws_url(&self, path_and_query: &str) -> String {
+        let base = self.ws_base_url();
         format!("{}{}", base.trim_end_matches('/'), path_and_query)
     }
 }

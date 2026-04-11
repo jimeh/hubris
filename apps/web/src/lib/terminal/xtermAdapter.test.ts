@@ -2,46 +2,74 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createXtermAdapter } from "./xterm";
 
-const { terminalInstances, fitAddonInstances, MockTerminal, MockFitAddon } =
-  vi.hoisted(() => {
-    const terminalInstances: MockTerminal[] = [];
-    const fitAddonInstances: MockFitAddon[] = [];
+type WebLinksAddonOptions = {
+  hover?: (
+    event: MouseEvent,
+    text: string,
+    range: { start: { x: number; y: number }; end: { x: number; y: number } },
+  ) => void;
+  leave?: (
+    event: MouseEvent,
+    text: string,
+    range: { start: { x: number; y: number }; end: { x: number; y: number } },
+  ) => void;
+};
 
-    class MockTerminal {
-      options: Record<string, unknown>;
-      rows = 24;
-      cols = 80;
-      loadAddon = vi.fn();
-      open = vi.fn();
-      write = vi.fn();
-      onData = vi.fn(() => ({ dispose: vi.fn() }));
-      onBinary = vi.fn(() => ({ dispose: vi.fn() }));
-      resize = vi.fn();
-      focus = vi.fn();
-      reset = vi.fn();
-      dispose = vi.fn();
+const {
+  terminalInstances,
+  fitAddonInstances,
+  webLinksAddonHandlers,
+  webLinksAddonOptions,
+  MockTerminal,
+  MockFitAddon,
+} = vi.hoisted(() => {
+  const terminalInstances: MockTerminal[] = [];
+  const fitAddonInstances: MockFitAddon[] = [];
+  const webLinksAddonHandlers: Array<
+    ((event: MouseEvent, uri: string) => void) | undefined
+  > = [];
+  const webLinksAddonOptions: WebLinksAddonOptions[] = [];
 
-      constructor(options: Record<string, unknown>) {
-        this.options = options;
-        terminalInstances.push(this);
-      }
+  class MockTerminal {
+    options: Record<string, unknown>;
+    element?: HTMLElement;
+    rows = 24;
+    cols = 80;
+    loadAddon = vi.fn();
+    open = vi.fn((container: HTMLElement) => {
+      this.element = container;
+    });
+    write = vi.fn();
+    onData = vi.fn(() => ({ dispose: vi.fn() }));
+    onBinary = vi.fn(() => ({ dispose: vi.fn() }));
+    resize = vi.fn();
+    focus = vi.fn();
+    reset = vi.fn();
+    dispose = vi.fn();
+
+    constructor(options: Record<string, unknown>) {
+      this.options = options;
+      terminalInstances.push(this);
     }
+  }
 
-    class MockFitAddon {
-      proposeDimensions = vi.fn(() => ({ cols: 132, rows: 41 }));
+  class MockFitAddon {
+    proposeDimensions = vi.fn(() => ({ cols: 132, rows: 41 }));
 
-      constructor() {
-        fitAddonInstances.push(this);
-      }
+    constructor() {
+      fitAddonInstances.push(this);
     }
+  }
 
-    return {
-      terminalInstances,
-      fitAddonInstances,
-      MockTerminal,
-      MockFitAddon,
-    };
-  });
+  return {
+    terminalInstances,
+    fitAddonInstances,
+    webLinksAddonHandlers,
+    webLinksAddonOptions,
+    MockTerminal,
+    MockFitAddon,
+  };
+});
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: MockTerminal,
@@ -52,7 +80,15 @@ vi.mock("@xterm/addon-fit", () => ({
 }));
 
 vi.mock("@xterm/addon-web-links", () => ({
-  WebLinksAddon: class MockWebLinksAddon {},
+  WebLinksAddon: class MockWebLinksAddon {
+    constructor(
+      handler?: (event: MouseEvent, uri: string) => void,
+      options?: WebLinksAddonOptions,
+    ) {
+      webLinksAddonHandlers.push(handler);
+      webLinksAddonOptions.push(options ?? {});
+    }
+  },
 }));
 
 vi.mock("@xterm/addon-webgl", () => ({
@@ -63,14 +99,65 @@ vi.mock("@xterm/addon-webgl", () => ({
   },
 }));
 
+function setNavigatorPlatform(platform: string) {
+  Object.defineProperty(window.navigator, "platform", {
+    configurable: true,
+    value: platform,
+  });
+}
+
+function mountTerminalContainer() {
+  const wrapper = document.createElement("div");
+  const container = document.createElement("div");
+  const screen = document.createElement("div");
+  screen.className = "xterm-screen";
+  wrapper.appendChild(container);
+  container.appendChild(screen);
+  document.body.appendChild(wrapper);
+  vi.spyOn(wrapper, "getBoundingClientRect").mockReturnValue({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 480,
+    bottom: 320,
+    width: 480,
+    height: 320,
+    toJSON: () => ({}),
+  } as DOMRect);
+  vi.spyOn(screen, "getBoundingClientRect").mockReturnValue({
+    x: 20,
+    y: 16,
+    top: 16,
+    left: 20,
+    right: 420,
+    bottom: 256,
+    width: 400,
+    height: 240,
+    toJSON: () => ({}),
+  } as DOMRect);
+
+  return { wrapper, container, screen };
+}
+
+function getTooltip() {
+  return document.body.querySelector("div.bg-popover") as HTMLDivElement | null;
+}
+
 describe("createXtermAdapter", () => {
   beforeEach(() => {
     terminalInstances.length = 0;
     fitAddonInstances.length = 0;
+    webLinksAddonHandlers.length = 0;
+    webLinksAddonOptions.length = 0;
+    setNavigatorPlatform("MacIntel");
   });
 
   afterEach(() => {
+    document.body.innerHTML = "";
     document.documentElement.removeAttribute("style");
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("returns proposed viewport dimensions without fitting locally", () => {
@@ -99,5 +186,182 @@ describe("createXtermAdapter", () => {
     adapter.onBinary(onBinary);
 
     expect(terminal.onBinary).toHaveBeenCalledWith(onBinary);
+  });
+
+  it("requires Cmd+click on macOS terminal links", () => {
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(null as unknown as Window);
+    const adapter = createXtermAdapter();
+    const { container } = mountTerminalContainer();
+
+    adapter.open(container);
+    webLinksAddonHandlers[0]?.(
+      new MouseEvent("click"),
+      "https://example.com/cmd",
+    );
+    webLinksAddonHandlers[0]?.(
+      new MouseEvent("click", { metaKey: true }),
+      "https://example.com/cmd",
+    );
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://example.com/cmd",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
+  it("requires Ctrl+click on non-macOS terminal links", () => {
+    setNavigatorPlatform("Linux x86_64");
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(null as unknown as Window);
+    const adapter = createXtermAdapter();
+    const { container } = mountTerminalContainer();
+
+    adapter.open(container);
+    webLinksAddonHandlers[0]?.(
+      new MouseEvent("click", { metaKey: true }),
+      "https://example.com/ctrl",
+    );
+    webLinksAddonHandlers[0]?.(
+      new MouseEvent("click", { ctrlKey: true }),
+      "https://example.com/ctrl",
+    );
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://example.com/ctrl",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
+  it("shows a delayed tooltip above hovered links", () => {
+    vi.useFakeTimers();
+    const adapter = createXtermAdapter();
+    const { container } = mountTerminalContainer();
+
+    adapter.open(container);
+    const tooltip = getTooltip();
+    expect(tooltip?.hidden).toBe(true);
+    vi.spyOn(tooltip!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 140,
+      bottom: 28,
+      width: 140,
+      height: 28,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    webLinksAddonOptions[0]?.hover?.(
+      new MouseEvent("mousemove", { clientX: 160, clientY: 140 }),
+      "https://example.com/docs",
+      {
+        start: { x: 4, y: 8 },
+        end: { x: 18, y: 8 },
+      },
+    );
+
+    expect(getTooltip()?.hidden).toBe(true);
+
+    vi.advanceTimersByTime(500);
+
+    const renderedTooltip = getTooltip();
+
+    expect(renderedTooltip?.hidden).toBe(false);
+    expect(document.body.textContent).toContain("Follow link");
+    expect(document.body.textContent).toContain("(Cmd+click)");
+    expect(renderedTooltip).not.toBeNull();
+    expect(renderedTooltip?.className).toContain("bg-popover");
+    expect(renderedTooltip?.className).toContain("absolute");
+    expect(renderedTooltip?.className).toContain("xterm-hover");
+    expect(
+      Number.parseInt(renderedTooltip?.style.top ?? "999", 10),
+    ).toBeLessThan(96);
+  });
+
+  it("opens the hovered link from the tooltip without a modifier", () => {
+    vi.useFakeTimers();
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(null as unknown as Window);
+    const adapter = createXtermAdapter();
+    const { container } = mountTerminalContainer();
+
+    adapter.open(container);
+    webLinksAddonOptions[0]?.hover?.(
+      new MouseEvent("mousemove", { clientX: 200, clientY: 120 }),
+      "https://example.com/tooltip",
+      {
+        start: { x: 6, y: 4 },
+        end: { x: 16, y: 4 },
+      },
+    );
+
+    vi.advanceTimersByTime(500);
+
+    const button = document.body.querySelector("button");
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://example.com/tooltip",
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
+
+  it("cancels the delayed tooltip when leaving early", () => {
+    vi.useFakeTimers();
+    const adapter = createXtermAdapter();
+    const { container } = mountTerminalContainer();
+
+    adapter.open(container);
+    webLinksAddonOptions[0]?.hover?.(
+      new MouseEvent("mousemove", { clientX: 140, clientY: 100 }),
+      "https://example.com/cancel",
+      {
+        start: { x: 5, y: 2 },
+        end: { x: 12, y: 2 },
+      },
+    );
+    webLinksAddonOptions[0]?.leave?.(
+      new MouseEvent("mouseleave"),
+      "https://example.com/cancel",
+      {
+        start: { x: 5, y: 2 },
+        end: { x: 12, y: 2 },
+      },
+    );
+
+    vi.advanceTimersByTime(500);
+
+    expect(getTooltip()?.hidden).toBe(true);
+  });
+
+  it("removes the tooltip and clears timers on dispose", () => {
+    vi.useFakeTimers();
+    const adapter = createXtermAdapter();
+    const { container } = mountTerminalContainer();
+
+    adapter.open(container);
+    webLinksAddonOptions[0]?.hover?.(
+      new MouseEvent("mousemove", { clientX: 140, clientY: 100 }),
+      "https://example.com/dispose",
+      {
+        start: { x: 5, y: 2 },
+        end: { x: 12, y: 2 },
+      },
+    );
+
+    adapter.dispose();
+    vi.advanceTimersByTime(500);
+
+    expect(getTooltip()).toBeNull();
   });
 });

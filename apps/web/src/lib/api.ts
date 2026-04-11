@@ -12,8 +12,9 @@ import type {
 } from "./types";
 import type { components } from "@/lib/contracts/rest.generated";
 import type { Settings, SettingsPatch, SettingsState } from "./theme/types";
+import { apiBase, terminalWsUrlBase } from "./desktopRuntime";
 
-const BASE = "/api";
+const BASE = apiBase();
 
 export class ApiStatusError extends Error {
   status: number;
@@ -599,6 +600,13 @@ export async function reorderTabs(
 }
 
 export function terminalWsUrl(tabId: string): string {
+  const base = terminalWsUrlBase();
+  if (base) {
+    const url = new URL(base);
+    url.searchParams.set("tab_id", tabId);
+    return url.toString();
+  }
+
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${location.host}/api/terminal/ws?tab_id=${encodeURIComponent(tabId)}`;
 }

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { codeBase } from "@/lib/desktopRuntime";
 import type { Worktree } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -11,7 +12,14 @@ type Props = {
 export default function VscodeWorkbenchPane({ worktree, active }: Props) {
   const src = useMemo(() => {
     const params = new URLSearchParams({ folder: worktree.path });
-    return `/code/?${params.toString()}`;
+    const base = codeBase();
+    if (base.startsWith("/")) {
+      return `${base}?${params.toString()}`;
+    }
+
+    const url = new URL(base);
+    url.search = params.toString();
+    return url.toString();
   }, [worktree.path]);
 
   return (

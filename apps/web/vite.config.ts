@@ -11,6 +11,10 @@ const desktopBootstrapToken = process.env.HUBRIS_DESKTOP_BOOTSTRAP_TOKEN;
 const desktopSessionToken = process.env.HUBRIS_DESKTOP_SESSION_TOKEN;
 const isVitest = process.env.VITEST === "true";
 const isVitestSmoke = process.env.HUBRIS_VITEST_SMOKE === "true";
+const isDesktopDev = Boolean(
+  devId && devTmp && desktopBootstrapToken && desktopSessionToken,
+);
+const desktopDevHost = "desktop.internal.hubris.build";
 
 async function waitForBackendState(
   timeoutMs = 120_000,
@@ -102,6 +106,13 @@ export default defineConfig(async () => {
       // allowedHosts: ["localhost", "127.0.0.1", "0.0.0.0", "noct"],
       // host: true,
       port,
+      hmr: isDesktopDev
+        ? {
+            protocol: "wss",
+            host: desktopDevHost,
+            clientPort: 443,
+          }
+        : undefined,
       proxy: {
         "/api": {
           target: `http://localhost:${backendPort}`,

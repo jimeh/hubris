@@ -1,11 +1,224 @@
-import { Terminal } from "@xterm/xterm";
-import { WebglAddon } from "@xterm/addon-webgl";
-import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { Terminal } from "@xterm/xterm";
+import type { IViewportRange } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalAdapter, TerminalViewport } from "./adapter";
 import { DEFAULT_FONT_FAMILY } from "./fonts";
 import { getTerminalTheme } from "./theme";
+
+const LINK_TOOLTIP_DELAY_MS = 500;
+const LINK_TOOLTIP_HIDE_DELAY_MS = 120;
+const LINK_TOOLTIP_OFFSET_PX = 18;
+const LINK_TOOLTIP_MARGIN_PX = 8;
+
+type NavigatorWithUserAgentData = Navigator & {
+  userAgentData?: {
+    platform?: string;
+  };
+};
+
+type LinkTooltipAnchor = {
+  uri: string;
+  range: IViewportRange;
+};
+
+function openTerminalLink(uri: string) {
+  window.open(uri, "_blank", "noopener,noreferrer");
+}
+
+function isMacPlatform(): boolean {
+  const navigatorWithPlatform = navigator as NavigatorWithUserAgentData;
+  const platform =
+    navigatorWithPlatform.userAgentData?.platform ?? navigator.platform ?? "";
+  return /mac/i.test(platform);
+}
+
+function followLinkModifierLabel(): "Cmd" | "Ctrl" {
+  return isMacPlatform() ? "Cmd" : "Ctrl";
+}
+
+function shouldFollowTerminalLink(event: MouseEvent): boolean {
+  return isMacPlatform() ? event.metaKey : event.ctrlKey;
+}
+
+class TerminalLinkTooltipController {
+  private readonly wrapper: HTMLElement;
+  private readonly term: Terminal;
+  private readonly tooltip = document.createElement("div");
+  private readonly followLinkButton = document.createElement("button");
+  private readonly modifierHint = document.createElement("span");
+  private readonly onTooltipEnter = () => {
+    this.clearHideTimer();
+  };
+  private readonly onTooltipLeave = () => {
+    this.scheduleHide();
+  };
+  private hoverTimer: number | null = null;
+  private hideTimer: number | null = null;
+  private anchor: LinkTooltipAnchor | null = null;
+  private currentUri: string | null = null;
+
+  constructor(wrapper: HTMLElement, term: Terminal) {
+    this.wrapper = wrapper;
+    this.term = term;
+    this.tooltip.className =
+      "xterm-hover pointer-events-auto absolute z-50 inline-flex items-center gap-1 " +
+      "rounded-md border border-border bg-popover px-3 py-1.5 text-xs " +
+      "text-popover-foreground shadow-md";
+    this.tooltip.hidden = true;
+
+    this.followLinkButton.type = "button";
+    this.followLinkButton.className =
+      "cursor-pointer rounded-sm font-medium text-primary underline " +
+      "decoration-primary/50 underline-offset-2 transition-colors " +
+      "hover:text-primary/80 hover:decoration-primary focus-visible:outline-none " +
+      "focus-visible:ring-2 focus-visible:ring-ring";
+    this.followLinkButton.textContent = "Follow link";
+    this.followLinkButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!this.currentUri) {
+        return;
+      }
+
+      openTerminalLink(this.currentUri);
+      this.hide();
+    });
+
+    this.modifierHint.className = "text-muted-foreground";
+
+    this.tooltip.append(this.followLinkButton, this.modifierHint);
+    this.tooltip.addEventListener("mouseenter", this.onTooltipEnter);
+    this.tooltip.addEventListener("mouseleave", this.onTooltipLeave);
+    this.wrapper.appendChild(this.tooltip);
+  }
+
+  scheduleShow(uri: string, range: IViewportRange) {
+    this.clearHideTimer();
+
+    const anchor = {
+      uri,
+      range,
+    };
+
+    if (!this.tooltip.hidden && this.currentUri === uri) {
+      this.anchor = anchor;
+      this.render(range);
+      return;
+    }
+
+    this.anchor = anchor;
+    this.currentUri = uri;
+    this.clearHoverTimer();
+    this.hoverTimer = window.setTimeout(() => {
+      this.hoverTimer = null;
+      this.render(anchor.range);
+    }, LINK_TOOLTIP_DELAY_MS);
+  }
+
+  scheduleHide() {
+    this.clearHoverTimer();
+    this.clearHideTimer();
+    this.hideTimer = window.setTimeout(() => {
+      this.hideTimer = null;
+      this.hide();
+    }, LINK_TOOLTIP_HIDE_DELAY_MS);
+  }
+
+  hide() {
+    this.clearHoverTimer();
+    this.clearHideTimer();
+    this.anchor = null;
+    this.currentUri = null;
+    this.tooltip.hidden = true;
+  }
+
+  dispose() {
+    this.hide();
+    this.tooltip.removeEventListener("mouseenter", this.onTooltipEnter);
+    this.tooltip.removeEventListener("mouseleave", this.onTooltipLeave);
+    this.tooltip.remove();
+  }
+
+  private clearHoverTimer() {
+    if (this.hoverTimer !== null) {
+      window.clearTimeout(this.hoverTimer);
+      this.hoverTimer = null;
+    }
+  }
+
+  private clearHideTimer() {
+    if (this.hideTimer !== null) {
+      window.clearTimeout(this.hideTimer);
+      this.hideTimer = null;
+    }
+  }
+
+  private render(range: IViewportRange) {
+    if (!this.anchor || !this.currentUri) {
+      return;
+    }
+
+    this.modifierHint.textContent = `(${followLinkModifierLabel()}+click)`;
+    this.tooltip.hidden = false;
+
+    const wrapperRect = this.wrapper.getBoundingClientRect();
+    const screen =
+      this.term.element?.querySelector(".xterm-screen") ??
+      this.term.element ??
+      this.wrapper;
+    const screenRect = screen.getBoundingClientRect();
+    const tooltipRect = this.tooltip.getBoundingClientRect();
+    const cellWidth =
+      this.term.cols > 0 ? screenRect.width / this.term.cols : 0;
+    const cellHeight =
+      this.term.rows > 0 ? screenRect.height / this.term.rows : 0;
+    const linkLeft =
+      screenRect.left -
+      wrapperRect.left +
+      Math.max(0, range.start.x) * cellWidth;
+    const linkRight =
+      screenRect.left -
+      wrapperRect.left +
+      Math.min(this.term.cols, Math.max(range.start.x, range.end.x)) *
+        cellWidth;
+    const linkTop =
+      screenRect.top -
+      wrapperRect.top +
+      Math.max(0, range.start.y) * cellHeight;
+    const linkBottom =
+      screenRect.top -
+      wrapperRect.top +
+      Math.min(this.term.rows, range.end.y + 1) * cellHeight;
+    const anchorX = (linkLeft + Math.max(linkLeft + cellWidth, linkRight)) / 2;
+    const maxLeft = Math.max(
+      LINK_TOOLTIP_MARGIN_PX,
+      wrapperRect.width - tooltipRect.width - LINK_TOOLTIP_MARGIN_PX,
+    );
+    const left = Math.min(
+      Math.max(anchorX - tooltipRect.width / 2, LINK_TOOLTIP_MARGIN_PX),
+      maxLeft,
+    );
+
+    let top = linkTop - tooltipRect.height - LINK_TOOLTIP_OFFSET_PX;
+    if (top < LINK_TOOLTIP_MARGIN_PX) {
+      top = Math.min(
+        linkBottom + LINK_TOOLTIP_OFFSET_PX,
+        Math.max(
+          LINK_TOOLTIP_MARGIN_PX,
+          wrapperRect.height - tooltipRect.height - LINK_TOOLTIP_MARGIN_PX,
+        ),
+      );
+    }
+
+    this.tooltip.style.left = `${Math.round(left)}px`;
+    this.tooltip.style.top = `${Math.round(
+      Math.max(LINK_TOOLTIP_MARGIN_PX, top),
+    )}px`;
+  }
+}
 
 export function createXtermAdapter(opts?: {
   fontSize?: number;
@@ -21,12 +234,43 @@ export function createXtermAdapter(opts?: {
 
   const fitAddon = new FitAddon();
   let contextLossSubscription: { dispose(): void } | null = null;
+  let linkTooltipController: TerminalLinkTooltipController | null = null;
 
   return {
     open(container: HTMLElement) {
       term.open(container);
       term.loadAddon(fitAddon);
-      term.loadAddon(new WebLinksAddon());
+
+      const tooltipContainer =
+        container.parentElement instanceof HTMLElement
+          ? container.parentElement
+          : container;
+      linkTooltipController = new TerminalLinkTooltipController(
+        tooltipContainer,
+        term,
+      );
+
+      term.loadAddon(
+        new WebLinksAddon(
+          (event, uri) => {
+            if (!shouldFollowTerminalLink(event)) {
+              return;
+            }
+
+            event.preventDefault();
+            openTerminalLink(uri);
+          },
+          {
+            hover: (_event, uri, range) => {
+              linkTooltipController?.scheduleShow(uri, range);
+            },
+            leave: () => {
+              linkTooltipController?.scheduleHide();
+            },
+          },
+        ),
+      );
+
       try {
         const webgl = new WebglAddon();
         contextLossSubscription = webgl.onContextLoss(() => {
@@ -82,6 +326,8 @@ export function createXtermAdapter(opts?: {
     dispose() {
       contextLossSubscription?.dispose();
       contextLossSubscription = null;
+      linkTooltipController?.dispose();
+      linkTooltipController = null;
       term.dispose();
     },
   };

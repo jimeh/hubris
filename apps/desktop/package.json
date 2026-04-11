@@ -1,0 +1,30 @@
+{
+  "name": "hubris-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "main": ".vite/build/main.js",
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "scripts": {
+    "dev": "bunx electron-forge start",
+    "package": "bunx electron-forge package",
+    "make": "bunx electron-forge make",
+    "check": "tsc --noEmit",
+    "lint": "prettier --check package.json forge.config.js tsconfig.json vite.main.config.mjs vite.preload.config.mjs 'src/**/*.ts'",
+    "format": "prettier --write package.json forge.config.js tsconfig.json vite.main.config.mjs vite.preload.config.mjs 'src/**/*.ts'",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/maker-zip": "^7.11.1",
+    "@electron-forge/plugin-vite": "^7.11.1",
+    "@types/node": "^25.3.3",
+    "@types/ws": "^8.18.1",
+    "electron": "^41.2.0",
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.8",
+    "vitest": "^4.1.2"
+  }
+}

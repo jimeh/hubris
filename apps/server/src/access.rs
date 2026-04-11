@@ -81,6 +81,8 @@ impl DesktopAccess {
     fn requires_session(&self, path: &str) -> bool {
         self.protect_frontend
             || path.starts_with("/api")
+            || path == "/_hubris"
+            || path.starts_with("/_hubris/")
             || path == "/code"
             || path.starts_with("/code/")
     }

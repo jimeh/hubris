@@ -32,17 +32,9 @@ async fn start_test_server(options: ServerOptions) -> (String, TempDir) {
     (format!("http://{}", addr), tmp)
 }
 
-fn packaged_options(root: &Path, session_token: &str, bootstrap_token: &str) -> ServerOptions {
-    let assets = root.join("dist");
-    std::fs::create_dir_all(&assets).unwrap();
-    std::fs::write(
-        assets.join("index.html"),
-        "<!doctype html><html><body>desktop auth</body></html>",
-    )
-    .unwrap();
-
+fn packaged_options(_root: &Path, session_token: &str, bootstrap_token: &str) -> ServerOptions {
     ServerOptions {
-        frontend: FrontendAssets::from_dir(assets).unwrap(),
+        frontend: FrontendAssets::disabled(),
         access: ServerAccess::DesktopLocked(DesktopAccess::packaged(
             session_token,
             bootstrap_token,
@@ -202,6 +194,13 @@ async fn packaged_desktop_blocks_unauthenticated_requests() {
         .unwrap();
     assert_eq!(api.status(), StatusCode::UNAUTHORIZED);
 
+    let code_server = client
+        .get(format!("{base}/_hubris/code-server/connection"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(code_server.status(), StatusCode::UNAUTHORIZED);
+
     let events = client
         .get(format!("{base}/api/events?session_id=default"))
         .send()
@@ -258,15 +257,6 @@ async fn packaged_desktop_bootstrap_is_one_time_and_authenticates_http_sse_and_w
         .unwrap();
     assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
 
-    let frontend = client
-        .get(&base)
-        .header(reqwest::header::COOKIE, &cookie)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(frontend.status(), StatusCode::OK);
-    assert!(frontend.text().await.unwrap().contains("desktop auth"));
-
     let projects = client
         .get(format!("{base}/api/projects"))
         .header(reqwest::header::COOKIE, &cookie)
@@ -274,6 +264,14 @@ async fn packaged_desktop_bootstrap_is_one_time_and_authenticates_http_sse_and_w
         .await
         .unwrap();
     assert_eq!(projects.status(), StatusCode::OK);
+
+    let code_server = client
+        .get(format!("{base}/_hubris/code-server/connection"))
+        .header(reqwest::header::COOKIE, &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(code_server.status(), StatusCode::UNAUTHORIZED);
 
     let events = client
         .get(format!("{base}/api/events?session_id=default"))

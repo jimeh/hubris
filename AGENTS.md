@@ -8,8 +8,8 @@ persistent PTY sessions.
 ```sh
 mise run setup     # install all deps
 mise run dev       # backend + web dev servers
-mise run dev:desktop  # Tauri desktop app in dev mode
-mise run build:desktop  # Tauri desktop app bundle
+mise run dev:desktop  # Electron desktop app in dev mode
+mise run build:desktop  # Electron desktop app bundle
 mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
 mise run test      # web tests + cargo test
@@ -100,7 +100,7 @@ or `pnpm-lock.yaml`.
   store, terminal, Monaco, explorer
 - [Testing](docs/agents/testing.md) — Vitest/jsdom, mock patterns, test
   organization, Rust tests
-- [Desktop](docs/agents/desktop.md) — Tauri build, dev workflow, auth
+- [Desktop](docs/agents/desktop.md) — Electron build, dev workflow, auth
 - [Dev Environment](docs/agents/dev-environment.md) — mise tasks, hot reload,
   socket activation
 
@@ -243,6 +243,9 @@ embeddings.**
 
 ## Discoveries
 
+- Keep TypeScript pinned to 5.9.x for now. The workspace shares one TypeScript
+  version across `apps/web` and `apps/desktop`, and `openapi-typescript@7.13.0`
+  still declares a `^5.x` TypeScript peer.
 - `code-server` release handling needs two HTTP client modes: `/releases/latest`
   must disable redirects so version parsing can read the `Location` header, but
   release asset downloads must follow redirects or the extractor will read
@@ -270,3 +273,30 @@ embeddings.**
   shared test mutex. Real interactive shells can emit prompt/redraw bytes on
   attach or resize, which makes PTY snapshot assertions flaky on Linux and
   inside Docker.
+- Electron desktop packaging writes host-platform bundles to the repo-root
+  `dist/` directory via Forge `outDir`, while transient desktop build artifacts
+  under `apps/desktop/` (`node_modules`, `.vite`) stay ignored locally.
+- Electron desktop browser storage only survives restarts when the window uses a
+  `persist:` partition and `app.setPath("userData"/"sessionData", ...)` is set
+  before `app.whenReady()`. Keep `sessionData` under the shared native
+  `Hubris/sessionData` root and isolate dev/release with separate `persist:`
+  partition names.
+- Packaged Electron must keep a stable renderer origin without relying on a
+  fixed loopback port. Hubris now uses a handled
+  `https://desktop.internal.hubris.build` origin: Electron serves bundled
+  frontend assets on that origin, proxies `/api` and `/_hubris` to the loopback
+  Rust backend, redeems the one-time desktop bootstrap token itself, and seeds
+  cookies into the `https://desktop.internal.hubris.build` session jar.
+- Desktop no longer routes `/code` through Hubris’ Rust reverse proxy. Electron
+  resolves the live code-server upstream via the authenticated
+  `/_hubris/code-server/connection` endpoint, proxies `/code/*` directly, and
+  bridges same-origin WebSockets for code-server, terminal I/O, and Vite HMR in
+  preload/main-process code instead of rewriting browser-visible loopback URLs.
+- Electron desktop startup should only register the macOS `activate` handler
+  after the initial `whenReady()` bootstrap finishes, or guard window creation
+  with a single-flight helper. Registering `activate` too early can race the
+  first async window/runtime startup and spawn duplicate packaged runtimes.
+- Electron desktop now stays alive after the last window closes on all
+  platforms. Keep shutdown tied to explicit app quit paths, and use the
+  single-instance `second-instance` flow plus macOS `activate` to reopen or
+  recreate the main window without reinitializing backend/protocol state.

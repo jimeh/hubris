@@ -8,7 +8,8 @@ export type BootstrapResponse = {
 };
 
 /**
- * Build the dev-only desktop bootstrap response for Vite-served Tauri sessions.
+ * Build the dev-only desktop bootstrap response for Vite-served Electron
+ * sessions.
  */
 export function handleDesktopBootstrapRequest(
   reqUrl: string | undefined,

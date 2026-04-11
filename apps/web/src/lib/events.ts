@@ -1,4 +1,5 @@
 import type { EventKind } from "@/lib/contracts/sse.generated";
+import { eventsUrl } from "./desktopRuntime";
 
 export type SseEvent = EventKind;
 export type SseEventName = SseEvent["type"];
@@ -42,9 +43,7 @@ export class EventClient {
   connect(sessionId = "default"): void {
     if (this.es) return;
 
-    this.es = new EventSource(
-      `/api/events?session_id=${encodeURIComponent(sessionId)}`,
-    );
+    this.es = new EventSource(eventsUrl(sessionId));
 
     for (const name of SSE_EVENT_NAMES) {
       this.es.addEventListener(name, (e) => {
