@@ -15,6 +15,9 @@ use crate::api::files::{
     WorktreeFileContentResponse, WorktreeFileEntry, WorktreeFileKind, WorktreeGitDiffParams,
     WorktreeGitDiffResponse, WriteWorktreeFileContentRequest, WriteWorktreeFileContentResponse,
 };
+use crate::api::processes::{
+    ManagedProcessExitInfo, ManagedProcessLifecycleStateValue, ManagedProcessStatus,
+};
 use crate::api::projects::{
     AddProjectRequest, Project, ReorderProjectsRequest, UpdateProjectRequest,
 };
@@ -46,6 +49,11 @@ use crate::tab::{GitDiffScope, TabInfo};
         crate::api::code_server::start_code_server,
         crate::api::code_server::stop_code_server,
         crate::api::code_server::restart_code_server,
+        crate::api::processes::list_managed_processes,
+        crate::api::processes::get_managed_process,
+        crate::api::processes::start_managed_process,
+        crate::api::processes::stop_managed_process,
+        crate::api::processes::restart_managed_process,
         crate::api::files::list_files,
         crate::api::files::list_project_worktree_files,
         crate::api::files::get_project_worktree_file_content,
@@ -100,6 +108,9 @@ use crate::tab::{GitDiffScope, TabInfo};
             CodeServerLatestCheck,
             CodeServerStatus,
             InstallCodeServerRequest,
+            ManagedProcessLifecycleStateValue,
+            ManagedProcessExitInfo,
+            ManagedProcessStatus,
             WorktreeFileKind,
             WorktreeFileEntry,
             ListWorktreeFilesResponse,
