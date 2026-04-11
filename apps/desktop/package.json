@@ -1,7 +1,9 @@
 {
   "name": "hubris-desktop",
   "private": true,
+  "productName": "Hubris",
   "version": "0.1.0",
+  "description": "Hubris desktop app",
   "main": ".vite/build/main.js",
   "dependencies": {
     "ws": "^8.18.3"

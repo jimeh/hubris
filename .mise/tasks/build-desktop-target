@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 3 ]]; then
+  echo "usage: build-desktop-target <platform> <arch> <runtime-target>" >&2
+  exit 1
+fi
+
+PLATFORM=$1
+ARCH=$2
+RUNTIME_TARGET=$3
+
+case "$PLATFORM:$ARCH" in
+  darwin:arm64|darwin:x64)
+    ;;
+  *)
+    echo "unsupported desktop target: $PLATFORM/$ARCH" >&2
+    exit 1
+    ;;
+esac
+
+mise run build:web
+bash .mise/tasks/build-rust-target \
+  hubris-desktop-runtime \
+  "$RUNTIME_TARGET"
+
+RUNTIME_PATH="$(pwd)/target/$RUNTIME_TARGET/release/hubris-desktop-runtime"
+if [[ ! -f "$RUNTIME_PATH" ]]; then
+  echo "packaged runtime not found at $RUNTIME_PATH" >&2
+  exit 1
+fi
+
+export HUBRIS_DESKTOP_RUNTIME_PATH="$RUNTIME_PATH"
+bun run --filter hubris-desktop make \
+  --platform "$PLATFORM" \
+  --arch "$ARCH" \
+  --targets "@electron-forge/maker-zip"

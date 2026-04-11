@@ -1,0 +1,59 @@
+name: Desktop Artifacts
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-desktop-artifact:
+    name: Desktop Artifact (${{ matrix.target_name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_name: macos-arm64
+            runner: macos-15
+            task: build:desktop:macos-arm64
+            platform: darwin
+            arch: arm64
+            runtime_target: aarch64-apple-darwin
+            runtime_file_pattern: arm64|aarch64
+            artifact_glob: dist/make/**/*.zip
+          - target_name: macos-x64
+            runner: macos-15-intel
+            task: build:desktop:macos-x64
+            platform: darwin
+            arch: x64
+            runtime_target: x86_64-apple-darwin
+            runtime_file_pattern: x86-64
+            artifact_glob: dist/make/**/*.zip
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: jdx/mise-action@v2
+
+      - name: Build desktop artifact
+        run: mise run ${{ matrix.task }}
+
+      - name: Verify packaged resources
+        run: bash scripts/verify-desktop-package.sh \
+          ${{ matrix.platform }} \
+          ${{ matrix.arch }}
+
+      - name: Verify packaged runtime architecture
+        run: |
+          file \
+            "target/${{ matrix.runtime_target }}/release/hubris-desktop-runtime" \
+            | rg -q "${{ matrix.runtime_file_pattern }}"
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hubris-desktop-${{ matrix.target_name }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error

@@ -10,6 +10,8 @@ mise run setup     # install all deps
 mise run dev       # backend + web dev servers
 mise run dev:desktop  # Electron desktop app in dev mode
 mise run build:desktop  # Electron desktop app bundle
+mise run build:desktop:macos-arm64  # target-specific desktop bundle
+mise run build:server:linux-x64  # target-specific standalone server binary
 mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
 mise run test      # web tests + cargo test
@@ -108,8 +110,8 @@ or `pnpm-lock.yaml`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (3285 symbols, 9992
-relationships, 274 execution flows). Use the GitNexus MCP tools to understand
+This project is indexed by GitNexus as **hubris** (3533 symbols, 10818
+relationships, 295 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in
@@ -304,3 +306,11 @@ embeddings.**
   clean. Keep `#[cfg(target_os = "linux")]` helpers self-contained with their
   Linux-only imports and concrete type paths, especially around
   `tokio::process::Command` and `CommandExt`.
+- Cross-target Rust builds now use `cargo zigbuild` for Linux targets and plain
+  `cargo build --target` for macOS targets. Off-macOS `*-apple-darwin` builds
+  still require `SDKROOT` plus the matching `CARGO_TARGET_<TRIPLE>_LINKER`
+  environment variable, while desktop packaging consumes explicit cross-built
+  runtimes through `HUBRIS_DESKTOP_RUNTIME_PATH`.
+- Linux desktop packaging is intentionally disabled for now. Keep cross-platform
+  desktop work focused on macOS zip builds, while `hubris-server` continues to
+  support Linux and macOS cross-build targets.
