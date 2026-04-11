@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   HUBRIS_ORIGIN,
@@ -8,9 +8,14 @@ import {
   buildDesktopRuntimeConfig,
   classifyHubrisRequest,
   classifyHubrisWebSocket,
+  createDesktopProtocolContext,
   injectHtmlScript,
   rewriteVscodePath,
 } from "./protocol";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("classifyHubrisRequest", () => {
   it("routes backend paths to the backend proxy", () => {
@@ -139,6 +144,74 @@ describe("buildDesktopRuntimeConfig", () => {
       terminalWsBase: `${HUBRIS_WS_ORIGIN}/api/terminal/ws`,
       codeBase: `${HUBRIS_ORIGIN}/code/`,
     });
+  });
+});
+
+describe("createDesktopProtocolContext", () => {
+  it("refreshes the vscode upstream on top-level /code navigations", async () => {
+    const cookies = {
+      get: vi.fn().mockResolvedValue([]),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    const context = createDesktopProtocolContext(cookies as never, {
+      backendHttpOrigin: "http://backend.local",
+      backendWsOrigin: "ws://backend.local",
+    });
+    const connectionResponses = [
+      {
+        runtime: "codeServer",
+        baseUrl: "http://code-server.local",
+        wsBaseUrl: "ws://code-server.local",
+        pathMode: "stripPublicBasePath",
+      },
+      {
+        runtime: "vscodeCli",
+        baseUrl: "http://serve-web.local",
+        wsBaseUrl: "ws://serve-web.local",
+        pathMode: "preservePublicBasePath",
+      },
+    ];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url === "http://backend.local/_hubris/vscode/connection") {
+          return new Response(JSON.stringify(connectionResponses.shift()), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (url === "http://code-server.local/?folder=%2Ftmp") {
+          return new Response("<html>code-server</html>", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        }
+
+        if (url === "http://serve-web.local/code/?folder=%2Ftmp") {
+          return new Response("<html>serve-web</html>", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        }
+
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+    const first = await context.handleRequest(
+      new Request(`${HUBRIS_ORIGIN}/code/?folder=%2Ftmp`),
+    );
+    const second = await context.handleRequest(
+      new Request(`${HUBRIS_ORIGIN}/code/?folder=%2Ftmp`),
+    );
+
+    await expect(first.text()).resolves.toContain("code-server");
+    await expect(second.text()).resolves.toContain("serve-web");
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) =>
+          (input instanceof Request ? input.url : String(input)) ===
+          "http://backend.local/_hubris/vscode/connection",
+      ),
+    ).toHaveLength(2);
   });
 });
 

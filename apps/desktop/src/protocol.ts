@@ -480,6 +480,10 @@ async function proxyToVscode(
   targets: DesktopProtocolTargets,
   state: ProtocolState,
 ): Promise<Response> {
+  if (shouldRefreshVscodeConnection(request.url)) {
+    invalidateVscodeConnection(state);
+  }
+
   try {
     return await proxyToVscodeWithFreshConnection(
       request,
@@ -650,6 +654,11 @@ async function fetchVscodeConnection(
         ? payload.connectionToken
         : undefined,
   };
+}
+
+function shouldRefreshVscodeConnection(requestUrl: string): boolean {
+  const { pathname } = new URL(requestUrl);
+  return pathname === "/code" || pathname === "/code/";
 }
 
 export function authorizedVscodePath(
