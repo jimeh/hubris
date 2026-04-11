@@ -3454,7 +3454,7 @@ mod tests {
         let status = Command::new(std::env::current_exe().unwrap())
             .arg("--ignored")
             .arg("--exact")
-            .arg("code_server::tests::linux_parent_death_signal_helper")
+            .arg("vscode::tests::linux_parent_death_signal_helper")
             .env("HUBRIS_TEST_PDEATHSIG_CHILD_PID_FILE", &child_pid_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
