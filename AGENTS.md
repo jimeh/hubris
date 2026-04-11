@@ -296,3 +296,7 @@ embeddings.**
   after the initial `whenReady()` bootstrap finishes, or guard window creation
   with a single-flight helper. Registering `activate` too early can race the
   first async window/runtime startup and spawn duplicate packaged runtimes.
+- Electron desktop now stays alive after the last window closes on all
+  platforms. Keep shutdown tied to explicit app quit paths, and use the
+  single-instance `second-instance` flow plus macOS `activate` to reopen or
+  recreate the main window without reinitializing backend/protocol state.

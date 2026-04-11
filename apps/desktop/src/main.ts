@@ -42,6 +42,8 @@ const profileMode = desktopProfileMode(app.isPackaged);
 let mainWindow: BrowserWindow | null = null;
 let runtimeChild: ReturnType<typeof spawnPackagedRuntime>["child"] | null =
   null;
+let desktopInitialization: Promise<void> | null = null;
+let desktopInitialized = false;
 let mainWindowStartup: Promise<BrowserWindow> | null = null;
 
 function homeDataDir(): string {
@@ -178,31 +180,65 @@ function configureWebContentsGuards(
 }
 
 /**
+ * Perform the one-time desktop runtime, protocol, and cookie bootstrap.
+ */
+async function initializeDesktop() {
+  if (desktopInitialized) {
+    return;
+  }
+
+  if (desktopInitialization) {
+    return desktopInitialization;
+  }
+
+  const desktopSession = session.fromPartition(
+    desktopSessionPartition(profileMode),
+  );
+
+  desktopInitialization = (async () => {
+    try {
+      const { targets, sessionToken, bootstrapToken } =
+        await resolveProtocolTargets();
+      const protocolContext = await registerHubrisProtocol(
+        desktopSession,
+        targets,
+      );
+      installWebSocketBridge(desktopSession, protocolContext, targets);
+      if (bootstrapToken) {
+        await bootstrapPackagedBackend(
+          targets.backendHttpOrigin,
+          bootstrapToken,
+          sessionToken,
+          desktopSession.cookies,
+        );
+      } else {
+        await seedDesktopSessionCookies(
+          desktopSession.cookies,
+          [HUBRIS_ORIGIN],
+          sessionToken,
+        );
+      }
+
+      desktopInitialized = true;
+    } catch (error) {
+      stopRuntimeChild();
+      throw error;
+    }
+  })().finally(() => {
+    desktopInitialization = null;
+  });
+
+  return desktopInitialization;
+}
+
+/**
  * Create and load the main Hubris BrowserWindow.
  */
 async function createMainWindow() {
   const preloadPath = path.resolve(__dirname, "preload.js");
-  const desktopSession = session.fromPartition(
-    desktopSessionPartition(profileMode),
-  );
-  const { targets, sessionToken, bootstrapToken } =
-    await resolveProtocolTargets();
-  const protocolContext = await registerHubrisProtocol(desktopSession, targets);
-  installWebSocketBridge(desktopSession, protocolContext, targets);
-  if (bootstrapToken) {
-    await bootstrapPackagedBackend(
-      targets.backendHttpOrigin,
-      bootstrapToken,
-      sessionToken,
-      desktopSession.cookies,
-    );
-  } else {
-    await seedDesktopSessionCookies(
-      desktopSession.cookies,
-      [HUBRIS_ORIGIN],
-      sessionToken,
-    );
-  }
+
+  await initializeDesktop();
+
   const window = new BrowserWindow(
     createHubrisWindowOptions(preloadPath, profileMode),
   );
@@ -218,6 +254,17 @@ async function createMainWindow() {
   });
 
   await window.loadURL(`${HUBRIS_ORIGIN}/`);
+  return window;
+}
+
+function showBrowserWindow(window: BrowserWindow): BrowserWindow {
+  if (window.isMinimized()) {
+    window.restore();
+  }
+
+  window.show();
+  window.focus();
+
   return window;
 }
 
@@ -240,29 +287,43 @@ function getOrCreateMainWindow(): Promise<BrowserWindow> {
   return mainWindowStartup;
 }
 
+/**
+ * Show the existing window or recreate it if the app is running headless.
+ */
+async function showMainWindow(): Promise<BrowserWindow> {
+  const window = await getOrCreateMainWindow();
+  return showBrowserWindow(window);
+}
+
 app.on("before-quit", () => {
   stopRuntimeChild();
 });
 
 app.on("window-all-closed", () => {
+  // Keep Hubris running so background work can continue without a window.
+});
+
+if (!app.requestSingleInstanceLock()) {
   app.quit();
-});
-
-configureDesktopProfilePaths(app, profileMode);
-
-void app.whenReady().then(async () => {
-  const desktopSession = session.fromPartition(
-    desktopSessionPartition(profileMode),
-  );
-  configureSessionGuards(desktopSession);
-  await getOrCreateMainWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      void getOrCreateMainWindow();
-    }
+} else {
+  app.on("second-instance", () => {
+    void app.whenReady().then(() => showMainWindow());
   });
-});
+
+  configureDesktopProfilePaths(app, profileMode);
+
+  void app.whenReady().then(async () => {
+    const desktopSession = session.fromPartition(
+      desktopSessionPartition(profileMode),
+    );
+    configureSessionGuards(desktopSession);
+    await showMainWindow();
+
+    app.on("activate", () => {
+      void showMainWindow();
+    });
+  });
+}
 
 async function bootstrapPackagedBackend(
   backendHttpOrigin: string,

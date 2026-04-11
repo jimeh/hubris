@@ -34,18 +34,23 @@ type MockWindow = {
     on: ReturnType<typeof vi.fn>;
   };
   handlers: Record<string, (() => void) | undefined>;
+  isMinimized: ReturnType<typeof vi.fn>;
   once: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
+  focus: ReturnType<typeof vi.fn>;
   loadURL: ReturnType<typeof vi.fn>;
+  restore: ReturnType<typeof vi.fn>;
   show: ReturnType<typeof vi.fn>;
 };
 
 async function loadMainModule({
   frontendPorts = [Promise.resolve(3001)],
   backendPorts = [Promise.resolve(4001)],
+  singleInstanceLock = true,
 }: {
   frontendPorts?: Array<Promise<number>>;
   backendPorts?: Array<Promise<number>>;
+  singleInstanceLock?: boolean;
 } = {}) {
   vi.resetModules();
 
@@ -76,6 +81,7 @@ async function loadMainModule({
     getPath: vi.fn((name: string) =>
       name === "home" ? "/Users/tester" : "/Users/tester/Library",
     ),
+    requestSingleInstanceLock: vi.fn(() => singleInstanceLock),
     whenReady: vi.fn(() => ready.promise),
     on: vi.fn((event: string, handler: (...args: unknown[]) => unknown) => {
       appOnHandlers.set(event, handler);
@@ -95,6 +101,7 @@ async function loadMainModule({
     };
 
     handlers: Record<string, (() => void) | undefined> = {};
+    isMinimized = vi.fn(() => false);
     once = vi.fn((event: string, handler: () => void) => {
       this.handlers[event] = handler;
       return this;
@@ -103,7 +110,9 @@ async function loadMainModule({
       this.handlers[event] = handler;
       return this;
     });
+    focus = vi.fn();
     loadURL = vi.fn(async () => {});
+    restore = vi.fn();
     show = vi.fn();
 
     constructor() {
@@ -188,6 +197,16 @@ afterEach(() => {
 });
 
 describe("desktop main process startup", () => {
+  it("quits immediately when it cannot acquire the single-instance lock", async () => {
+    const state = await loadMainModule({ singleInstanceLock: false });
+
+    expect(state.app.quit).toHaveBeenCalledTimes(1);
+    expect(state.app.whenReady).not.toHaveBeenCalled();
+    expect(state.app.on.mock.calls.map(([event]) => event)).not.toContain(
+      "second-instance",
+    );
+  });
+
   it("registers activate only after the initial ready flow finishes", async () => {
     const state = await loadMainModule();
 
@@ -215,13 +234,72 @@ describe("desktop main process startup", () => {
     );
   });
 
-  it("reuses one in-flight startup across concurrent activate events", async () => {
-    const nextFrontend = deferred<number>();
-    const nextBackend = deferred<number>();
-    const state = await loadMainModule({
-      frontendPorts: [Promise.resolve(3001), nextFrontend.promise],
-      backendPorts: [Promise.resolve(4001), nextBackend.promise],
+  it("keeps running when the last window closes", async () => {
+    const state = await loadMainModule();
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.createdWindows).toHaveLength(1);
     });
+
+    const windowAllClosed = state.appOnHandlers.get("window-all-closed");
+    expect(windowAllClosed).toBeTypeOf("function");
+
+    windowAllClosed?.();
+
+    expect(state.app.quit).not.toHaveBeenCalled();
+  });
+
+  it("reopens the existing window on second-instance without reinitializing desktop state", async () => {
+    const state = await loadMainModule();
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.createdWindows).toHaveLength(1);
+    });
+
+    const existingWindow = state.createdWindows[0]!;
+    existingWindow.isMinimized.mockReturnValue(true);
+    existingWindow.restore.mockClear();
+    existingWindow.show.mockClear();
+    existingWindow.focus.mockClear();
+
+    const secondInstance = state.appOnHandlers.get("second-instance");
+    expect(secondInstance).toBeTypeOf("function");
+
+    secondInstance?.();
+
+    await waitUntil(() => {
+      expect(existingWindow.restore).toHaveBeenCalledTimes(1);
+      expect(existingWindow.show).toHaveBeenCalled();
+      expect(existingWindow.focus).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.waitForFrontendPort).toHaveBeenCalledTimes(1);
+    expect(state.waitForBackendPort).toHaveBeenCalledTimes(1);
+    expect(state.registerHubrisProtocol).toHaveBeenCalledTimes(1);
+
+    state.windows.length = 0;
+    existingWindow.handlers.closed?.();
+
+    secondInstance?.();
+
+    await waitUntil(() => {
+      expect(state.createdWindows).toHaveLength(2);
+    });
+
+    const reopenedWindow = state.createdWindows[1]!;
+    expect(reopenedWindow.show).toHaveBeenCalled();
+    expect(reopenedWindow.focus).toHaveBeenCalled();
+    expect(state.waitForFrontendPort).toHaveBeenCalledTimes(1);
+    expect(state.waitForBackendPort).toHaveBeenCalledTimes(1);
+    expect(state.registerHubrisProtocol).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses one in-flight startup across concurrent activate events", async () => {
+    const state = await loadMainModule();
 
     state.ready.resolve();
 
@@ -239,16 +317,11 @@ describe("desktop main process startup", () => {
     activate?.();
 
     await waitUntil(() => {
-      expect(state.waitForFrontendPort).toHaveBeenCalledTimes(2);
-      expect(state.waitForBackendPort).toHaveBeenCalledTimes(2);
-    });
-
-    nextFrontend.resolve(3002);
-    nextBackend.resolve(4002);
-
-    await waitUntil(() => {
       expect(state.createdWindows).toHaveLength(2);
-      expect(state.registerHubrisProtocol).toHaveBeenCalledTimes(2);
     });
+
+    expect(state.waitForFrontendPort).toHaveBeenCalledTimes(1);
+    expect(state.waitForBackendPort).toHaveBeenCalledTimes(1);
+    expect(state.registerHubrisProtocol).toHaveBeenCalledTimes(1);
   });
 });

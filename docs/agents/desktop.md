@@ -48,3 +48,8 @@
   must build `apps/web/dist` and the `hubris-desktop-runtime` release binary
   before running Electron Forge, because the packaged app copies both in as
   resources instead of rebuilding them at launch.
+- **Closing the last desktop window does not exit Hubris**: the Electron app and
+  packaged Rust runtime stay alive so background work can continue. Reopen the
+  UI through the normal app relaunch path: Electron uses a single-instance lock
+  and `second-instance`/`activate` handlers to show or recreate the main window
+  instead of starting a duplicate app process.
