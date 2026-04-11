@@ -118,6 +118,10 @@ export default defineConfig(async () => {
           target: `http://localhost:${backendPort}`,
           ws: true,
         },
+        "/_hubris": {
+          target: `http://localhost:${backendPort}`,
+          ws: true,
+        },
         "/code": {
           target: `http://localhost:${backendPort}`,
           ws: true,

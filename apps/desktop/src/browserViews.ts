@@ -77,6 +77,19 @@ function emitState(record: BrowserViewRecord): void {
 }
 
 function isAllowedBrowserUrl(url: string): boolean {
+  if (url === "about:blank") {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isExternalBrowserUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
@@ -86,7 +99,7 @@ function isAllowedBrowserUrl(url: string): boolean {
 }
 
 function maybeOpenExternal(url: string): void {
-  if (!isAllowedBrowserUrl(url)) {
+  if (!isExternalBrowserUrl(url)) {
     return;
   }
 
@@ -149,7 +162,7 @@ function configureBrowserViewGuards(webContents: WebContents): void {
 
 function attachRecord(record: BrowserViewRecord): void {
   const window = activeBrowserViews.current?.window;
-  if (!window || record.attached) {
+  if (!window || window.isDestroyed() || record.attached) {
     return;
   }
 
@@ -160,7 +173,7 @@ function attachRecord(record: BrowserViewRecord): void {
 
 function detachRecord(record: BrowserViewRecord): void {
   const window = activeBrowserViews.current?.window;
-  if (!window || !record.attached) {
+  if (!window || window.isDestroyed() || !record.attached) {
     return;
   }
 
@@ -336,7 +349,11 @@ function handleNavigate(
   payload: BrowserViewNavigateRequest,
 ): void {
   const record = findRecord(payload.tabId);
-  if (!record || !isAllowedBrowserUrl(payload.url)) {
+  if (
+    !record ||
+    payload.url === "about:blank" ||
+    !isAllowedBrowserUrl(payload.url)
+  ) {
     return;
   }
 
@@ -419,11 +436,25 @@ export function installBrowserViewBridge(
   ipcMain.on(HUBRIS_BROWSER_RELOAD_CHANNEL, handleReload);
 }
 
-/** Dispose all browser views owned by the current desktop window. */
-export function disposeBrowserViewBridge(): void {
-  activeBrowserViews.current = null;
+type DisposeBrowserViewBridgeOptions = {
+  destroyRecords?: boolean;
+};
+
+/** Detach the current browser views, optionally destroying their records too. */
+export function disposeBrowserViewBridge(
+  options: DisposeBrowserViewBridgeOptions = {},
+): void {
+  const { destroyRecords = false } = options;
+
   for (const record of records.values()) {
-    destroyRecord(record);
+    if (destroyRecords) {
+      destroyRecord(record);
+    } else {
+      detachRecord(record);
+    }
   }
-  records.clear();
+  if (destroyRecords) {
+    records.clear();
+  }
+  activeBrowserViews.current = null;
 }

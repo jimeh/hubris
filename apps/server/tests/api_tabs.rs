@@ -4,6 +4,9 @@ use std::process::Command;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use axum::extract::OriginalUri;
+use axum::routing::get;
+use axum::{Router, response::IntoResponse};
 use hubris_server::events::EventKind;
 use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
@@ -33,6 +36,25 @@ async fn start_test_server_with_state() -> (String, tempfile::TempDir, AppState)
     });
 
     (format!("http://{}", addr), tmp, state)
+}
+
+async fn start_loopback_preview_server() -> String {
+    async fn echo_path(OriginalUri(uri): OriginalUri) -> impl IntoResponse {
+        uri.path_and_query()
+            .map(|value| value.as_str().to_string())
+            .unwrap_or_else(|| "/".to_string())
+    }
+
+    let app = Router::new()
+        .route("/", get(echo_path))
+        .route("/{*path}", get(echo_path));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    format!("http://{}", addr)
 }
 
 fn init_git_repo() -> tempfile::TempDir {
@@ -243,6 +265,24 @@ async fn test_create_browser_tab() {
 }
 
 #[tokio::test]
+async fn test_create_browser_tab_accepts_about_blank() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_browser_tab(&client, &base, &worktree_id, "about:blank").await;
+
+    assert_eq!(tab["type"], "browser");
+    assert_eq!(tab["label"], "New Browser");
+    assert_eq!(tab["url"], "about:blank");
+    assert_eq!(tab["history"], serde_json::json!(["about:blank"]));
+    assert_eq!(tab["history_index"], 0);
+}
+
+#[tokio::test]
 async fn test_create_browser_tab_rejects_invalid_url() {
     let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
@@ -267,7 +307,7 @@ async fn test_create_browser_tab_rejects_invalid_url() {
     let body: Value = res.json().await.unwrap();
     assert_eq!(
         body["message"],
-        "Browser tabs only support http:// and https:// URLs."
+        "Browser tabs only support http://, https://, and about:blank URLs."
     );
 }
 
@@ -640,6 +680,80 @@ async fn test_update_browser_tab_rejects_invalid_history_index() {
         body["message"],
         "history_index must point at an entry in history."
     );
+}
+
+#[tokio::test]
+async fn test_update_browser_tab_accepts_about_blank() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_browser_tab(&client, &base, &worktree_id, "http://localhost:4173").await;
+    let tab_id = tab["id"].as_str().unwrap();
+
+    let res = client
+        .patch(format!("{}/api/tabs/{}", base, tab_id))
+        .json(&serde_json::json!({
+            "label": "New Browser",
+            "url": "about:blank",
+            "history": ["about:blank"],
+            "history_index": 0
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let updated: Value = res.json().await.unwrap();
+    assert_eq!(updated["label"], "New Browser");
+    assert_eq!(updated["url"], "about:blank");
+    assert_eq!(updated["history"], serde_json::json!(["about:blank"]));
+    assert_eq!(updated["history_index"], 0);
+}
+
+#[tokio::test]
+async fn test_browser_preview_proxy_rejects_external_hosts() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let res = client
+        .get(format!(
+            "{}/_hubris/browser-preview/https/github.com/docs",
+            base
+        ))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_browser_preview_proxy_forwards_loopback_path_and_query() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let upstream = start_loopback_preview_server().await;
+    let upstream_url = reqwest::Url::parse(&upstream).unwrap();
+    let authority = upstream_url.host_str().unwrap().to_string()
+        + ":"
+        + &upstream_url.port().unwrap().to_string();
+
+    let res = client
+        .get(format!(
+            "{}/_hubris/browser-preview/http/{}/docs/assets/app.js?theme=dark",
+            base, authority
+        ))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.text().await.unwrap(), "/docs/assets/app.js?theme=dark");
 }
 
 #[tokio::test]

@@ -1,13 +1,21 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
-  useCallback,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
 import { ArrowLeft, ArrowRight, ExternalLink, RefreshCcw } from "lucide-react";
-import { browserLabelFromUrl, normalizeBrowserUrl } from "@/lib/browserTabs";
+import {
+  BLANK_BROWSER_URL,
+  browserFrameSrc,
+  browserInputValue,
+  browserLabelFromUrl,
+  decodeBrowserPreviewProxyUrl,
+  isLoopbackBrowserUrl,
+  parseBrowserUrlInput,
+} from "@/lib/browserTabs";
 import type { BrowserTab as BrowserTabInfo } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +24,7 @@ import {
   hasDesktopBrowserBridge,
   type DesktopBrowserState,
 } from "@/lib/desktopBrowser";
+import { useBrowserSurfaceOcclusionStore } from "@/lib/stores/browserSurfaceOcclusion";
 import { useBrowserTabStore } from "@/lib/stores/browserTabs";
 import { useTabStore } from "@/lib/stores/tabs";
 
@@ -24,12 +33,81 @@ type Props = {
   visible: boolean;
 };
 
+const URL_INPUT_PROPS = {
+  type: "url",
+  inputMode: "url" as const,
+  autoComplete: "off",
+  autoCorrect: "off",
+  autoCapitalize: "none" as const,
+  spellCheck: false,
+  name: "browser-url",
+  "data-1p-ignore": "true",
+  "data-lpignore": "true",
+};
+
+function nextBrowserHistory(
+  tab: BrowserTabInfo,
+  url: string,
+): Pick<BrowserTabInfo, "history" | "history_index"> {
+  const { history, history_index: historyIndex } = tab;
+  if (history[historyIndex] === url) {
+    return { history, history_index: historyIndex };
+  }
+  if (historyIndex > 0 && history[historyIndex - 1] === url) {
+    return { history, history_index: historyIndex - 1 };
+  }
+  if (historyIndex + 1 < history.length && history[historyIndex + 1] === url) {
+    return { history, history_index: historyIndex + 1 };
+  }
+
+  return {
+    history: [...history.slice(0, historyIndex + 1), url],
+    history_index: historyIndex + 1,
+  };
+}
+
+async function probeNavigationTarget(url: string): Promise<boolean> {
+  try {
+    await fetch(url, {
+      method: "GET",
+      mode: "no-cors",
+      cache: "no-store",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveNavigationUrl(rawUrl: string): Promise<string> {
+  const parsed = parseBrowserUrlInput(rawUrl);
+  if (parsed.kind === "blank") {
+    throw new Error("Enter a valid URL.");
+  }
+  if (parsed.kind === "absolute") {
+    return parsed.url;
+  }
+
+  const httpAvailable = await probeNavigationTarget(parsed.httpUrl);
+  if (httpAvailable) {
+    return parsed.httpUrl;
+  }
+
+  const httpsAvailable = await probeNavigationTarget(parsed.httpsUrl);
+  if (httpsAvailable) {
+    return parsed.httpsUrl;
+  }
+
+  return parsed.httpUrl;
+}
+
 export default function BrowserTab({ tab, visible }: Props) {
   const isDesktop = hasDesktopBrowserBridge();
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const inputFocusedRef = useRef(false);
   const previousUrlRef = useRef(tab.url);
-  const initialUrlRef = useRef(tab.url);
   const ensureSession = useBrowserTabStore((state) => state.ensureSession);
   const syncNavigationState = useBrowserTabStore(
     (state) => state.syncNavigationState,
@@ -44,6 +122,9 @@ export default function BrowserTab({ tab, visible }: Props) {
   const removeSession = useBrowserTabStore((state) => state.removeSession);
   const session = useBrowserTabStore((state) => state.sessions[tab.id] ?? null);
   const setBrowserState = useTabStore((state) => state.setBrowserState);
+  const isOccluded = useBrowserSurfaceOcclusionStore(
+    (state) => Object.keys(state.reasons).length > 0,
+  );
 
   const canGoBack = isDesktop
     ? (session?.canGoBack ?? false)
@@ -55,6 +136,62 @@ export default function BrowserTab({ tab, visible }: Props) {
     () => `${tab.id}:${tab.url}:${session?.reloadKey ?? 0}`,
     [session?.reloadKey, tab.id, tab.url],
   );
+  const frameSrc = useMemo(() => browserFrameSrc(tab.url), [tab.url]);
+  const isLoopbackPreview = useMemo(
+    () => isLoopbackBrowserUrl(tab.url),
+    [tab.url],
+  );
+
+  const syncWebIframeState = useCallback(async () => {
+    if (!visible || isDesktop || !isLoopbackPreview) {
+      return;
+    }
+
+    const frame = iframeRef.current;
+    const href = frame?.contentWindow?.location.href;
+    if (!href) {
+      return;
+    }
+
+    const nextUrl = decodeBrowserPreviewProxyUrl(href);
+    if (!nextUrl) {
+      return;
+    }
+
+    const nextTitle = frame?.contentDocument?.title?.trim();
+    const nextHistory = nextBrowserHistory(tab, nextUrl);
+    setLoading(tab.id, false);
+    setError(tab.id, null);
+    setShowEmbedHelp(tab.id, false);
+    if (!inputFocusedRef.current) {
+      setDraftUrl(tab.id, browserInputValue(nextUrl));
+    }
+
+    if (
+      nextUrl === tab.url &&
+      nextHistory.history_index === tab.history_index &&
+      nextHistory.history.length === tab.history.length
+    ) {
+      return;
+    }
+
+    await setBrowserState(tab.id, {
+      label: nextTitle || browserLabelFromUrl(nextUrl),
+      url: nextUrl,
+      history: nextHistory.history,
+      historyIndex: nextHistory.history_index,
+    });
+  }, [
+    isDesktop,
+    isLoopbackPreview,
+    setBrowserState,
+    setDraftUrl,
+    setError,
+    setLoading,
+    setShowEmbedHelp,
+    tab,
+    visible,
+  ]);
 
   const applyDesktopState = useCallback(
     async (state: DesktopBrowserState) => {
@@ -62,7 +199,7 @@ export default function BrowserTab({ tab, visible }: Props) {
       setLoading(tab.id, state.isLoading);
       setError(tab.id, state.error);
       if (!inputFocusedRef.current) {
-        setDraftUrl(tab.id, state.url);
+        setDraftUrl(tab.id, browserInputValue(state.url));
       }
       setShowEmbedHelp(tab.id, false);
 
@@ -95,7 +232,7 @@ export default function BrowserTab({ tab, visible }: Props) {
   useEffect(() => {
     ensureSession(
       tab.id,
-      tab.url,
+      browserInputValue(tab.url),
       tab.history_index > 0,
       tab.history_index < tab.history.length - 1,
     );
@@ -114,11 +251,12 @@ export default function BrowserTab({ tab, visible }: Props) {
       tab.history_index < tab.history.length - 1,
     );
 
+    const displayUrl = browserInputValue(tab.url);
     if (
       !inputFocusedRef.current &&
-      session?.draftUrl === previousUrlRef.current
+      session?.draftUrl === browserInputValue(previousUrlRef.current)
     ) {
-      setDraftUrl(tab.id, tab.url);
+      setDraftUrl(tab.id, displayUrl);
     }
     previousUrlRef.current = tab.url;
   }, [
@@ -132,7 +270,7 @@ export default function BrowserTab({ tab, visible }: Props) {
   ]);
 
   useEffect(() => {
-    if (isDesktop) {
+    if (isDesktop || !visible) {
       return;
     }
 
@@ -146,7 +284,20 @@ export default function BrowserTab({ tab, visible }: Props) {
     }, 4000);
 
     return () => window.clearTimeout(timeout);
-  }, [isDesktop, session?.loading, setShowEmbedHelp, tab.id]);
+  }, [isDesktop, session?.loading, setShowEmbedHelp, tab.id, visible]);
+
+  useEffect(() => {
+    if (!visible || tab.url !== BLANK_BROWSER_URL) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      addressInputRef.current?.focus();
+      addressInputRef.current?.select();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [tab.url, visible]);
 
   useEffect(() => {
     if (!isDesktop) {
@@ -159,19 +310,16 @@ export default function BrowserTab({ tab, visible }: Props) {
     }
 
     let cancelled = false;
-    void bridge
-      .create({ tabId: tab.id, url: initialUrlRef.current })
-      .then(({ state }) => {
-        if (!cancelled) {
-          void applyDesktopState(state);
-        }
-      });
+    void bridge.create({ tabId: tab.id, url: tab.url }).then(({ state }) => {
+      if (!cancelled) {
+        void applyDesktopState(state);
+      }
+    });
 
     return () => {
       cancelled = true;
-      bridge.destroy({ tabId: tab.id });
     };
-  }, [applyDesktopState, isDesktop, tab.id]);
+  }, [applyDesktopState, isDesktop, tab.id, tab.url]);
 
   useEffect(() => {
     if (!isDesktop) {
@@ -202,15 +350,15 @@ export default function BrowserTab({ tab, visible }: Props) {
       return;
     }
 
-    if (visible) {
+    if (visible && !isOccluded) {
       bridge.show({ tabId: tab.id });
     } else {
       bridge.hide({ tabId: tab.id });
     }
-  }, [isDesktop, tab.id, visible]);
+  }, [isDesktop, isOccluded, tab.id, visible]);
 
   useEffect(() => {
-    if (!isDesktop || !visible) {
+    if (!isDesktop || !visible || isOccluded) {
       return;
     }
 
@@ -242,12 +390,24 @@ export default function BrowserTab({ tab, visible }: Props) {
       observer.disconnect();
       window.removeEventListener("resize", updateBounds);
     };
-  }, [isDesktop, tab.id, visible]);
+  }, [isDesktop, isOccluded, tab.id, visible]);
+
+  useEffect(() => {
+    if (isDesktop || !visible) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void syncWebIframeState();
+    }, 400);
+
+    return () => window.clearInterval(interval);
+  }, [isDesktop, syncWebIframeState, visible]);
 
   async function navigateTo(rawUrl: string) {
     let url: string;
     try {
-      url = normalizeBrowserUrl(rawUrl);
+      url = await resolveNavigationUrl(rawUrl);
     } catch (error) {
       setError(
         tab.id,
@@ -259,15 +419,14 @@ export default function BrowserTab({ tab, visible }: Props) {
     setError(tab.id, null);
     setShowEmbedHelp(tab.id, false);
     setLoading(tab.id, true);
-    setDraftUrl(tab.id, url);
+    setDraftUrl(tab.id, browserInputValue(url));
 
-    const nextHistory = [...tab.history.slice(0, tab.history_index + 1), url];
-    const nextHistoryIndex = nextHistory.length - 1;
+    const nextHistory = nextBrowserHistory(tab, url);
     await setBrowserState(tab.id, {
       label: browserLabelFromUrl(url),
       url,
-      history: nextHistory,
-      historyIndex: nextHistoryIndex,
+      history: nextHistory.history,
+      historyIndex: nextHistory.history_index,
     });
 
     if (isDesktop) {
@@ -333,12 +492,12 @@ export default function BrowserTab({ tab, visible }: Props) {
 
   function submitAddressBar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void navigateTo(session?.draftUrl ?? tab.url);
+    void navigateTo(session?.draftUrl ?? browserInputValue(tab.url));
   }
 
   function handleAddressBarKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
-      setDraftUrl(tab.id, tab.url);
+      setDraftUrl(tab.id, browserInputValue(tab.url));
       event.currentTarget.blur();
     }
   }
@@ -383,18 +542,20 @@ export default function BrowserTab({ tab, visible }: Props) {
           <RefreshCcw className="h-4 w-4" />
         </Button>
         <Input
-          value={session?.draftUrl ?? tab.url}
+          ref={addressInputRef}
+          {...URL_INPUT_PROPS}
+          value={session?.draftUrl ?? browserInputValue(tab.url)}
           onChange={(event) => setDraftUrl(tab.id, event.target.value)}
           onFocus={() => {
             inputFocusedRef.current = true;
           }}
           onBlur={() => {
             inputFocusedRef.current = false;
-            setDraftUrl(tab.id, tab.url);
+            setDraftUrl(tab.id, browserInputValue(tab.url));
           }}
           onKeyDown={handleAddressBarKeyDown}
+          placeholder="Enter a URL"
           aria-label="Browser address"
-          spellCheck={false}
         />
         <Button
           type="button"
@@ -415,8 +576,9 @@ export default function BrowserTab({ tab, visible }: Props) {
 
       {!isDesktop && session?.showEmbedHelp ? (
         <div className="border-b bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-          Some sites block embedding or won&apos;t fully sync navigation in the
-          web app. Use the external-browser button if this page stays blank.
+          Some sites block embedding in the web app, and direct external pages
+          still have limited history sync. Open this page in your external
+          browser if it refuses to load here.
         </div>
       ) : null}
 
@@ -425,11 +587,17 @@ export default function BrowserTab({ tab, visible }: Props) {
           <div ref={hostRef} className="absolute inset-0 bg-background" />
         ) : (
           <iframe
+            ref={iframeRef}
             key={iframeKey}
             title={tab.label || tab.url}
-            src={tab.url}
+            src={frameSrc}
             className="absolute inset-0 h-full w-full border-0 bg-background"
             onLoad={() => {
+              if (isLoopbackPreview) {
+                void syncWebIframeState();
+                return;
+              }
+
               setLoading(tab.id, false);
               setError(tab.id, null);
               setShowEmbedHelp(tab.id, false);

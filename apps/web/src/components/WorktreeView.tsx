@@ -169,12 +169,9 @@ export default function WorktreeView({ worktree, active }: Props) {
   const handleAddTerminalTab = useCallback(() => {
     void addTerminal(worktree.id);
   }, [addTerminal, worktree.id]);
-  const handleAddBrowserTab = useCallback(
-    async (url: string) => {
-      await openBrowser({ worktreeId: worktree.id, url });
-    },
-    [openBrowser, worktree.id],
-  );
+  const handleAddBrowserTab = useCallback(async () => {
+    await openBrowser({ worktreeId: worktree.id });
+  }, [openBrowser, worktree.id]);
   const handleReorderTabs = useCallback(
     (orderedIds: string[]) => reorder(worktree.id, orderedIds),
     [reorder, worktree.id],

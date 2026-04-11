@@ -325,6 +325,7 @@ async function showMainWindow(): Promise<BrowserWindow> {
 }
 
 app.on("before-quit", () => {
+  disposeBrowserViewBridge({ destroyRecords: true });
   stopRuntimeChild();
 });
 

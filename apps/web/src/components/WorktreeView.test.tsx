@@ -47,13 +47,11 @@ vi.mock("@/components/TabBar", () => ({
     tabs: Array<{ id: string }>;
     onClose: (tabId: string) => void;
     onAddTerminal?: () => void;
-    onAddBrowser?: (url: string) => Promise<void>;
+    onAddBrowser?: () => Promise<void>;
   }) => (
     <div>
       <button onClick={() => onAddTerminal?.()}>Add terminal</button>
-      <button onClick={() => void onAddBrowser?.("http://localhost:3000/")}>
-        Add browser
-      </button>
+      <button onClick={() => void onAddBrowser?.()}>Add browser</button>
       {tabs.map((tab) => (
         <button key={tab.id} onClick={() => onClose(tab.id)}>
           Close {tab.id}

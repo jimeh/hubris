@@ -26,10 +26,12 @@ type TerminalTitleReceiver = tokio::sync::broadcast::Receiver<Option<String>>;
 
 const MISSING_COMMIT_ID_MESSAGE: &str = "commit_id is required for commit diffs.";
 const MISSING_BROWSER_URL_MESSAGE: &str = "url is required for browser tabs.";
-const INVALID_BROWSER_URL_MESSAGE: &str = "Browser tabs only support http:// and https:// URLs.";
+const INVALID_BROWSER_URL_MESSAGE: &str =
+    "Browser tabs only support http://, https://, and about:blank URLs.";
 const INVALID_BROWSER_HISTORY_MESSAGE: &str = "history_index must point at an entry in history.";
 const BROWSER_FIELDS_REQUIRE_BROWSER_TAB_MESSAGE: &str =
     "Browser tab fields can only be updated on browser tabs.";
+const BLANK_BROWSER_URL: &str = "about:blank";
 
 #[derive(Debug)]
 pub struct TabsApiError {
@@ -152,6 +154,10 @@ fn normalize_browser_url(raw: &str) -> Result<String, TabsApiError> {
         ));
     }
 
+    if trimmed == BLANK_BROWSER_URL {
+        return Ok(BLANK_BROWSER_URL.to_string());
+    }
+
     let candidate = if trimmed.contains("://") {
         trimmed.to_string()
     } else {
@@ -193,6 +199,10 @@ fn normalize_browser_url(raw: &str) -> Result<String, TabsApiError> {
 }
 
 fn browser_tab_label(url: &str) -> String {
+    if url == BLANK_BROWSER_URL {
+        return "New Browser".to_string();
+    }
+
     Url::parse(url)
         .ok()
         .and_then(|parsed| {

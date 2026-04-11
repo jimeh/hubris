@@ -6,7 +6,15 @@ import {
   reorderTabs,
   updateTab,
 } from "@/lib/api";
-import { browserLabelFromUrl, normalizeBrowserUrl } from "@/lib/browserTabs";
+import {
+  BLANK_BROWSER_URL,
+  browserLabelFromUrl,
+  normalizeBrowserUrl,
+} from "@/lib/browserTabs";
+import {
+  desktopBrowserBridge,
+  hasDesktopBrowserBridge,
+} from "@/lib/desktopBrowser";
 import { getEventClient } from "@/lib/events";
 import { scheduleDisposeTabModels } from "@/lib/monaco";
 import type { BrowserTab, GitDiffScope, GitDiffTab, Tab } from "@/lib/types";
@@ -34,7 +42,7 @@ type OpenGitDiffOptions = {
 
 type OpenBrowserOptions = {
   worktreeId: string;
-  url: string;
+  url?: string;
 };
 
 type BrowserTabUpdate = {
@@ -241,6 +249,14 @@ function removeFromState(state: TabsState, id: string): Partial<TabsState> {
   }
   persistSelection(activeTabId, activeTabByWorktree);
   return { tabs, activeTabId, activeTabByWorktree };
+}
+
+function disposeDesktopBrowserTab(tab: Tab | null | undefined): void {
+  if (!tab || tab.type !== "browser" || !hasDesktopBrowserBridge()) {
+    return;
+  }
+
+  desktopBrowserBridge()?.destroy({ tabId: tab.id });
 }
 
 function removedTabs(previous: Tab[], next: Tab[]): Tab[] {
@@ -523,7 +539,9 @@ export const useTabStore = create<TabsState>((set, get) => ({
     return pendingPromise;
   },
   async openBrowser(options) {
-    const url = normalizeBrowserUrl(options.url);
+    const url = normalizeBrowserUrl(options.url ?? BLANK_BROWSER_URL, {
+      allowBlank: true,
+    });
     const tab = await createTab({
       type: "browser",
       worktree_id: options.worktreeId,
@@ -554,10 +572,12 @@ export const useTabStore = create<TabsState>((set, get) => ({
     }
 
     const nextUrl = updates.url
-      ? normalizeBrowserUrl(updates.url)
+      ? normalizeBrowserUrl(updates.url, { allowBlank: true })
       : existing.url;
     const nextHistory = updates.history
-      ? updates.history.map((entry) => normalizeBrowserUrl(entry))
+      ? updates.history.map((entry) =>
+          normalizeBrowserUrl(entry, { allowBlank: true }),
+        )
       : existing.history;
     const nextHistoryIndex = updates.historyIndex ?? existing.history_index;
     if (nextHistory.length === 0 || nextHistoryIndex >= nextHistory.length) {
@@ -630,12 +650,14 @@ export const useTabStore = create<TabsState>((set, get) => ({
       // Already gone.
     }
 
+    disposeDesktopBrowserTab(closingTab);
     scheduleDisposeTabModels(closingTab);
   },
   removeLocal(id) {
     const closingTab = get().tabs.find((candidate) => candidate.id === id);
     set((state) => removeFromState(state, id));
     if (closingTab) {
+      disposeDesktopBrowserTab(closingTab);
       scheduleDisposeTabModels(closingTab);
     }
   },
@@ -739,6 +761,7 @@ export function initializeTabStore(): void {
         }
 
         for (const tab of removedTabs(state.tabs, incoming)) {
+          disposeDesktopBrowserTab(tab);
           scheduleDisposeTabModels(tab);
         }
 

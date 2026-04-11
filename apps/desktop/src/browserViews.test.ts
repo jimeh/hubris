@@ -47,6 +47,7 @@ async function loadBrowserViewsModule() {
       addChildView: vi.fn(),
       removeChildView: vi.fn(),
     },
+    isDestroyed: vi.fn(() => false),
     webContents: {
       isDestroyed: vi.fn(() => false),
       send: vi.fn(),
@@ -187,6 +188,58 @@ describe("browser view bridge", () => {
     expect(state.createdViews[0]?.webContents.close).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves browser views across bridge disposal until explicitly destroyed", async () => {
+    const state = await loadBrowserViewsModule();
+
+    state.installBrowserViewBridge(state.window as never, "dev");
+    await state.handles.get(HUBRIS_BROWSER_CREATE_CHANNEL)?.(undefined, {
+      tabId: "browser-4",
+      url: "http://localhost:3000/",
+    });
+
+    state.listenerMap.get(HUBRIS_BROWSER_SHOW_CHANNEL)?.(undefined, {
+      tabId: "browser-4",
+    });
+
+    state.disposeBrowserViewBridge();
+
+    expect(state.window.contentView.removeChildView).toHaveBeenCalledWith(
+      state.createdViews[0],
+    );
+    expect(state.createdViews[0]?.webContents.close).not.toHaveBeenCalled();
+
+    const nextWindow = {
+      contentView: {
+        addChildView: vi.fn(),
+        removeChildView: vi.fn(),
+      },
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        send: vi.fn(),
+      },
+    };
+
+    state.installBrowserViewBridge(nextWindow as never, "dev");
+    const recreated = (await state.handles.get(HUBRIS_BROWSER_CREATE_CHANNEL)?.(
+      undefined,
+      {
+        tabId: "browser-4",
+        url: "http://localhost:3000/",
+      },
+    )) as { state: BrowserViewState };
+
+    expect(recreated.state.url).toBe("http://localhost:3000/");
+    expect(state.createdViews).toHaveLength(1);
+
+    state.listenerMap.get(HUBRIS_BROWSER_SHOW_CHANNEL)?.(undefined, {
+      tabId: "browser-4",
+    });
+    expect(nextWindow.contentView.addChildView).toHaveBeenCalledWith(
+      state.createdViews[0],
+    );
+  });
+
   it("denies popup windows and opens them externally", async () => {
     const state = await loadBrowserViewsModule();
 
@@ -237,5 +290,19 @@ describe("browser view bridge", () => {
         isLoading: false,
       }),
     );
+  });
+
+  it("destroys preserved views when disposal requests record cleanup", async () => {
+    const state = await loadBrowserViewsModule();
+
+    state.installBrowserViewBridge(state.window as never, "dev");
+    await state.handles.get(HUBRIS_BROWSER_CREATE_CHANNEL)?.(undefined, {
+      tabId: "browser-5",
+      url: "http://localhost:3000/",
+    });
+
+    state.disposeBrowserViewBridge({ destroyRecords: true });
+
+    expect(state.createdViews[0]?.webContents.close).toHaveBeenCalledTimes(1);
   });
 });

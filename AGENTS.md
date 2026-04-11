@@ -305,6 +305,14 @@ embeddings.**
 - Desktop browser tabs must keep their `WebContentsView` lifecycle keyed to the
   Hubris tab ID, not the current URL. Recreating the view on every URL/state
   sync wipes browser history and defeats fast tab switching.
+- Desktop browser tabs should only destroy their `WebContentsView` on explicit
+  browser-tab close or full app quit. Renderer reloads and main-window
+  close/reopen need to detach and later reattach the existing views so Chromium
+  history survives within the running app session.
+- Web-mode browser previews use the same-origin `/_hubris/browser-preview/...`
+  proxy only for loopback targets (`localhost`, `127.0.0.1`, `[::1]`). Keep
+  external sites as direct iframes with explicit fallback to opening them
+  externally.
 - Linux-only Rust paths still compile in CI even when local macOS checks look
   clean. Keep `#[cfg(target_os = "linux")]` helpers self-contained with their
   Linux-only imports and concrete type paths, especially around

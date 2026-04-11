@@ -14,6 +14,7 @@ const mockDeleteTab = vi.fn();
 const mockReorderTabs = vi.fn();
 const mockUpdateTab = vi.fn();
 const mockScheduleDisposeTabModels = vi.fn();
+const mockDesktopBrowserDestroy = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   createTab: (...args: unknown[]) => mockCreateTab(...args),
@@ -25,6 +26,13 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/lib/monaco", () => ({
   scheduleDisposeTabModels: (...args: unknown[]) =>
     mockScheduleDisposeTabModels(...args),
+}));
+
+vi.mock("@/lib/desktopBrowser", () => ({
+  desktopBrowserBridge: () => ({
+    destroy: (...args: unknown[]) => mockDesktopBrowserDestroy(...args),
+  }),
+  hasDesktopBrowserBridge: () => true,
 }));
 
 class MockEventClient {
@@ -162,6 +170,7 @@ describe("Tab store", () => {
     mockReorderTabs.mockReset();
     mockScheduleDisposeTabModels.mockReset();
     mockUpdateTab.mockReset();
+    mockDesktopBrowserDestroy.mockReset();
   });
 
   it("loads tabs from snapshot sorted by position", async () => {
@@ -545,19 +554,20 @@ describe("Tab store", () => {
       id: "browser-1",
       worktree_id: "w1",
       position: 1,
-      url: "http://localhost:3000/",
+      label: "New Browser",
+      url: "about:blank",
+      history: ["about:blank"],
     });
     mockCreateTab.mockResolvedValue(tab);
 
-    const created = await store.useTabStore.getState().openBrowser({
-      worktreeId: "w1",
-      url: "localhost:3000",
-    });
+    const created = await store.useTabStore
+      .getState()
+      .openBrowser({ worktreeId: "w1" });
 
     expect(mockCreateTab).toHaveBeenCalledWith({
       type: "browser",
       worktree_id: "w1",
-      url: "http://localhost:3000/",
+      url: "about:blank",
     });
     expect(created).toEqual(tab);
     expect(store.useTabStore.getState().activeTabId).toBe(tab.id);
@@ -604,6 +614,26 @@ describe("Tab store", () => {
       url: "https://example.com/docs",
       history: ["http://localhost:3000/", "https://example.com/docs"],
       history_index: 1,
+    });
+  });
+
+  it("destroys desktop browser views when browser tabs close", async () => {
+    const store = await getStore();
+    const browserTab = makeBrowserTab({
+      id: "browser-3",
+      worktree_id: "w1",
+      url: "http://localhost:3000/",
+    });
+    mockDeleteTab.mockResolvedValue(undefined);
+
+    mockEvents.emit("snapshot", {
+      tabs: [browserTab],
+    });
+
+    await store.useTabStore.getState().close(browserTab.id);
+
+    expect(mockDesktopBrowserDestroy).toHaveBeenCalledWith({
+      tabId: browserTab.id,
     });
   });
 });
