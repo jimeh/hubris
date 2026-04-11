@@ -1,4 +1,4 @@
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { Worktree } from "@/lib/types";
 import VscodeWorkbenchIndicator from "./VscodeWorkbenchIndicator";
 import WorktreeIndicator from "./WorktreeIndicator";
@@ -31,11 +31,6 @@ export default function WorktreeDragOverlay({
               </span>
             ) : null}
           </div>
-        }
-        actionSlot={
-          <span className="pointer-events-none inline-flex size-6 items-center justify-center rounded-md">
-            <Trash2 className="h-3.5 w-3.5" />
-          </span>
         }
       />
     </div>

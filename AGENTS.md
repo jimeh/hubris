@@ -314,3 +314,7 @@ embeddings.**
 - Linux desktop packaging is intentionally disabled for now. Keep cross-platform
   desktop work focused on macOS zip builds, while `hubris-server` continues to
   support Linux and macOS cross-build targets.
+- Sidebar row components used with Radix `asChild` wrappers must forward generic
+  HTML props like `className` and `onContextMenu` to their root DOM node.
+  Otherwise `SidebarMenuButton`/`ContextMenuTrigger` props stop at the custom
+  component boundary and row-level context menus never open.
