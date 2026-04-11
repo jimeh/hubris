@@ -12,19 +12,12 @@ export default function WorktreeActionMenu({
   onRemove: () => void;
 }) {
   return (
-    <ContextMenuContent className="min-w-32 rounded-lg border-sidebar-border bg-sidebar p-1 text-sidebar-foreground">
-      <ContextMenuItem
-        className="rounded-md focus:bg-sidebar-accent focus:text-sidebar-accent-foreground"
-        onSelect={onRename}
-      >
+    <ContextMenuContent className="min-w-32">
+      <ContextMenuItem onSelect={onRename}>
         <Pencil className="mr-2 h-3.5 w-3.5" />
         Rename
       </ContextMenuItem>
-      <ContextMenuItem
-        variant="destructive"
-        className="rounded-md focus:bg-sidebar-accent focus:text-destructive"
-        onSelect={onRemove}
-      >
+      <ContextMenuItem variant="destructive" onSelect={onRemove}>
         <Trash2 className="mr-2 h-3.5 w-3.5" />
         Delete
       </ContextMenuItem>
