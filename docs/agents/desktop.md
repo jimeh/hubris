@@ -59,8 +59,7 @@
 - **Non-macOS hosts need explicit Apple SDK/linker setup for macOS Rust
   binaries**: cross-building `*-apple-darwin` targets off macOS is only
   supported when `SDKROOT` and the matching `CARGO_TARGET_<TRIPLE>_LINKER`
-  environment variable point at a valid macOS SDK toolchain. Keep macOS desktop
-  release packaging on native macOS runners.
+  environment variable point at a valid macOS SDK toolchain.
 - **Closing the last desktop window does not exit Hubris**: the Electron app and
   packaged Rust runtime stay alive so background work can continue. Reopen the
   UI through the normal app relaunch path: Electron uses a single-instance lock
