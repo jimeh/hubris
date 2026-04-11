@@ -211,6 +211,7 @@ pub(crate) struct TestProcessProbe {
     pub alive: Arc<std::sync::atomic::AtomicBool>,
     pub shutdowns: Arc<std::sync::atomic::AtomicUsize>,
     pub drop_kills: Arc<std::sync::atomic::AtomicUsize>,
+    pub fail_shutdown: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[cfg(test)]
@@ -220,11 +221,18 @@ impl TestProcessProbe {
             alive: Arc::new(std::sync::atomic::AtomicBool::new(alive)),
             shutdowns: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             drop_kills: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            fail_shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
     pub(crate) fn runtime(&self) -> ManagedProcessRuntime {
         ManagedProcessRuntime::TestProbe(self.clone())
+    }
+
+    pub(crate) fn with_shutdown_error(self) -> Self {
+        self.fail_shutdown
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self
     }
 }
 
@@ -699,6 +707,12 @@ impl ManagedProcessRuntime {
                 probe
                     .shutdowns
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if probe
+                    .fail_shutdown
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                {
+                    return Err(ManagedProcessActionError::internal("test shutdown failure"));
+                }
                 probe
                     .alive
                     .store(false, std::sync::atomic::Ordering::Relaxed);
@@ -761,8 +775,6 @@ pub fn now_timestamp_string() -> String {
 
 #[cfg(target_os = "linux")]
 pub fn configure_parent_death_signal(command: &mut tokio::process::Command) {
-    use std::os::unix::process::CommandExt;
-
     let parent_pid = unsafe { libc::getpid() };
     unsafe {
         command.pre_exec(move || {
@@ -1235,14 +1247,16 @@ mod tests {
         let mut process = ManagedChildProcess::new(child);
 
         let _ = wait_for_file(&ready_path).await;
-        let started = tokio::time::Instant::now();
         process
             .shutdown_with_timeout(Duration::from_millis(250))
             .await
             .unwrap();
 
-        assert!(started.elapsed() >= Duration::from_millis(250));
-        assert!(process.poll_exit().unwrap().is_some());
+        let exit = process
+            .poll_exit()
+            .unwrap()
+            .expect("process should be exited");
+        assert_eq!(exit.signal, Some(libc::SIGKILL));
     }
 
     #[cfg(target_os = "linux")]

@@ -874,10 +874,10 @@ impl CodeServerManager {
             .map_err(map_managed_process_error)?
         {
             ManagedProcessStopTarget::Running(mut runtime) => {
-                runtime
-                    .shutdown()
-                    .await
-                    .map_err(map_managed_process_error)?;
+                if let Err(error) = runtime.shutdown().await.map_err(map_managed_process_error) {
+                    self.process_handle.finish_error(error.to_string()).await;
+                    return Err(error);
+                }
             }
             ManagedProcessStopTarget::NotRunning => {}
         }
@@ -2293,6 +2293,40 @@ mod tests {
         let status = manager.process_handle.status().await.unwrap();
         assert_eq!(
             status.lifecycle_state,
+            ManagedProcessLifecycleState::Stopped
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_shutdown_recovers_out_of_stopping_state() {
+        let manager = CodeServerManager::with_hooks(
+            PathBuf::from("/tmp/hubris/code-server"),
+            static_fetch_latest("4.114.1"),
+            static_download_runtime(PathBuf::from("/tmp/hubris")),
+            Arc::new(|_| {
+                Box::pin(async {
+                    Ok(RunningCodeServer {
+                        connection: CodeServerConnection {
+                            base_url: "http://127.0.0.1:1234".into(),
+                        },
+                        process: ManagedProcessRuntime::External,
+                    })
+                })
+            }),
+        );
+        let probe = TestProcessProbe::new(true).with_shutdown_error();
+        manager.process_handle.finish_running(probe.runtime()).await;
+
+        let error = manager.stop().await.unwrap_err();
+        assert!(matches!(error, CodeServerError::Spawn(_)));
+
+        let status = manager.process_handle.status().await.unwrap();
+        assert_eq!(status.lifecycle_state, ManagedProcessLifecycleState::Error);
+
+        manager.process_handle.finish_stopped().await;
+        let recovered = manager.process_handle.status().await.unwrap();
+        assert_eq!(
+            recovered.lifecycle_state,
             ManagedProcessLifecycleState::Stopped
         );
     }
