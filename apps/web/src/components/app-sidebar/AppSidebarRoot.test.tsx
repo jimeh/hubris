@@ -269,8 +269,11 @@ describe("AppSidebarRoot", () => {
       });
     });
 
-    const actionContainer =
-      screen.getByLabelText("Project actions").parentElement;
+    const newWorktreeButton = screen.getByRole("button", {
+      name: "New worktree",
+    });
+    const actionLayout = newWorktreeButton.parentElement;
+    const actionContainer = actionLayout?.parentElement;
 
     expect(actionContainer).toHaveClass("max-w-0");
     expect(actionContainer).toHaveClass("overflow-hidden");
@@ -290,6 +293,6 @@ describe("AppSidebarRoot", () => {
     expect(actionContainer).toHaveClass(
       "group-has-data-[state=open]/project-row:opacity-100",
     );
-    expect(actionContainer).not.toHaveClass("ml-auto");
+    expect(actionLayout).toHaveClass("ml-auto");
   });
 });
