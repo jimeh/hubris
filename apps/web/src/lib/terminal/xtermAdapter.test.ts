@@ -466,7 +466,7 @@ describe("createXtermAdapter", () => {
       "https://example.com/scrollback",
       {
         start: { x: 3, y: 45 },
-        end: { x: 9, y: 45 },
+        end: { x: 8, y: 45 },
       },
     );
 
@@ -483,7 +483,7 @@ describe("createXtermAdapter", () => {
       "https://example.com/scrollback",
       {
         start: { x: 3, y: 45 },
-        end: { x: 9, y: 45 },
+        end: { x: 8, y: 45 },
       },
     );
     vi.advanceTimersByTime(120);

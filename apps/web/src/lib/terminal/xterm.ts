@@ -51,7 +51,7 @@ function toViewportRange(term: Terminal, range: IBufferRange): IViewportRange {
       y: range.start.y - viewportY - 1,
     },
     end: {
-      x: range.end.x - 1,
+      x: range.end.x,
       y: range.end.y - viewportY - 1,
     },
   };
