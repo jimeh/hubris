@@ -1816,7 +1816,7 @@ impl VscodeCliManager {
     }
 
     async fn stop_managed_process(&self) -> Result<(), VscodeCliError> {
-        self.stop_managed_process_inner(false).await
+        self.stop_managed_process_inner(true).await
     }
 
     async fn stop_managed_process_for_install(&self) -> Result<(), VscodeCliError> {
@@ -4636,6 +4636,73 @@ mod tests {
         .await
         .expect("install stop path should not block on current install state")
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn vscode_cli_stop_waits_for_in_progress_install() {
+        let events = Arc::new(EventBus::new());
+        let process_service = Arc::new(ManagedProcessService::new(events.clone()));
+        let manager = Arc::new(VscodeCliManager::new(
+            tempfile::TempDir::new().unwrap().path().join("vscode-cli"),
+            events,
+            process_service,
+        ));
+
+        {
+            let mut state = manager.inner.lock().await;
+            state.runtime = VscodeCliRuntimeState::Installing;
+        }
+
+        let manager_for_stop = manager.clone();
+        let stop_task = tokio::spawn(async move { manager_for_stop.stop().await });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !stop_task.is_finished(),
+            "stop should wait for install completion"
+        );
+
+        {
+            let mut state = manager.inner.lock().await;
+            state.runtime = VscodeCliRuntimeState::Idle;
+        }
+        manager.notify.notify_waiters();
+
+        stop_task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn vscode_cli_restart_waits_for_in_progress_install_before_starting() {
+        let events = Arc::new(EventBus::new());
+        let process_service = Arc::new(ManagedProcessService::new(events.clone()));
+        let manager = Arc::new(VscodeCliManager::new(
+            tempfile::TempDir::new().unwrap().path().join("vscode-cli"),
+            events,
+            process_service,
+        ));
+
+        {
+            let mut state = manager.inner.lock().await;
+            state.runtime = VscodeCliRuntimeState::Installing;
+        }
+
+        let manager_for_restart = manager.clone();
+        let restart_task = tokio::spawn(async move { manager_for_restart.restart().await });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !restart_task.is_finished(),
+            "restart should wait for install completion before starting"
+        );
+
+        {
+            let mut state = manager.inner.lock().await;
+            state.runtime = VscodeCliRuntimeState::Idle;
+        }
+        manager.notify.notify_waiters();
+
+        let error = restart_task.await.unwrap().unwrap_err();
+        assert!(matches!(error, VscodeCliError::NotInstalled));
     }
 
     async fn wait_for_running_status(manager: &CodeServerManager) {
