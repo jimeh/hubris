@@ -6,6 +6,7 @@ export type Tab = components["schemas"]["TabInfo"];
 export type TerminalTab = Extract<Tab, { type: "terminal" }>;
 export type FileTab = Extract<Tab, { type: "file" }>;
 export type GitDiffTab = Extract<Tab, { type: "git_diff" }>;
+export type BrowserTab = Extract<Tab, { type: "browser" }>;
 export type DirEntry = components["schemas"]["DirEntry"];
 export type ListFilesResponse = components["schemas"]["ListFilesResponse"];
 export type WorktreeFileKind = components["schemas"]["WorktreeFileKind"];

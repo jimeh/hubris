@@ -19,6 +19,10 @@ reconciliation — drift corrects on reconnect.
 - Persistence: JSON project data + TOML settings. Dev: `~/.hubris-dev/`, prod:
   `~/.hubris/`
 - PTY: portable-pty, shell from `$SHELL` or `/bin/sh`
+- Tabs: server-authoritative across types. Terminal, file, git diff, and browser
+  tabs all use the same REST + SSE lifecycle (`create`, `activate`, `reorder`,
+  `close`, snapshot sync); only terminal byte I/O is special-cased onto
+  WebSockets.
 - WS protocol: binary (PTY output), JSON control (`type: "resize"`,
   `type: "attached"` with `byte_offset`/`data_lost`)
 - SSE events: snapshot, tab_created, tab_closed, tab_updated, project_added,
@@ -43,6 +47,10 @@ reconciliation — drift corrects on reconnect.
   lives in `components/settings-dialog/`
 - Tab bar decomposition: `TabBar.tsx` is the shell; sortable behavior lives in
   `components/tab-bar/`
+- Browser tabs: the shared server tab model persists URL/history/label, while
+  runtime-only UI state (draft address, loading/error flags, iframe reload key)
+  lives in `src/lib/stores/browserTabs.ts`. Web uses an `iframe`; desktop uses
+  an Electron bridge-backed `WebContentsView`.
 - Terminal connection state machine lives in
   `components/terminal/useTerminalConnection.ts`
 - Theme engine: native Hubris theme definitions in `src/lib/theme/builtin.ts`,

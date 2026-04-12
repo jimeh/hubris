@@ -8,6 +8,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySystem};
+use reqwest::Url;
 use serde::Deserialize;
 use tokio::time::{self, MissedTickBehavior};
 use utoipa::{IntoParams, ToSchema};
@@ -24,6 +25,13 @@ type TerminalNotificationReceiver = tokio::sync::broadcast::Receiver<()>;
 type TerminalTitleReceiver = tokio::sync::broadcast::Receiver<Option<String>>;
 
 const MISSING_COMMIT_ID_MESSAGE: &str = "commit_id is required for commit diffs.";
+const MISSING_BROWSER_URL_MESSAGE: &str = "url is required for browser tabs.";
+const INVALID_BROWSER_URL_MESSAGE: &str =
+    "Browser tabs only support http://, https://, and about:blank URLs.";
+const INVALID_BROWSER_HISTORY_MESSAGE: &str = "history_index must point at an entry in history.";
+const BROWSER_FIELDS_REQUIRE_BROWSER_TAB_MESSAGE: &str =
+    "Browser tab fields can only be updated on browser tabs.";
+const BLANK_BROWSER_URL: &str = "about:blank";
 
 #[derive(Debug)]
 pub struct TabsApiError {
@@ -75,12 +83,24 @@ pub enum CreateTabRequest {
         #[serde(default)]
         preview: bool,
     },
+    Browser {
+        worktree_id: String,
+        url: String,
+    },
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateTabRequest {
     #[serde(default)]
     pub custom_label: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub history: Option<Vec<String>>,
+    #[serde(default)]
+    pub history_index: Option<usize>,
     pub position: Option<f64>,
     pub preview: Option<bool>,
     pub has_notification: Option<bool>,
@@ -120,31 +140,107 @@ fn worktree_id_for_create(req: &CreateTabRequest) -> &str {
     match req {
         CreateTabRequest::Terminal { worktree_id }
         | CreateTabRequest::File { worktree_id, .. }
-        | CreateTabRequest::GitDiff { worktree_id, .. } => worktree_id,
+        | CreateTabRequest::GitDiff { worktree_id, .. }
+        | CreateTabRequest::Browser { worktree_id, .. } => worktree_id,
     }
 }
 
-fn validate_create_tab_request(req: &mut CreateTabRequest) -> Result<(), TabsApiError> {
-    let CreateTabRequest::GitDiff {
-        scope, commit_id, ..
-    } = req
-    else {
-        return Ok(());
-    };
-
-    if *scope != GitDiffScope::Commit {
-        *commit_id = None;
-        return Ok(());
+fn normalize_browser_url(raw: &str) -> Result<String, TabsApiError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            MISSING_BROWSER_URL_MESSAGE,
+        ));
     }
 
-    let normalized = commit_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| TabsApiError::new(StatusCode::BAD_REQUEST, MISSING_COMMIT_ID_MESSAGE))?
-        .to_string();
-    *commit_id = Some(normalized);
-    Ok(())
+    if trimmed == BLANK_BROWSER_URL {
+        return Ok(BLANK_BROWSER_URL.to_string());
+    }
+
+    let candidate = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        let host = trimmed
+            .split('/')
+            .next()
+            .unwrap_or_default()
+            .split('?')
+            .next()
+            .unwrap_or_default()
+            .split('#')
+            .next()
+            .unwrap_or_default();
+        let is_localish = host.starts_with("localhost")
+            || host.starts_with("127.0.0.1")
+            || host.starts_with("[::1]");
+        let has_port = host
+            .rsplit_once(':')
+            .is_some_and(|(hostname, port)| !hostname.is_empty() && port.parse::<u16>().is_ok());
+        if !is_localish && !has_port {
+            return Err(TabsApiError::new(
+                StatusCode::BAD_REQUEST,
+                INVALID_BROWSER_URL_MESSAGE,
+            ));
+        }
+        format!("http://{trimmed}")
+    };
+
+    let parsed = Url::parse(&candidate)
+        .map_err(|_| TabsApiError::new(StatusCode::BAD_REQUEST, INVALID_BROWSER_URL_MESSAGE))?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_BROWSER_URL_MESSAGE,
+        ));
+    }
+
+    Ok(parsed.to_string())
+}
+
+fn browser_tab_label(url: &str) -> String {
+    if url == BLANK_BROWSER_URL {
+        return "New Browser".to_string();
+    }
+
+    Url::parse(url)
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .host_str()
+                .filter(|host| !host.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| url.to_string())
+}
+
+fn validate_create_tab_request(req: &mut CreateTabRequest) -> Result<(), TabsApiError> {
+    match req {
+        CreateTabRequest::GitDiff {
+            scope, commit_id, ..
+        } => {
+            if *scope != GitDiffScope::Commit {
+                *commit_id = None;
+                return Ok(());
+            }
+
+            let normalized = commit_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    TabsApiError::new(StatusCode::BAD_REQUEST, MISSING_COMMIT_ID_MESSAGE)
+                })?
+                .to_string();
+            *commit_id = Some(normalized);
+            Ok(())
+        }
+        CreateTabRequest::Browser { url, .. } => {
+            *url = normalize_browser_url(url)?;
+            Ok(())
+        }
+        CreateTabRequest::Terminal { .. } | CreateTabRequest::File { .. } => Ok(()),
+    }
 }
 
 fn map_status_to_tab_error(status: StatusCode) -> TabsApiError {
@@ -228,7 +324,80 @@ fn build_tab_info(
             original_path,
             commit_id,
         },
+        CreateTabRequest::Browser { worktree_id, url } => TabInfo::Browser {
+            id,
+            session_id: "default".to_string(),
+            worktree_id,
+            label: browser_tab_label(&url),
+            position,
+            created_at,
+            preview: false,
+            history: vec![url.clone()],
+            history_index: 0,
+            url,
+        },
     }
+}
+
+fn has_browser_update_fields(req: &UpdateTabRequest) -> bool {
+    req.label.is_some() || req.url.is_some() || req.history.is_some() || req.history_index.is_some()
+}
+
+struct ValidatedBrowserUpdate {
+    label: Option<String>,
+    url: Option<String>,
+    history: Option<Vec<String>>,
+    history_index: Option<usize>,
+}
+
+fn validate_browser_update(
+    tab: &TabInfo,
+    req: &UpdateTabRequest,
+) -> Result<ValidatedBrowserUpdate, TabsApiError> {
+    if !tab.is_browser() {
+        return Ok(ValidatedBrowserUpdate {
+            label: None,
+            url: None,
+            history: None,
+            history_index: None,
+        });
+    }
+
+    let label = req.label.as_deref().map(|label| label.trim().to_string());
+    let url = req.url.as_deref().map(normalize_browser_url).transpose()?;
+    let history = req
+        .history
+        .as_ref()
+        .map(|history| {
+            history
+                .iter()
+                .map(|entry| normalize_browser_url(entry))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
+    let history_index = req.history_index;
+
+    let next_history = history
+        .clone()
+        .or_else(|| tab.history().map(|history| history.to_vec()))
+        .unwrap_or_default();
+    let next_history_index = history_index
+        .or_else(|| tab.history_index())
+        .unwrap_or_default();
+
+    if next_history.is_empty() || next_history_index >= next_history.len() {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_BROWSER_HISTORY_MESSAGE,
+        ));
+    }
+
+    Ok(ValidatedBrowserUpdate {
+        label,
+        url,
+        history,
+        history_index,
+    })
 }
 
 fn spawn_terminal_runtime(
@@ -599,6 +768,7 @@ pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -
     request_body = UpdateTabRequest,
     responses(
         (status = 200, description = "Tab updated", body = TabInfo),
+        (status = 400, description = "Invalid tab update", body = ApiErrorResponse),
         (status = 404, description = "Tab not found"),
     ),
 )]
@@ -606,9 +776,21 @@ pub async fn update_tab(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<UpdateTabRequest>,
-) -> Result<Json<TabInfo>, StatusCode> {
+) -> Result<Json<TabInfo>, TabsApiError> {
     let updated = {
-        let mut tab = state.tabs.get_mut(&id).ok_or(StatusCode::NOT_FOUND)?;
+        let mut tab = state
+            .tabs
+            .get_mut(&id)
+            .ok_or_else(|| TabsApiError::new(StatusCode::NOT_FOUND, "Tab not found."))?;
+
+        if has_browser_update_fields(&req) && !tab.is_browser() {
+            return Err(TabsApiError::new(
+                StatusCode::BAD_REQUEST,
+                BROWSER_FIELDS_REQUIRE_BROWSER_TAB_MESSAGE,
+            ));
+        }
+
+        let browser_update = validate_browser_update(&tab, &req)?;
 
         if let Some(position) = req.position {
             tab.set_position(position);
@@ -625,6 +807,18 @@ pub async fn update_tab(
             && matches!(&*tab, TabInfo::Terminal { .. })
         {
             tab.set_has_notification(has_notification);
+        }
+        if let Some(label) = browser_update.label {
+            tab.set_label(label);
+        }
+        if let Some(url) = browser_update.url {
+            tab.set_url(url);
+        }
+        if let Some(history) = browser_update.history {
+            tab.set_history(history);
+        }
+        if let Some(history_index) = browser_update.history_index {
+            tab.set_history_index(history_index);
         }
 
         tab.clone()

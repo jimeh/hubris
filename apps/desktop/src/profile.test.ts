@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   configureDesktopProfilePaths,
   desktopAppDataName,
+  desktopBrowserSessionPartition,
   desktopProfileMode,
   desktopSessionDataPath,
   desktopSessionPartition,
@@ -35,6 +36,17 @@ describe("desktopSessionPartition", () => {
   it("uses distinct persistent partitions", () => {
     expect(desktopSessionPartition("release")).toBe("persist:hubris-desktop");
     expect(desktopSessionPartition("dev")).toBe("persist:hubris-desktop-dev");
+  });
+});
+
+describe("desktopBrowserSessionPartition", () => {
+  it("uses separate persistent browser partitions", () => {
+    expect(desktopBrowserSessionPartition("release")).toBe(
+      "persist:hubris-desktop-browser",
+    );
+    expect(desktopBrowserSessionPartition("dev")).toBe(
+      "persist:hubris-desktop-browser-dev",
+    );
   });
 });
 

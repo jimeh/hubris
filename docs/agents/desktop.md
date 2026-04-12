@@ -29,6 +29,19 @@
   on separate `persist:` partitions so browser storage survives restarts while
   still isolating `mise run dev:desktop` from packaged builds. Keep permission
   requests, `window.open`, and cross-origin navigation denied.
+- **Embedded browser tabs use their own persistent partition**: browser tabs run
+  in `WebContentsView` instances keyed by Hubris tab ID, using a dedicated
+  `persist:hubris-desktop-browser*` partition instead of the main renderer
+  partition. That keeps preview-site cookies/cache alive across restarts without
+  mixing them into the Hubris app session.
+- **Browser tab views are lifecycle-managed from the main process**: the
+  renderer only owns tab chrome and reports bounds/commands over preload IPC.
+  Create/destroy browser views by `tabId`, not by current URL, or navigation
+  history/state will reset on every renderer sync.
+- **Browser tab security stays narrower than a full browser**: allow only
+  `http:` / `https:` loads inside browser views, deny permission requests and
+  downloads, and open popup/new-window targets externally instead of punching
+  holes in the main window policy.
 - **Code-server needs the stable desktop origin too**: browser storage is
   origin-scoped, so code-server must also load under
   `https://desktop.internal.hubris.build/code/...`. Electron now proxies

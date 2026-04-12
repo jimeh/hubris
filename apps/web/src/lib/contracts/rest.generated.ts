@@ -756,6 +756,12 @@ export interface components {
           /** @enum {string} */
           type: "git_diff";
           worktree_id: string;
+        }
+      | {
+          /** @enum {string} */
+          type: "browser";
+          url: string;
+          worktree_id: string;
         };
     CreateWorktreeRequest: {
       branch: string;
@@ -1053,6 +1059,22 @@ export interface components {
           /** @enum {string} */
           type: "git_diff";
           worktree_id: string;
+        }
+      | {
+          /** Format: int64 */
+          created_at: number;
+          history: string[];
+          history_index: number;
+          id: string;
+          label: string;
+          /** Format: double */
+          position: number;
+          preview: boolean;
+          session_id: string;
+          /** @enum {string} */
+          type: "browser";
+          url: string;
+          worktree_id: string;
         };
     /** @enum {string} */
     TerminalFontSource: "default" | "system" | "bundled";
@@ -1085,9 +1107,13 @@ export interface components {
     UpdateTabRequest: {
       custom_label?: string | null;
       has_notification?: boolean | null;
+      history?: string[] | null;
+      history_index?: number | null;
+      label?: string | null;
       /** Format: double */
       position?: number | null;
       preview?: boolean | null;
+      url?: string | null;
     };
     UpdateWorktreeRequest: {
       name?: string | null;
@@ -3150,6 +3176,15 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["TabInfo"];
+        };
+      };
+      /** @description Invalid tab update */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
         };
       };
       /** @description Tab not found */

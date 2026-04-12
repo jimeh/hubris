@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { presentTab } from "@/lib/tabPresentation";
 import type { HubrisTheme } from "@/lib/theme/types";
-import type { FileTab, GitDiffTab, TerminalTab } from "@/lib/types";
+import type { BrowserTab, FileTab, GitDiffTab, TerminalTab } from "@/lib/types";
 
 const darkTheme: HubrisTheme = {
   id: "dark",
@@ -35,6 +35,23 @@ function fileTab(overrides: Partial<FileTab> = {}): FileTab {
     created_at: 1,
     preview: false,
     path: "README.md",
+    ...overrides,
+  };
+}
+
+function browserTab(overrides: Partial<BrowserTab> = {}): BrowserTab {
+  return {
+    id: "b1",
+    label: "localhost",
+    position: 1,
+    worktree_id: "w1",
+    session_id: "default",
+    type: "browser",
+    created_at: 1,
+    preview: false,
+    url: "http://localhost:3000/",
+    history: ["http://localhost:3000/"],
+    history_index: 0,
     ...overrides,
   };
 }
@@ -135,6 +152,14 @@ describe("tab presentation", () => {
     expect(presentation.labelSuffix).toBeUndefined();
     expect(presentation.statusLabel).toBeUndefined();
     expect(presentation.title).toBe("src/lib.rs");
+  });
+
+  it("uses a browser icon and URL title for browser tabs", () => {
+    expect(presentTab(browserTab(), darkTheme, null, "numbered")).toEqual({
+      label: "localhost",
+      title: "http://localhost:3000/",
+      iconKind: "browser",
+    });
   });
 
   it("decorates git diff tabs with scope and status", () => {

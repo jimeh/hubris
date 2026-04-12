@@ -29,6 +29,7 @@ import {
 } from "./security";
 import {
   configureDesktopProfilePaths,
+  desktopBrowserSessionPartition,
   desktopProfileMode,
   desktopSessionPartition,
 } from "./profile";
@@ -36,6 +37,10 @@ import {
   loadDesktopWindowState,
   wireDesktopWindowStatePersistence,
 } from "./windowState";
+import {
+  disposeBrowserViewBridge,
+  installBrowserViewBridge,
+} from "./browserViews";
 import { installWebSocketBridge } from "./wsBridge";
 
 registerHubrisScheme();
@@ -131,6 +136,16 @@ function configureSessionGuards(desktopSession: Session) {
     callback(false);
   });
   desktopSession.setPermissionCheckHandler(() => false);
+}
+
+/**
+ * Apply the stricter embedded-browser policy for browser tab sessions.
+ */
+function configureBrowserSessionGuards(browserSession: Session) {
+  configureSessionGuards(browserSession);
+  browserSession.on("will-download", (event) => {
+    event.preventDefault();
+  });
 }
 
 /**
@@ -253,6 +268,7 @@ async function createMainWindow() {
   wireDesktopWindowStatePersistence(window, userDataPath);
 
   configureWebContentsGuards(window.webContents, HUBRIS_ORIGIN);
+  installBrowserViewBridge(window, profileMode);
   window.once("ready-to-show", () => {
     if (savedWindowState?.isMaximized) {
       window.maximize();
@@ -262,6 +278,7 @@ async function createMainWindow() {
     window.show();
   });
   window.on("closed", () => {
+    disposeBrowserViewBridge();
     mainWindow = null;
   });
 
@@ -308,6 +325,7 @@ async function showMainWindow(): Promise<BrowserWindow> {
 }
 
 app.on("before-quit", () => {
+  disposeBrowserViewBridge({ destroyRecords: true });
   stopRuntimeChild();
 });
 
@@ -328,7 +346,11 @@ if (!app.requestSingleInstanceLock()) {
     const desktopSession = session.fromPartition(
       desktopSessionPartition(profileMode),
     );
+    const browserSession = session.fromPartition(
+      desktopBrowserSessionPartition(profileMode),
+    );
     configureSessionGuards(desktopSession);
+    configureBrowserSessionGuards(browserSession);
     await showMainWindow();
 
     app.on("activate", () => {

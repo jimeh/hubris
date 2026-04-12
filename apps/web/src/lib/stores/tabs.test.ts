@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
-import type { FileTab, GitDiffTab, TerminalTab } from "@/lib/types";
+import type { BrowserTab, FileTab, GitDiffTab, TerminalTab } from "@/lib/types";
 import {
   initializeTabStore,
   resetTabStoreForTests,
@@ -14,6 +14,7 @@ const mockDeleteTab = vi.fn();
 const mockReorderTabs = vi.fn();
 const mockUpdateTab = vi.fn();
 const mockScheduleDisposeTabModels = vi.fn();
+const mockDesktopBrowserDestroy = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   createTab: (...args: unknown[]) => mockCreateTab(...args),
@@ -25,6 +26,13 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/lib/monaco", () => ({
   scheduleDisposeTabModels: (...args: unknown[]) =>
     mockScheduleDisposeTabModels(...args),
+}));
+
+vi.mock("@/lib/desktopBrowser", () => ({
+  desktopBrowserBridge: () => ({
+    destroy: (...args: unknown[]) => mockDesktopBrowserDestroy(...args),
+  }),
+  hasDesktopBrowserBridge: () => true,
 }));
 
 class MockEventClient {
@@ -123,6 +131,24 @@ function makeGitDiffTab(
   };
 }
 
+function makeBrowserTab(
+  overrides: Partial<BrowserTab> & { id: string; url: string },
+): BrowserTab {
+  return {
+    id: overrides.id,
+    label: overrides.label ?? "localhost",
+    position: overrides.position ?? 1,
+    worktree_id: overrides.worktree_id ?? "w1",
+    session_id: overrides.session_id ?? "default",
+    type: "browser",
+    created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? false,
+    url: overrides.url,
+    history: overrides.history ?? [overrides.url],
+    history_index: overrides.history_index ?? 0,
+  };
+}
+
 function getStore() {
   resetTabStoreForTests();
   initializeTabStore();
@@ -144,6 +170,7 @@ describe("Tab store", () => {
     mockReorderTabs.mockReset();
     mockScheduleDisposeTabModels.mockReset();
     mockUpdateTab.mockReset();
+    mockDesktopBrowserDestroy.mockReset();
   });
 
   it("loads tabs from snapshot sorted by position", async () => {
@@ -519,5 +546,117 @@ describe("Tab store", () => {
     expect(previewTab.preview).toBe(false);
     expect(pinnedTab.preview).toBe(false);
     expect(store.tabsForWorktree("w1")[0]?.preview).toBe(false);
+  });
+
+  it("openBrowser creates and activates a browser tab", async () => {
+    const store = await getStore();
+    const tab = makeBrowserTab({
+      id: "browser-1",
+      worktree_id: "w1",
+      position: 1,
+      label: "New Browser",
+      url: "about:blank",
+      history: ["about:blank"],
+    });
+    mockCreateTab.mockResolvedValue(tab);
+
+    const created = await store.useTabStore
+      .getState()
+      .openBrowser({ worktreeId: "w1" });
+
+    expect(mockCreateTab).toHaveBeenCalledWith({
+      type: "browser",
+      worktree_id: "w1",
+      url: "about:blank",
+    });
+    expect(created).toEqual(tab);
+    expect(store.useTabStore.getState().activeTabId).toBe(tab.id);
+    expect(store.tabsForWorktree("w1")).toEqual([tab]);
+  });
+
+  it("setBrowserState normalizes and persists browser navigation", async () => {
+    const store = await getStore();
+    const browserTab = makeBrowserTab({
+      id: "browser-2",
+      worktree_id: "w1",
+      url: "http://localhost:3000/",
+    });
+    const updated = makeBrowserTab({
+      ...browserTab,
+      label: "docs",
+      url: "https://example.com/docs",
+      history: ["http://localhost:3000/", "https://example.com/docs"],
+      history_index: 1,
+    });
+    mockUpdateTab.mockResolvedValue(updated);
+
+    mockEvents.emit("snapshot", {
+      tabs: [browserTab],
+    });
+
+    const result = await store.useTabStore
+      .getState()
+      .setBrowserState(browserTab.id, {
+        label: "docs",
+        url: "https://example.com/docs",
+        history: ["localhost:3000", "https://example.com/docs"],
+        historyIndex: 1,
+      });
+
+    expect(mockUpdateTab).toHaveBeenCalledWith(browserTab.id, {
+      label: "docs",
+      url: "https://example.com/docs",
+      history: ["http://localhost:3000/", "https://example.com/docs"],
+      history_index: 1,
+    });
+    expect(result).toEqual(updated);
+    expect(store.tabsForWorktree("w1")[0]).toMatchObject({
+      url: "https://example.com/docs",
+      history: ["http://localhost:3000/", "https://example.com/docs"],
+      history_index: 1,
+    });
+  });
+
+  it("destroys desktop browser views when browser tabs close", async () => {
+    const store = await getStore();
+    const browserTab = makeBrowserTab({
+      id: "browser-3",
+      worktree_id: "w1",
+      url: "http://localhost:3000/",
+    });
+    mockDeleteTab.mockResolvedValue(undefined);
+
+    mockEvents.emit("snapshot", {
+      tabs: [browserTab],
+    });
+
+    await store.useTabStore.getState().close(browserTab.id);
+
+    expect(mockDesktopBrowserDestroy).toHaveBeenCalledWith({
+      tabId: browserTab.id,
+    });
+  });
+
+  it("destroys desktop browser views when browser tabs close via SSE", async () => {
+    const store = await getStore();
+    const browserTab = makeBrowserTab({
+      id: "browser-4",
+      worktree_id: "w1",
+      url: "http://localhost:3000/",
+    });
+
+    mockEvents.emit("snapshot", {
+      tabs: [browserTab],
+    });
+    mockDesktopBrowserDestroy.mockClear();
+
+    mockEvents.emit("tab_closed", {
+      tab_id: browserTab.id,
+    });
+
+    expect(mockDesktopBrowserDestroy).toHaveBeenCalledWith({
+      tabId: browserTab.id,
+    });
+    expect(store.tabsForWorktree("w1")).toEqual([]);
   });
 });

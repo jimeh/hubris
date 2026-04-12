@@ -302,6 +302,19 @@ embeddings.**
   platforms. Keep shutdown tied to explicit app quit paths, and use the
   single-instance `second-instance` flow plus macOS `activate` to reopen or
   recreate the main window without reinitializing backend/protocol state.
+- Desktop browser tabs must keep their `WebContentsView` lifecycle keyed to the
+  Hubris tab ID, not the current URL. Recreating the view on every URL/state
+  sync wipes browser history and defeats fast tab switching.
+- Desktop browser tabs should only destroy their `WebContentsView` on explicit
+  browser-tab close or full app quit. Renderer reloads and main-window
+  close/reopen need to detach and later reattach the existing views so Chromium
+  history survives within the running app session.
+- Web-mode browser tabs are direct iframes only. Do not add same-origin proxy
+  routing for localhost previews; that path breaks dev/release frontend behavior
+  and still cannot make arbitrary external sites embeddable.
+- Browser-tab iframe `onLoad` handlers should only clear loading/error state
+  when Hubris is actively waiting on a navigation. The initial `about:blank`
+  load can otherwise race and wipe renderer-owned validation errors.
 - Linux-only Rust paths still compile in CI even when local macOS checks look
   clean. Keep `#[cfg(target_os = "linux")]` helpers self-contained with their
   Linux-only imports and concrete type paths, especially around

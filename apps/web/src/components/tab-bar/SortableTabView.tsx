@@ -5,7 +5,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { Lock, Terminal, X } from "lucide-react";
+import { Globe, Lock, Terminal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TabViewProps } from "./types";
 
@@ -103,6 +103,12 @@ const SortableTabView = memo(
           <Terminal
             className="h-4 w-4 shrink-0 text-muted-foreground"
             data-testid="tab-terminal-icon"
+            aria-hidden="true"
+          />
+        ) : iconKind === "browser" ? (
+          <Globe
+            className="h-4 w-4 shrink-0 text-muted-foreground"
+            data-testid="tab-browser-icon"
             aria-hidden="true"
           />
         ) : iconKind === "material" && iconPath ? (

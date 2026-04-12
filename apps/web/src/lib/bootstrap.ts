@@ -1,5 +1,9 @@
 import { getEventClient } from "@/lib/events";
 import {
+  initializeBrowserTabStore,
+  resetBrowserTabStoreForTests,
+} from "@/lib/stores/browserTabs";
+import {
   initializeProjectStore,
   resetProjectStoreForTests,
 } from "@/lib/stores/projects";
@@ -46,6 +50,7 @@ export function bootstrapApp(): void {
   initializeProjectStore();
   initializeWorktreeStore();
   initializeTabStore();
+  initializeBrowserTabStore();
   initializeFileEditorStore();
   initializeGitDiffStore();
   initializeWorktreeFileManagerStore();
@@ -62,6 +67,7 @@ export function resetBootstrapForTests(): void {
   resetProjectStoreForTests();
   resetWorktreeStoreForTests();
   resetTabStoreForTests();
+  resetBrowserTabStoreForTests();
   resetFileEditorStoreForTests();
   resetGitDiffStoreForTests();
   resetWorktreeFileManagerStoreForTests();

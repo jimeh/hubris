@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronsLeft, ChevronsRight, Plus } from "lucide-react";
+import {
+  ChevronsLeft,
+  ChevronsRight,
+  Globe,
+  SquareTerminal,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Tab } from "@/lib/types";
 import SortableTabStrip from "./tab-bar/SortableTabStrip";
+
 export { default as SortableTabView } from "./tab-bar/SortableTabView";
 
 const SCROLL_AMOUNT = 200;
@@ -16,7 +22,8 @@ type Props = {
   onActivate: (tabId: string) => void;
   onPin: (tabId: string) => void;
   onClose: (tabId: string) => void;
-  onAdd: () => void;
+  onAddTerminal: () => void;
+  onAddBrowser: () => Promise<void>;
   onReorder: (orderedIds: string[]) => Promise<void>;
   onRenameTerminalTab?: (tabId: string, label: string) => Promise<void>;
   onResetTerminalTabName?: (tabId: string) => Promise<void>;
@@ -31,7 +38,8 @@ export default function TabBar({
   onActivate,
   onPin,
   onClose,
-  onAdd,
+  onAddTerminal,
+  onAddBrowser,
   onReorder,
   onRenameTerminalTab = async () => {},
   onResetTerminalTabName = async () => {},
@@ -153,16 +161,30 @@ export default function TabBar({
           </button>
         ) : null}
       </div>
-
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="shrink-0"
-        aria-label="Add tab"
-        onClick={onAdd}
-      >
-        <Plus className="h-4 w-4" />
-      </Button>
+      <div className="ml-1 flex shrink-0 items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="New Terminal"
+          title="New Terminal"
+          onClick={onAddTerminal}
+        >
+          <SquareTerminal className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="New Browser"
+          title="New Browser"
+          onClick={() => {
+            void onAddBrowser();
+          }}
+        >
+          <Globe className="h-3.5 w-3.5" />
+        </Button>
+      </div>
     </div>
   );
 }

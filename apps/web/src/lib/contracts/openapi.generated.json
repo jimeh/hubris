@@ -2015,6 +2015,16 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid tab update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Tab not found"
           }
@@ -2407,6 +2417,22 @@
               "type": {
                 "type": "string",
                 "enum": ["git_diff"]
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["worktree_id", "url", "type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["browser"]
+              },
+              "url": {
+                "type": "string"
               },
               "worktree_id": {
                 "type": "string"
@@ -3324,6 +3350,65 @@
                 "type": "string"
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "session_id",
+              "worktree_id",
+              "label",
+              "position",
+              "created_at",
+              "preview",
+              "url",
+              "history",
+              "history_index",
+              "type"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "history_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "position": {
+                "type": "number",
+                "format": "double"
+              },
+              "preview": {
+                "type": "boolean"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["browser"]
+              },
+              "url": {
+                "type": "string"
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
           }
         ]
       },
@@ -3424,12 +3509,28 @@
           "has_notification": {
             "type": ["boolean", "null"]
           },
+          "history": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            }
+          },
+          "history_index": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "label": {
+            "type": ["string", "null"]
+          },
           "position": {
             "type": ["number", "null"],
             "format": "double"
           },
           "preview": {
             "type": ["boolean", "null"]
+          },
+          "url": {
+            "type": ["string", "null"]
           }
         }
       },

@@ -15,7 +15,7 @@ type SortableTabProps = {
   labelSuffix?: string;
   statusLabel?: string;
   title?: string;
-  iconKind?: "terminal" | "material";
+  iconKind?: "terminal" | "material" | "browser";
   iconPath?: string;
   iconId?: string;
   toneClass?: string;
