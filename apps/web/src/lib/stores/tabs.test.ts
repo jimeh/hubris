@@ -636,4 +636,27 @@ describe("Tab store", () => {
       tabId: browserTab.id,
     });
   });
+
+  it("destroys desktop browser views when browser tabs close via SSE", async () => {
+    const store = await getStore();
+    const browserTab = makeBrowserTab({
+      id: "browser-4",
+      worktree_id: "w1",
+      url: "http://localhost:3000/",
+    });
+
+    mockEvents.emit("snapshot", {
+      tabs: [browserTab],
+    });
+    mockDesktopBrowserDestroy.mockClear();
+
+    mockEvents.emit("tab_closed", {
+      tab_id: browserTab.id,
+    });
+
+    expect(mockDesktopBrowserDestroy).toHaveBeenCalledWith({
+      tabId: browserTab.id,
+    });
+    expect(store.tabsForWorktree("w1")).toEqual([]);
+  });
 });

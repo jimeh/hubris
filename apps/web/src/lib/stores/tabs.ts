@@ -787,6 +787,7 @@ export function initializeTabStore(): void {
       useTabStore.setState((state) => {
         const closedTab = state.tabs.find((tab) => tab.id === tab_id);
         if (closedTab) {
+          disposeDesktopBrowserTab(closedTab);
           scheduleDisposeTabModels(closedTab);
         }
         return removeFromState(state, tab_id);
