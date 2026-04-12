@@ -42,6 +42,16 @@ import {
 import { resetTabStoreForTests, useTabStore } from "@/lib/stores/tabs";
 import type { BrowserTab as BrowserTabInfo } from "@/lib/types";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function makeBrowserTab(
   overrides: Partial<BrowserTabInfo> = {},
 ): BrowserTabInfo {
@@ -285,6 +295,66 @@ describe("BrowserTab", () => {
         url: "https://jimeh.me/",
         history: ["about:blank", "https://jimeh.me/"],
         history_index: 1,
+      });
+    });
+  });
+
+  it("uses the latest stored browser history after async navigation resolves", async () => {
+    const tab = makeBrowserTab();
+    useTabStore.setState({
+      tabs: [tab],
+      activeTabId: tab.id,
+      activeTabByWorktree: { [tab.worktree_id]: tab.id },
+    });
+
+    const fetchRequest = deferred<Response>();
+    const fetchMock = vi
+      .spyOn(window, "fetch")
+      .mockReturnValue(fetchRequest.promise);
+    mockUpdateTab.mockImplementation(async (_id, updates) => ({
+      ...useTabStore.getState().tabs[0],
+      label: updates.label,
+      url: updates.url,
+      history: updates.history,
+      history_index: updates.history_index,
+    }));
+
+    render(<BrowserTab tab={tab} visible />);
+
+    const input = screen.getByRole("textbox", { name: "Browser address" });
+    fireEvent.change(input, { target: { value: "jimeh.me" } });
+    fireEvent.submit(input.closest("form")!);
+
+    useTabStore.setState({
+      tabs: [
+        makeBrowserTab({
+          ...tab,
+          url: "https://mid.example/",
+          history: ["about:blank", "https://mid.example/"],
+          history_index: 1,
+        }),
+      ],
+    });
+
+    fetchRequest.resolve({ url: "https://jimeh.me/" } as Response);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://jimeh.me/",
+        expect.objectContaining({
+          method: "GET",
+          mode: "cors",
+          redirect: "follow",
+          cache: "no-store",
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(useTabStore.getState().tabs[0]).toMatchObject({
+        url: "https://jimeh.me/",
+        history: ["about:blank", "https://mid.example/", "https://jimeh.me/"],
+        history_index: 2,
       });
     });
   });

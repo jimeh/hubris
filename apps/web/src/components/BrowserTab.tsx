@@ -401,7 +401,15 @@ export default function BrowserTab({ tab, visible }: Props) {
     setLoading(tab.id, true);
     setDraftUrl(tab.id, browserInputValue(url));
 
-    const nextHistory = nextBrowserHistory(tab, url);
+    const latestTab = useTabStore
+      .getState()
+      .tabs.find((candidate) => candidate.id === tab.id);
+    if (!latestTab || latestTab.type !== "browser") {
+      setLoading(tab.id, false);
+      return;
+    }
+
+    const nextHistory = nextBrowserHistory(latestTab, url);
     await setBrowserState(tab.id, {
       label: browserLabelFromUrl(url),
       url,

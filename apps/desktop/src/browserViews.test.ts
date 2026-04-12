@@ -6,6 +6,7 @@ import {
   HUBRIS_BROWSER_DESTROY_CHANNEL,
   HUBRIS_BROWSER_EVENT_CHANNEL,
   HUBRIS_BROWSER_HIDE_CHANNEL,
+  HUBRIS_BROWSER_NAVIGATE_CHANNEL,
   HUBRIS_BROWSER_SET_BOUNDS_CHANNEL,
   HUBRIS_BROWSER_SHOW_CHANNEL,
   type BrowserViewState,
@@ -288,6 +289,32 @@ describe("browser view bridge", () => {
         canGoBack: true,
         canGoForward: false,
         isLoading: false,
+      }),
+    );
+  });
+
+  it("navigates to about:blank instead of dropping the request", async () => {
+    const state = await loadBrowserViewsModule();
+
+    state.installBrowserViewBridge(state.window as never, "dev");
+    await state.handles.get(HUBRIS_BROWSER_CREATE_CHANNEL)?.(undefined, {
+      tabId: "browser-6",
+      url: "http://localhost:3000/",
+    });
+
+    state.listenerMap.get(HUBRIS_BROWSER_NAVIGATE_CHANNEL)?.(undefined, {
+      tabId: "browser-6",
+      url: "about:blank",
+    });
+
+    expect(state.createdViews[0]?.webContents.loadURL).toHaveBeenCalledWith(
+      "about:blank",
+    );
+    expect(state.window.webContents.send).toHaveBeenCalledWith(
+      HUBRIS_BROWSER_EVENT_CHANNEL,
+      expect.objectContaining({
+        tabId: "browser-6",
+        isLoading: true,
       }),
     );
   });

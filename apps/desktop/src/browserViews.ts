@@ -349,11 +349,7 @@ function handleNavigate(
   payload: BrowserViewNavigateRequest,
 ): void {
   const record = findRecord(payload.tabId);
-  if (
-    !record ||
-    payload.url === "about:blank" ||
-    !isAllowedBrowserUrl(payload.url)
-  ) {
+  if (!record || !isAllowedBrowserUrl(payload.url)) {
     return;
   }
 
