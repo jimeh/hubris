@@ -173,11 +173,13 @@ function attachRecord(record: BrowserViewRecord): void {
 
 function detachRecord(record: BrowserViewRecord): void {
   const window = activeBrowserViews.current?.window;
-  if (!window || window.isDestroyed() || !record.attached) {
+  if (!record.attached) {
     return;
   }
 
-  window.contentView.removeChildView(record.view);
+  if (window && !window.isDestroyed()) {
+    window.contentView.removeChildView(record.view);
+  }
   record.attached = false;
 }
 

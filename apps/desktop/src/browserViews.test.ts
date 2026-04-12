@@ -241,6 +241,52 @@ describe("browser view bridge", () => {
     );
   });
 
+  it("reattaches preserved views after disposing a destroyed window", async () => {
+    const state = await loadBrowserViewsModule();
+
+    state.installBrowserViewBridge(state.window as never, "dev");
+    await state.handles.get(HUBRIS_BROWSER_CREATE_CHANNEL)?.(undefined, {
+      tabId: "browser-7",
+      url: "http://localhost:3000/",
+    });
+
+    state.listenerMap.get(HUBRIS_BROWSER_SHOW_CHANNEL)?.(undefined, {
+      tabId: "browser-7",
+    });
+    state.window.isDestroyed.mockReturnValue(true);
+
+    state.disposeBrowserViewBridge();
+
+    expect(state.window.contentView.removeChildView).not.toHaveBeenCalled();
+    expect(state.createdViews[0]?.webContents.close).not.toHaveBeenCalled();
+
+    const nextWindow = {
+      contentView: {
+        addChildView: vi.fn(),
+        removeChildView: vi.fn(),
+      },
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        isDestroyed: vi.fn(() => false),
+        send: vi.fn(),
+      },
+    };
+
+    state.installBrowserViewBridge(nextWindow as never, "dev");
+    await state.handles.get(HUBRIS_BROWSER_CREATE_CHANNEL)?.(undefined, {
+      tabId: "browser-7",
+      url: "http://localhost:3000/",
+    });
+
+    state.listenerMap.get(HUBRIS_BROWSER_SHOW_CHANNEL)?.(undefined, {
+      tabId: "browser-7",
+    });
+
+    expect(nextWindow.contentView.addChildView).toHaveBeenCalledWith(
+      state.createdViews[0],
+    );
+  });
+
   it("denies popup windows and opens them externally", async () => {
     const state = await loadBrowserViewsModule();
 
