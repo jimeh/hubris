@@ -1,29 +1,22 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Weak};
 
+use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
 use serde_json::{Map as JsonMap, Value as JsonValue};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore, mpsc};
 use uuid::Uuid;
 
 use crate::events::{EventBus, EventKind};
 use crate::process_manager::now_timestamp_string;
 
 const FINISHED_TASK_RETENTION: usize = 100;
+const TASK_QUEUE_CAPACITY: usize = 128;
 
 pub type TaskInput = JsonMap<String, JsonValue>;
-pub(crate) type TaskScopeFn =
-    Arc<dyn Fn(&TaskInput) -> Result<Option<String>, TaskActionError> + Send + Sync>;
-pub(crate) type TaskRunFn = Arc<
-    dyn Fn(TaskInvocationHandle, TaskInput) -> BoxFuture<'static, Result<(), TaskExecutionError>>
-        + Send
-        + Sync,
->;
-pub(crate) type TaskStepRunFn = Arc<
-    dyn Fn(TaskStepContext) -> BoxFuture<'static, Result<(), TaskExecutionError>> + Send + Sync,
->;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskStateValue {
@@ -37,11 +30,11 @@ pub enum TaskStateValue {
 }
 
 impl TaskStateValue {
-    fn is_active(self) -> bool {
+    pub fn is_active(self) -> bool {
         matches!(self, Self::Pending | Self::Running | Self::RollingBack)
     }
 
-    fn is_terminal(self) -> bool {
+    pub fn is_terminal(self) -> bool {
         !self.is_active()
     }
 }
@@ -100,6 +93,16 @@ pub struct TaskDefinitionSnapshot {
     pub broadcast_updates: bool,
     pub input_fields: Vec<TaskDefinitionInputField>,
     pub steps: Vec<TaskStepDefinitionSnapshot>,
+}
+
+/// Stable metadata for a typed task definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskMetadata {
+    pub name: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub broadcast_updates: bool,
+    pub input_fields: Vec<TaskDefinitionInputField>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,6 +204,10 @@ impl TaskExecutionError {
     pub fn message(&self) -> &str {
         &self.message
     }
+
+    fn panic(stage: impl Into<String>) -> Self {
+        Self::new(format!("task execution panicked during {}", stage.into()))
+    }
 }
 
 impl fmt::Display for TaskExecutionError {
@@ -210,13 +217,6 @@ impl fmt::Display for TaskExecutionError {
 }
 
 impl std::error::Error for TaskExecutionError {}
-
-#[derive(Clone)]
-pub struct TaskDefinition {
-    metadata: TaskDefinitionSnapshot,
-    scope_key: TaskScopeFn,
-    run: TaskRunFn,
-}
 
 /// The result of running one declared task step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,38 +241,42 @@ pub type TaskTypeStepRollbackFn<S> =
 
 /// A stable declared step for a typed task.
 pub struct TaskTypeStep<S> {
-    definition: TaskStepDefinitionSnapshot,
+    id: &'static str,
+    title: &'static str,
+    weight: u8,
     run: TaskTypeStepRunFn<S>,
     rollback: Option<TaskTypeStepRollbackFn<S>>,
 }
 
 impl<S> TaskTypeStep<S> {
     /// Create a stable typed step definition with its forward action.
-    pub fn new(
-        id: impl Into<String>,
-        title: impl Into<String>,
+    pub const fn new(
+        id: &'static str,
+        title: &'static str,
         weight: u8,
         run: TaskTypeStepRunFn<S>,
     ) -> Self {
         Self {
-            definition: TaskStepDefinitionSnapshot {
-                id: id.into(),
-                title: title.into(),
-                weight: weight.max(1),
-            },
+            id,
+            title,
+            weight,
             run,
             rollback: None,
         }
     }
 
     /// Attach rollback logic for this step.
-    pub fn with_rollback(mut self, rollback: TaskTypeStepRollbackFn<S>) -> Self {
+    pub const fn with_rollback(mut self, rollback: TaskTypeStepRollbackFn<S>) -> Self {
         self.rollback = Some(rollback);
         self
     }
 
-    fn definition(&self) -> TaskStepDefinitionSnapshot {
-        self.definition.clone()
+    fn definition_snapshot(&self) -> TaskStepDefinitionSnapshot {
+        TaskStepDefinitionSnapshot {
+            id: self.id.to_string(),
+            title: self.title.to_string(),
+            weight: self.weight.max(1),
+        }
     }
 }
 
@@ -281,7 +285,7 @@ pub trait TaskType: Send + Sync + 'static {
     type Input: Send + 'static;
     type State: Send + 'static;
 
-    fn definition(&self) -> TaskDefinitionSnapshot;
+    fn metadata(&self) -> TaskMetadata;
 
     fn parse_input(&self, input: &TaskInput) -> Result<Self::Input, TaskActionError>;
 
@@ -289,7 +293,7 @@ pub trait TaskType: Send + Sync + 'static {
 
     fn init<'a>(&'a self, input: Self::Input) -> TaskStateInitFuture<'a, Self::State>;
 
-    fn steps(&self) -> Vec<TaskTypeStep<Self::State>>;
+    fn steps(&self) -> &'static [TaskTypeStep<Self::State>];
 
     fn finalize<'a>(
         &'a self,
@@ -300,42 +304,22 @@ pub trait TaskType: Send + Sync + 'static {
     }
 }
 
-impl TaskDefinition {
-    pub fn new(metadata: TaskDefinitionSnapshot, scope_key: TaskScopeFn, run: TaskRunFn) -> Self {
-        Self {
-            metadata,
-            scope_key,
-            run,
-        }
-    }
-
-    pub fn metadata(&self) -> &TaskDefinitionSnapshot {
-        &self.metadata
-    }
-}
-
-fn assert_typed_task_steps(
-    metadata: &TaskDefinitionSnapshot,
-    step_definitions: &[TaskStepDefinitionSnapshot],
-) {
-    assert_eq!(
-        metadata.steps, step_definitions,
-        "typed task {} declared mismatched public/runtime steps",
-        metadata.name
-    );
-}
-
 #[derive(Clone)]
 pub struct TaskService {
     inner: Arc<TaskServiceInner>,
+    backend: Arc<dyn TaskBackend>,
 }
 
 struct TaskServiceInner {
     events: Arc<EventBus>,
-    definitions: std::sync::RwLock<HashMap<String, Arc<TaskDefinition>>>,
+    registry: TaskRegistry,
     invocations: std::sync::RwLock<HashMap<String, Arc<TaskInvocationSlot>>>,
     order: std::sync::RwLock<VecDeque<String>>,
     active_scopes: std::sync::RwLock<HashMap<String, String>>,
+}
+
+struct TaskRegistry {
+    definitions: std::sync::RwLock<HashMap<String, Arc<dyn RegisteredTask>>>,
 }
 
 struct TaskInvocationSlot {
@@ -369,17 +353,10 @@ struct TaskStepRuntimeState {
 }
 
 #[derive(Clone)]
-pub struct TaskInvocationHandle {
+struct TaskInvocationHandle {
     task_id: String,
     slot: Arc<TaskInvocationSlot>,
     service: Weak<TaskServiceInner>,
-}
-
-pub struct TaskStep {
-    name: String,
-    weight: u8,
-    run: TaskStepRunFn,
-    rollback: Option<TaskStepRunFn>,
 }
 
 #[derive(Clone)]
@@ -388,107 +365,138 @@ pub struct TaskStepContext {
     step_index: usize,
 }
 
-#[derive(Clone)]
-pub struct TaskExecutionContext {
-    handle: TaskInvocationHandle,
+struct PreparedTaskInvocation {
+    scope_key: Option<String>,
+    instance: Box<dyn TaskExecutionInstance>,
+}
+
+trait RegisteredTask: Send + Sync {
+    fn metadata(&self) -> &TaskDefinitionSnapshot;
+    fn prepare(&self, input: TaskInput) -> Result<PreparedTaskInvocation, TaskActionError>;
+}
+
+trait TaskExecutionInstance: Send {
+    fn step_definitions(&self) -> &[TaskStepDefinitionSnapshot];
+
+    fn init<'a>(&'a mut self) -> BoxFuture<'a, Result<(), TaskExecutionError>>;
+
+    fn run_step<'a>(
+        &'a mut self,
+        step_index: usize,
+        context: TaskStepContext,
+    ) -> BoxFuture<'a, Result<TaskStepResult, TaskExecutionError>>;
+
+    fn has_rollback(&self, step_index: usize) -> bool;
+
+    fn rollback_step<'a>(
+        &'a mut self,
+        step_index: usize,
+        context: TaskStepContext,
+    ) -> BoxFuture<'a, Result<(), TaskExecutionError>>;
+
+    fn finalize<'a>(&'a mut self, final_status: TaskStateValue) -> BoxFuture<'a, ()>;
+}
+
+struct TypedTaskRegistration<T: TaskType> {
+    task: Arc<T>,
+    metadata: TaskDefinitionSnapshot,
     step_definitions: Arc<Vec<TaskStepDefinitionSnapshot>>,
-    step_indexes: Arc<HashMap<String, usize>>,
-    rollbacks: Arc<Mutex<Vec<RegisteredRollback>>>,
+}
+
+struct TypedTaskExecution<T: TaskType> {
+    task: Arc<T>,
+    step_definitions: Arc<Vec<TaskStepDefinitionSnapshot>>,
+    steps: &'static [TaskTypeStep<T::State>],
+    input: Option<T::Input>,
+    state: Option<T::State>,
+}
+
+struct QueuedInvocation {
+    handle: TaskInvocationHandle,
+    instance: Box<dyn TaskExecutionInstance>,
+}
+
+trait TaskBackend: Send + Sync {
+    fn enqueue(
+        &self,
+        invocation: QueuedInvocation,
+    ) -> BoxFuture<'static, Result<(), TaskActionError>>;
 }
 
 #[derive(Clone)]
-struct RegisteredRollback {
-    step_index: usize,
-    rollback: TaskStepRunFn,
+struct InMemoryTaskBackend {
+    sender: mpsc::Sender<QueuedInvocation>,
 }
 
-impl TaskStep {
-    pub fn new(name: impl Into<String>, weight: u8, run: TaskStepRunFn) -> Self {
+#[derive(Clone, Default)]
+struct TaskExecutor;
+
+#[derive(Clone, Copy)]
+struct TaskServiceOptions {
+    queue_capacity: usize,
+    max_concurrency: usize,
+}
+
+impl Default for TaskServiceOptions {
+    fn default() -> Self {
+        let max_concurrency = std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(4)
+            .clamp(1, 8);
         Self {
-            name: name.into(),
-            weight,
-            run,
-            rollback: None,
+            queue_capacity: TASK_QUEUE_CAPACITY,
+            max_concurrency,
+        }
+    }
+}
+
+impl TaskRegistry {
+    fn new() -> Self {
+        Self {
+            definitions: std::sync::RwLock::new(HashMap::new()),
         }
     }
 
-    pub fn with_rollback(mut self, rollback: TaskStepRunFn) -> Self {
-        self.rollback = Some(rollback);
-        self
-    }
-}
-
-impl TaskService {
-    pub fn new(events: Arc<EventBus>) -> Self {
-        Self {
-            inner: Arc::new(TaskServiceInner {
-                events,
-                definitions: std::sync::RwLock::new(HashMap::new()),
-                invocations: std::sync::RwLock::new(HashMap::new()),
-                order: std::sync::RwLock::new(VecDeque::new()),
-                active_scopes: std::sync::RwLock::new(HashMap::new()),
-            }),
-        }
-    }
-
-    pub fn register_definition(&self, definition: TaskDefinition) {
-        self.inner
-            .definitions
-            .write()
-            .expect("task definitions poisoned")
-            .insert(definition.metadata.name.clone(), Arc::new(definition));
-    }
-
-    pub fn register_typed_task<T>(&self, task: T)
+    fn register_typed_task<T>(&self, task: T)
     where
         T: TaskType,
     {
         let task = Arc::new(task);
-        let metadata = task.definition();
-        let step_definitions = task
-            .steps()
-            .into_iter()
-            .map(|step| step.definition())
-            .collect::<Vec<_>>();
-        assert_typed_task_steps(&metadata, &step_definitions);
-        self.register_definition(TaskDefinition::new(
-            metadata,
-            Arc::new({
-                let task = task.clone();
-                move |input| {
-                    let parsed = task.parse_input(input)?;
-                    task.scope_key(&parsed)
-                }
-            }),
-            Arc::new(move |handle, input| {
-                let task = task.clone();
-                let step_definitions = step_definitions.clone();
-                Box::pin(async move {
-                    let parsed = task
-                        .parse_input(&input)
-                        .map_err(|error| TaskExecutionError::new(error.message().to_string()))?;
-                    let mut state = task.init(parsed).await?;
-                    let steps = task.steps();
-                    let context = TaskExecutionContext::new(handle, step_definitions);
-                    context.initialize().await;
-                    let result = context
-                        .execute_typed_steps(&mut state, steps.as_slice())
-                        .await;
-                    let final_status = if result.is_ok() {
-                        TaskStateValue::Succeeded
-                    } else {
-                        context.status().await
-                    };
-                    task.finalize(&mut state, final_status).await;
-                    result
-                })
-            }),
-        ));
+        let steps = task.steps();
+        assert_unique_step_ids(task.metadata().name.as_str(), steps);
+
+        let step_definitions = Arc::new(
+            steps
+                .iter()
+                .map(TaskTypeStep::definition_snapshot)
+                .collect::<Vec<_>>(),
+        );
+        let metadata = build_definition_snapshot(task.metadata(), step_definitions.as_slice());
+
+        self.definitions
+            .write()
+            .expect("task definitions poisoned")
+            .insert(
+                metadata.name.clone(),
+                Arc::new(TypedTaskRegistration::<T> {
+                    task,
+                    metadata,
+                    step_definitions,
+                }),
+            );
     }
 
-    pub fn list_definitions(&self) -> Vec<TaskDefinitionSnapshot> {
+    fn get(&self, name: &str) -> Result<Arc<dyn RegisteredTask>, TaskActionError> {
+        self.definitions
+            .read()
+            .expect("task definitions poisoned")
+            .get(name)
+            .cloned()
+            .ok_or_else(|| TaskActionError::not_found(name))
+    }
+
+    fn list(&self) -> Vec<TaskDefinitionSnapshot> {
         let mut definitions = self
-            .inner
             .definitions
             .read()
             .expect("task definitions poisoned")
@@ -497,6 +505,326 @@ impl TaskService {
             .collect::<Vec<_>>();
         definitions.sort_by(|a, b| a.name.cmp(&b.name));
         definitions
+    }
+}
+
+impl<T> RegisteredTask for TypedTaskRegistration<T>
+where
+    T: TaskType,
+{
+    fn metadata(&self) -> &TaskDefinitionSnapshot {
+        &self.metadata
+    }
+
+    fn prepare(&self, input: TaskInput) -> Result<PreparedTaskInvocation, TaskActionError> {
+        let parsed = self.task.parse_input(&input)?;
+        let scope_key = self.task.scope_key(&parsed)?;
+        Ok(PreparedTaskInvocation {
+            scope_key,
+            instance: Box::new(TypedTaskExecution::<T> {
+                task: self.task.clone(),
+                step_definitions: self.step_definitions.clone(),
+                steps: self.task.steps(),
+                input: Some(parsed),
+                state: None,
+            }),
+        })
+    }
+}
+
+impl<T> TaskExecutionInstance for TypedTaskExecution<T>
+where
+    T: TaskType,
+{
+    fn step_definitions(&self) -> &[TaskStepDefinitionSnapshot] {
+        self.step_definitions.as_slice()
+    }
+
+    fn init<'a>(&'a mut self) -> BoxFuture<'a, Result<(), TaskExecutionError>> {
+        Box::pin(async move {
+            let input = self
+                .input
+                .take()
+                .ok_or_else(|| TaskExecutionError::new("missing task input"))?;
+            let state = self.task.init(input).await?;
+            self.state = Some(state);
+            Ok(())
+        })
+    }
+
+    fn run_step<'a>(
+        &'a mut self,
+        step_index: usize,
+        context: TaskStepContext,
+    ) -> BoxFuture<'a, Result<TaskStepResult, TaskExecutionError>> {
+        Box::pin(async move {
+            let state = self
+                .state
+                .as_mut()
+                .ok_or_else(|| TaskExecutionError::new("task state is not initialized"))?;
+            (self.steps[step_index].run)(state, context).await
+        })
+    }
+
+    fn has_rollback(&self, step_index: usize) -> bool {
+        self.steps[step_index].rollback.is_some()
+    }
+
+    fn rollback_step<'a>(
+        &'a mut self,
+        step_index: usize,
+        context: TaskStepContext,
+    ) -> BoxFuture<'a, Result<(), TaskExecutionError>> {
+        Box::pin(async move {
+            let state = self
+                .state
+                .as_mut()
+                .ok_or_else(|| TaskExecutionError::new("task state is not initialized"))?;
+            let Some(rollback) = self.steps[step_index].rollback else {
+                return Ok(());
+            };
+            rollback(state, context).await
+        })
+    }
+
+    fn finalize<'a>(&'a mut self, final_status: TaskStateValue) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let Some(state) = self.state.as_mut() else {
+                return;
+            };
+            self.task.finalize(state, final_status).await;
+        })
+    }
+}
+
+impl InMemoryTaskBackend {
+    fn new(executor: TaskExecutor, options: TaskServiceOptions) -> Self {
+        let (sender, mut receiver) = mpsc::channel::<QueuedInvocation>(options.queue_capacity);
+        let semaphore = Arc::new(Semaphore::new(options.max_concurrency.max(1)));
+
+        tokio::spawn(async move {
+            while let Some(invocation) = receiver.recv().await {
+                let permit = semaphore.clone().acquire_owned().await.unwrap();
+                let handle = invocation.handle.clone();
+                let executor = executor.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    let result = AssertUnwindSafe(executor.run_invocation(invocation))
+                        .catch_unwind()
+                        .await;
+                    if result.is_err() {
+                        tracing::error!(
+                            task_id = %handle.task_id,
+                            "task executor panicked outside task supervision"
+                        );
+                        handle
+                            .finish_terminal(
+                                TaskStateValue::Failed,
+                                Some("task execution panicked".to_string()),
+                                Some("task execution panicked".to_string()),
+                            )
+                            .await;
+                    }
+                });
+            }
+        });
+
+        Self { sender }
+    }
+}
+
+impl TaskBackend for InMemoryTaskBackend {
+    fn enqueue(
+        &self,
+        invocation: QueuedInvocation,
+    ) -> BoxFuture<'static, Result<(), TaskActionError>> {
+        let sender = self.sender.clone();
+        Box::pin(async move {
+            sender
+                .send(invocation)
+                .await
+                .map_err(|_| TaskActionError::internal("task queue is not accepting jobs"))
+        })
+    }
+}
+
+impl TaskExecutor {
+    async fn run_invocation(&self, invocation: QueuedInvocation) {
+        let QueuedInvocation {
+            handle,
+            mut instance,
+        } = invocation;
+
+        handle.mark_started().await;
+
+        let init_result = catch_task_stage("init", instance.init()).await;
+        if let Err(error) = init_result {
+            handle
+                .finish_terminal(
+                    TaskStateValue::Failed,
+                    Some(error.message().to_string()),
+                    Some(error.message().to_string()),
+                )
+                .await;
+            finalize_instance_best_effort(&mut *instance, TaskStateValue::Failed).await;
+            return;
+        }
+
+        let final_status = match self.execute_steps(&handle, &mut *instance).await {
+            Ok(()) => {
+                handle
+                    .finish_terminal(
+                        TaskStateValue::Succeeded,
+                        None,
+                        Some("Completed".to_string()),
+                    )
+                    .await;
+                TaskStateValue::Succeeded
+            }
+            Err((error, status)) => {
+                handle
+                    .finish_terminal(
+                        status,
+                        Some(error.message().to_string()),
+                        Some(error.message().to_string()),
+                    )
+                    .await;
+                status
+            }
+        };
+
+        finalize_instance_best_effort(&mut *instance, final_status).await;
+    }
+
+    async fn execute_steps(
+        &self,
+        handle: &TaskInvocationHandle,
+        instance: &mut dyn TaskExecutionInstance,
+    ) -> Result<(), (TaskExecutionError, TaskStateValue)> {
+        let mut completed_steps = Vec::new();
+        let step_definitions = instance.step_definitions().to_vec();
+
+        for (step_index, step) in step_definitions.iter().enumerate() {
+            handle.mark_step_running(step_index).await;
+            let context = TaskStepContext {
+                handle: handle.clone(),
+                step_index,
+            };
+
+            let result = catch_task_stage(
+                format!("step {}", step.id),
+                instance.run_step(step_index, context),
+            )
+            .await;
+
+            match result {
+                Ok(TaskStepResult::Completed) => {
+                    completed_steps.push(step_index);
+                    handle.mark_step_succeeded(step_index).await;
+                }
+                Ok(TaskStepResult::Skipped) => {
+                    handle.mark_step_skipped(step_index).await;
+                }
+                Err(error) => {
+                    handle
+                        .mark_step_failed(step_index, error.message().to_string())
+                        .await;
+                    let rollback_status = self
+                        .rollback_after_failure(
+                            handle,
+                            instance,
+                            &step_definitions,
+                            completed_steps,
+                            &error,
+                        )
+                        .await;
+                    return Err((error, rollback_status));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn rollback_after_failure(
+        &self,
+        handle: &TaskInvocationHandle,
+        instance: &mut dyn TaskExecutionInstance,
+        step_definitions: &[TaskStepDefinitionSnapshot],
+        completed_steps: Vec<usize>,
+        error: &TaskExecutionError,
+    ) -> TaskStateValue {
+        let rollback_steps = completed_steps
+            .into_iter()
+            .rev()
+            .filter(|step_index| instance.has_rollback(*step_index))
+            .collect::<Vec<_>>();
+
+        if rollback_steps.is_empty() {
+            return TaskStateValue::Failed;
+        }
+
+        handle.mark_rolling_back(error.message()).await;
+
+        let mut rollback_failed = false;
+        for step_index in rollback_steps {
+            let step_id = step_definitions[step_index].id.clone();
+            handle.mark_step_rolling_back(step_index).await;
+            let context = TaskStepContext {
+                handle: handle.clone(),
+                step_index,
+            };
+            match catch_task_stage(
+                format!("rollback step {}", step_id),
+                instance.rollback_step(step_index, context),
+            )
+            .await
+            {
+                Ok(()) => handle.mark_step_rolled_back(step_index).await,
+                Err(rollback_error) => {
+                    rollback_failed = true;
+                    handle
+                        .mark_step_rollback_failed(step_index, rollback_error.message().to_string())
+                        .await;
+                }
+            }
+        }
+
+        if rollback_failed {
+            TaskStateValue::RollbackFailed
+        } else {
+            TaskStateValue::RolledBack
+        }
+    }
+}
+
+impl TaskService {
+    pub fn new(events: Arc<EventBus>) -> Self {
+        Self::new_with_options(events, TaskServiceOptions::default())
+    }
+
+    fn new_with_options(events: Arc<EventBus>, options: TaskServiceOptions) -> Self {
+        let inner = Arc::new(TaskServiceInner {
+            events,
+            registry: TaskRegistry::new(),
+            invocations: std::sync::RwLock::new(HashMap::new()),
+            order: std::sync::RwLock::new(VecDeque::new()),
+            active_scopes: std::sync::RwLock::new(HashMap::new()),
+        });
+        let backend: Arc<dyn TaskBackend> =
+            Arc::new(InMemoryTaskBackend::new(TaskExecutor, options));
+        Self { inner, backend }
+    }
+
+    pub fn register_typed_task<T>(&self, task: T)
+    where
+        T: TaskType,
+    {
+        self.inner.registry.register_typed_task(task);
+    }
+
+    pub fn list_definitions(&self) -> Vec<TaskDefinitionSnapshot> {
+        self.inner.registry.list()
     }
 
     pub async fn list(&self) -> Vec<TaskInvocationSnapshot> {
@@ -554,17 +882,11 @@ impl TaskService {
         definition_name: &str,
         input: TaskInput,
     ) -> Result<TaskInvocationSnapshot, TaskActionError> {
-        let definition = self
-            .inner
-            .definitions
-            .read()
-            .expect("task definitions poisoned")
-            .get(definition_name)
-            .cloned()
-            .ok_or_else(|| TaskActionError::not_found(definition_name))?;
-        let scope_key = (definition.scope_key)(&input)?;
+        let definition = self.inner.registry.get(definition_name)?;
+        let prepared = definition.prepare(input)?;
+        let metadata = definition.metadata().clone();
 
-        if let Some(scope_key) = scope_key.as_deref() {
+        if let Some(scope_key) = prepared.scope_key.as_deref() {
             let maybe_existing = self
                 .inner
                 .active_scopes
@@ -586,9 +908,9 @@ impl TaskService {
 
         let task_id = Uuid::new_v4().to_string();
         let slot = Arc::new(TaskInvocationSlot {
-            definition_name: definition.metadata.name.clone(),
-            title: definition.metadata.title.clone(),
-            broadcast_updates: definition.metadata.broadcast_updates,
+            definition_name: metadata.name.clone(),
+            title: metadata.title.clone(),
+            broadcast_updates: metadata.broadcast_updates,
             created_at: now_timestamp_string(),
             state: Mutex::new(TaskInvocationRuntimeState {
                 status: TaskStateValue::Pending,
@@ -596,9 +918,9 @@ impl TaskService {
                 progress_percent: 0,
                 started_at: None,
                 finished_at: None,
-                scope_key: scope_key.clone(),
+                scope_key: prepared.scope_key.clone(),
                 failure_message: None,
-                steps: vec![],
+                steps: build_runtime_steps(metadata.steps.as_slice()),
             }),
         });
 
@@ -612,7 +934,7 @@ impl TaskService {
             .write()
             .expect("task order poisoned")
             .push_front(task_id.clone());
-        if let Some(scope_key) = scope_key {
+        if let Some(scope_key) = prepared.scope_key.clone() {
             self.inner
                 .active_scopes
                 .write()
@@ -622,17 +944,23 @@ impl TaskService {
 
         let handle = TaskInvocationHandle {
             task_id: task_id.clone(),
-            slot: slot.clone(),
+            slot,
             service: Arc::downgrade(&self.inner),
         };
         handle.emit_update().await;
 
-        let run = definition.run.clone();
-        tokio::spawn(async move {
-            handle.mark_started().await;
-            let result = run(handle.clone(), input).await;
-            handle.finish_definition_run(result).await;
-        });
+        let enqueue_result = self
+            .backend
+            .enqueue(QueuedInvocation {
+                handle,
+                instance: prepared.instance,
+            })
+            .await;
+
+        if let Err(error) = enqueue_result {
+            self.cleanup_failed_start(&task_id).await;
+            return Err(error);
+        }
 
         self.get(&task_id).await
     }
@@ -650,54 +978,55 @@ impl TaskService {
             .cloned()?;
         self.get(&id).await.ok()
     }
+
+    async fn cleanup_failed_start(&self, task_id: &str) {
+        let scope_key = self
+            .inner
+            .invocations
+            .read()
+            .expect("task invocations poisoned")
+            .get(task_id)
+            .and_then(|slot| slot.state.try_lock().ok())
+            .and_then(|state| state.scope_key.clone());
+
+        self.inner
+            .invocations
+            .write()
+            .expect("task invocations poisoned")
+            .remove(task_id);
+
+        if let Some(index) = self
+            .inner
+            .order
+            .write()
+            .expect("task order poisoned")
+            .iter()
+            .position(|candidate| candidate == task_id)
+        {
+            self.inner
+                .order
+                .write()
+                .expect("task order poisoned")
+                .remove(index);
+        }
+
+        if let Some(scope_key) = scope_key {
+            let mut scopes = self
+                .inner
+                .active_scopes
+                .write()
+                .expect("task scopes poisoned");
+            if scopes
+                .get(&scope_key)
+                .is_some_and(|active_task_id| active_task_id == task_id)
+            {
+                scopes.remove(&scope_key);
+            }
+        }
+    }
 }
 
 impl TaskInvocationHandle {
-    pub async fn set_status_text(&self, status_text: impl Into<String>) {
-        {
-            let mut state = self.slot.state.lock().await;
-            state.status_text = Some(status_text.into());
-        }
-        self.emit_update().await;
-    }
-
-    pub async fn clear_status_text(&self) {
-        {
-            let mut state = self.slot.state.lock().await;
-            state.status_text = None;
-        }
-        self.emit_update().await;
-    }
-
-    pub async fn set_progress_absolute(&self, progress_percent: u8) {
-        {
-            let mut state = self.slot.state.lock().await;
-            state.progress_percent = progress_percent.min(100);
-        }
-        self.emit_update().await;
-    }
-
-    pub async fn run_steps(&self, steps: Vec<TaskStep>) -> Result<(), TaskExecutionError> {
-        let step_definitions = steps
-            .iter()
-            .map(|step| TaskStepDefinitionSnapshot {
-                id: step.name.clone(),
-                title: step.name.clone(),
-                weight: step.weight.max(1),
-            })
-            .collect::<Vec<_>>();
-        let context = TaskExecutionContext::new(self.clone(), step_definitions);
-        context.initialize().await;
-
-        for step in steps {
-            context
-                .run_boxed_step(&step.name, step.run.clone(), step.rollback.clone())
-                .await?;
-        }
-
-        Ok(())
-    }
-
     async fn mark_started(&self) {
         {
             let mut state = self.slot.state.lock().await;
@@ -710,28 +1039,29 @@ impl TaskInvocationHandle {
         self.emit_update().await;
     }
 
-    async fn finish_definition_run(&self, result: Result<(), TaskExecutionError>) {
+    async fn finish_terminal(
+        &self,
+        status: TaskStateValue,
+        failure_message: Option<String>,
+        status_text: Option<String>,
+    ) {
         let should_finalize = {
             let mut state = self.slot.state.lock().await;
-            if !state.status.is_active() {
+            if state.status.is_terminal() {
                 false
             } else {
-                match result {
-                    Ok(()) => {
-                        state.status = TaskStateValue::Succeeded;
-                        state.progress_percent = 100;
-                        state.finished_at = Some(now_timestamp_string());
-                        if state.status_text.is_none() {
-                            state.status_text = Some("Completed".to_string());
-                        }
-                    }
-                    Err(error) => {
-                        state.status = TaskStateValue::Failed;
-                        state.failure_message = Some(error.message().to_string());
-                        state.status_text = Some(error.message().to_string());
-                        state.finished_at = Some(now_timestamp_string());
-                    }
+                state.status = status;
+                state.failure_message = failure_message;
+                if matches!(status, TaskStateValue::Succeeded) {
+                    state.progress_percent = 100;
                 }
+                if let Some(status_text) = status_text {
+                    state.status_text = Some(status_text);
+                } else if matches!(status, TaskStateValue::Succeeded) && state.status_text.is_none()
+                {
+                    state.status_text = Some("Completed".to_string());
+                }
+                state.finished_at = Some(now_timestamp_string());
                 true
             }
         };
@@ -743,23 +1073,12 @@ impl TaskInvocationHandle {
         }
     }
 
-    async fn initialize_steps(&self, steps: &[TaskStepDefinitionSnapshot]) {
+    async fn mark_rolling_back(&self, error: &str) {
         {
             let mut state = self.slot.state.lock().await;
-            state.steps = steps
-                .iter()
-                .map(|step| TaskStepRuntimeState {
-                    id: step.id.clone(),
-                    name: step.title.clone(),
-                    weight: step.weight.max(1),
-                    state: TaskStepStateValue::Pending,
-                    progress_percent: 0,
-                    error: None,
-                    rollback_error: None,
-                })
-                .collect();
-            state.progress_percent = 0;
-            state.status = TaskStateValue::Running;
+            state.status = TaskStateValue::RollingBack;
+            state.failure_message = Some(error.to_string());
+            state.status_text = Some(error.to_string());
         }
         self.emit_update().await;
     }
@@ -827,6 +1146,30 @@ impl TaskInvocationHandle {
             let mut state = self.slot.state.lock().await;
             state.steps[step_index].state = TaskStepStateValue::RollbackFailed;
             state.steps[step_index].rollback_error = Some(error);
+        }
+        self.emit_update().await;
+    }
+
+    async fn set_status_text(&self, status_text: impl Into<String>) {
+        {
+            let mut state = self.slot.state.lock().await;
+            state.status_text = Some(status_text.into());
+        }
+        self.emit_update().await;
+    }
+
+    async fn clear_status_text(&self) {
+        {
+            let mut state = self.slot.state.lock().await;
+            state.status_text = None;
+        }
+        self.emit_update().await;
+    }
+
+    async fn set_progress_absolute(&self, progress_percent: u8) {
+        {
+            let mut state = self.slot.state.lock().await;
+            state.progress_percent = progress_percent.min(100);
         }
         self.emit_update().await;
     }
@@ -928,282 +1271,6 @@ impl TaskInvocationHandle {
     }
 }
 
-impl TaskExecutionContext {
-    fn new(handle: TaskInvocationHandle, steps: Vec<TaskStepDefinitionSnapshot>) -> Self {
-        let step_indexes = steps
-            .iter()
-            .enumerate()
-            .map(|(index, step)| (step.id.clone(), index))
-            .collect();
-        Self {
-            handle,
-            step_definitions: Arc::new(steps),
-            step_indexes: Arc::new(step_indexes),
-            rollbacks: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    async fn initialize(&self) {
-        self.handle
-            .initialize_steps(self.step_definitions.as_slice())
-            .await;
-    }
-
-    pub async fn set_status_text(&self, status_text: impl Into<String>) {
-        self.handle.set_status_text(status_text).await;
-    }
-
-    pub async fn clear_status_text(&self) {
-        self.handle.clear_status_text().await;
-    }
-
-    pub async fn set_progress_absolute(&self, progress_percent: u8) {
-        self.handle.set_progress_absolute(progress_percent).await;
-    }
-
-    pub async fn status(&self) -> TaskStateValue {
-        self.handle.slot.state.lock().await.status
-    }
-
-    pub async fn execute_typed_steps<S>(
-        &self,
-        state: &mut S,
-        steps: &[TaskTypeStep<S>],
-    ) -> Result<(), TaskExecutionError>
-    where
-        S: Send,
-    {
-        let mut completed_indexes = Vec::new();
-
-        for (step_index, step) in steps.iter().enumerate() {
-            self.handle.mark_step_running(step_index).await;
-            let context = TaskStepContext {
-                handle: self.handle.clone(),
-                step_index,
-            };
-
-            match (step.run)(state, context).await {
-                Ok(TaskStepResult::Completed) => {
-                    completed_indexes.push(step_index);
-                    self.handle.mark_step_succeeded(step_index).await;
-                }
-                Ok(TaskStepResult::Skipped) => {
-                    self.handle.mark_step_skipped(step_index).await;
-                }
-                Err(error) => {
-                    self.handle
-                        .mark_step_failed(step_index, error.message().to_string())
-                        .await;
-                    return self
-                        .rollback_typed_steps(state, steps, completed_indexes, error)
-                        .await;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub async fn run_step<F, Fut>(
-        &self,
-        step_id: &str,
-        rollback: Option<TaskStepRunFn>,
-        run: F,
-    ) -> Result<(), TaskExecutionError>
-    where
-        F: FnOnce(TaskStepContext) -> Fut,
-        Fut: Future<Output = Result<(), TaskExecutionError>> + Send,
-    {
-        let step_index = self.step_index(step_id)?;
-        self.handle.mark_step_running(step_index).await;
-        let context = TaskStepContext {
-            handle: self.handle.clone(),
-            step_index,
-        };
-        match run(context.clone()).await {
-            Ok(()) => {
-                if let Some(rollback) = rollback {
-                    self.rollbacks.lock().await.push(RegisteredRollback {
-                        step_index,
-                        rollback,
-                    });
-                }
-                self.handle.mark_step_succeeded(step_index).await;
-                Ok(())
-            }
-            Err(error) => {
-                self.handle
-                    .mark_step_failed(step_index, error.message().to_string())
-                    .await;
-                self.rollback_steps(error).await
-            }
-        }
-    }
-
-    async fn run_boxed_step(
-        &self,
-        step_id: &str,
-        run: TaskStepRunFn,
-        rollback: Option<TaskStepRunFn>,
-    ) -> Result<(), TaskExecutionError> {
-        self.run_step(step_id, rollback, move |context| async move {
-            run(context).await
-        })
-        .await
-    }
-
-    pub async fn skip_step(&self, step_id: &str) -> Result<(), TaskExecutionError> {
-        let step_index = self.step_index(step_id)?;
-        self.handle.mark_step_skipped(step_index).await;
-        Ok(())
-    }
-
-    async fn rollback_typed_steps<S>(
-        &self,
-        state: &mut S,
-        steps: &[TaskTypeStep<S>],
-        completed_steps: Vec<usize>,
-        error: TaskExecutionError,
-    ) -> Result<(), TaskExecutionError> {
-        let has_rollbacks = completed_steps
-            .iter()
-            .any(|step_index| steps[*step_index].rollback.is_some());
-
-        {
-            let mut state = self.handle.slot.state.lock().await;
-            state.status = if has_rollbacks {
-                TaskStateValue::RollingBack
-            } else {
-                TaskStateValue::Failed
-            };
-            state.failure_message = Some(error.message().to_string());
-            state.status_text = Some(error.message().to_string());
-        }
-        self.handle.emit_update().await;
-
-        let mut rollback_failed = false;
-        for step_index in completed_steps.into_iter().rev() {
-            let Some(rollback) = steps[step_index].rollback else {
-                continue;
-            };
-
-            self.handle.mark_step_rolling_back(step_index).await;
-            let context = TaskStepContext {
-                handle: self.handle.clone(),
-                step_index,
-            };
-            match rollback(state, context).await {
-                Ok(()) => {
-                    self.handle.mark_step_rolled_back(step_index).await;
-                }
-                Err(rollback_error) => {
-                    rollback_failed = true;
-                    self.handle
-                        .mark_step_rollback_failed(step_index, rollback_error.message().to_string())
-                        .await;
-                }
-            }
-        }
-
-        {
-            let mut state = self.handle.slot.state.lock().await;
-            let had_rollbacks = state.steps.iter().any(|step| {
-                matches!(
-                    step.state,
-                    TaskStepStateValue::RolledBack | TaskStepStateValue::RollbackFailed
-                )
-            });
-            state.status = if rollback_failed {
-                TaskStateValue::RollbackFailed
-            } else if had_rollbacks {
-                TaskStateValue::RolledBack
-            } else {
-                TaskStateValue::Failed
-            };
-            state.finished_at = Some(now_timestamp_string());
-        }
-        self.handle.release_scope().await;
-        self.handle.emit_update().await;
-        self.handle.evict_finished_tasks().await;
-        Err(error)
-    }
-
-    async fn rollback_steps(&self, error: TaskExecutionError) -> Result<(), TaskExecutionError> {
-        let rollbacks = {
-            let mut rollbacks = self.rollbacks.lock().await;
-            std::mem::take(&mut *rollbacks)
-        };
-
-        {
-            let mut state = self.handle.slot.state.lock().await;
-            state.status = if rollbacks.is_empty() {
-                TaskStateValue::Failed
-            } else {
-                TaskStateValue::RollingBack
-            };
-            state.failure_message = Some(error.message().to_string());
-            state.status_text = Some(error.message().to_string());
-        }
-        self.handle.emit_update().await;
-
-        let mut rollback_failed = false;
-        for registered in rollbacks.into_iter().rev() {
-            self.handle
-                .mark_step_rolling_back(registered.step_index)
-                .await;
-            let context = TaskStepContext {
-                handle: self.handle.clone(),
-                step_index: registered.step_index,
-            };
-            match (registered.rollback)(context).await {
-                Ok(()) => {
-                    self.handle
-                        .mark_step_rolled_back(registered.step_index)
-                        .await
-                }
-                Err(rollback_error) => {
-                    rollback_failed = true;
-                    self.handle
-                        .mark_step_rollback_failed(
-                            registered.step_index,
-                            rollback_error.message().to_string(),
-                        )
-                        .await;
-                }
-            }
-        }
-
-        {
-            let mut state = self.handle.slot.state.lock().await;
-            let had_rollbacks = state.steps.iter().any(|step| {
-                matches!(
-                    step.state,
-                    TaskStepStateValue::RolledBack | TaskStepStateValue::RollbackFailed
-                )
-            });
-            state.status = if rollback_failed {
-                TaskStateValue::RollbackFailed
-            } else if had_rollbacks {
-                TaskStateValue::RolledBack
-            } else {
-                TaskStateValue::Failed
-            };
-            state.finished_at = Some(now_timestamp_string());
-        }
-        self.handle.release_scope().await;
-        self.handle.emit_update().await;
-        self.handle.evict_finished_tasks().await;
-        Err(error)
-    }
-
-    fn step_index(&self, step_id: &str) -> Result<usize, TaskExecutionError> {
-        self.step_indexes
-            .get(step_id)
-            .copied()
-            .ok_or_else(|| TaskExecutionError::new(format!("unknown task step id: {step_id}")))
-    }
-}
-
 impl TaskStepContext {
     pub async fn set_status_text(&self, status_text: impl Into<String>) {
         self.handle.set_status_text(status_text).await;
@@ -1222,6 +1289,95 @@ impl TaskStepContext {
             .update_step_progress(self.step_index, progress_percent)
             .await;
     }
+}
+
+fn build_definition_snapshot(
+    metadata: TaskMetadata,
+    steps: &[TaskStepDefinitionSnapshot],
+) -> TaskDefinitionSnapshot {
+    TaskDefinitionSnapshot {
+        name: metadata.name,
+        title: metadata.title,
+        description: metadata.description,
+        broadcast_updates: metadata.broadcast_updates,
+        input_fields: metadata.input_fields,
+        steps: steps.to_vec(),
+    }
+}
+
+fn build_runtime_steps(steps: &[TaskStepDefinitionSnapshot]) -> Vec<TaskStepRuntimeState> {
+    steps
+        .iter()
+        .map(|step| TaskStepRuntimeState {
+            id: step.id.clone(),
+            name: step.title.clone(),
+            weight: step.weight.max(1),
+            state: TaskStepStateValue::Pending,
+            progress_percent: 0,
+            error: None,
+            rollback_error: None,
+        })
+        .collect()
+}
+
+fn assert_unique_step_ids<S>(task_name: &str, steps: &[TaskTypeStep<S>]) {
+    let mut ids = HashSet::new();
+    for step in steps {
+        assert!(
+            ids.insert(step.id),
+            "typed task {task_name} declared duplicate step id {}",
+            step.id
+        );
+    }
+}
+
+async fn catch_task_stage<T, F>(
+    stage: impl Into<String>,
+    future: F,
+) -> Result<T, TaskExecutionError>
+where
+    F: Future<Output = Result<T, TaskExecutionError>> + Send,
+{
+    let stage = stage.into();
+    match AssertUnwindSafe(future).catch_unwind().await {
+        Ok(result) => result,
+        Err(payload) => {
+            tracing::error!(
+                stage = %stage,
+                panic = %panic_payload_to_string(payload),
+                "task stage panicked"
+            );
+            Err(TaskExecutionError::panic(stage))
+        }
+    }
+}
+
+async fn finalize_instance_best_effort(
+    instance: &mut dyn TaskExecutionInstance,
+    final_status: TaskStateValue,
+) {
+    match AssertUnwindSafe(instance.finalize(final_status))
+        .catch_unwind()
+        .await
+    {
+        Ok(()) => {}
+        Err(payload) => {
+            tracing::error!(
+                panic = %panic_payload_to_string(payload),
+                "task finalizer panicked"
+            );
+        }
+    }
+}
+
+fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        return (*message).to_string();
+    }
+    if let Some(message) = payload.downcast_ref::<String>() {
+        return message.clone();
+    }
+    "unknown panic payload".to_string()
 }
 
 async fn snapshot_for_slot(task_id: &str, slot: &TaskInvocationSlot) -> TaskInvocationSnapshot {
@@ -1269,217 +1425,84 @@ fn weighted_progress(steps: &[TaskStepRuntimeState]) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
     use super::*;
     use crate::{AppState, build_router};
     use futures_util::StreamExt;
+    use tokio::sync::Notify;
 
-    fn definition(
-        name: &str,
-        run: TaskRunFn,
-        scope_key: Option<&str>,
+    #[derive(Clone)]
+    struct DemoTask {
+        name: &'static str,
+        behavior: DemoBehavior,
+        scope_key: Option<&'static str>,
         broadcast_updates: bool,
-    ) -> TaskDefinition {
-        let scope_key = scope_key.map(str::to_string);
-        TaskDefinition::new(
-            TaskDefinitionSnapshot {
-                name: name.to_string(),
-                title: name.to_string(),
+    }
+
+    #[derive(Clone)]
+    enum DemoBehavior {
+        WeightedProgress,
+        Rollback {
+            order: Arc<Mutex<Vec<&'static str>>>,
+        },
+        WaitForNotify {
+            notify: Arc<Notify>,
+        },
+        PanicInit,
+        PanicRun,
+        PanicRollback,
+        PanicFinalize {
+            finalized: Arc<AtomicBool>,
+        },
+    }
+
+    #[derive(Clone, Copy)]
+    struct DemoInput {
+        skip_prepare: bool,
+    }
+
+    struct DemoState {
+        behavior: DemoBehavior,
+        skip_prepare: bool,
+    }
+
+    static WEIGHTED_STEPS: &[TaskTypeStep<DemoState>] = &[
+        TaskTypeStep::new("prepare", "Prepare", 25, weighted_prepare_step),
+        TaskTypeStep::new("download", "Download", 75, weighted_download_step),
+    ];
+
+    static ROLLBACK_STEPS: &[TaskTypeStep<DemoState>] = &[
+        TaskTypeStep::new("one", "One", 50, rollback_first_step)
+            .with_rollback(rollback_first_step_undo),
+        TaskTypeStep::new("two", "Two", 50, rollback_second_step)
+            .with_rollback(rollback_second_step_undo),
+        TaskTypeStep::new("three", "Three", 1, rollback_fail_step),
+    ];
+
+    static WAIT_STEPS: &[TaskTypeStep<DemoState>] =
+        &[TaskTypeStep::new("wait", "Wait", 100, wait_step)];
+
+    static SINGLE_STEP: &[TaskTypeStep<DemoState>] =
+        &[TaskTypeStep::new("run", "Run", 100, single_step)];
+
+    static PANIC_ROLLBACK_STEPS: &[TaskTypeStep<DemoState>] = &[
+        TaskTypeStep::new("run", "Run", 50, panic_rollback_run_step)
+            .with_rollback(panic_rollback_undo_step),
+        TaskTypeStep::new("fail", "Fail", 50, panic_rollback_fail_step),
+    ];
+
+    impl TaskType for DemoTask {
+        type Input = DemoInput;
+        type State = DemoState;
+
+        fn metadata(&self) -> TaskMetadata {
+            TaskMetadata {
+                name: self.name.to_string(),
+                title: self.name.to_string(),
                 description: None,
-                broadcast_updates,
-                input_fields: vec![],
-                steps: vec![],
-            },
-            Arc::new(move |_input| Ok(scope_key.clone())),
-            run,
-        )
-    }
-
-    #[tokio::test]
-    async fn runs_steps_and_tracks_weighted_progress() {
-        let service = TaskService::new(Arc::new(EventBus::new()));
-        service.register_definition(definition(
-            "demo",
-            Arc::new(move |task, _input| {
-                Box::pin(async move {
-                    task.run_steps(vec![
-                        TaskStep::new(
-                            "prepare",
-                            25,
-                            Arc::new(|step| {
-                                Box::pin(async move {
-                                    step.set_step_progress(100).await;
-                                    Ok(())
-                                })
-                            }),
-                        ),
-                        TaskStep::new(
-                            "download",
-                            75,
-                            Arc::new(|step| {
-                                Box::pin(async move {
-                                    step.set_step_progress(50).await;
-                                    step.set_step_progress(100).await;
-                                    Ok(())
-                                })
-                            }),
-                        ),
-                    ])
-                    .await
-                })
-            }),
-            None,
-            true,
-        ));
-
-        let started = service.start("demo", TaskInput::new()).await.unwrap();
-        let snapshot = wait_for_terminal(&service, &started.id).await;
-        assert_eq!(snapshot.status, TaskStateValue::Succeeded);
-        assert_eq!(snapshot.progress_percent, 100);
-        assert_eq!(snapshot.steps[0].state, TaskStepStateValue::Succeeded);
-        assert_eq!(snapshot.steps[1].state, TaskStepStateValue::Succeeded);
-    }
-
-    #[tokio::test]
-    async fn rolls_back_completed_steps_in_reverse_order() {
-        let service = TaskService::new(Arc::new(EventBus::new()));
-        let counter = Arc::new(AtomicUsize::new(0));
-        let order = Arc::new(Mutex::new(Vec::new()));
-        service.register_definition(definition(
-            "rollback",
-            Arc::new({
-                let counter = counter.clone();
-                let order = order.clone();
-                move |task, _input| {
-                    let counter = counter.clone();
-                    let order = order.clone();
-                    Box::pin(async move {
-                        task.run_steps(vec![
-                            TaskStep::new("one", 50, Arc::new(|_step| Box::pin(async { Ok(()) })))
-                                .with_rollback(Arc::new({
-                                    let order = order.clone();
-                                    move |_step| {
-                                        let order = order.clone();
-                                        Box::pin(async move {
-                                            order.lock().await.push("one");
-                                            Ok(())
-                                        })
-                                    }
-                                })),
-                            TaskStep::new(
-                                "two",
-                                50,
-                                Arc::new({
-                                    let counter = counter.clone();
-                                    move |_step| {
-                                        let counter = counter.clone();
-                                        Box::pin(async move {
-                                            if counter.fetch_add(1, Ordering::Relaxed) == 0 {
-                                                Ok(())
-                                            } else {
-                                                Err(TaskExecutionError::new("boom"))
-                                            }
-                                        })
-                                    }
-                                }),
-                            )
-                            .with_rollback(Arc::new({
-                                let order = order.clone();
-                                move |_step| {
-                                    let order = order.clone();
-                                    Box::pin(async move {
-                                        order.lock().await.push("two");
-                                        Ok(())
-                                    })
-                                }
-                            })),
-                            TaskStep::new(
-                                "three",
-                                1,
-                                Arc::new(|_step| {
-                                    Box::pin(async { Err(TaskExecutionError::new("boom")) })
-                                }),
-                            ),
-                        ])
-                        .await
-                    })
-                }
-            }),
-            None,
-            true,
-        ));
-
-        let started = service.start("rollback", TaskInput::new()).await.unwrap();
-        let snapshot = wait_for_terminal(&service, &started.id).await;
-        assert_eq!(snapshot.status, TaskStateValue::RolledBack);
-        assert_eq!(snapshot.steps[0].state, TaskStepStateValue::RolledBack);
-        assert_eq!(snapshot.steps[1].state, TaskStepStateValue::RolledBack);
-        assert_eq!(snapshot.steps[2].state, TaskStepStateValue::Failed);
-        assert_eq!(order.lock().await.as_slice(), ["two", "one"]);
-    }
-
-    #[tokio::test]
-    async fn dedupes_same_scope_and_conflicts_other_definition() {
-        let service = TaskService::new(Arc::new(EventBus::new()));
-        service.register_definition(definition(
-            "first",
-            Arc::new(|task, _input| {
-                Box::pin(async move {
-                    task.run_steps(vec![TaskStep::new(
-                        "wait",
-                        1,
-                        Arc::new(|_step| {
-                            Box::pin(async {
-                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                                Ok(())
-                            })
-                        }),
-                    )])
-                    .await
-                })
-            }),
-            Some("scope:a"),
-            true,
-        ));
-        service.register_definition(definition(
-            "second",
-            Arc::new(|_task, _input| Box::pin(async { Ok(()) })),
-            Some("scope:a"),
-            true,
-        ));
-
-        let first = service.start("first", TaskInput::new()).await.unwrap();
-        let deduped = service.start("first", TaskInput::new()).await.unwrap();
-        assert_eq!(first.id, deduped.id);
-
-        let error = service.start("second", TaskInput::new()).await.unwrap_err();
-        assert_eq!(error.kind(), TaskActionErrorKind::Conflict);
-    }
-
-    #[derive(Clone, Copy)]
-    struct DemoTypedInput {
-        skip_prepare: bool,
-    }
-
-    #[derive(Clone, Copy)]
-    struct DemoTypedTask;
-
-    struct DemoTypedState {
-        skip_prepare: bool,
-    }
-
-    impl TaskType for DemoTypedTask {
-        type Input = DemoTypedInput;
-        type State = DemoTypedState;
-
-        fn definition(&self) -> TaskDefinitionSnapshot {
-            TaskDefinitionSnapshot {
-                name: "typed.demo".to_string(),
-                title: "Typed Demo".to_string(),
-                description: Some("A typed task used in tests.".to_string()),
-                broadcast_updates: true,
+                broadcast_updates: self.broadcast_updates,
                 input_fields: vec![TaskDefinitionInputField {
                     name: "skipPrepare".to_string(),
                     title: "Skip Prepare".to_string(),
@@ -1488,18 +1511,6 @@ mod tests {
                     kind: TaskInputFieldKind::Boolean,
                     enum_values: vec![],
                 }],
-                steps: vec![
-                    TaskStepDefinitionSnapshot {
-                        id: "prepare".to_string(),
-                        title: "Prepare".to_string(),
-                        weight: 40,
-                    },
-                    TaskStepDefinitionSnapshot {
-                        id: "finish".to_string(),
-                        title: "Finish".to_string(),
-                        weight: 60,
-                    },
-                ],
             }
         }
 
@@ -1513,31 +1524,54 @@ mod tests {
                 }
                 None => false,
             };
-            Ok(DemoTypedInput { skip_prepare })
+            Ok(DemoInput { skip_prepare })
         }
 
         fn scope_key(&self, _input: &Self::Input) -> Result<Option<String>, TaskActionError> {
-            Ok(Some("scope:typed".to_string()))
+            Ok(self.scope_key.map(str::to_string))
         }
 
         fn init<'a>(&'a self, input: Self::Input) -> TaskStateInitFuture<'a, Self::State> {
+            let behavior = self.behavior.clone();
             Box::pin(async move {
-                Ok(DemoTypedState {
+                if matches!(behavior, DemoBehavior::PanicInit) {
+                    panic!("init panic");
+                }
+                Ok(DemoState {
+                    behavior,
                     skip_prepare: input.skip_prepare,
                 })
             })
         }
 
-        fn steps(&self) -> Vec<TaskTypeStep<Self::State>> {
-            vec![
-                TaskTypeStep::new("prepare", "Prepare", 40, demo_prepare_step),
-                TaskTypeStep::new("finish", "Finish", 60, demo_finish_step),
-            ]
+        fn steps(&self) -> &'static [TaskTypeStep<Self::State>] {
+            match self.behavior {
+                DemoBehavior::WeightedProgress => WEIGHTED_STEPS,
+                DemoBehavior::Rollback { .. } => ROLLBACK_STEPS,
+                DemoBehavior::WaitForNotify { .. } => WAIT_STEPS,
+                DemoBehavior::PanicInit => SINGLE_STEP,
+                DemoBehavior::PanicRun => SINGLE_STEP,
+                DemoBehavior::PanicRollback => PANIC_ROLLBACK_STEPS,
+                DemoBehavior::PanicFinalize { .. } => SINGLE_STEP,
+            }
+        }
+
+        fn finalize<'a>(
+            &'a self,
+            state: &'a mut Self::State,
+            _final_status: TaskStateValue,
+        ) -> TaskFinalizeFuture<'a> {
+            Box::pin(async move {
+                if let DemoBehavior::PanicFinalize { finalized } = &state.behavior {
+                    finalized.store(true, Ordering::Relaxed);
+                    panic!("finalize panic");
+                }
+            })
         }
     }
 
-    fn demo_prepare_step<'a>(
-        state: &'a mut DemoTypedState,
+    fn weighted_prepare_step<'a>(
+        state: &'a mut DemoState,
         context: TaskStepContext,
     ) -> TaskTypeStepRunFuture<'a> {
         Box::pin(async move {
@@ -1549,35 +1583,216 @@ mod tests {
         })
     }
 
-    fn demo_finish_step<'a>(
-        _state: &'a mut DemoTypedState,
+    fn weighted_download_step<'a>(
+        _state: &'a mut DemoState,
         context: TaskStepContext,
     ) -> TaskTypeStepRunFuture<'a> {
         Box::pin(async move {
-            context.set_status_text("Finishing").await;
+            context.set_step_progress(50).await;
             context.set_step_progress(100).await;
             Ok(TaskStepResult::Completed)
         })
     }
 
+    fn rollback_first_step<'a>(
+        _state: &'a mut DemoState,
+        _context: TaskStepContext,
+    ) -> TaskTypeStepRunFuture<'a> {
+        Box::pin(async move { Ok(TaskStepResult::Completed) })
+    }
+
+    fn rollback_second_step<'a>(
+        _state: &'a mut DemoState,
+        _context: TaskStepContext,
+    ) -> TaskTypeStepRunFuture<'a> {
+        Box::pin(async move { Ok(TaskStepResult::Completed) })
+    }
+
+    fn rollback_fail_step<'a>(
+        _state: &'a mut DemoState,
+        _context: TaskStepContext,
+    ) -> TaskTypeStepRunFuture<'a> {
+        Box::pin(async move { Err(TaskExecutionError::new("boom")) })
+    }
+
+    fn rollback_first_step_undo<'a>(
+        state: &'a mut DemoState,
+        _context: TaskStepContext,
+    ) -> TaskTypeStepRollbackFuture<'a> {
+        Box::pin(async move {
+            if let DemoBehavior::Rollback { order } = &state.behavior {
+                order.lock().await.push("one");
+            }
+            Ok(())
+        })
+    }
+
+    fn rollback_second_step_undo<'a>(
+        state: &'a mut DemoState,
+        _context: TaskStepContext,
+    ) -> TaskTypeStepRollbackFuture<'a> {
+        Box::pin(async move {
+            if let DemoBehavior::Rollback { order } = &state.behavior {
+                order.lock().await.push("two");
+            }
+            Ok(())
+        })
+    }
+
+    fn wait_step<'a>(
+        state: &'a mut DemoState,
+        context: TaskStepContext,
+    ) -> TaskTypeStepRunFuture<'a> {
+        Box::pin(async move {
+            let DemoBehavior::WaitForNotify { notify } = &state.behavior else {
+                return Err(TaskExecutionError::new("missing notify"));
+            };
+            context.set_status_text("Waiting").await;
+            notify.notified().await;
+            context.set_step_progress(100).await;
+            Ok(TaskStepResult::Completed)
+        })
+    }
+
+    fn single_step<'a>(
+        state: &'a mut DemoState,
+        context: TaskStepContext,
+    ) -> TaskTypeStepRunFuture<'a> {
+        Box::pin(async move {
+            if matches!(state.behavior, DemoBehavior::PanicRun) {
+                panic!("run panic");
+            }
+            context.set_step_progress(100).await;
+            Ok(TaskStepResult::Completed)
+        })
+    }
+
+    fn panic_rollback_run_step<'a>(
+        _state: &'a mut DemoState,
+        _context: TaskStepContext,
+    ) -> TaskTypeStepRunFuture<'a> {
+        Box::pin(async move { Ok(TaskStepResult::Completed) })
+    }
+
+    fn panic_rollback_fail_step<'a>(
+        _state: &'a mut DemoState,
+        _context: TaskStepContext,
+    ) -> TaskTypeStepRunFuture<'a> {
+        Box::pin(async move { Err(TaskExecutionError::new("boom")) })
+    }
+
+    fn panic_rollback_undo_step<'a>(
+        _state: &'a mut DemoState,
+        _context: TaskStepContext,
+    ) -> TaskTypeStepRollbackFuture<'a> {
+        Box::pin(async move {
+            panic!("rollback panic");
+        })
+    }
+
+    #[tokio::test]
+    async fn runs_steps_and_tracks_weighted_progress() {
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        service.register_typed_task(DemoTask {
+            name: "demo.weighted",
+            behavior: DemoBehavior::WeightedProgress,
+            scope_key: None,
+            broadcast_updates: true,
+        });
+
+        let started = service
+            .start("demo.weighted", TaskInput::new())
+            .await
+            .unwrap();
+        let snapshot = wait_for_terminal(&service, &started.id).await;
+        assert_eq!(snapshot.status, TaskStateValue::Succeeded);
+        assert_eq!(snapshot.progress_percent, 100);
+        assert_eq!(snapshot.steps[0].state, TaskStepStateValue::Succeeded);
+        assert_eq!(snapshot.steps[1].state, TaskStepStateValue::Succeeded);
+    }
+
+    #[tokio::test]
+    async fn rolls_back_completed_steps_in_reverse_order() {
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        let order = Arc::new(Mutex::new(Vec::new()));
+        service.register_typed_task(DemoTask {
+            name: "demo.rollback",
+            behavior: DemoBehavior::Rollback {
+                order: order.clone(),
+            },
+            scope_key: None,
+            broadcast_updates: true,
+        });
+
+        let started = service
+            .start("demo.rollback", TaskInput::new())
+            .await
+            .unwrap();
+        let snapshot = wait_for_terminal(&service, &started.id).await;
+        assert_eq!(snapshot.status, TaskStateValue::RolledBack);
+        assert_eq!(snapshot.steps[0].state, TaskStepStateValue::RolledBack);
+        assert_eq!(snapshot.steps[1].state, TaskStepStateValue::RolledBack);
+        assert_eq!(snapshot.steps[2].state, TaskStepStateValue::Failed);
+        assert_eq!(order.lock().await.as_slice(), ["two", "one"]);
+    }
+
+    #[tokio::test]
+    async fn dedupes_same_scope_and_conflicts_other_definition() {
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        let notify = Arc::new(Notify::new());
+        service.register_typed_task(DemoTask {
+            name: "demo.wait",
+            behavior: DemoBehavior::WaitForNotify {
+                notify: notify.clone(),
+            },
+            scope_key: Some("scope:a"),
+            broadcast_updates: true,
+        });
+        service.register_typed_task(DemoTask {
+            name: "demo.weighted",
+            behavior: DemoBehavior::WeightedProgress,
+            scope_key: Some("scope:a"),
+            broadcast_updates: true,
+        });
+
+        let first = service.start("demo.wait", TaskInput::new()).await.unwrap();
+        let deduped = service.start("demo.wait", TaskInput::new()).await.unwrap();
+        assert_eq!(first.id, deduped.id);
+
+        let error = service
+            .start("demo.weighted", TaskInput::new())
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), TaskActionErrorKind::Conflict);
+
+        wait_for_status(&service, &first.id, TaskStateValue::Running).await;
+        notify.notify_waiters();
+        let _ = wait_for_terminal(&service, &first.id).await;
+    }
+
     #[tokio::test]
     async fn registers_typed_tasks_and_rejects_invalid_input() {
         let service = TaskService::new(Arc::new(EventBus::new()));
-        service.register_typed_task(DemoTypedTask);
+        service.register_typed_task(DemoTask {
+            name: "demo.weighted",
+            behavior: DemoBehavior::WeightedProgress,
+            scope_key: Some("scope:typed"),
+            broadcast_updates: true,
+        });
 
         let definition = service
             .list_definitions()
             .into_iter()
-            .find(|definition| definition.name == "typed.demo")
+            .find(|definition| definition.name == "demo.weighted")
             .unwrap();
         assert_eq!(definition.steps.len(), 2);
         assert_eq!(definition.steps[0].id, "prepare");
-        assert_eq!(definition.steps[1].id, "finish");
+        assert_eq!(definition.steps[1].id, "download");
 
         let mut invalid_input = TaskInput::new();
         invalid_input.insert("skipPrepare".to_string(), serde_json::json!("yes"));
         let error = service
-            .start("typed.demo", invalid_input)
+            .start("demo.weighted", invalid_input)
             .await
             .unwrap_err();
         assert_eq!(error.kind(), TaskActionErrorKind::InvalidRequest);
@@ -1586,23 +1801,246 @@ mod tests {
     #[tokio::test]
     async fn typed_tasks_can_skip_declared_steps() {
         let service = TaskService::new(Arc::new(EventBus::new()));
-        service.register_typed_task(DemoTypedTask);
+        service.register_typed_task(DemoTask {
+            name: "demo.weighted",
+            behavior: DemoBehavior::WeightedProgress,
+            scope_key: None,
+            broadcast_updates: true,
+        });
 
         let mut input = TaskInput::new();
         input.insert("skipPrepare".to_string(), serde_json::json!(true));
-        let started = service.start("typed.demo", input).await.unwrap();
+        let started = service.start("demo.weighted", input).await.unwrap();
         let snapshot = wait_for_terminal(&service, &started.id).await;
 
         assert_eq!(snapshot.status, TaskStateValue::Succeeded);
         assert_eq!(snapshot.progress_percent, 100);
         assert_eq!(snapshot.steps[0].id, "prepare");
         assert_eq!(snapshot.steps[0].state, TaskStepStateValue::Skipped);
-        assert_eq!(snapshot.steps[1].id, "finish");
+        assert_eq!(snapshot.steps[1].id, "download");
         assert_eq!(snapshot.steps[1].state, TaskStepStateValue::Succeeded);
     }
 
+    #[tokio::test]
+    async fn queued_invocations_stay_pending_until_a_worker_is_available() {
+        let service = TaskService::new_with_options(
+            Arc::new(EventBus::new()),
+            TaskServiceOptions {
+                queue_capacity: 8,
+                max_concurrency: 1,
+            },
+        );
+        let notify_one = Arc::new(Notify::new());
+        let notify_two = Arc::new(Notify::new());
+        service.register_typed_task(DemoTask {
+            name: "demo.wait-one",
+            behavior: DemoBehavior::WaitForNotify {
+                notify: notify_one.clone(),
+            },
+            scope_key: Some("scope:one"),
+            broadcast_updates: true,
+        });
+        service.register_typed_task(DemoTask {
+            name: "demo.wait-two",
+            behavior: DemoBehavior::WaitForNotify {
+                notify: notify_two.clone(),
+            },
+            scope_key: Some("scope:two"),
+            broadcast_updates: true,
+        });
+
+        let first = service
+            .start("demo.wait-one", TaskInput::new())
+            .await
+            .unwrap();
+        let mut second_input = TaskInput::new();
+        second_input.insert("skipPrepare".to_string(), serde_json::json!(false));
+        let second = service.start("demo.wait-two", second_input).await.unwrap();
+
+        wait_for_status(&service, &first.id, TaskStateValue::Running).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let snapshot = service.get(&second.id).await.unwrap();
+        assert_eq!(snapshot.status, TaskStateValue::Pending);
+
+        notify_one.notify_waiters();
+        let _ = wait_for_terminal(&service, &first.id).await;
+        notify_two.notify_waiters();
+        let _ = wait_for_terminal(&service, &second.id).await;
+    }
+
+    #[tokio::test]
+    async fn duplicate_step_ids_fail_registration() {
+        #[derive(Clone, Copy)]
+        struct DuplicateStepTask;
+
+        struct DuplicateState;
+
+        static DUPLICATE_STEPS: &[TaskTypeStep<DuplicateState>] = &[
+            TaskTypeStep::new("dup", "First", 50, duplicate_step),
+            TaskTypeStep::new("dup", "Second", 50, duplicate_step),
+        ];
+
+        impl TaskType for DuplicateStepTask {
+            type Input = DemoInput;
+            type State = DuplicateState;
+
+            fn metadata(&self) -> TaskMetadata {
+                TaskMetadata {
+                    name: "duplicate.steps".to_string(),
+                    title: "duplicate.steps".to_string(),
+                    description: None,
+                    broadcast_updates: true,
+                    input_fields: vec![],
+                }
+            }
+
+            fn parse_input(&self, _input: &TaskInput) -> Result<Self::Input, TaskActionError> {
+                Ok(DemoInput {
+                    skip_prepare: false,
+                })
+            }
+
+            fn scope_key(&self, _input: &Self::Input) -> Result<Option<String>, TaskActionError> {
+                Ok(None)
+            }
+
+            fn init<'a>(&'a self, _input: Self::Input) -> TaskStateInitFuture<'a, Self::State> {
+                Box::pin(async move { Ok(DuplicateState) })
+            }
+
+            fn steps(&self) -> &'static [TaskTypeStep<Self::State>] {
+                DUPLICATE_STEPS
+            }
+        }
+
+        fn duplicate_step<'a>(
+            _state: &'a mut DuplicateState,
+            _context: TaskStepContext,
+        ) -> TaskTypeStepRunFuture<'a> {
+            Box::pin(async move { Ok(TaskStepResult::Completed) })
+        }
+
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            service.register_typed_task(DuplicateStepTask);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn panic_in_init_marks_task_failed_and_releases_scope() {
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        service.register_typed_task(DemoTask {
+            name: "demo.panic-init",
+            behavior: DemoBehavior::PanicInit,
+            scope_key: Some("scope:panic-init"),
+            broadcast_updates: true,
+        });
+
+        let started = service
+            .start("demo.panic-init", TaskInput::new())
+            .await
+            .unwrap();
+        let snapshot = wait_for_terminal(&service, &started.id).await;
+        assert_eq!(snapshot.status, TaskStateValue::Failed);
+
+        let restarted = service
+            .start("demo.panic-init", TaskInput::new())
+            .await
+            .unwrap();
+        assert_ne!(started.id, restarted.id);
+        let _ = wait_for_terminal(&service, &restarted.id).await;
+    }
+
+    #[tokio::test]
+    async fn panic_in_run_marks_task_failed_and_releases_scope() {
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        service.register_typed_task(DemoTask {
+            name: "demo.panic-run",
+            behavior: DemoBehavior::PanicRun,
+            scope_key: Some("scope:panic-run"),
+            broadcast_updates: true,
+        });
+
+        let started = service
+            .start("demo.panic-run", TaskInput::new())
+            .await
+            .unwrap();
+        let snapshot = wait_for_terminal(&service, &started.id).await;
+        assert_eq!(snapshot.status, TaskStateValue::Failed);
+
+        let restarted = service
+            .start("demo.panic-run", TaskInput::new())
+            .await
+            .unwrap();
+        assert_ne!(started.id, restarted.id);
+        let _ = wait_for_terminal(&service, &restarted.id).await;
+    }
+
+    #[tokio::test]
+    async fn panic_in_rollback_marks_task_rollback_failed_and_releases_scope() {
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        service.register_typed_task(DemoTask {
+            name: "demo.panic-rollback",
+            behavior: DemoBehavior::PanicRollback,
+            scope_key: Some("scope:panic-rollback"),
+            broadcast_updates: true,
+        });
+
+        let started = service
+            .start("demo.panic-rollback", TaskInput::new())
+            .await
+            .unwrap();
+        let snapshot = wait_for_terminal(&service, &started.id).await;
+        assert_eq!(snapshot.status, TaskStateValue::RollbackFailed);
+
+        let restarted = service
+            .start("demo.panic-rollback", TaskInput::new())
+            .await
+            .unwrap();
+        assert_ne!(started.id, restarted.id);
+        let _ = wait_for_terminal(&service, &restarted.id).await;
+    }
+
+    #[tokio::test]
+    async fn panic_in_finalize_preserves_terminal_status() {
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        let finalized = Arc::new(AtomicBool::new(false));
+        service.register_typed_task(DemoTask {
+            name: "demo.panic-finalize",
+            behavior: DemoBehavior::PanicFinalize {
+                finalized: finalized.clone(),
+            },
+            scope_key: Some("scope:panic-finalize"),
+            broadcast_updates: true,
+        });
+
+        let started = service
+            .start("demo.panic-finalize", TaskInput::new())
+            .await
+            .unwrap();
+        let snapshot = wait_for_terminal(&service, &started.id).await;
+        assert_eq!(snapshot.status, TaskStateValue::Succeeded);
+        assert!(finalized.load(Ordering::Relaxed));
+    }
+
+    async fn wait_for_status(service: &TaskService, task_id: &str, expected: TaskStateValue) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let snapshot = service.get(task_id).await.unwrap();
+            if snapshot.status == expected {
+                return;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "task {task_id} did not reach {expected:?} in time"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     async fn wait_for_terminal(service: &TaskService, task_id: &str) -> TaskInvocationSnapshot {
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
         loop {
             let snapshot = service.get(task_id).await.unwrap();
             if snapshot.status.is_terminal() {
@@ -1612,7 +2050,7 @@ mod tests {
                 tokio::time::Instant::now() < deadline,
                 "task {task_id} did not finish in time"
             );
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
@@ -1620,26 +2058,12 @@ mod tests {
     async fn task_api_lists_and_starts_registered_tasks() {
         let tmp = tempfile::TempDir::new().unwrap();
         let state = AppState::new(tmp.path().to_path_buf()).await;
-        state.tasks.register_definition(definition(
-            "test.demo",
-            Arc::new(|task, _input| {
-                Box::pin(async move {
-                    task.run_steps(vec![TaskStep::new(
-                        "run",
-                        100,
-                        Arc::new(|step| {
-                            Box::pin(async move {
-                                step.set_step_progress(100).await;
-                                Ok(())
-                            })
-                        }),
-                    )])
-                    .await
-                })
-            }),
-            Some("scope:test"),
-            true,
-        ));
+        state.tasks.register_typed_task(DemoTask {
+            name: "demo.weighted",
+            behavior: DemoBehavior::WeightedProgress,
+            scope_key: Some("scope:test"),
+            broadcast_updates: true,
+        });
         let app = build_router(state);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -1660,13 +2084,13 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|definition| definition["name"] == "test.demo")
+                .any(|definition| definition["name"] == "demo.weighted")
         );
 
         let started = client
             .post(format!("http://{addr}/api/tasks"))
             .json(&serde_json::json!({
-                "definitionName": "test.demo",
+                "definitionName": "demo.weighted",
                 "input": {}
             }))
             .send()
@@ -1674,7 +2098,7 @@ mod tests {
             .unwrap();
         assert_eq!(started.status(), reqwest::StatusCode::ACCEPTED);
         let started: serde_json::Value = started.json().await.unwrap();
-        assert_eq!(started["definitionName"], "test.demo");
+        assert_eq!(started["definitionName"], "demo.weighted");
 
         let listed = client
             .get(format!("http://{addr}/api/tasks"))
@@ -1688,7 +2112,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|task| task["definitionName"] == "test.demo")
+                .any(|task| task["definitionName"] == "demo.weighted")
         );
     }
 
@@ -1696,35 +2120,22 @@ mod tests {
     async fn task_snapshot_and_events_include_broadcast_tasks() {
         let tmp = tempfile::TempDir::new().unwrap();
         let state = AppState::new(tmp.path().to_path_buf()).await;
-        state.tasks.register_definition(definition(
-            "test.long",
-            Arc::new(|task, _input| {
-                Box::pin(async move {
-                    task.run_steps(vec![TaskStep::new(
-                        "wait",
-                        100,
-                        Arc::new(|step| {
-                            Box::pin(async move {
-                                step.set_status_text("Waiting").await;
-                                tokio::time::sleep(Duration::from_millis(200)).await;
-                                step.set_step_progress(100).await;
-                                Ok(())
-                            })
-                        }),
-                    )])
-                    .await
-                })
-            }),
-            Some("scope:long"),
-            true,
-        ));
+        let notify = Arc::new(Notify::new());
+        state.tasks.register_typed_task(DemoTask {
+            name: "demo.wait",
+            behavior: DemoBehavior::WaitForNotify {
+                notify: notify.clone(),
+            },
+            scope_key: Some("scope:long"),
+            broadcast_updates: true,
+        });
         let mut rx = state.events.subscribe();
         let started = state
             .tasks
-            .start("test.long", TaskInput::new())
+            .start("demo.wait", TaskInput::new())
             .await
             .unwrap();
-        let app = build_router(state);
+        let app = build_router(state.clone());
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -1746,5 +2157,8 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(matches!(event.kind, EventKind::TaskUpdated(_)));
+
+        notify.notify_waiters();
+        let _ = wait_for_terminal(&state.tasks, &started.id).await;
     }
 }

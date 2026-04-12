@@ -4,10 +4,10 @@ use semver::Version;
 
 use crate::api::settings::VscodeRuntimeKind;
 use crate::task_manager::{
-    TaskActionError, TaskDefinitionInputField, TaskDefinitionSnapshot, TaskExecutionError,
-    TaskFinalizeFuture, TaskInput, TaskInputFieldKind, TaskService, TaskStateInitFuture,
-    TaskStateValue, TaskStepContext, TaskStepDefinitionSnapshot, TaskStepResult, TaskType,
-    TaskTypeStep, TaskTypeStepRollbackFuture, TaskTypeStepRunFuture,
+    TaskActionError, TaskDefinitionInputField, TaskExecutionError, TaskFinalizeFuture, TaskInput,
+    TaskInputFieldKind, TaskMetadata, TaskService, TaskStateInitFuture, TaskStateValue,
+    TaskStepContext, TaskStepResult, TaskType, TaskTypeStep, TaskTypeStepRollbackFuture,
+    TaskTypeStepRunFuture,
 };
 
 use super::{
@@ -55,6 +55,43 @@ impl InstallRuntimeState {
         }
     }
 }
+
+static CHECK_RUNTIME_UPDATE_STEPS: &[TaskTypeStep<CheckRuntimeUpdateState>] = &[TaskTypeStep::new(
+    STEP_CHECK_LATEST,
+    "Check Latest",
+    100,
+    run_check_latest_step,
+)];
+
+static INSTALL_RUNTIME_STEPS: &[TaskTypeStep<InstallRuntimeState>] = &[
+    TaskTypeStep::new(
+        STEP_STOP_RUNTIME,
+        "Stop Runtime",
+        5,
+        run_install_stop_runtime_step,
+    )
+    .with_rollback(rollback_install_stop_runtime_step),
+    TaskTypeStep::new(
+        STEP_DOWNLOAD_RUNTIME,
+        "Download Runtime",
+        70,
+        run_install_download_runtime_step,
+    )
+    .with_rollback(rollback_install_download_runtime_step),
+    TaskTypeStep::new(
+        STEP_START_RUNTIME,
+        "Start Runtime",
+        20,
+        run_install_start_runtime_step,
+    )
+    .with_rollback(rollback_install_start_runtime_step),
+    TaskTypeStep::new(
+        STEP_CLEANUP_RUNTIMES,
+        "Cleanup Runtimes",
+        5,
+        run_install_cleanup_runtimes_step,
+    ),
+];
 
 /// Register the stable VS Code task types with the shared task service.
 pub fn register_vscode_tasks(
@@ -144,18 +181,13 @@ impl TaskType for CheckRuntimeUpdateTask {
     type Input = CheckRuntimeUpdateInput;
     type State = CheckRuntimeUpdateState;
 
-    fn definition(&self) -> TaskDefinitionSnapshot {
-        TaskDefinitionSnapshot {
+    fn metadata(&self) -> TaskMetadata {
+        TaskMetadata {
             name: TASK_VSCODE_CHECK_UPDATE.to_string(),
             title: "Check VS Code Runtime Update".to_string(),
             description: Some("Check the latest release for a VS Code runtime.".to_string()),
             broadcast_updates: true,
             input_fields: vec![runtime_input_field()],
-            steps: vec![TaskStepDefinitionSnapshot {
-                id: STEP_CHECK_LATEST.to_string(),
-                title: "Check Latest".to_string(),
-                weight: 100,
-            }],
         }
     }
 
@@ -179,13 +211,8 @@ impl TaskType for CheckRuntimeUpdateTask {
         })
     }
 
-    fn steps(&self) -> Vec<TaskTypeStep<Self::State>> {
-        vec![TaskTypeStep::new(
-            STEP_CHECK_LATEST,
-            "Check Latest",
-            100,
-            run_check_latest_step,
-        )]
+    fn steps(&self) -> &'static [TaskTypeStep<Self::State>] {
+        CHECK_RUNTIME_UPDATE_STEPS
     }
 }
 
@@ -208,8 +235,8 @@ impl TaskType for InstallRuntimeTask {
     type Input = InstallRuntimeInput;
     type State = InstallRuntimeState;
 
-    fn definition(&self) -> TaskDefinitionSnapshot {
-        TaskDefinitionSnapshot {
+    fn metadata(&self) -> TaskMetadata {
+        TaskMetadata {
             name: TASK_VSCODE_INSTALL_RUNTIME.to_string(),
             title: "Install VS Code Runtime".to_string(),
             description: Some(
@@ -241,28 +268,6 @@ impl TaskType for InstallRuntimeTask {
                     enum_values: vec![],
                 },
             ],
-            steps: vec![
-                TaskStepDefinitionSnapshot {
-                    id: STEP_STOP_RUNTIME.to_string(),
-                    title: "Stop Runtime".to_string(),
-                    weight: 5,
-                },
-                TaskStepDefinitionSnapshot {
-                    id: STEP_DOWNLOAD_RUNTIME.to_string(),
-                    title: "Download Runtime".to_string(),
-                    weight: 70,
-                },
-                TaskStepDefinitionSnapshot {
-                    id: STEP_START_RUNTIME.to_string(),
-                    title: "Start Runtime".to_string(),
-                    weight: 20,
-                },
-                TaskStepDefinitionSnapshot {
-                    id: STEP_CLEANUP_RUNTIMES.to_string(),
-                    title: "Cleanup Runtimes".to_string(),
-                    weight: 5,
-                },
-            ],
         }
     }
 
@@ -285,50 +290,28 @@ impl TaskType for InstallRuntimeTask {
     fn init<'a>(&'a self, input: Self::Input) -> TaskStateInitFuture<'a, Self::State> {
         Box::pin(async move {
             Ok(match input.runtime {
-                VscodeRuntimeKind::CodeServer => {
-                    InstallRuntimeState::CodeServer(CodeServerInstallState::new(
+                VscodeRuntimeKind::CodeServer => InstallRuntimeState::CodeServer(
+                    CodeServerInstallState::initialize(
                         self.code_server.clone(),
                         input.version,
                         input.force,
-                    ))
-                }
+                    )
+                    .await?,
+                ),
                 VscodeRuntimeKind::VscodeCli => InstallRuntimeState::VscodeCli(
-                    VscodeCliInstallState::new(self.vscode_cli.clone(), input.version, input.force),
+                    VscodeCliInstallState::initialize(
+                        self.vscode_cli.clone(),
+                        input.version,
+                        input.force,
+                    )
+                    .await?,
                 ),
             })
         })
     }
 
-    fn steps(&self) -> Vec<TaskTypeStep<Self::State>> {
-        vec![
-            TaskTypeStep::new(
-                STEP_STOP_RUNTIME,
-                "Stop Runtime",
-                5,
-                run_install_stop_runtime_step,
-            )
-            .with_rollback(rollback_install_stop_runtime_step),
-            TaskTypeStep::new(
-                STEP_DOWNLOAD_RUNTIME,
-                "Download Runtime",
-                70,
-                run_install_download_runtime_step,
-            )
-            .with_rollback(rollback_install_download_runtime_step),
-            TaskTypeStep::new(
-                STEP_START_RUNTIME,
-                "Start Runtime",
-                20,
-                run_install_start_runtime_step,
-            )
-            .with_rollback(rollback_install_start_runtime_step),
-            TaskTypeStep::new(
-                STEP_CLEANUP_RUNTIMES,
-                "Cleanup Runtimes",
-                5,
-                run_install_cleanup_runtimes_step,
-            ),
-        ]
+    fn steps(&self) -> &'static [TaskTypeStep<Self::State>] {
+        INSTALL_RUNTIME_STEPS
     }
 
     fn finalize<'a>(

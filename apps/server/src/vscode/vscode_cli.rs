@@ -3,43 +3,24 @@ use crate::task_manager::{TaskExecutionError, TaskStateValue, TaskStepContext, T
 
 pub(super) struct VscodeCliInstallState {
     manager: Arc<VscodeCliManager>,
-    requested_version: Option<String>,
-    force: bool,
-    initialized: bool,
-    plan: Option<VscodeCliInstallPlan>,
+    plan: VscodeCliInstallPlan,
     rollback_state: Arc<Mutex<VscodeCliInstallTaskState>>,
 }
 
 impl VscodeCliInstallState {
-    pub(super) fn new(
+    pub(super) async fn initialize(
         manager: Arc<VscodeCliManager>,
         requested_version: Option<String>,
         force: bool,
-    ) -> Self {
-        Self {
-            manager,
-            requested_version,
-            force,
-            initialized: false,
-            plan: None,
-            rollback_state: Arc::new(Mutex::new(VscodeCliInstallTaskState::default())),
-        }
-    }
-
-    async fn ensure_initialized(&mut self) -> Result<(), TaskExecutionError> {
-        if self.initialized {
-            return Ok(());
-        }
-
+    ) -> Result<Self, TaskExecutionError> {
         loop {
-            let process = self
-                .manager
+            let process = manager
                 .process_handle
                 .status()
                 .await
                 .map_err(map_managed_process_error_vscode_cli)
                 .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-            let state = self.manager.inner.lock().await;
+            let state = manager.inner.lock().await;
 
             if state.runtime.is_installing() {
                 return Err(TaskExecutionError::new(
@@ -51,7 +32,7 @@ impl VscodeCliInstallState {
                 process.lifecycle_state,
                 ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
             ) {
-                let notified = self.manager.notify.notified();
+                let notified = manager.notify.notified();
                 drop(state);
                 notified.await;
                 continue;
@@ -61,44 +42,39 @@ impl VscodeCliInstallState {
             break;
         }
 
-        let plan = self
-            .manager
-            .prepare_install_plan(self.requested_version.clone(), self.force)
+        let plan = manager
+            .prepare_install_plan(requested_version, force)
             .await
             .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        {
-            let mut rollback_state = self.rollback_state.lock().await;
-            rollback_state.target_runtime_dir = Some(
-                self.manager
+        let rollback_state = Arc::new(Mutex::new(VscodeCliInstallTaskState {
+            target_runtime_dir: Some(
+                manager
                     .root_dir
                     .join(RUNTIMES_DIR)
                     .join(vscode_cli_runtime_dir_name(&plan.version, plan.platform)),
-            );
-        }
+            ),
+            ..Default::default()
+        }));
 
         {
-            let mut state = self.manager.inner.lock().await;
+            let mut state = manager.inner.lock().await;
             state.runtime = VscodeCliRuntimeState::Installing;
             state.install_progress = Some(preparing_install_progress());
         }
-        self.manager.notify.notify_waiters();
-        self.manager.publish_status_update().await;
+        manager.notify.notify_waiters();
+        manager.publish_status_update().await;
 
-        self.plan = Some(plan);
-        self.initialized = true;
-        Ok(())
+        Ok(Self {
+            manager,
+            plan,
+            rollback_state,
+        })
     }
 
-    fn plan(&self) -> Result<VscodeCliInstallPlan, TaskExecutionError> {
-        self.plan
-            .clone()
-            .ok_or_else(|| TaskExecutionError::new("missing install plan"))
-    }
     pub(super) async fn stop_runtime(
         &mut self,
         context: TaskStepContext,
     ) -> Result<TaskStepResult, TaskExecutionError> {
-        self.ensure_initialized().await?;
         context.set_status_text("Stopping current runtime").await;
         let had_running = self
             .manager
@@ -118,8 +94,7 @@ impl VscodeCliInstallState {
         &mut self,
         context: TaskStepContext,
     ) -> Result<TaskStepResult, TaskExecutionError> {
-        self.ensure_initialized().await?;
-        let plan = self.plan()?;
+        let plan = self.plan.clone();
         context.set_status_text("Downloading runtime").await;
         let target_runtime_dir = self
             .manager
@@ -167,7 +142,6 @@ impl VscodeCliInstallState {
         &mut self,
         context: TaskStepContext,
     ) -> Result<TaskStepResult, TaskExecutionError> {
-        self.ensure_initialized().await?;
         self.manager
             .set_install_progress(ManagerCodeServerInstallProgress {
                 phase: CodeServerInstallPhaseValue::Starting,
@@ -208,7 +182,6 @@ impl VscodeCliInstallState {
         &mut self,
         context: TaskStepContext,
     ) -> Result<TaskStepResult, TaskExecutionError> {
-        self.ensure_initialized().await?;
         self.manager
             .set_install_progress(ManagerCodeServerInstallProgress {
                 phase: CodeServerInstallPhaseValue::Cleaning,
