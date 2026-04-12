@@ -658,6 +658,18 @@ async fn test_update_browser_tab_rejects_invalid_history_index() {
         body["message"],
         "history_index must point at an entry in history."
     );
+
+    let tabs = list_tabs(&client, &base).await;
+    let persisted = tabs
+        .iter()
+        .find(|entry| entry["id"] == tab_id)
+        .expect("browser tab should still exist");
+    assert_eq!(persisted["url"], "http://localhost:4173/");
+    assert_eq!(
+        persisted["history"],
+        serde_json::json!(["http://localhost:4173/"])
+    );
+    assert_eq!(persisted["history_index"], 0);
 }
 
 #[tokio::test]

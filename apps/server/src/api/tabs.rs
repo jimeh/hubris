@@ -343,6 +343,63 @@ fn has_browser_update_fields(req: &UpdateTabRequest) -> bool {
     req.label.is_some() || req.url.is_some() || req.history.is_some() || req.history_index.is_some()
 }
 
+struct ValidatedBrowserUpdate {
+    label: Option<String>,
+    url: Option<String>,
+    history: Option<Vec<String>>,
+    history_index: Option<usize>,
+}
+
+fn validate_browser_update(
+    tab: &TabInfo,
+    req: &UpdateTabRequest,
+) -> Result<ValidatedBrowserUpdate, TabsApiError> {
+    if !tab.is_browser() {
+        return Ok(ValidatedBrowserUpdate {
+            label: None,
+            url: None,
+            history: None,
+            history_index: None,
+        });
+    }
+
+    let label = req.label.as_deref().map(|label| label.trim().to_string());
+    let url = req.url.as_deref().map(normalize_browser_url).transpose()?;
+    let history = req
+        .history
+        .as_ref()
+        .map(|history| {
+            history
+                .iter()
+                .map(|entry| normalize_browser_url(entry))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
+    let history_index = req.history_index;
+
+    let next_history = history
+        .clone()
+        .or_else(|| tab.history().map(|history| history.to_vec()))
+        .unwrap_or_default();
+    let next_history_index = history_index
+        .or_else(|| tab.history_index())
+        .unwrap_or_default();
+
+    if next_history.is_empty() || next_history_index >= next_history.len() {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_BROWSER_HISTORY_MESSAGE,
+        ));
+    }
+
+    Ok(ValidatedBrowserUpdate {
+        label,
+        url,
+        history,
+        history_index,
+    })
+}
+
 fn spawn_terminal_runtime(
     worktree_path: &str,
     info: TabInfo,
@@ -720,7 +777,6 @@ pub async fn update_tab(
     Path(id): Path<String>,
     Json(req): Json<UpdateTabRequest>,
 ) -> Result<Json<TabInfo>, TabsApiError> {
-    let sync_live_tab = req.has_notification.is_some() || req.custom_label.is_some();
     let updated = {
         let mut tab = state
             .tabs
@@ -733,6 +789,8 @@ pub async fn update_tab(
                 BROWSER_FIELDS_REQUIRE_BROWSER_TAB_MESSAGE,
             ));
         }
+
+        let browser_update = validate_browser_update(&tab, &req)?;
 
         if let Some(position) = req.position {
             tab.set_position(position);
@@ -750,61 +808,24 @@ pub async fn update_tab(
         {
             tab.set_has_notification(has_notification);
         }
-        if let Some(label) = req.label.as_deref()
-            && tab.is_browser()
-        {
-            tab.set_label(label.trim().to_string());
+        if let Some(label) = browser_update.label {
+            tab.set_label(label);
         }
-        if let Some(url) = req.url.as_deref()
-            && tab.is_browser()
-        {
-            tab.set_url(normalize_browser_url(url)?);
+        if let Some(url) = browser_update.url {
+            tab.set_url(url);
         }
-        if let Some(history) = req.history.as_ref()
-            && tab.is_browser()
-        {
-            let normalized = history
-                .iter()
-                .map(|entry| normalize_browser_url(entry))
-                .collect::<Result<Vec<_>, _>>()?;
-            tab.set_history(normalized);
+        if let Some(history) = browser_update.history {
+            tab.set_history(history);
         }
-        if let Some(history_index) = req.history_index
-            && tab.is_browser()
-        {
-            let history_len = tab
-                .history()
-                .map(|history| history.len())
-                .unwrap_or_default();
-            if history_len == 0 || history_index >= history_len {
-                return Err(TabsApiError::new(
-                    StatusCode::BAD_REQUEST,
-                    INVALID_BROWSER_HISTORY_MESSAGE,
-                ));
-            }
+        if let Some(history_index) = browser_update.history_index {
             tab.set_history_index(history_index);
-        }
-
-        if tab.is_browser() {
-            let history_len = tab
-                .history()
-                .map(|history| history.len())
-                .unwrap_or_default();
-            let history_index = tab.history_index().unwrap_or_default();
-            if history_len == 0 || history_index >= history_len {
-                return Err(TabsApiError::new(
-                    StatusCode::BAD_REQUEST,
-                    INVALID_BROWSER_HISTORY_MESSAGE,
-                ));
-            }
         }
 
         tab.clone()
     };
 
     // Sync notification state to LiveTab's internal info
-    if sync_live_tab
-        && req.has_notification.is_some()
+    if req.has_notification.is_some()
         && let Some(lt) = state.terminal_tabs.get(&id)
     {
         lt.update_info(|info| {
@@ -815,8 +836,7 @@ pub async fn update_tab(
             info.clone()
         });
     }
-    if sync_live_tab
-        && req.has_notification.is_none()
+    if req.has_notification.is_none()
         && req.custom_label.is_some()
         && let Some(lt) = state.terminal_tabs.get(&id)
     {

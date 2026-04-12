@@ -263,6 +263,18 @@ describe("WorktreeView", () => {
     expect(getTerminalRenderCounts()).toEqual({ a: 1, b: 1, c: 1 });
   });
 
+  it("shows empty-state copy for the separate terminal and browser buttons", () => {
+    const worktree = makeWorktree();
+
+    render(<WorktreeView worktree={worktree} active />);
+
+    expect(
+      screen.getByText(
+        "Use the terminal or browser buttons to open a tab, or select a file to preview.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("does not rerender when tabs change in another worktree", async () => {
     const worktree = makeWorktree();
 

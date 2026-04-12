@@ -326,7 +326,10 @@ export default function WorktreeView({ worktree, active }: Props) {
 
           {worktreeTabs.length === 0 ? (
             <div className="flex h-full items-center justify-center text-muted-foreground">
-              <p>Click + to open a terminal, or select a file to preview.</p>
+              <p>
+                Use the terminal or browser buttons to open a tab, or select a
+                file to preview.
+              </p>
             </div>
           ) : null}
         </div>

@@ -2,10 +2,17 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { ArrowLeft, ArrowRight, ExternalLink, RefreshCcw } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  ExternalLink,
+  RefreshCcw,
+} from "lucide-react";
 import {
   BLANK_BROWSER_URL,
   browserInputValue,
@@ -29,8 +36,9 @@ type Props = {
 };
 
 const URL_INPUT_PROPS = {
-  type: "url",
+  type: "text",
   inputMode: "url" as const,
+  enterKeyHint: "go" as const,
   autoComplete: "off",
   autoCorrect: "off",
   autoCapitalize: "none" as const,
@@ -61,13 +69,60 @@ function nextBrowserHistory(
   };
 }
 
-async function probeNavigationTarget(url: string): Promise<boolean> {
+async function probeNavigationTarget(url: string): Promise<boolean | string> {
   try {
-    await fetch(url, {
+    const response = await fetch(url, {
+      method: "GET",
+      mode: "cors",
+      redirect: "follow",
+      cache: "no-store",
+    });
+
+    if (response.url) {
+      try {
+        const resolvedUrl = new URL(response.url);
+        if (
+          resolvedUrl.protocol === "http:" ||
+          resolvedUrl.protocol === "https:"
+        ) {
+          return resolvedUrl.toString();
+        }
+      } catch {
+        // Fall through to the original probe URL when the final response URL
+        // is not parseable for some reason.
+      }
+    }
+
+    return true;
+  } catch {
+    // Many cross-origin sites reject CORS reads entirely. Fall back to a
+    // best-effort reachability probe that still lets browser tabs open.
+  }
+
+  try {
+    const response = await fetch(url, {
       method: "GET",
       mode: "no-cors",
       cache: "no-store",
     });
+
+    if (!response.url) {
+      return true;
+    }
+
+    try {
+      const resolvedUrl = new URL(response.url);
+      if (
+        resolvedUrl.protocol === "http:" ||
+        resolvedUrl.protocol === "https:"
+      ) {
+        return resolvedUrl.toString();
+      }
+    } catch {
+      // Fall back to the original probe URL when the browser does not expose
+      // a parseable final response URL for no-cors requests.
+    }
+
     return true;
   } catch {
     return false;
@@ -83,14 +138,14 @@ async function resolveNavigationUrl(rawUrl: string): Promise<string> {
     return parsed.url;
   }
 
-  const httpAvailable = await probeNavigationTarget(parsed.httpUrl);
-  if (httpAvailable) {
-    return parsed.httpUrl;
+  const httpResult = await probeNavigationTarget(parsed.httpUrl);
+  if (httpResult) {
+    return typeof httpResult === "string" ? httpResult : parsed.httpUrl;
   }
 
-  const httpsAvailable = await probeNavigationTarget(parsed.httpsUrl);
-  if (httpsAvailable) {
-    return parsed.httpsUrl;
+  const httpsResult = await probeNavigationTarget(parsed.httpsUrl);
+  if (httpsResult) {
+    return typeof httpsResult === "string" ? httpsResult : parsed.httpsUrl;
   }
 
   return parsed.httpUrl;
@@ -102,6 +157,7 @@ export default function BrowserTab({ tab, visible }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const inputFocusedRef = useRef(false);
   const previousUrlRef = useRef(tab.url);
+  const [desktopCreateUrl] = useState(() => tab.url);
   const ensureSession = useBrowserTabStore((state) => state.ensureSession);
   const syncNavigationState = useBrowserTabStore(
     (state) => state.syncNavigationState,
@@ -125,6 +181,7 @@ export default function BrowserTab({ tab, visible }: Props) {
     : tab.history_index < tab.history.length - 1;
 
   const iframeKey = `${tab.id}:${tab.url}:${session?.reloadKey ?? 0}`;
+  const errorMessageId = `${tab.id}-browser-error`;
 
   const applyDesktopState = useCallback(
     async (state: DesktopBrowserState) => {
@@ -243,16 +300,18 @@ export default function BrowserTab({ tab, visible }: Props) {
     }
 
     let cancelled = false;
-    void bridge.create({ tabId: tab.id, url: tab.url }).then(({ state }) => {
-      if (!cancelled) {
-        void applyDesktopState(state);
-      }
-    });
+    void bridge
+      .create({ tabId: tab.id, url: desktopCreateUrl })
+      .then(({ state }) => {
+        if (!cancelled) {
+          void applyDesktopState(state);
+        }
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [applyDesktopState, isDesktop, tab.id, tab.url]);
+  }, [applyDesktopState, desktopCreateUrl, isDesktop, tab.id]);
 
   useEffect(() => {
     if (!isDesktop) {
@@ -427,6 +486,7 @@ export default function BrowserTab({ tab, visible }: Props) {
     <div className="flex h-full flex-col bg-background">
       <form
         className="flex items-center gap-2 border-b px-3 py-2"
+        noValidate
         onSubmit={submitAddressBar}
       >
         <Button
@@ -477,6 +537,8 @@ export default function BrowserTab({ tab, visible }: Props) {
           onKeyDown={handleAddressBarKeyDown}
           placeholder="Enter a URL"
           aria-label="Browser address"
+          aria-invalid={session?.error ? true : undefined}
+          aria-describedby={session?.error ? errorMessageId : undefined}
         />
         <Button
           type="button"
@@ -490,8 +552,20 @@ export default function BrowserTab({ tab, visible }: Props) {
       </form>
 
       {session?.error ? (
-        <div className="border-b bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {session.error}
+        <div
+          id={errorMessageId}
+          role="alert"
+          className="border-b border-amber-500/20 bg-linear-to-r from-amber-500/12 via-amber-500/6 to-transparent px-3 py-2"
+        >
+          <div className="flex items-start gap-2 text-sm text-amber-950 dark:text-amber-100">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="min-w-0">
+              <p className="font-medium">Can&apos;t open that page</p>
+              <p className="text-amber-900/80 dark:text-amber-100/80">
+                {session.error}
+              </p>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -514,6 +588,9 @@ export default function BrowserTab({ tab, visible }: Props) {
             src={tab.url}
             className="absolute inset-0 h-full w-full border-0 bg-background"
             onLoad={() => {
+              if (!session?.loading) {
+                return;
+              }
               setLoading(tab.id, false);
               setError(tab.id, null);
               setShowEmbedHelp(tab.id, false);

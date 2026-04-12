@@ -312,6 +312,9 @@ embeddings.**
 - Web-mode browser tabs are direct iframes only. Do not add same-origin proxy
   routing for localhost previews; that path breaks dev/release frontend behavior
   and still cannot make arbitrary external sites embeddable.
+- Browser-tab iframe `onLoad` handlers should only clear loading/error state
+  when Hubris is actively waiting on a navigation. The initial `about:blank`
+  load can otherwise race and wipe renderer-owned validation errors.
 - Linux-only Rust paths still compile in CI even when local macOS checks look
   clean. Keep `#[cfg(target_os = "linux")]` helpers self-contained with their
   Linux-only imports and concrete type paths, especially around
