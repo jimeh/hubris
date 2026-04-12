@@ -33,6 +33,7 @@ import {
   type VscodeStatus,
 } from "@/lib/api";
 import { useSettingsStore } from "@/lib/stores/settings";
+import { useTaskStore } from "@/lib/stores/tasks";
 import { setVscodeStatus, useVscodeStore } from "@/lib/stores/vscode";
 
 type VscodeRuntimeKind = "vscodeCli" | "codeServer";
@@ -202,8 +203,16 @@ function runtimeStatus(
   return runtime === "codeServer" ? status.codeServer : status.vscodeCli;
 }
 
+function taskStepLabel(name: string): string {
+  return name
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export default function VscodeSettings() {
   const status = useVscodeStore((state) => state.status);
+  const tasksById = useTaskStore((state) => state.tasksById);
   const selectedRuntimeSetting = useSettingsStore(
     (state) => state.settings.vscode.runtime,
   );
@@ -212,11 +221,23 @@ export default function VscodeSettings() {
 
   const selectedRuntime = selectedRuntimeSetting ?? "vscodeCli";
   const activeStatus = runtimeStatus(status, selectedRuntime);
+  const activeTask = activeStatus?.activeTaskId
+    ? (tasksById[activeStatus.activeTaskId] ?? null)
+    : null;
+  const activeTaskStep =
+    activeTask?.steps.find(
+      (step) => step.state === "running" || step.state === "rollingBack",
+    ) ?? null;
   const latest = activeStatus?.latest ?? null;
-  const installProgress = activeStatus?.installProgress ?? null;
+  const installProgress = activeTask
+    ? null
+    : (activeStatus?.installProgress ?? null);
   const processStatus = activeStatus?.processStatus ?? "stopped";
   const busy =
     pendingAction !== null ||
+    activeTask?.status === "pending" ||
+    activeTask?.status === "running" ||
+    activeTask?.status === "rollingBack" ||
     processStatus === "starting" ||
     processStatus === "stopping" ||
     processStatus === "installing";
@@ -333,7 +354,35 @@ export default function VscodeSettings() {
           </div>
         </div>
 
-        {installProgress ? (
+        {activeTask ? (
+          <div className={settingsRowClass}>
+            <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+              Task
+            </Label>
+            <div className="flex min-h-8 flex-col gap-2 py-1">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-medium">
+                  {activeTaskStep
+                    ? taskStepLabel(activeTaskStep.name)
+                    : activeTask.title}
+                </span>
+                <span className="text-muted-foreground">
+                  {activeTask.progressPercent}%
+                </span>
+              </div>
+              <Progress
+                value={activeTask.progressPercent}
+                aria-label="Task progress"
+              />
+              <p className="text-xs text-muted-foreground">
+                {activeTask.statusText ??
+                  (activeTaskStep
+                    ? `${taskStepLabel(activeTaskStep.name)} in progress.`
+                    : activeTask.title)}
+              </p>
+            </div>
+          </div>
+        ) : installProgress ? (
           <div className={settingsRowClass}>
             <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
               Install

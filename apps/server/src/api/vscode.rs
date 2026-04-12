@@ -70,6 +70,8 @@ pub struct VscodeRuntimeStatus {
     pub install_progress: Option<VscodeInstallProgress>,
     #[serde(default)]
     pub message: Option<String>,
+    #[serde(default)]
+    pub active_task_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
@@ -162,6 +164,7 @@ impl From<VscodeRuntimeStatusSnapshot> for VscodeRuntimeStatus {
             latest: value.latest.map(Into::into),
             install_progress: value.install_progress.map(Into::into),
             message: value.message,
+            active_task_id: value.active_task_id,
         }
     }
 }
@@ -221,6 +224,12 @@ fn map_vscode_error(error: &VscodeError) -> StatusCode {
             | crate::vscode::VscodeCliError::Http(_)
             | crate::vscode::VscodeCliError::Archive(_)
             | crate::vscode::VscodeCliError::Spawn(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        },
+        VscodeError::Task(error) => match error.kind() {
+            crate::task_manager::TaskActionErrorKind::NotFound => StatusCode::NOT_FOUND,
+            crate::task_manager::TaskActionErrorKind::InvalidRequest => StatusCode::BAD_REQUEST,
+            crate::task_manager::TaskActionErrorKind::Conflict => StatusCode::CONFLICT,
+            crate::task_manager::TaskActionErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         },
     }
 }

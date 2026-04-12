@@ -9,6 +9,7 @@ pub mod pty;
 mod settings_manager;
 pub mod state;
 pub mod tab;
+pub mod task_manager;
 mod vscode;
 pub mod worktree_files;
 pub mod worktree_path_policy;
@@ -49,6 +50,7 @@ use api::projects::{add_project, delete_project, list_projects, reorder_projects
 use api::settings::{get_settings, patch_settings, put_settings};
 use api::system::get_system_info;
 use api::tabs::{create_tab, delete_tab, list_tabs, reorder_tabs, update_tab};
+use api::tasks::{get_task, list_task_definitions, list_tasks, start_task};
 use api::terminal::ws_handler;
 use api::vscode::{
     check_vscode_update, get_desktop_vscode_connection, get_vscode_status, install_vscode,
@@ -295,6 +297,9 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route("/processes/{id}/start", post(start_managed_process))
         .route("/processes/{id}/stop", post(stop_managed_process))
         .route("/processes/{id}/restart", post(restart_managed_process))
+        .route("/tasks/definitions", get(list_task_definitions))
+        .route("/tasks", get(list_tasks).post(start_task))
+        .route("/tasks/{id}", get(get_task))
         .route("/vscode", get(get_vscode_status))
         .route("/vscode/check-update", post(check_vscode_update))
         .route("/vscode/install", post(install_vscode))

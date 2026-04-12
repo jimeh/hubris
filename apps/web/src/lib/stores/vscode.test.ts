@@ -61,6 +61,7 @@ function makeRuntimeStatus(
     latest: null,
     installProgress: null,
     message: null,
+    activeTaskId: null,
     ...overrides,
   };
 }

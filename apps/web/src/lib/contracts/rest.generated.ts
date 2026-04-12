@@ -591,6 +591,54 @@ export interface paths {
     patch: operations["update_tab"];
     trace?: never;
   };
+  "/api/tasks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_tasks"];
+    put?: never;
+    post: operations["start_task"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/tasks/definitions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_task_definitions"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/tasks/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_task"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/terminal/ws": {
     parameters: {
       query?: never;
@@ -1008,6 +1056,10 @@ export interface components {
       sha: string;
       value: string;
     };
+    StartTaskRequest: {
+      definitionName: string;
+      input?: null | components["schemas"]["Value"];
+    };
     /** @description Static system information that does not change at runtime. */
     SystemInfo: {
       /** @description The current user's home directory, if available. */
@@ -1076,6 +1128,80 @@ export interface components {
           url: string;
           worktree_id: string;
         };
+    TaskDefinition: {
+      broadcastUpdates: boolean;
+      description?: string | null;
+      inputFields?: components["schemas"]["TaskDefinitionInputField"][];
+      name: string;
+      steps?: components["schemas"]["TaskStepDefinition"][];
+      title: string;
+    };
+    TaskDefinitionInputField: {
+      description?: string | null;
+      enumValues?: string[];
+      kind: components["schemas"]["TaskInputFieldKind"];
+      name: string;
+      required: boolean;
+      title: string;
+    };
+    /** @enum {string} */
+    TaskInputFieldKind: "string" | "boolean";
+    TaskInvocationStatus: {
+      broadcastUpdates: boolean;
+      createdAt: string;
+      definitionName: string;
+      failureMessage?: string | null;
+      finishedAt?: string | null;
+      id: string;
+      /** Format: int32 */
+      progressPercent: number;
+      scopeKey?: string | null;
+      startedAt?: string | null;
+      status: components["schemas"]["TaskState"];
+      statusText?: string | null;
+      steps: components["schemas"]["TaskStepStatus"][];
+      title: string;
+    };
+    TaskRemoved: {
+      id: string;
+    };
+    /** @enum {string} */
+    TaskState:
+      | "pending"
+      | "running"
+      | "succeeded"
+      | "failed"
+      | "rollingBack"
+      | "rolledBack"
+      | "rollbackFailed";
+    TaskStepDefinition: {
+      id: string;
+      title: string;
+      /** Format: int32 */
+      weight: number;
+    };
+    /** @enum {string} */
+    TaskStepState:
+      | "pending"
+      | "running"
+      | "skipped"
+      | "succeeded"
+      | "failed"
+      | "rollingBack"
+      | "rolledBack"
+      | "rollbackFailed";
+    TaskStepStatus: {
+      error?: string | null;
+      id: string;
+      name: string;
+      /** Format: int32 */
+      progressPercent: number;
+      rollbackError?: string | null;
+      state: components["schemas"]["TaskStepState"];
+    };
+    TaskUpdated: {
+      task: components["schemas"]["TaskInvocationStatus"];
+    };
     /** @enum {string} */
     TerminalFontSource: "default" | "system" | "bundled";
     TerminalSettings: {
@@ -1120,6 +1246,7 @@ export interface components {
       source_ref?: string | null;
       ui_mode?: null | components["schemas"]["WorktreeUiMode"];
     };
+    Value: unknown;
     VscodeConnectionInfo: {
       baseUrl: string;
       connectionToken?: string | null;
@@ -1161,6 +1288,7 @@ export interface components {
     /** @enum {string} */
     VscodeRuntimeKind: "vscodeCli" | "codeServer";
     VscodeRuntimeStatus: {
+      activeTaskId?: string | null;
       installProgress?: null | components["schemas"]["VscodeInstallProgress"];
       installedVersion?: string | null;
       latest?: null | components["schemas"]["VscodeLatestCheck"];
@@ -3193,6 +3321,129 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  list_tasks: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Task invocations */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskInvocationStatus"][];
+        };
+      };
+    };
+  };
+  start_task: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["StartTaskRequest"];
+      };
+    };
+    responses: {
+      /** @description Started or reused task invocation */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskInvocationStatus"];
+        };
+      };
+      /** @description Invalid task request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Unknown task definition */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Conflicting active task scope */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  list_task_definitions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Task definitions */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDefinition"][];
+        };
+      };
+    };
+  };
+  get_task: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Task invocation id */
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Task invocation */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskInvocationStatus"];
+        };
+      };
+      /** @description Unknown task invocation */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
     };
   };

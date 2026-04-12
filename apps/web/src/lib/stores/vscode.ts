@@ -49,6 +49,7 @@ function normalizeRuntimeStatus(status: RawVscodeStatus["codeServer"]) {
         }
       : null,
     message: status.message,
+    activeTaskId: status.activeTaskId,
   };
 }
 

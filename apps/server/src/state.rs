@@ -9,7 +9,8 @@ use crate::process_manager::ManagedProcessService;
 use crate::pty::live_tab::LiveTab;
 use crate::settings_manager::SettingsManager;
 use crate::tab::TabInfo;
-use crate::vscode::{CodeServerManager, VscodeCliManager, VscodeManager};
+use crate::task_manager::TaskService;
+use crate::vscode::{CodeServerManager, VscodeCliManager, VscodeManager, register_vscode_tasks};
 use crate::worktree_files::WorktreeFilesService;
 
 pub type TabId = String;
@@ -22,6 +23,7 @@ pub struct AppState {
     pub next_terminal_num_by_worktree: Arc<DashMap<String, u32>>,
     pub data_dir: PathBuf,
     pub processes: Arc<ManagedProcessService>,
+    pub tasks: Arc<TaskService>,
     pub vscode: Arc<VscodeManager>,
     pub settings: Arc<SettingsManager>,
     pub worktree_files: Arc<WorktreeFilesService>,
@@ -37,6 +39,7 @@ impl AppState {
         );
         settings.start_sync(events.clone());
         let processes = Arc::new(ManagedProcessService::new(events.clone()));
+        let tasks = Arc::new(TaskService::new(events.clone()));
         let code_server = Arc::new(CodeServerManager::new(
             data_dir.join("code-server"),
             events.clone(),
@@ -50,9 +53,11 @@ impl AppState {
         let vscode = Arc::new(VscodeManager::new(
             settings.clone(),
             events.clone(),
+            tasks.clone(),
             code_server.clone(),
             vscode_cli.clone(),
         ));
+        register_vscode_tasks(&tasks, code_server.clone(), vscode_cli.clone());
         processes.register_controller(code_server.clone());
         processes.register_controller(vscode_cli.clone());
         code_server.register_process_callback().await;
@@ -66,6 +71,7 @@ impl AppState {
             next_terminal_num_by_worktree: Arc::new(DashMap::new()),
             data_dir,
             processes,
+            tasks,
             vscode,
             settings,
             worktree_files: Arc::new(WorktreeFilesService::new(events.clone())),

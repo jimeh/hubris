@@ -10,6 +10,7 @@ pub mod projects;
 pub mod settings;
 pub mod system;
 pub mod tabs;
+pub mod tasks;
 pub mod terminal;
 pub mod vscode;
 pub mod worktrees;

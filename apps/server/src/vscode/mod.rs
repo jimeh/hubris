@@ -27,6 +27,10 @@ use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use uuid::Uuid;
 
+mod code_server;
+mod tasks;
+mod vscode_cli;
+
 use crate::api::settings::VscodeRuntimeKind;
 use crate::events::EventBus;
 #[cfg(target_os = "linux")]
@@ -38,6 +42,12 @@ use crate::process_manager::{
 };
 use crate::settings_manager::SettingsManager;
 use crate::state::AppState;
+use crate::task_manager::{TaskActionError, TaskActionErrorKind, TaskService};
+pub(crate) use tasks::register_vscode_tasks;
+use tasks::{
+    TASK_VSCODE_CHECK_UPDATE, TASK_VSCODE_INSTALL_RUNTIME, normalize_install_version_input,
+    vscode_runtime_scope, vscode_task_input,
+};
 
 const PUBLIC_BASE_PATH: &str = "/code";
 const UPSTREAM_READY_PATH: &str = "/";
@@ -277,6 +287,7 @@ pub struct VscodeRuntimeStatusSnapshot {
     pub latest: Option<ManagerCodeServerLatestCheck>,
     pub install_progress: Option<ManagerCodeServerInstallProgress>,
     pub message: Option<String>,
+    pub active_task_id: Option<String>,
 }
 
 impl From<CodeServerStatusSnapshot> for VscodeRuntimeStatusSnapshot {
@@ -288,6 +299,7 @@ impl From<CodeServerStatusSnapshot> for VscodeRuntimeStatusSnapshot {
             latest: value.latest,
             install_progress: value.install_progress,
             message: value.message,
+            active_task_id: None,
         }
     }
 }
@@ -303,6 +315,7 @@ pub struct VscodeStatusSnapshot {
 pub enum VscodeError {
     CodeServer(CodeServerError),
     VscodeCli(VscodeCliError),
+    Task(TaskActionError),
 }
 
 impl fmt::Display for VscodeError {
@@ -310,6 +323,7 @@ impl fmt::Display for VscodeError {
         match self {
             Self::CodeServer(error) => write!(f, "{error}"),
             Self::VscodeCli(error) => write!(f, "{error}"),
+            Self::Task(error) => write!(f, "{error}"),
         }
     }
 }
@@ -325,6 +339,12 @@ impl From<CodeServerError> for VscodeError {
 impl From<VscodeCliError> for VscodeError {
     fn from(value: VscodeCliError) -> Self {
         Self::VscodeCli(value)
+    }
+}
+
+impl From<TaskActionError> for VscodeError {
+    fn from(value: TaskActionError) -> Self {
+        Self::Task(value)
     }
 }
 
@@ -362,6 +382,14 @@ struct CodeServerInstallPlan {
     version: String,
     platform: CodeServerPlatform,
     force: bool,
+}
+
+#[derive(Debug, Default)]
+struct CodeServerInstallTaskState {
+    backup_runtime_dir: Option<PathBuf>,
+    target_runtime_dir: Option<PathBuf>,
+    installed_runtime: Option<InstalledRuntime>,
+    restart_previous_runtime: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -449,615 +477,11 @@ impl From<axum::Error> for CodeServerError {
     }
 }
 
-impl CodeServerManager {
-    /// Create a manager that launches a shared `code-server` instance.
-    pub fn new(
-        root_dir: PathBuf,
-        _events: Arc<EventBus>,
-        processes: Arc<ManagedProcessService>,
-    ) -> Self {
-        let metadata_client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap_or_else(|error| panic!("failed to build code-server client: {error}"));
-        let fetch_client = metadata_client.clone();
-        let fetch_latest: FetchLatestFn =
-            Arc::new(move || Box::pin(fetch_latest_version(fetch_client.clone())));
-        let download_client = reqwest::Client::new();
-        let download_runtime: DownloadRuntimeFn =
-            Arc::new(move |request: CodeServerDownloadRequest| {
-                Box::pin(download_runtime_archive(request, download_client.clone()))
-            });
-        let ready_client = reqwest::Client::new();
-        let launch: LaunchFn = Arc::new(move |request: CodeServerLaunchRequest| {
-            let ready_client = ready_client.clone();
-            Box::pin(async move { launch_code_server(request, ready_client).await })
-        });
-
-        Self {
-            inner: Arc::new(Mutex::new(ManagerState {
-                latest: None,
-                install_progress: None,
-                runtime: ManagerRuntimeState::Idle,
-            })),
-            notify: Arc::new(Notify::new()),
-            status_callback: Arc::new(Mutex::new(None)),
-            client: reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .unwrap_or_else(|error| {
-                    panic!("failed to build code-server proxy client: {error}")
-                }),
-            fetch_latest,
-            download_runtime,
-            launch,
-            root_dir,
-            process_handle: processes.register_process("code_server", "code-server"),
-        }
-    }
-
-    #[cfg(test)]
-    fn with_hooks(
-        root_dir: PathBuf,
-        fetch_latest: FetchLatestFn,
-        download_runtime: DownloadRuntimeFn,
-        launch: LaunchFn,
-    ) -> Self {
-        let events = Arc::new(EventBus::new());
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap_or_else(|error| panic!("failed to build code-server client: {error}"));
-
-        Self {
-            inner: Arc::new(Mutex::new(ManagerState {
-                latest: None,
-                install_progress: None,
-                runtime: ManagerRuntimeState::Idle,
-            })),
-            notify: Arc::new(Notify::new()),
-            status_callback: Arc::new(Mutex::new(None)),
-            client,
-            fetch_latest,
-            download_runtime,
-            launch,
-            root_dir,
-            process_handle: ManagedProcessService::new(events)
-                .register_process("code_server", "code-server"),
-        }
-    }
-
-    pub async fn set_status_callback(&self, callback: StatusCallback) {
-        *self.status_callback.lock().await = Some(callback);
-    }
-
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.client
-    }
-
-    pub async fn register_process_callback(self: &Arc<Self>) {
-        let weak = Arc::downgrade(self);
-        self.process_handle
-            .set_on_change(Arc::new(move |snapshot| {
-                let weak = weak.clone();
-                Box::pin(async move {
-                    if let Some(manager) = weak.upgrade() {
-                        manager.apply_process_snapshot(&snapshot).await;
-                        manager.notify.notify_waiters();
-                        manager.publish_status_update().await;
-                    }
-                })
-            }))
-            .await;
-    }
-
-    async fn apply_process_snapshot(&self, snapshot: &ManagedProcessStatusSnapshot) {
-        if snapshot.lifecycle_state == ManagedProcessLifecycleState::Running {
-            return;
-        }
-
-        let mut state = self.inner.lock().await;
-        state.runtime.clear_ready();
-    }
-
-    pub async fn status(&self) -> CodeServerStatusSnapshot {
-        let supported = detect_platform().is_ok();
-        let installed = self.find_installed_runtime().await.ok().flatten();
-        let process = self.process_handle.status().await.ok();
-        let state = self.inner.lock().await;
-
-        let (process_status, mut message) = if state.runtime.is_installing() {
-            (CodeServerProcessStatusValue::Installing, None)
-        } else {
-            match process.as_ref().map(|status| status.lifecycle_state) {
-                Some(ManagedProcessLifecycleState::Running) => {
-                    (CodeServerProcessStatusValue::Running, None)
-                }
-                Some(ManagedProcessLifecycleState::Starting) => {
-                    (CodeServerProcessStatusValue::Starting, None)
-                }
-                Some(ManagedProcessLifecycleState::Stopping) => {
-                    (CodeServerProcessStatusValue::Stopping, None)
-                }
-                Some(ManagedProcessLifecycleState::Stopped) | None => {
-                    (CodeServerProcessStatusValue::Stopped, None)
-                }
-                Some(ManagedProcessLifecycleState::Exited) => (
-                    CodeServerProcessStatusValue::Error,
-                    Some("code-server exited".to_string()),
-                ),
-                Some(ManagedProcessLifecycleState::Error) => (
-                    CodeServerProcessStatusValue::Error,
-                    process
-                        .as_ref()
-                        .and_then(|status| status.last_error.clone()),
-                ),
-            }
-        };
-
-        if message.is_none() {
-            if let Err(error) = detect_platform() {
-                message = Some(error.to_string());
-            } else if process
-                .as_ref()
-                .and_then(|status| status.last_exit.as_ref())
-                .is_some()
-                && process_status == CodeServerProcessStatusValue::Error
-            {
-                message = Some("code-server exited".to_string());
-            }
-        }
-
-        CodeServerStatusSnapshot {
-            supported,
-            installed_version: installed.map(|runtime| runtime.version),
-            process_status,
-            latest: state.latest.clone(),
-            install_progress: state.install_progress.clone(),
-            message,
-        }
-    }
-
-    pub async fn check_for_update(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        let latest = (self.fetch_latest)().await?;
-        let installed = self.find_installed_runtime().await?;
-        let update_available = installed
-            .as_ref()
-            .map(|runtime| {
-                Version::parse(&latest).is_ok_and(|version| runtime.version_semver < version)
-            })
-            .unwrap_or(false);
-
-        {
-            let mut state = self.inner.lock().await;
-            state.latest = Some(ManagerCodeServerLatestCheck {
-                latest_version: Some(latest),
-                update_available,
-                checked_at: Some(now_timestamp_string()),
-            });
-        }
-
-        self.publish_status_update().await;
-
-        Ok(self.status().await)
-    }
-
-    pub async fn install(
-        &self,
-        requested_version: Option<String>,
-        force: bool,
-    ) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        loop {
-            let process = self
-                .process_handle
-                .status()
-                .await
-                .map_err(map_managed_process_error)?;
-            let state = self.inner.lock().await;
-
-            if state.runtime.is_installing() {
-                drop(state);
-                return Ok(self.status().await);
-            }
-
-            if matches!(
-                process.lifecycle_state,
-                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
-            ) {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            drop(state);
-            break;
-        }
-
-        let plan = self.prepare_install_plan(requested_version, force).await?;
-
-        loop {
-            let process = self
-                .process_handle
-                .status()
-                .await
-                .map_err(map_managed_process_error)?;
-            let mut state = self.inner.lock().await;
-
-            if state.runtime.is_installing() {
-                drop(state);
-                return Ok(self.status().await);
-            }
-
-            if matches!(
-                process.lifecycle_state,
-                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
-            ) {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            state.runtime = ManagerRuntimeState::Installing;
-            state.install_progress = Some(preparing_install_progress());
-            drop(state);
-
-            self.notify.notify_waiters();
-            self.publish_status_update().await;
-            let initial_status = self.status().await;
-
-            let manager = self.clone();
-            tokio::spawn(async move {
-                manager.run_install_task(plan).await;
-            });
-
-            return Ok(initial_status);
-        }
-    }
-
-    pub async fn start(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        self.ensure_ready().await?;
-        Ok(self.status().await)
-    }
-
-    pub async fn stop(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        self.stop_managed_process().await?;
-        Ok(self.status().await)
-    }
-
-    pub async fn restart(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        self.stop().await?;
-        self.start().await
-    }
-
-    pub async fn shutdown(&self) -> Result<(), CodeServerError> {
-        self.stop_managed_process().await
-    }
-
-    pub async fn ensure_ready(&self) -> Result<CodeServerConnection, CodeServerError> {
-        loop {
-            let process = self
-                .process_handle
-                .status()
-                .await
-                .map_err(map_managed_process_error)?;
-            let state = self.inner.lock().await;
-
-            if state.runtime.is_installing() {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            if process.lifecycle_state == ManagedProcessLifecycleState::Running {
-                if let Some(connection) = state.runtime.connection() {
-                    return Ok(connection);
-                }
-
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            if matches!(
-                process.lifecycle_state,
-                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
-            ) {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            drop(state);
-            return self.start_managed_process().await;
-        }
-    }
-
-    async fn find_installed_runtime(&self) -> Result<Option<InstalledRuntime>, CodeServerError> {
-        let root_dir = self.root_dir.clone();
-        let platform = detect_platform()?;
-        tokio::task::spawn_blocking(move || find_installed_runtime_sync(root_dir, platform))
-            .await
-            .map_err(|error| CodeServerError::Spawn(error.to_string()))?
-    }
-
-    async fn run_install_task(self, plan: CodeServerInstallPlan) {
-        let result = async {
-            self.stop_managed_process_for_install().await?;
-
-            let runtime = (self.download_runtime)(CodeServerDownloadRequest {
-                root_dir: self.root_dir.clone(),
-                version: plan.version,
-                platform: plan.platform,
-                force: plan.force,
-                install_progress: Some(self.install_progress_callback()),
-            })
-            .await?;
-
-            self.set_install_progress(ManagerCodeServerInstallProgress {
-                phase: CodeServerInstallPhaseValue::Cleaning,
-                percent: 90,
-                downloaded_bytes: None,
-                total_bytes: None,
-            })
-            .await;
-
-            cleanup_other_platform_runtimes(
-                self.root_dir.clone(),
-                runtime.platform,
-                &runtime.runtime_dir,
-            )
-            .await?;
-
-            self.set_install_progress(ManagerCodeServerInstallProgress {
-                phase: CodeServerInstallPhaseValue::Starting,
-                percent: 95,
-                downloaded_bytes: None,
-                total_bytes: None,
-            })
-            .await;
-
-            let server = (self.launch)(build_launch_request(&self.root_dir, &runtime)).await?;
-            self.process_handle.finish_running(server.process).await;
-            {
-                let mut state = self.inner.lock().await;
-                state.install_progress = None;
-                state.runtime = ManagerRuntimeState::Ready(server.connection.clone());
-            }
-            self.notify.notify_waiters();
-            self.publish_status_update().await;
-            Ok::<(), CodeServerError>(())
-        }
-        .await;
-
-        if let Err(error) = result {
-            self.process_handle.finish_error(error.to_string()).await;
-            {
-                let mut state = self.inner.lock().await;
-                state.install_progress = None;
-                state.runtime = ManagerRuntimeState::Idle;
-            }
-            self.notify.notify_waiters();
-            self.publish_status_update().await;
-        }
-    }
-
-    fn install_progress_callback(&self) -> InstallProgressFn {
-        let manager = self.clone();
-        Arc::new(move |progress| {
-            let manager = manager.clone();
-            Box::pin(async move {
-                manager.set_install_progress(progress).await;
-            })
-        })
-    }
-
-    async fn set_install_progress(&self, progress: ManagerCodeServerInstallProgress) {
-        let mut should_emit = false;
-        {
-            let mut state = self.inner.lock().await;
-            if state.install_progress.as_ref() != Some(&progress) {
-                state.install_progress = Some(progress);
-                should_emit = true;
-            }
-        }
-
-        if should_emit {
-            self.notify.notify_waiters();
-            self.publish_status_update().await;
-        }
-    }
-
-    async fn publish_status_update(&self) {
-        let callback = self.status_callback.lock().await.clone();
-        if let Some(callback) = callback {
-            callback().await;
-        }
-    }
-
-    async fn prepare_install_plan(
-        &self,
-        requested_version: Option<String>,
-        force: bool,
-    ) -> Result<CodeServerInstallPlan, CodeServerError> {
-        let platform = detect_platform()?;
-        let version = match requested_version {
-            Some(version) => normalize_version(&version)?,
-            None if force => {
-                if let Some(installed) = self.find_installed_runtime().await? {
-                    installed.version
-                } else {
-                    (self.fetch_latest)().await?
-                }
-            }
-            None => (self.fetch_latest)().await?,
-        };
-
-        Ok(CodeServerInstallPlan {
-            version,
-            platform,
-            force,
-        })
-    }
-
-    async fn start_managed_process(&self) -> Result<CodeServerConnection, CodeServerError> {
-        let runtime = self.find_installed_runtime().await?;
-        let runtime = runtime.ok_or(CodeServerError::NotInstalled)?;
-        loop {
-            if let Some(status) = self
-                .process_handle
-                .begin_start()
-                .await
-                .map_err(map_managed_process_error)?
-            {
-                let state = self.inner.lock().await;
-                if let Some(connection) = state.runtime.connection() {
-                    return Ok(connection);
-                }
-
-                if status.lifecycle_state == ManagedProcessLifecycleState::Running {
-                    let notified = self.notify.notified();
-                    drop(state);
-                    notified.await;
-                    continue;
-                }
-            }
-
-            break;
-        }
-
-        let result = (self.launch)(build_launch_request(&self.root_dir, &runtime)).await;
-        match result {
-            Ok(server) => {
-                let connection = server.connection.clone();
-                self.process_handle.finish_running(server.process).await;
-                {
-                    let mut state = self.inner.lock().await;
-                    state.install_progress = None;
-                    state.runtime = ManagerRuntimeState::Ready(connection.clone());
-                }
-                self.notify.notify_waiters();
-                Ok(connection)
-            }
-            Err(error) => {
-                self.process_handle.finish_error(error.to_string()).await;
-                {
-                    let mut state = self.inner.lock().await;
-                    state.install_progress = None;
-                    state.runtime = ManagerRuntimeState::Idle;
-                }
-                self.notify.notify_waiters();
-                Err(error)
-            }
-        }
-    }
-
-    async fn stop_managed_process(&self) -> Result<(), CodeServerError> {
-        self.stop_managed_process_impl(true).await
-    }
-
-    async fn stop_managed_process_for_install(&self) -> Result<(), CodeServerError> {
-        self.stop_managed_process_impl(false).await
-    }
-
-    async fn stop_managed_process_impl(
-        &self,
-        wait_for_install: bool,
-    ) -> Result<(), CodeServerError> {
-        loop {
-            let state = self.inner.lock().await;
-            if wait_for_install && state.runtime.is_installing() {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-            drop(state);
-            break;
-        }
-
-        match self
-            .process_handle
-            .begin_stop()
-            .await
-            .map_err(map_managed_process_error)?
-        {
-            ManagedProcessStopTarget::Running(mut runtime) => {
-                if let Err(error) = runtime.shutdown().await.map_err(map_managed_process_error) {
-                    self.process_handle.finish_error(error.to_string()).await;
-                    return Err(error);
-                }
-            }
-            ManagedProcessStopTarget::NotRunning => {}
-        }
-
-        {
-            let mut state = self.inner.lock().await;
-            state.install_progress = None;
-            if wait_for_install || !state.runtime.is_installing() {
-                state.runtime = ManagerRuntimeState::Idle;
-            }
-        }
-        self.notify.notify_waiters();
-        self.process_handle.finish_stopped().await;
-        Ok(())
-    }
-}
-
-impl ManagedProcessController for CodeServerManager {
-    fn id(&self) -> &str {
-        self.process_handle.id()
-    }
-
-    fn kind(&self) -> &str {
-        self.process_handle.kind()
-    }
-
-    fn start(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.start_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
-    }
-
-    fn stop(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.stop_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
-    }
-
-    fn restart(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.stop_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.start_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
-    }
-}
-
 #[derive(Clone)]
 pub struct VscodeManager {
     settings: Arc<SettingsManager>,
     events: Arc<EventBus>,
+    tasks: Arc<TaskService>,
     code_server: Arc<CodeServerManager>,
     vscode_cli: Arc<VscodeCliManager>,
 }
@@ -1066,12 +490,14 @@ impl VscodeManager {
     pub fn new(
         settings: Arc<SettingsManager>,
         events: Arc<EventBus>,
+        tasks: Arc<TaskService>,
         code_server: Arc<CodeServerManager>,
         vscode_cli: Arc<VscodeCliManager>,
     ) -> Self {
         Self {
             settings,
             events,
+            tasks,
             code_server,
             vscode_cli,
         }
@@ -1101,6 +527,38 @@ impl VscodeManager {
                 })
             }))
             .await;
+
+        let weak = Arc::downgrade(self);
+        let mut rx = self.events.subscribe();
+        tokio::spawn(async move {
+            loop {
+                let Ok(event) = rx.recv().await else {
+                    break;
+                };
+
+                let should_publish = match &event.kind {
+                    crate::events::EventKind::TaskUpdated(task) => {
+                        task.task.definition_name.starts_with("vscode.")
+                            || task
+                                .task
+                                .scope_key
+                                .as_deref()
+                                .is_some_and(|scope| scope.starts_with("vscode-runtime:"))
+                    }
+                    crate::events::EventKind::TaskRemoved(_) => true,
+                    _ => false,
+                };
+
+                if !should_publish {
+                    continue;
+                }
+
+                let Some(manager) = weak.upgrade() else {
+                    break;
+                };
+                manager.publish_status_update().await;
+            }
+        });
     }
 
     async fn selected_runtime(&self) -> VscodeRuntimeKind {
@@ -1116,22 +574,34 @@ impl VscodeManager {
 
     pub async fn status(&self) -> VscodeStatusSnapshot {
         let selected_runtime = self.selected_runtime().await;
+        let mut code_server: VscodeRuntimeStatusSnapshot = self.code_server.status().await.into();
+        let mut vscode_cli = self.vscode_cli.status().await;
+        code_server.active_task_id = self
+            .tasks
+            .active_invocation_for_scope(&vscode_runtime_scope(VscodeRuntimeKind::CodeServer))
+            .await
+            .map(|task| task.id);
+        vscode_cli.active_task_id = self
+            .tasks
+            .active_invocation_for_scope(&vscode_runtime_scope(VscodeRuntimeKind::VscodeCli))
+            .await
+            .map(|task| task.id);
         VscodeStatusSnapshot {
             selected_runtime,
-            code_server: self.code_server.status().await.into(),
-            vscode_cli: self.vscode_cli.status().await,
+            code_server,
+            vscode_cli,
         }
     }
 
     pub async fn check_for_update(&self) -> Result<VscodeStatusSnapshot, VscodeError> {
-        match self.selected_runtime().await {
-            VscodeRuntimeKind::CodeServer => {
-                self.code_server.check_for_update().await?;
-            }
-            VscodeRuntimeKind::VscodeCli => {
-                self.vscode_cli.check_for_update().await?;
-            }
-        }
+        let runtime = self.selected_runtime().await;
+        self.tasks
+            .start(
+                TASK_VSCODE_CHECK_UPDATE,
+                vscode_task_input(runtime, None, false),
+            )
+            .await
+            .map_err(VscodeError::Task)?;
         Ok(self.status().await)
     }
 
@@ -1140,14 +610,16 @@ impl VscodeManager {
         requested_version: Option<String>,
         force: bool,
     ) -> Result<VscodeStatusSnapshot, VscodeError> {
-        match self.selected_runtime().await {
-            VscodeRuntimeKind::CodeServer => {
-                self.code_server.install(requested_version, force).await?;
-            }
-            VscodeRuntimeKind::VscodeCli => {
-                self.vscode_cli.install(requested_version, force).await?;
-            }
-        }
+        let runtime = self.selected_runtime().await;
+        let requested_version = normalize_install_version_input(runtime, requested_version)
+            .map_err(VscodeError::Task)?;
+        self.tasks
+            .start(
+                TASK_VSCODE_INSTALL_RUNTIME,
+                vscode_task_input(runtime, requested_version, force),
+            )
+            .await
+            .map_err(VscodeError::Task)?;
         Ok(self.status().await)
     }
 
@@ -1262,6 +734,14 @@ struct VscodeCliInstallPlan {
     force: bool,
 }
 
+#[derive(Debug, Default)]
+struct VscodeCliInstallTaskState {
+    backup_runtime_dir: Option<PathBuf>,
+    target_runtime_dir: Option<PathBuf>,
+    installed_runtime: Option<InstalledVscodeCliRuntime>,
+    restart_previous_runtime: bool,
+}
+
 #[derive(Debug, Clone)]
 enum VscodeCliRuntimeState {
     Idle,
@@ -1359,561 +839,6 @@ impl fmt::Debug for VscodeCliManager {
         f.debug_struct("VscodeCliManager")
             .field("root_dir", &self.root_dir)
             .finish_non_exhaustive()
-    }
-}
-
-impl VscodeCliManager {
-    pub fn new(
-        root_dir: PathBuf,
-        _events: Arc<EventBus>,
-        processes: Arc<ManagedProcessService>,
-    ) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(VscodeCliManagerState {
-                latest: None,
-                install_progress: None,
-                runtime: VscodeCliRuntimeState::Idle,
-            })),
-            notify: Arc::new(Notify::new()),
-            client: reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .unwrap_or_else(|error| panic!("failed to build vscode cli client: {error}")),
-            status_callback: Arc::new(Mutex::new(None)),
-            root_dir,
-            process_handle: processes.register_process("vscode_cli", "vscode-cli"),
-        }
-    }
-
-    pub async fn set_status_callback(&self, callback: StatusCallback) {
-        *self.status_callback.lock().await = Some(callback);
-    }
-
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.client
-    }
-
-    pub async fn register_process_callback(self: &Arc<Self>) {
-        let weak = Arc::downgrade(self);
-        self.process_handle
-            .set_on_change(Arc::new(move |snapshot| {
-                let weak = weak.clone();
-                Box::pin(async move {
-                    if let Some(manager) = weak.upgrade() {
-                        manager.apply_process_snapshot(&snapshot).await;
-                        manager.notify.notify_waiters();
-                        manager.publish_status_update().await;
-                    }
-                })
-            }))
-            .await;
-    }
-
-    async fn apply_process_snapshot(&self, snapshot: &ManagedProcessStatusSnapshot) {
-        if snapshot.lifecycle_state == ManagedProcessLifecycleState::Running {
-            return;
-        }
-
-        let mut state = self.inner.lock().await;
-        state.runtime.clear_ready();
-    }
-
-    pub async fn status(&self) -> VscodeRuntimeStatusSnapshot {
-        let supported = detect_vscode_cli_platform().is_ok();
-        let installed = self.find_installed_runtime().await.ok().flatten();
-        let process = self.process_handle.status().await.ok();
-        let state = self.inner.lock().await;
-
-        let (process_status, mut message) = if state.runtime.is_installing() {
-            (CodeServerProcessStatusValue::Installing, None)
-        } else {
-            match process.as_ref().map(|status| status.lifecycle_state) {
-                Some(ManagedProcessLifecycleState::Running) => {
-                    (CodeServerProcessStatusValue::Running, None)
-                }
-                Some(ManagedProcessLifecycleState::Starting) => {
-                    (CodeServerProcessStatusValue::Starting, None)
-                }
-                Some(ManagedProcessLifecycleState::Stopping) => {
-                    (CodeServerProcessStatusValue::Stopping, None)
-                }
-                Some(ManagedProcessLifecycleState::Stopped) | None => {
-                    (CodeServerProcessStatusValue::Stopped, None)
-                }
-                Some(ManagedProcessLifecycleState::Exited) => (
-                    CodeServerProcessStatusValue::Error,
-                    Some("VS Code CLI exited".to_string()),
-                ),
-                Some(ManagedProcessLifecycleState::Error) => (
-                    CodeServerProcessStatusValue::Error,
-                    process
-                        .as_ref()
-                        .and_then(|status| status.last_error.clone()),
-                ),
-            }
-        };
-
-        if message.is_none() {
-            if let Err(error) = detect_vscode_cli_platform() {
-                message = Some(error.to_string());
-            } else if process
-                .as_ref()
-                .and_then(|status| status.last_exit.as_ref())
-                .is_some()
-                && process_status == CodeServerProcessStatusValue::Error
-            {
-                message = Some("VS Code CLI exited".to_string());
-            }
-        }
-
-        VscodeRuntimeStatusSnapshot {
-            supported,
-            installed_version: installed.map(|runtime| runtime.version),
-            process_status,
-            latest: state.latest.clone(),
-            install_progress: state.install_progress.clone(),
-            message,
-        }
-    }
-
-    pub async fn check_for_update(&self) -> Result<VscodeRuntimeStatusSnapshot, VscodeCliError> {
-        let latest = fetch_latest_vscode_cli_release(self.client.clone()).await?;
-        let installed = self.find_installed_runtime().await?;
-        let update_available = installed
-            .as_ref()
-            .map(|runtime| runtime.version_semver < Version::parse(&latest.version).unwrap())
-            .unwrap_or(false);
-
-        {
-            let mut state = self.inner.lock().await;
-            state.latest = Some(ManagerCodeServerLatestCheck {
-                latest_version: Some(latest.version),
-                update_available,
-                checked_at: Some(now_timestamp_string()),
-            });
-        }
-        self.publish_status_update().await;
-        Ok(self.status().await)
-    }
-
-    pub async fn install(
-        &self,
-        requested_version: Option<String>,
-        force: bool,
-    ) -> Result<VscodeRuntimeStatusSnapshot, VscodeCliError> {
-        loop {
-            let process = self
-                .process_handle
-                .status()
-                .await
-                .map_err(map_managed_process_error_vscode_cli)?;
-            let state = self.inner.lock().await;
-            if state.runtime.is_installing() {
-                drop(state);
-                return Ok(self.status().await);
-            }
-            if matches!(
-                process.lifecycle_state,
-                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
-            ) {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-            drop(state);
-            break;
-        }
-
-        let plan = self.prepare_install_plan(requested_version, force).await?;
-        loop {
-            let process = self
-                .process_handle
-                .status()
-                .await
-                .map_err(map_managed_process_error_vscode_cli)?;
-            let mut state = self.inner.lock().await;
-            if state.runtime.is_installing() {
-                drop(state);
-                return Ok(self.status().await);
-            }
-            if matches!(
-                process.lifecycle_state,
-                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
-            ) {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            state.runtime = VscodeCliRuntimeState::Installing;
-            state.install_progress = Some(preparing_install_progress());
-            drop(state);
-
-            self.notify.notify_waiters();
-            self.publish_status_update().await;
-            let initial_status = self.status().await;
-
-            let manager = self.clone();
-            tokio::spawn(async move {
-                manager.run_install_task(plan).await;
-            });
-
-            return Ok(initial_status);
-        }
-    }
-
-    pub async fn start(&self) -> Result<VscodeRuntimeStatusSnapshot, VscodeCliError> {
-        self.ensure_ready().await?;
-        Ok(self.status().await)
-    }
-
-    pub async fn stop(&self) -> Result<VscodeRuntimeStatusSnapshot, VscodeCliError> {
-        self.stop_managed_process().await?;
-        Ok(self.status().await)
-    }
-
-    pub async fn restart(&self) -> Result<VscodeRuntimeStatusSnapshot, VscodeCliError> {
-        self.stop().await?;
-        self.start().await
-    }
-
-    pub async fn ensure_ready(&self) -> Result<VscodeConnection, VscodeCliError> {
-        loop {
-            let process = self
-                .process_handle
-                .status()
-                .await
-                .map_err(map_managed_process_error_vscode_cli)?;
-            let state = self.inner.lock().await;
-
-            if state.runtime.is_installing() {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            if process.lifecycle_state == ManagedProcessLifecycleState::Running {
-                if let Some(connection) = state.runtime.connection() {
-                    return Ok(connection);
-                }
-
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            if matches!(
-                process.lifecycle_state,
-                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
-            ) {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            drop(state);
-            return self.start_managed_process().await;
-        }
-    }
-
-    async fn find_installed_runtime(
-        &self,
-    ) -> Result<Option<InstalledVscodeCliRuntime>, VscodeCliError> {
-        let root_dir = self.root_dir.clone();
-        let platform = detect_vscode_cli_platform()?;
-        tokio::task::spawn_blocking(move || {
-            find_installed_vscode_cli_runtime_sync(root_dir, platform)
-        })
-        .await
-        .map_err(|error| VscodeCliError::Spawn(error.to_string()))?
-    }
-
-    async fn run_install_task(self, plan: VscodeCliInstallPlan) {
-        let result = async {
-            self.stop_managed_process_for_install().await?;
-            let runtime = download_vscode_cli_archive(
-                VscodeCliDownloadRequest {
-                    root_dir: self.root_dir.clone(),
-                    version: plan.version,
-                    platform: plan.platform,
-                    force: plan.force,
-                    install_progress: Some(self.install_progress_callback()),
-                },
-                self.client.clone(),
-            )
-            .await?;
-
-            self.set_install_progress(ManagerCodeServerInstallProgress {
-                phase: CodeServerInstallPhaseValue::Cleaning,
-                percent: 90,
-                downloaded_bytes: None,
-                total_bytes: None,
-            })
-            .await;
-            cleanup_other_vscode_cli_runtimes(
-                self.root_dir.clone(),
-                runtime.platform,
-                &runtime.runtime_dir,
-            )
-            .await?;
-
-            self.set_install_progress(ManagerCodeServerInstallProgress {
-                phase: CodeServerInstallPhaseValue::Starting,
-                percent: 95,
-                downloaded_bytes: None,
-                total_bytes: None,
-            })
-            .await;
-
-            let server =
-                launch_vscode_cli(build_vscode_cli_launch_request(&self.root_dir, &runtime))
-                    .await?;
-            self.process_handle.finish_running(server.process).await;
-            {
-                let mut state = self.inner.lock().await;
-                state.install_progress = None;
-                state.runtime = VscodeCliRuntimeState::Ready(server.connection.clone());
-            }
-            self.notify.notify_waiters();
-            self.publish_status_update().await;
-            Ok::<(), VscodeCliError>(())
-        }
-        .await;
-
-        if let Err(error) = result {
-            self.process_handle.finish_error(error.to_string()).await;
-            {
-                let mut state = self.inner.lock().await;
-                state.install_progress = None;
-                state.runtime = VscodeCliRuntimeState::Idle;
-            }
-            self.notify.notify_waiters();
-            self.publish_status_update().await;
-        }
-    }
-
-    fn install_progress_callback(&self) -> InstallProgressFn {
-        let manager = self.clone();
-        Arc::new(move |progress| {
-            let manager = manager.clone();
-            Box::pin(async move {
-                manager.set_install_progress(progress).await;
-            })
-        })
-    }
-
-    async fn set_install_progress(&self, progress: ManagerCodeServerInstallProgress) {
-        let mut should_emit = false;
-        {
-            let mut state = self.inner.lock().await;
-            if state.install_progress.as_ref() != Some(&progress) {
-                state.install_progress = Some(progress);
-                should_emit = true;
-            }
-        }
-        if should_emit {
-            self.notify.notify_waiters();
-            self.publish_status_update().await;
-        }
-    }
-
-    async fn publish_status_update(&self) {
-        let callback = self.status_callback.lock().await.clone();
-        if let Some(callback) = callback {
-            callback().await;
-        }
-    }
-
-    async fn prepare_install_plan(
-        &self,
-        requested_version: Option<String>,
-        force: bool,
-    ) -> Result<VscodeCliInstallPlan, VscodeCliError> {
-        let platform = detect_vscode_cli_platform()?;
-        let version = match requested_version {
-            Some(version) => normalize_vscode_cli_version(&version)?,
-            None if force => {
-                if let Some(installed) = self.find_installed_runtime().await? {
-                    installed.version
-                } else {
-                    fetch_latest_vscode_cli_release(self.client.clone())
-                        .await?
-                        .version
-                }
-            }
-            None => {
-                fetch_latest_vscode_cli_release(self.client.clone())
-                    .await?
-                    .version
-            }
-        };
-        Ok(VscodeCliInstallPlan {
-            version,
-            platform,
-            force,
-        })
-    }
-
-    async fn start_managed_process(&self) -> Result<VscodeConnection, VscodeCliError> {
-        let runtime = self
-            .find_installed_runtime()
-            .await?
-            .ok_or(VscodeCliError::NotInstalled)?;
-        loop {
-            if let Some(status) = self
-                .process_handle
-                .begin_start()
-                .await
-                .map_err(map_managed_process_error_vscode_cli)?
-            {
-                let state = self.inner.lock().await;
-                if let Some(connection) = state.runtime.connection() {
-                    return Ok(connection);
-                }
-
-                if status.lifecycle_state == ManagedProcessLifecycleState::Running {
-                    let notified = self.notify.notified();
-                    drop(state);
-                    notified.await;
-                    continue;
-                }
-            }
-
-            break;
-        }
-
-        let launch_request = build_vscode_cli_launch_request(&self.root_dir, &runtime);
-        match launch_vscode_cli(launch_request).await {
-            Ok(server) => {
-                let connection = server.connection.clone();
-                self.process_handle.finish_running(server.process).await;
-                {
-                    let mut state = self.inner.lock().await;
-                    state.install_progress = None;
-                    state.runtime = VscodeCliRuntimeState::Ready(connection.clone());
-                }
-                self.notify.notify_waiters();
-                self.publish_status_update().await;
-                Ok(connection)
-            }
-            Err(error) => {
-                self.process_handle.finish_error(error.to_string()).await;
-                {
-                    let mut state = self.inner.lock().await;
-                    state.install_progress = None;
-                    state.runtime = VscodeCliRuntimeState::Idle;
-                }
-                self.notify.notify_waiters();
-                self.publish_status_update().await;
-                Err(error)
-            }
-        }
-    }
-
-    async fn stop_managed_process(&self) -> Result<(), VscodeCliError> {
-        self.stop_managed_process_inner(true).await
-    }
-
-    async fn stop_managed_process_for_install(&self) -> Result<(), VscodeCliError> {
-        self.stop_managed_process_inner(false).await
-    }
-
-    async fn stop_managed_process_inner(
-        &self,
-        wait_for_install: bool,
-    ) -> Result<(), VscodeCliError> {
-        loop {
-            let state = self.inner.lock().await;
-            if wait_for_install && state.runtime.is_installing() {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-            drop(state);
-            break;
-        }
-
-        match self
-            .process_handle
-            .begin_stop()
-            .await
-            .map_err(map_managed_process_error_vscode_cli)?
-        {
-            ManagedProcessStopTarget::Running(mut runtime) => {
-                if let Err(error) = runtime
-                    .shutdown()
-                    .await
-                    .map_err(map_managed_process_error_vscode_cli)
-                {
-                    self.process_handle.finish_error(error.to_string()).await;
-                    return Err(error);
-                }
-            }
-            ManagedProcessStopTarget::NotRunning => {}
-        }
-
-        {
-            let mut state = self.inner.lock().await;
-            state.install_progress = None;
-            if wait_for_install || !state.runtime.is_installing() {
-                state.runtime = VscodeCliRuntimeState::Idle;
-            }
-        }
-        self.notify.notify_waiters();
-        self.process_handle.finish_stopped().await;
-        Ok(())
-    }
-}
-
-impl ManagedProcessController for VscodeCliManager {
-    fn id(&self) -> &str {
-        self.process_handle.id()
-    }
-
-    fn kind(&self) -> &str {
-        self.process_handle.kind()
-    }
-
-    fn start(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.start_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
-    }
-
-    fn stop(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.stop_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
-    }
-
-    fn restart(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.stop_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.start_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
     }
 }
 
@@ -2066,6 +991,12 @@ fn proxy_error_response(error: VscodeError) -> Response {
             | VscodeCliError::Http(_)
             | VscodeCliError::Archive(_)
             | VscodeCliError::Spawn(_) => StatusCode::BAD_GATEWAY,
+        },
+        VscodeError::Task(error) => match error.kind() {
+            TaskActionErrorKind::NotFound => StatusCode::NOT_FOUND,
+            TaskActionErrorKind::InvalidRequest => StatusCode::BAD_REQUEST,
+            TaskActionErrorKind::Conflict => StatusCode::CONFLICT,
+            TaskActionErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         },
     };
     (status, error.to_string()).into_response()
@@ -3371,9 +2302,11 @@ mod tests {
         code_server.register_process_callback().await;
 
         let vscode_cli = state.vscode.vscode_cli.clone();
+        register_vscode_tasks(&state.tasks, code_server.clone(), vscode_cli.clone());
         let vscode = Arc::new(VscodeManager::new(
             state.settings.clone(),
             state.events.clone(),
+            state.tasks.clone(),
             code_server,
             vscode_cli,
         ));
@@ -3754,10 +2687,8 @@ mod tests {
             static_download_runtime(tmp.path().to_path_buf()),
             launch,
         );
-        manager
-            .install(Some("4.114.1".to_string()), false)
-            .await
-            .unwrap();
+        start_code_server_install_task(&manager, Some("4.114.1".to_string()), false).await;
+        wait_for_running_status(&manager).await;
         manager.stop().await.unwrap();
 
         let (first, second) = tokio::join!(manager.ensure_ready(), manager.ensure_ready());
@@ -3809,10 +2740,8 @@ mod tests {
             launch,
         );
 
-        let install = manager
-            .install(Some("4.114.1".to_string()), false)
-            .await
-            .unwrap();
+        start_code_server_install_task(&manager, Some("4.114.1".to_string()), false).await;
+        let install = manager.status().await;
         assert_eq!(
             install.process_status,
             CodeServerProcessStatusValue::Installing
@@ -4431,13 +3360,17 @@ mod tests {
             launch,
         );
 
-        manager
-            .install(Some("4.114.1".to_string()), false)
-            .await
-            .unwrap();
+        start_code_server_install_task(&manager, Some("4.114.1".to_string()), false).await;
         wait_for_running_status(&manager).await;
 
-        manager.install(None, true).await.unwrap();
+        start_code_server_install_task(&manager, None, true).await;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while tokio::time::Instant::now() < deadline {
+            if requests.lock().await.len() == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
         wait_for_running_status(&manager).await;
 
         let requests = requests.lock().await.clone();
@@ -4536,9 +3469,12 @@ mod tests {
             process_service.clone(),
         ));
         vscode_cli.register_process_callback().await;
+        let tasks = Arc::new(TaskService::new(events.clone()));
+        register_vscode_tasks(&tasks, code_server.clone(), vscode_cli.clone());
         let manager = Arc::new(VscodeManager::new(
             settings,
             events.clone(),
+            tasks,
             code_server,
             vscode_cli,
         ));
@@ -4555,6 +3491,7 @@ mod tests {
 
         let mut saw_preparing = false;
         let mut saw_downloading = false;
+        let mut saw_task_backed_update = false;
         let mut saw_running = false;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
 
@@ -4574,6 +3511,10 @@ mod tests {
             if code_server_status.process_status
                 == crate::api::vscode::VscodeProcessStatus::Installing
             {
+                if code_server_status.active_task_id.is_some() {
+                    saw_task_backed_update = true;
+                }
+
                 if code_server_status
                     .install_progress
                     .as_ref()
@@ -4600,15 +3541,26 @@ mod tests {
 
             if code_server_status.process_status == crate::api::vscode::VscodeProcessStatus::Running
             {
-                assert_eq!(
-                    code_server_status.installed_version.as_deref(),
-                    Some("4.114.1")
-                );
-                assert!(code_server_status.install_progress.is_none());
-                saw_running = true;
+                if code_server_status.active_task_id.is_some() {
+                    saw_task_backed_update = true;
+                }
+
+                if code_server_status.active_task_id.is_none()
+                    && code_server_status.install_progress.is_none()
+                {
+                    assert_eq!(
+                        code_server_status.installed_version.as_deref(),
+                        Some("4.114.1")
+                    );
+                    saw_running = true;
+                }
             }
         }
 
+        assert!(
+            saw_task_backed_update,
+            "missing active task id during install"
+        );
         assert!(saw_preparing, "missing preparing code-server event");
         assert!(saw_downloading, "missing downloading code-server event");
         assert!(saw_running, "missing running code-server event");
@@ -4716,5 +3668,33 @@ mod tests {
         }
 
         panic!("code-server never reached running state");
+    }
+
+    async fn start_code_server_install_task(
+        manager: &CodeServerManager,
+        version: Option<String>,
+        force: bool,
+    ) {
+        let events = Arc::new(EventBus::new());
+        let tasks = TaskService::new(events.clone());
+        let processes = Arc::new(ManagedProcessService::new(events));
+        let runtime_root = manager
+            .root_dir
+            .parent()
+            .unwrap_or(manager.root_dir.as_path())
+            .to_path_buf();
+        let vscode_cli = Arc::new(VscodeCliManager::new(
+            runtime_root.join("vscode-cli-test"),
+            Arc::new(EventBus::new()),
+            processes,
+        ));
+        register_vscode_tasks(&tasks, Arc::new(manager.clone()), vscode_cli);
+        tasks
+            .start(
+                TASK_VSCODE_INSTALL_RUNTIME,
+                vscode_task_input(VscodeRuntimeKind::CodeServer, version, force),
+            )
+            .await
+            .unwrap();
     }
 }

@@ -104,7 +104,9 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         | EventKind::WorktreeGitStatusUpdated { .. }
         | EventKind::SettingsUpdated(_)
         | EventKind::VscodeUpdated(_)
-        | EventKind::ManagedProcessUpdated(_) => true,
+        | EventKind::ManagedProcessUpdated(_)
+        | EventKind::TaskUpdated(_)
+        | EventKind::TaskRemoved(_) => true,
     }
 }
 
@@ -140,6 +142,13 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         .into_iter()
         .map(Into::into)
         .collect::<Vec<_>>();
+    let tasks = state
+        .tasks
+        .list_broadcastable()
+        .await
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<_>>();
 
     for project in &projects {
         match list_worktrees_for_project(state, project).await {
@@ -163,6 +172,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         settings_status: settings.status,
         vscode: Box::new(vscode),
         managed_processes,
+        tasks,
     };
     sse::Event::default()
         .event("snapshot")

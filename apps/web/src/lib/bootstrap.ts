@@ -33,6 +33,10 @@ import {
   resetVscodeStoreForTests,
 } from "@/lib/stores/vscode";
 import {
+  initializeTaskStore,
+  resetTaskStoreForTests,
+} from "@/lib/stores/tasks";
+import {
   initializeSettingsStore,
   resetSettingsStoreForTests,
 } from "@/lib/stores/settings";
@@ -55,6 +59,7 @@ export function bootstrapApp(): void {
   initializeGitDiffStore();
   initializeWorktreeFileManagerStore();
   initializeWorktreeRightSidebarStore();
+  initializeTaskStore();
   initializeVscodeStore();
   initializeSettingsStore();
   initializeSystemStore();
@@ -72,6 +77,7 @@ export function resetBootstrapForTests(): void {
   resetGitDiffStoreForTests();
   resetWorktreeFileManagerStoreForTests();
   resetWorktreeRightSidebarStoreForTests();
+  resetTaskStoreForTests();
   resetVscodeStoreForTests();
   resetSettingsStoreForTests();
   resetSystemStoreForTests();

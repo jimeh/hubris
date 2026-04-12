@@ -27,6 +27,8 @@ const SSE_EVENT_NAMES = [
   "worktree_git_status_updated",
   "settings_updated",
   "vscode_updated",
+  "task_updated",
+  "task_removed",
 ] as const satisfies ReadonlyArray<SseEventName>;
 
 /**
