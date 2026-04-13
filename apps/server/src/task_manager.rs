@@ -462,8 +462,9 @@ impl TaskRegistry {
         T: TaskType,
     {
         let task = Arc::new(task);
+        let task_metadata = task.metadata();
         let steps = task.steps();
-        assert_unique_step_ids(task.metadata().name.as_str(), steps);
+        assert_unique_step_ids(task_metadata.name.as_str(), steps);
 
         let step_definitions = Arc::new(
             steps
@@ -471,19 +472,23 @@ impl TaskRegistry {
                 .map(TaskTypeStep::definition_snapshot)
                 .collect::<Vec<_>>(),
         );
-        let metadata = build_definition_snapshot(task.metadata(), step_definitions.as_slice());
+        let metadata = build_definition_snapshot(task_metadata, step_definitions.as_slice());
 
-        self.definitions
-            .write()
-            .expect("task definitions poisoned")
-            .insert(
-                metadata.name.clone(),
-                Arc::new(TypedTaskRegistration::<T> {
-                    task,
-                    metadata,
-                    step_definitions,
-                }),
-            );
+        let mut definitions = self.definitions.write().expect("task definitions poisoned");
+        assert!(
+            !definitions.contains_key(&metadata.name),
+            "typed task {} is registered more than once",
+            metadata.name
+        );
+
+        definitions.insert(
+            metadata.name.clone(),
+            Arc::new(TypedTaskRegistration::<T> {
+                task,
+                metadata,
+                step_definitions,
+            }),
+        );
     }
 
     fn get(&self, name: &str) -> Result<Arc<dyn RegisteredTask>, TaskActionError> {
@@ -813,6 +818,10 @@ impl TaskService {
         });
         let backend: Arc<dyn TaskBackend> =
             Arc::new(InMemoryTaskBackend::new(TaskExecutor, options));
+        Self::new_with_backend(inner, backend)
+    }
+
+    fn new_with_backend(inner: Arc<TaskServiceInner>, backend: Arc<dyn TaskBackend>) -> Self {
         Self { inner, backend }
     }
 
@@ -885,15 +894,23 @@ impl TaskService {
         let definition = self.inner.registry.get(definition_name)?;
         let prepared = definition.prepare(input)?;
         let metadata = definition.metadata().clone();
+        let task_id = Uuid::new_v4().to_string();
 
         if let Some(scope_key) = prepared.scope_key.as_deref() {
-            let maybe_existing = self
-                .inner
-                .active_scopes
-                .read()
-                .expect("task scopes poisoned")
-                .get(scope_key)
-                .cloned();
+            let maybe_existing = {
+                let mut scopes = self
+                    .inner
+                    .active_scopes
+                    .write()
+                    .expect("task scopes poisoned");
+                match scopes.get(scope_key).cloned() {
+                    Some(existing_id) => Some(existing_id),
+                    None => {
+                        scopes.insert(scope_key.to_string(), task_id.clone());
+                        None
+                    }
+                }
+            };
             if let Some(existing_id) = maybe_existing {
                 let snapshot = self.get(&existing_id).await?;
                 if snapshot.definition_name == definition_name {
@@ -906,7 +923,6 @@ impl TaskService {
             }
         }
 
-        let task_id = Uuid::new_v4().to_string();
         let slot = Arc::new(TaskInvocationSlot {
             definition_name: metadata.name.clone(),
             title: metadata.title.clone(),
@@ -924,6 +940,12 @@ impl TaskService {
             }),
         });
 
+        let handle = TaskInvocationHandle {
+            task_id: task_id.clone(),
+            slot: slot.clone(),
+            service: Arc::downgrade(&self.inner),
+        };
+
         self.inner
             .invocations
             .write()
@@ -934,33 +956,21 @@ impl TaskService {
             .write()
             .expect("task order poisoned")
             .push_front(task_id.clone());
-        if let Some(scope_key) = prepared.scope_key.clone() {
-            self.inner
-                .active_scopes
-                .write()
-                .expect("task scopes poisoned")
-                .insert(scope_key, task_id.clone());
-        }
-
-        let handle = TaskInvocationHandle {
-            task_id: task_id.clone(),
-            slot,
-            service: Arc::downgrade(&self.inner),
-        };
-        handle.emit_update().await;
 
         let enqueue_result = self
             .backend
             .enqueue(QueuedInvocation {
-                handle,
+                handle: handle.clone(),
                 instance: prepared.instance,
             })
             .await;
 
         if let Err(error) = enqueue_result {
-            self.cleanup_failed_start(&task_id).await;
+            self.cleanup_failed_start(&task_id, prepared.scope_key.as_deref())
+                .await;
             return Err(error);
         }
+        handle.emit_update().await;
 
         self.get(&task_id).await
     }
@@ -979,16 +989,7 @@ impl TaskService {
         self.get(&id).await.ok()
     }
 
-    async fn cleanup_failed_start(&self, task_id: &str) {
-        let scope_key = self
-            .inner
-            .invocations
-            .read()
-            .expect("task invocations poisoned")
-            .get(task_id)
-            .and_then(|slot| slot.state.try_lock().ok())
-            .and_then(|state| state.scope_key.clone());
-
+    async fn cleanup_failed_start(&self, task_id: &str, scope_key: Option<&str>) {
         self.inner
             .invocations
             .write()
@@ -1017,10 +1018,10 @@ impl TaskService {
                 .write()
                 .expect("task scopes poisoned");
             if scopes
-                .get(&scope_key)
+                .get(scope_key)
                 .is_some_and(|active_task_id| active_task_id == task_id)
             {
-                scopes.remove(&scope_key);
+                scopes.remove(scope_key);
             }
         }
     }
@@ -1468,6 +1469,22 @@ mod tests {
         skip_prepare: bool,
     }
 
+    #[derive(Clone)]
+    struct RejectingBackend;
+
+    impl TaskBackend for RejectingBackend {
+        fn enqueue(
+            &self,
+            _invocation: QueuedInvocation,
+        ) -> BoxFuture<'static, Result<(), TaskActionError>> {
+            Box::pin(async move {
+                Err(TaskActionError::internal(
+                    "task queue is not accepting jobs",
+                ))
+            })
+        }
+    }
+
     static WEIGHTED_STEPS: &[TaskTypeStep<DemoState>] = &[
         TaskTypeStep::new("prepare", "Prepare", 25, weighted_prepare_step),
         TaskTypeStep::new("download", "Download", 75, weighted_download_step),
@@ -1770,6 +1787,72 @@ mod tests {
         let _ = wait_for_terminal(&service, &first.id).await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_same_definition_starts_dedupe_to_one_invocation() {
+        let service = Arc::new(TaskService::new(Arc::new(EventBus::new())));
+        let notify = Arc::new(Notify::new());
+        service.register_typed_task(DemoTask {
+            name: "demo.wait",
+            behavior: DemoBehavior::WaitForNotify {
+                notify: notify.clone(),
+            },
+            scope_key: Some("scope:concurrent"),
+            broadcast_updates: true,
+        });
+
+        let service_a = service.clone();
+        let service_b = service.clone();
+        let (first, second) = tokio::join!(
+            service_a.start("demo.wait", TaskInput::new()),
+            service_b.start("demo.wait", TaskInput::new())
+        );
+
+        let first = first.unwrap();
+        let second = second.unwrap();
+        assert_eq!(first.id, second.id);
+        assert_eq!(service.list().await.len(), 1);
+
+        wait_for_status(&service, &first.id, TaskStateValue::Running).await;
+        notify.notify_waiters();
+        let _ = wait_for_terminal(&service, &first.id).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_different_definition_starts_conflict_on_same_scope() {
+        let service = Arc::new(TaskService::new(Arc::new(EventBus::new())));
+        let notify = Arc::new(Notify::new());
+        service.register_typed_task(DemoTask {
+            name: "demo.wait",
+            behavior: DemoBehavior::WaitForNotify {
+                notify: notify.clone(),
+            },
+            scope_key: Some("scope:concurrent"),
+            broadcast_updates: true,
+        });
+        service.register_typed_task(DemoTask {
+            name: "demo.weighted",
+            behavior: DemoBehavior::WeightedProgress,
+            scope_key: Some("scope:concurrent"),
+            broadcast_updates: true,
+        });
+
+        let service_a = service.clone();
+        let service_b = service.clone();
+        let (wait_result, weighted_result) = tokio::join!(
+            service_a.start("demo.wait", TaskInput::new()),
+            service_b.start("demo.weighted", TaskInput::new())
+        );
+
+        let started = wait_result.unwrap();
+        let error = weighted_result.unwrap_err();
+        assert_eq!(error.kind(), TaskActionErrorKind::Conflict);
+        assert_eq!(service.list().await.len(), 1);
+
+        wait_for_status(&service, &started.id, TaskStateValue::Running).await;
+        notify.notify_waiters();
+        let _ = wait_for_terminal(&service, &started.id).await;
+    }
+
     #[tokio::test]
     async fn registers_typed_tasks_and_rejects_invalid_input() {
         let service = TaskService::new(Arc::new(EventBus::new()));
@@ -1925,6 +2008,70 @@ mod tests {
             service.register_typed_task(DuplicateStepTask);
         }));
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn duplicate_task_names_fail_registration() {
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        service.register_typed_task(DemoTask {
+            name: "demo.duplicate",
+            behavior: DemoBehavior::WeightedProgress,
+            scope_key: None,
+            broadcast_updates: true,
+        });
+
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            service.register_typed_task(DemoTask {
+                name: "demo.duplicate",
+                behavior: DemoBehavior::Rollback {
+                    order: Arc::new(Mutex::new(Vec::new())),
+                },
+                scope_key: None,
+                broadcast_updates: true,
+            });
+        }));
+
+        let panic_message = panic_payload_to_string(result.unwrap_err());
+        assert!(panic_message.contains("typed task demo.duplicate is registered more than once"));
+    }
+
+    #[tokio::test]
+    async fn enqueue_failure_does_not_leave_a_visible_task_or_events() {
+        let events = Arc::new(EventBus::new());
+        let inner = Arc::new(TaskServiceInner {
+            events: events.clone(),
+            registry: TaskRegistry::new(),
+            invocations: std::sync::RwLock::new(HashMap::new()),
+            order: std::sync::RwLock::new(VecDeque::new()),
+            active_scopes: std::sync::RwLock::new(HashMap::new()),
+        });
+        let service = TaskService::new_with_backend(inner, Arc::new(RejectingBackend));
+        service.register_typed_task(DemoTask {
+            name: "demo.reject",
+            behavior: DemoBehavior::WeightedProgress,
+            scope_key: Some("scope:reject"),
+            broadcast_updates: true,
+        });
+        let mut rx = events.subscribe();
+
+        let error = service
+            .start("demo.reject", TaskInput::new())
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), TaskActionErrorKind::Internal);
+        assert!(service.list().await.is_empty());
+        assert!(
+            service
+                .active_invocation_for_scope("scope:reject")
+                .await
+                .is_none()
+        );
+        assert!(service.get("missing-task-id").await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), rx.recv())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
