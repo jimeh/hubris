@@ -25,6 +25,7 @@ type SortableTabStripProps = {
   worktreeId: string;
   tabs: Tab[];
   activeTabId: string | null;
+  paneFocused?: boolean;
   tabListRef: RefObject<HTMLDivElement | null>;
   onScroll: UIEventHandler<HTMLDivElement>;
   onActivate: (tabId: string) => void;
@@ -42,6 +43,7 @@ export default function SortableTabStrip({
   worktreeId,
   tabs,
   activeTabId,
+  paneFocused = true,
   tabListRef,
   onScroll,
   onActivate,
@@ -120,7 +122,7 @@ export default function SortableTabStrip({
         <div
           ref={tabListRef}
           role="tablist"
-          className="flex items-center gap-1 overflow-x-auto overflow-y-hidden"
+          className="flex h-full items-stretch gap-1 overflow-x-auto overflow-y-hidden"
           data-tab-list="true"
           data-tab-dragging={dragging || undefined}
           onScroll={onScroll}
@@ -138,6 +140,7 @@ export default function SortableTabStrip({
               iconId={tabPresentations[tab.id]?.iconId}
               toneClass={tabPresentations[tab.id]?.toneClass}
               isActive={tab.id === activeTabId}
+              paneFocused={paneFocused}
               preview={tab.preview}
               dirty={dirtyTabIdSet.has(tab.id)}
               notification={tab.type === "terminal" && !!tab.has_notification}

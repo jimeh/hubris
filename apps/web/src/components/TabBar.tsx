@@ -26,6 +26,7 @@ type Props = {
   paneId?: string;
   dropTargetId?: string;
   tabs: Tab[];
+  paneFocused?: boolean;
   dirtyTabIds?: string[];
   lockedTabIds?: string[];
   activeTabId: string | null;
@@ -47,6 +48,7 @@ export default function TabBar({
   paneId = "pane-1",
   dropTargetId,
   tabs,
+  paneFocused = true,
   dirtyTabIds = [],
   lockedTabIds = [],
   activeTabId,
@@ -134,9 +136,7 @@ export default function TabBar({
   return (
     <div
       ref={setNodeRef}
-      className={
-        "flex min-h-9 items-center border-b border-tab-border bg-tab-bar px-1"
-      }
+      className="flex min-h-9 items-stretch border-b border-tab-border bg-tab-bar px-1"
       data-worktree-id={worktreeId}
       data-pane-id={paneId}
       data-pane-tab-bar-drop-active={dragging && isOver ? "true" : undefined}
@@ -150,7 +150,7 @@ export default function TabBar({
           : undefined
       }
     >
-      <div className="relative min-w-0 flex-1">
+      <div className="relative min-w-0 flex-1 self-stretch">
         {canScrollLeft ? (
           <button
             type="button"
@@ -172,6 +172,7 @@ export default function TabBar({
           dirtyTabIds={dirtyTabIds}
           lockedTabIds={lockedTabIds}
           activeTabId={activeTabId}
+          paneFocused={paneFocused}
           tabListRef={tabListRef}
           onScroll={updateScrollState}
           onActivate={onActivate}

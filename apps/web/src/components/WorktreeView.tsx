@@ -1,5 +1,6 @@
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   closestCenter,
   useDroppable,
@@ -27,6 +28,7 @@ import GitDiffTab from "@/components/GitDiffTab";
 import TabBar from "@/components/TabBar";
 import TerminalTab from "@/components/TerminalTab";
 import WorktreeRightSidebar from "@/components/WorktreeRightSidebar";
+import TabDragOverlay from "@/components/tab-bar/TabDragOverlay";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -313,6 +315,7 @@ function PaneLeaf({
         paneId={paneId}
         dropTargetId={paneTabBarDropTargetId(paneId)}
         tabs={paneTabs}
+        paneFocused={focused}
         dirtyTabIds={dirtyTabIds}
         lockedTabIds={lockedTabIds}
         activeTabId={activePaneTabId}
@@ -378,7 +381,17 @@ function PaneTreeView({
           />
         </div>
       </ResizablePanel>
-      <ResizableHandle withHandle />
+      <ResizableHandle
+        className={cn(
+          "z-20 -mx-[3px] w-2 cursor-col-resize touch-none bg-transparent",
+          "after:w-px after:bg-border/80 hover:after:bg-border",
+          "focus-visible:after:bg-border",
+          "aria-[orientation=horizontal]:-my-[3px]",
+          "aria-[orientation=horizontal]:h-2 aria-[orientation=horizontal]:w-full",
+          "aria-[orientation=horizontal]:cursor-row-resize",
+          "aria-[orientation=horizontal]:after:h-px",
+        )}
+      />
       <ResizablePanel
         id={`${node.id}:second`}
         defaultSize={(1 - node.ratio) * 100}
@@ -402,6 +415,7 @@ export default function WorktreeView({ worktree, active }: Props) {
   );
   const [isPendingCloseSaving, setIsPendingCloseSaving] = useState(false);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [draggingTabWidth, setDraggingTabWidth] = useState<number | null>(null);
   const [paneViewportRects, setPaneViewportRects] = useState<
     Record<string, ViewportRect>
   >({});
@@ -801,10 +815,12 @@ export default function WorktreeView({ worktree, active }: Props) {
 
   function clearDragState(): void {
     setDraggingTabId(null);
+    setDraggingTabWidth(null);
   }
 
   function handleDragStart(event: DragStartEvent): void {
     setDraggingTabId(String(event.active.id));
+    setDraggingTabWidth(event.active.rect.current.initial?.width ?? null);
   }
 
   function handleDragEnd(event: DragEndEvent): void {
@@ -1035,6 +1051,22 @@ export default function WorktreeView({ worktree, active }: Props) {
               })}
             </div>
           </div>
+          <DragOverlay>
+            {draggingTabId
+              ? (() => {
+                  const draggedTab =
+                    worktreeTabs.find((tab) => tab.id === draggingTabId) ??
+                    null;
+                  return draggedTab ? (
+                    <TabDragOverlay
+                      worktreeId={worktree.id}
+                      tab={draggedTab}
+                      width={draggingTabWidth}
+                    />
+                  ) : null;
+                })()
+              : null}
+          </DragOverlay>
         </DndContext>
       </div>
 

@@ -239,6 +239,21 @@ describe("TabBar", () => {
     });
   });
 
+  it("mutes the active tab styling in unfocused panes", () => {
+    render(
+      <TabBar
+        {...baseProps()}
+        tabs={[makeTab("a", 1), makeTab("b", 2)]}
+        paneFocused={false}
+      />,
+    );
+
+    const activeTab = screen.getByRole("tab", { selected: true });
+    expect(activeTab).toHaveClass("bg-tab-bar");
+    expect(activeTab).toHaveClass("shadow-[inset_0_-2px_0_var(--tab-border)]");
+    expect(activeTab).not.toHaveClass("bg-tab-active");
+  });
+
   it("does not rerender a tab view when its props stay stable", () => {
     const renderSpy = vi.spyOn(
       (SortableTabView as unknown as { type: { render: () => unknown } }).type,

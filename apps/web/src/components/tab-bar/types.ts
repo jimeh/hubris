@@ -11,6 +11,7 @@ export type TabViewProps = {
   iconId?: string;
   toneClass?: string;
   isActive: boolean;
+  paneFocused?: boolean;
   preview?: boolean;
   dirty?: boolean;
   notification?: boolean;

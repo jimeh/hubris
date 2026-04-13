@@ -20,6 +20,7 @@ type SortableTabProps = {
   iconId?: string;
   toneClass?: string;
   isActive: boolean;
+  paneFocused?: boolean;
   preview: boolean;
   dirty: boolean;
   notification: boolean;
@@ -45,6 +46,7 @@ const SortableTab = memo(function SortableTab({
   iconId,
   toneClass,
   isActive,
+  paneFocused = true,
   preview,
   dirty,
   notification,
@@ -89,6 +91,7 @@ const SortableTab = memo(function SortableTab({
       iconId={iconId}
       toneClass={toneClass}
       isActive={isActive}
+      paneFocused={paneFocused}
       preview={preview}
       dirty={dirty}
       notification={notification}
