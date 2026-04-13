@@ -225,7 +225,14 @@ function webSocketBridgeInjection(): string {
 function webSocketBridgeScript(): string {
   return [
     "(function () {",
-    "  var bridge = window.__HUBRIS_ELECTRON_WS__ || (window.top && window.top.__HUBRIS_ELECTRON_WS__);",
+    "  var bridge = window.__HUBRIS_ELECTRON_WS__;",
+    "  if (!bridge) {",
+    "    try {",
+    "      bridge = window.top && window.top !== window ? window.top.__HUBRIS_ELECTRON_WS__ : undefined;",
+    "    } catch (_error) {",
+    "      bridge = undefined;",
+    "    }",
+    "  }",
     "  if (!bridge || typeof window.WebSocket !== 'function') return;",
     "  var OriginalWebSocket = window.WebSocket;",
     "  function toBase64(bytes) {",
@@ -593,6 +600,10 @@ function runtimeRouteSegment(runtime: VscodeRuntime): string {
   return runtime === "vscodeCli" ? "vscode-cli" : "code-server";
 }
 
+function publicBasePath(runtime: VscodeRuntime): string {
+  return `/code/${runtimeRouteSegment(runtime)}`;
+}
+
 function normalizeRuntimePath(pathAndQuery: string): string {
   if (pathAndQuery === "") {
     return "/";
@@ -607,7 +618,25 @@ function backendRuntimePath(
   runtime: VscodeRuntime,
   pathAndQuery: string,
 ): string {
-  return `/code/${runtimeRouteSegment(runtime)}${normalizeRuntimePath(pathAndQuery)}`;
+  return `${publicBasePath(runtime)}${normalizeRuntimeHostPath(runtime, pathAndQuery)}`;
+}
+
+function normalizeRuntimeHostPath(
+  runtime: VscodeRuntime,
+  pathAndQuery: string,
+): string {
+  const normalized = normalizeRuntimePath(pathAndQuery);
+  const publicBase = publicBasePath(runtime);
+  if (normalized === publicBase) {
+    return "/";
+  }
+  if (normalized.startsWith(`${publicBase}/`)) {
+    return normalized.slice(publicBase.length);
+  }
+  if (normalized.startsWith(`${publicBase}?`)) {
+    return normalized.slice(publicBase.length);
+  }
+  return normalized;
 }
 
 async function cookieHeaderForUrl(

@@ -155,6 +155,44 @@ describe("createDesktopProtocolContext", () => {
     ).toHaveLength(1);
   });
 
+  it("normalizes runtime-host requests that already include the runtime base path", async () => {
+    const cookies = {
+      get: vi.fn().mockResolvedValue([]),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    const context = createDesktopProtocolContext(cookies as never, {
+      backendHttpOrigin: "http://backend.local",
+      backendWsOrigin: "ws://backend.local",
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (
+          url ===
+          "http://backend.local/code/vscode-cli?folder=%2Ftmp%2Fworkspace"
+        ) {
+          return new Response("<html>serve-web</html>", {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        }
+
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+    const response = await context.handleRequest(
+      new Request(
+        `${HUBRIS_VSCODE_CLI_ORIGIN}/code/vscode-cli?folder=%2Ftmp%2Fworkspace`,
+      ),
+    );
+
+    await expect(response.text()).resolves.toContain("serve-web");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend.local/code/vscode-cli?folder=%2Ftmp%2Fworkspace",
+      expect.anything(),
+    );
+  });
+
   it("preserves the public runtime host when proxying runtime HTTP", async () => {
     const cookies = {
       get: vi.fn().mockResolvedValue([]),

@@ -170,32 +170,26 @@ function configureWebContentsGuards(
     return { action: "deny" };
   });
 
-  const blockIfDisallowed = ({
-    preventDefault,
-    url,
-  }: {
-    preventDefault: () => void;
-    url: string;
-  }) => {
+  const blockIfDisallowed = (
+    event: { preventDefault: () => void },
+    url: string,
+  ) => {
     const target = classifyNavigationTarget(url, allowedOrigins);
     if (target === "internal") {
       return;
     }
 
-    preventDefault();
+    event.preventDefault();
     if (target === "external") {
       openExternalUrl(url);
     }
   };
 
-  webContents.on("will-navigate", (details) => {
-    blockIfDisallowed(details);
+  webContents.on("will-navigate", (event, url) => {
+    blockIfDisallowed(event, url);
   });
-  webContents.on("will-frame-navigate", (details) => {
-    blockIfDisallowed(details);
-  });
-  webContents.on("will-redirect", (details) => {
-    blockIfDisallowed(details);
+  webContents.on("will-redirect", (event, url) => {
+    blockIfDisallowed(event, url);
   });
 }
 
@@ -234,7 +228,7 @@ async function initializeDesktop() {
       } else {
         await seedDesktopSessionCookies(
           desktopSession.cookies,
-          [HUBRIS_ORIGIN],
+          allowedHubrisOrigins(),
           sessionToken,
         );
       }
@@ -374,7 +368,11 @@ async function bootstrapPackagedBackend(
     throw new Error(`desktop bootstrap failed with status ${response.status}`);
   }
 
-  await seedDesktopSessionCookies(cookies, [HUBRIS_ORIGIN], sessionToken);
+  await seedDesktopSessionCookies(
+    cookies,
+    allowedHubrisOrigins(),
+    sessionToken,
+  );
 }
 
 async function seedDesktopSessionCookies(

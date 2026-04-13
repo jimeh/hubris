@@ -21,6 +21,7 @@ describe("createHubrisWindowOptions", () => {
       preload: "/tmp/preload.js",
       partition: desktopSessionPartition("release"),
       nodeIntegration: false,
+      nodeIntegrationInSubFrames: true,
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
@@ -33,6 +34,7 @@ describe("createHubrisWindowOptions", () => {
     expect(options.webPreferences?.partition).toBe(
       desktopSessionPartition("dev"),
     );
+    expect(options.webPreferences?.nodeIntegrationInSubFrames).toBe(true);
     expect(options.webPreferences?.partition).not.toBe(
       desktopSessionPartition("release"),
     );
