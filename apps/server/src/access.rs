@@ -83,8 +83,10 @@ impl DesktopAccess {
             || path.starts_with("/api")
             || path == "/_hubris"
             || path.starts_with("/_hubris/")
-            || path == "/code"
-            || path.starts_with("/code/")
+            || path == "/code/vscode-cli"
+            || path.starts_with("/code/vscode-cli/")
+            || path == "/code/code-server"
+            || path.starts_with("/code/code-server/")
     }
 
     fn is_bootstrap_path(&self, path: &str) -> bool {

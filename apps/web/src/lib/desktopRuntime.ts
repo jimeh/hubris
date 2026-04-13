@@ -2,7 +2,10 @@ export type DesktopRuntimeConfig = {
   apiBase: string;
   eventsUrl: string;
   terminalWsBase: string;
-  codeBase: string;
+  vscodeBases: {
+    codeServer: string;
+    vscodeCli: string;
+  };
 };
 
 declare global {
@@ -34,8 +37,13 @@ export function terminalWsUrlBase(): string {
   return runtimeConfig()?.terminalWsBase ?? "";
 }
 
-export function codeBase(): string {
-  return runtimeConfig()?.codeBase ?? "/code/";
+export function vscodeBase(runtime: "codeServer" | "vscodeCli"): string {
+  const base = runtimeConfig()?.vscodeBases?.[runtime];
+  if (base) {
+    return base;
+  }
+
+  return runtime === "vscodeCli" ? "/code/vscode-cli/" : "/code/code-server/";
 }
 
 export function resetDesktopRuntimeConfigForTests(): void {

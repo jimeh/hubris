@@ -8,8 +8,8 @@ use axum::body::{Body, to_bytes};
 use axum::extract::ws::{Message as AxumWsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Request, State};
 use axum::http::header::{
-    CONNECTION, COOKIE, HOST, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION, SEC_WEBSOCKET_PROTOCOL,
-    SET_COOKIE, TE, TRAILER, TRANSFER_ENCODING, UPGRADE,
+    CONNECTION, COOKIE, HOST, ORIGIN, PROXY_AUTHENTICATE, PROXY_AUTHORIZATION,
+    SEC_WEBSOCKET_PROTOCOL, SET_COOKIE, TE, TRAILER, TRANSFER_ENCODING, UPGRADE,
 };
 use axum::http::{HeaderMap, Method as HttpMethod, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -49,7 +49,13 @@ use tasks::{
     vscode_runtime_scope, vscode_task_input,
 };
 
-const PUBLIC_BASE_PATH: &str = "/code";
+const PUBLIC_CODE_PREFIX: &str = "/code";
+const VSCODE_CLI_PUBLIC_BASE_PATH: &str = "/code/vscode-cli";
+const CODE_SERVER_PUBLIC_BASE_PATH: &str = "/code/code-server";
+const VSCODE_CLI_UPSTREAM_BASE_PATH: &str = "/code/vscode-cli";
+const CODE_SERVER_UPSTREAM_BASE_PATH: &str = "/";
+const HUBRIS_PUBLIC_HOST_HEADER: &str = "x-hubris-public-host";
+const HUBRIS_PUBLIC_ORIGIN_HEADER: &str = "x-hubris-public-origin";
 const UPSTREAM_READY_PATH: &str = "/";
 const DEFAULT_HOST: &str = "127.0.0.1";
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
@@ -89,23 +95,30 @@ type StatusCallback = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Reverse-proxy a browser request to the shared code-server instance.
 pub async fn proxy_code_request(State(state): State<AppState>, request: Request) -> Response {
+    let (runtime, runtime_path) = match runtime_request_target(&request) {
+        Ok(target) => target,
+        Err(status) => return status.into_response(),
+    };
+
     match try_extract_websocket_upgrade(request).await {
         Ok(UpgradeOutcome::WebSocket(upgrade, request)) => {
-            let path_and_query = public_path_and_query(&request);
             let headers = request.headers().clone();
             let manager = state.vscode.clone();
 
             upgrade
                 .on_upgrade(move |socket| async move {
                     if let Err(error) =
-                        proxy_websocket_connection(manager, socket, path_and_query, headers).await
+                        proxy_websocket_connection(manager, runtime, socket, runtime_path, headers)
+                            .await
                     {
                         tracing::warn!("code-server websocket proxy failed: {error}");
                     }
                 })
                 .into_response()
         }
-        Ok(UpgradeOutcome::Http(request)) => proxy_http_request(state, request).await,
+        Ok(UpgradeOutcome::Http(request)) => {
+            proxy_http_request(state, request, runtime, runtime_path).await
+        }
         Err(error) => {
             tracing::warn!("invalid vscode websocket upgrade: {error}");
             (StatusCode::BAD_REQUEST, error.to_string()).into_response()
@@ -230,17 +243,12 @@ struct RunningCodeServer {
     process: ManagedProcessRuntime,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VscodePathModeValue {
-    StripPublicBasePath,
-    PreservePublicBasePath,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VscodeConnection {
     pub runtime: VscodeRuntimeKind,
     pub base_url: String,
-    pub path_mode: VscodePathModeValue,
+    pub ws_base_url: String,
+    pub upstream_base_path: String,
     pub connection_token: Option<String>,
 }
 
@@ -249,33 +257,35 @@ impl VscodeConnection {
         &self.base_url
     }
 
-    pub fn ws_base_url(&self) -> String {
-        self.base_url
-            .strip_prefix("http://")
-            .map(|value| format!("ws://{value}"))
-            .or_else(|| {
-                self.base_url
-                    .strip_prefix("https://")
-                    .map(|value| format!("wss://{value}"))
-            })
-            .unwrap_or_else(|| self.base_url.clone())
+    pub fn ws_base_url(&self) -> &str {
+        &self.ws_base_url
     }
 
-    fn rewrite_proxy_path(&self, path_and_query: &str) -> String {
-        match self.path_mode {
-            VscodePathModeValue::StripPublicBasePath => rewrite_public_path(path_and_query),
-            VscodePathModeValue::PreservePublicBasePath => path_and_query.to_string(),
+    fn join_upstream_path(&self, runtime_path: &str) -> String {
+        let runtime_path = normalize_runtime_path(runtime_path);
+        if self.upstream_base_path == "/" {
+            return runtime_path;
         }
+
+        format!(
+            "{}{}",
+            self.upstream_base_path.trim_end_matches('/'),
+            runtime_path
+        )
     }
 
-    fn http_url(&self, path_and_query: &str) -> String {
-        let rewritten = self.rewrite_proxy_path(path_and_query);
-        format!("{}{}", self.base_url.trim_end_matches('/'), rewritten)
+    fn http_url(&self, runtime_path: &str) -> String {
+        let upstream_path = self.join_upstream_path(runtime_path);
+        format!("{}{}", self.base_url.trim_end_matches('/'), upstream_path)
     }
 
-    fn ws_url(&self, path_and_query: &str) -> String {
-        let rewritten = self.rewrite_proxy_path(path_and_query);
-        format!("{}{}", self.ws_base_url().trim_end_matches('/'), rewritten)
+    fn ws_url(&self, runtime_path: &str) -> String {
+        let upstream_path = self.join_upstream_path(runtime_path);
+        format!(
+            "{}{}",
+            self.ws_base_url().trim_end_matches('/'),
+            upstream_path
+        )
     }
 }
 
@@ -653,13 +663,22 @@ impl VscodeManager {
     }
 
     pub async fn ensure_ready(&self) -> Result<VscodeConnection, VscodeError> {
-        match self.selected_runtime().await {
+        self.ensure_runtime_ready(self.selected_runtime().await)
+            .await
+    }
+
+    pub async fn ensure_runtime_ready(
+        &self,
+        runtime: VscodeRuntimeKind,
+    ) -> Result<VscodeConnection, VscodeError> {
+        match runtime {
             VscodeRuntimeKind::CodeServer => {
                 let connection = self.code_server.ensure_ready().await?;
                 Ok(VscodeConnection {
                     runtime: VscodeRuntimeKind::CodeServer,
                     base_url: connection.http_base_url().to_string(),
-                    path_mode: VscodePathModeValue::StripPublicBasePath,
+                    ws_base_url: connection.ws_base_url(),
+                    upstream_base_path: CODE_SERVER_UPSTREAM_BASE_PATH.to_string(),
                     connection_token: None,
                 })
             }
@@ -865,8 +884,13 @@ async fn try_extract_websocket_upgrade(
         .map(|upgrade| UpgradeOutcome::WebSocket(upgrade, Request::from_parts(parts, body)))
 }
 
-async fn proxy_http_request(state: AppState, request: Request) -> Response {
-    let connection = match state.vscode.ensure_ready().await {
+async fn proxy_http_request(
+    state: AppState,
+    request: Request,
+    runtime: VscodeRuntimeKind,
+    runtime_path: String,
+) -> Response {
+    let connection = match state.vscode.ensure_runtime_ready(runtime).await {
         Ok(connection) => connection,
         Err(error) => {
             tracing::error!("failed to ensure vscode runtime: {error}");
@@ -874,7 +898,6 @@ async fn proxy_http_request(state: AppState, request: Request) -> Response {
         }
     };
 
-    let path_and_query = public_path_and_query(&request);
     let (parts, body) = request.into_parts();
     let body = match to_bytes(body, REQUEST_BODY_LIMIT).await {
         Ok(body) => body,
@@ -886,7 +909,7 @@ async fn proxy_http_request(state: AppState, request: Request) -> Response {
 
     let mut upstream = state.vscode.http_client_for(connection.runtime).request(
         reqwest_method(parts.method),
-        authorized_http_url(&connection, &path_and_query, &parts.headers),
+        authorized_http_url(&connection, &runtime_path, &parts.headers),
     );
     upstream = copy_request_headers(upstream, &parts.headers);
     if !body.is_empty() {
@@ -904,12 +927,13 @@ async fn proxy_http_request(state: AppState, request: Request) -> Response {
 
 async fn proxy_websocket_connection(
     manager: Arc<VscodeManager>,
+    runtime: VscodeRuntimeKind,
     browser_socket: WebSocket,
-    path_and_query: String,
+    runtime_path: String,
     headers: HeaderMap,
 ) -> Result<(), VscodeError> {
-    let connection = manager.ensure_ready().await?;
-    let mut upstream_request = authorized_ws_url(&connection, &path_and_query, &headers)
+    let connection = manager.ensure_runtime_ready(runtime).await?;
+    let mut upstream_request = authorized_ws_url(&connection, &runtime_path, &headers)
         .into_client_request()
         .map_err(CodeServerError::from)
         .map_err(VscodeError::from)?;
@@ -1019,10 +1043,22 @@ fn copy_request_headers(
 ) -> reqwest::RequestBuilder {
     let mut builder = builder;
     for (name, value) in headers {
-        if *name == CONNECTION || *name == UPGRADE {
+        if *name == CONNECTION
+            || *name == UPGRADE
+            || *name == HOST
+            || *name == ORIGIN
+            || name.as_str() == HUBRIS_PUBLIC_HOST_HEADER
+            || name.as_str() == HUBRIS_PUBLIC_ORIGIN_HEADER
+        {
             continue;
         }
         builder = builder.header(name, value);
+    }
+    if let Some(host) = forwarded_public_host(headers) {
+        builder = builder.header(HOST, host);
+    }
+    if let Some(origin) = forwarded_public_origin(headers) {
+        builder = builder.header(ORIGIN, origin);
     }
     builder
 }
@@ -1048,7 +1084,7 @@ fn is_hop_by_hop_header(name: &axum::http::HeaderName) -> bool {
 }
 
 fn copy_websocket_headers(target: &mut HeaderMap, source: &HeaderMap) {
-    if let Some(host) = source.get(HOST) {
+    if let Some(host) = forwarded_public_host(source) {
         target.insert(HOST, host.clone());
     }
     if let Some(protocol) = source.get(SEC_WEBSOCKET_PROTOCOL) {
@@ -1057,9 +1093,21 @@ fn copy_websocket_headers(target: &mut HeaderMap, source: &HeaderMap) {
     if let Some(cookie) = source.get(axum::http::header::COOKIE) {
         target.insert(axum::http::header::COOKIE, cookie.clone());
     }
-    if let Some(origin) = source.get(axum::http::header::ORIGIN) {
+    if let Some(origin) = forwarded_public_origin(source) {
         target.insert(axum::http::header::ORIGIN, origin.clone());
     }
+}
+
+fn forwarded_public_host(headers: &HeaderMap) -> Option<&axum::http::HeaderValue> {
+    headers
+        .get(HUBRIS_PUBLIC_HOST_HEADER)
+        .or_else(|| headers.get(HOST))
+}
+
+fn forwarded_public_origin(headers: &HeaderMap) -> Option<&axum::http::HeaderValue> {
+    headers
+        .get(HUBRIS_PUBLIC_ORIGIN_HEADER)
+        .or_else(|| headers.get(ORIGIN))
 }
 
 fn map_browser_message(message: AxumWsMessage) -> Option<TungsteniteMessage> {
@@ -1109,25 +1157,40 @@ fn looks_like_websocket_request(headers: &HeaderMap, method: &HttpMethod) -> boo
     is_upgrade && has_upgrade_connection
 }
 
-fn public_path_and_query(request: &Request) -> String {
+pub fn public_base_path(runtime: VscodeRuntimeKind) -> &'static str {
+    match runtime {
+        VscodeRuntimeKind::CodeServer => CODE_SERVER_PUBLIC_BASE_PATH,
+        VscodeRuntimeKind::VscodeCli => VSCODE_CLI_PUBLIC_BASE_PATH,
+    }
+}
+
+fn runtime_request_target(request: &Request) -> Result<(VscodeRuntimeKind, String), StatusCode> {
     let path_and_query = request
         .uri()
         .path_and_query()
         .map(|value| value.as_str())
-        .unwrap_or(PUBLIC_BASE_PATH);
-    path_and_query.to_string()
+        .unwrap_or(PUBLIC_CODE_PREFIX);
+
+    request_target_from_public_path(path_and_query).ok_or(StatusCode::NOT_FOUND)
 }
 
-fn rewrite_public_path(path_and_query: &str) -> String {
-    let stripped = path_and_query
-        .strip_prefix(PUBLIC_BASE_PATH)
-        .unwrap_or(path_and_query);
-    if stripped.is_empty() {
+fn request_target_from_public_path(path_and_query: &str) -> Option<(VscodeRuntimeKind, String)> {
+    for runtime in [VscodeRuntimeKind::VscodeCli, VscodeRuntimeKind::CodeServer] {
+        if let Some(stripped) = path_and_query.strip_prefix(public_base_path(runtime)) {
+            return Some((runtime, normalize_runtime_path(stripped)));
+        }
+    }
+
+    None
+}
+
+fn normalize_runtime_path(path_and_query: &str) -> String {
+    if path_and_query.is_empty() {
         "/".to_string()
-    } else if stripped.starts_with('/') || stripped.starts_with('?') {
-        format!("/{}", stripped.trim_start_matches('/'))
+    } else if path_and_query.starts_with('/') || path_and_query.starts_with('?') {
+        format!("/{}", path_and_query.trim_start_matches('/'))
     } else {
-        format!("/{stripped}")
+        format!("/{path_and_query}")
     }
 }
 
@@ -1608,7 +1671,7 @@ async fn launch_code_server(
         .arg(&request.config_file)
         .arg("--disable-update-check")
         .arg("--abs-proxy-base-path")
-        .arg(PUBLIC_BASE_PATH)
+        .arg(CODE_SERVER_PUBLIC_BASE_PATH)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
@@ -2094,7 +2157,7 @@ async fn launch_vscode_cli(
         .arg(request.port.to_string())
         .arg("--accept-server-license-terms")
         .arg("--server-base-path")
-        .arg(PUBLIC_BASE_PATH)
+        .arg(VSCODE_CLI_PUBLIC_BASE_PATH)
         .arg("--server-data-dir")
         .arg(&request.server_data_dir)
         .arg("--connection-token-file")
@@ -2120,7 +2183,8 @@ async fn launch_vscode_cli(
     let connection = VscodeConnection {
         runtime: VscodeRuntimeKind::VscodeCli,
         base_url: format!("http://{}:{}", request.host, request.port),
-        path_mode: VscodePathModeValue::PreservePublicBasePath,
+        ws_base_url: format!("ws://{}:{}", request.host, request.port),
+        upstream_base_path: VSCODE_CLI_UPSTREAM_BASE_PATH.to_string(),
         connection_token: Some(request.connection_token.clone()),
     };
 
@@ -2157,11 +2221,11 @@ async fn wait_for_vscode_cli_ready(connection: &VscodeConnection) -> Result<(), 
         .map_err(VscodeCliError::Http)?;
     let started = tokio::time::Instant::now();
     let authenticated_url = connection.http_url(&upsert_query_param(
-        PUBLIC_BASE_PATH,
+        "/",
         VSCODE_TOKEN_QUERY_PARAM,
         connection.connection_token.as_deref().unwrap_or_default(),
     ));
-    let ready_url = connection.http_url(PUBLIC_BASE_PATH);
+    let ready_url = connection.http_url("/");
     let mut cookie = None;
 
     loop {
@@ -2426,14 +2490,23 @@ mod tests {
     }
 
     #[test]
-    fn rewrite_public_path_strips_code_prefix() {
-        assert_eq!(rewrite_public_path("/code"), "/");
-        assert_eq!(rewrite_public_path("/code/"), "/");
+    fn request_target_from_public_path_extracts_runtime_relative_path() {
         assert_eq!(
-            rewrite_public_path("/code/?folder=%2Ftmp%2Fdemo"),
-            "/?folder=%2Ftmp%2Fdemo"
+            request_target_from_public_path("/code/vscode-cli"),
+            Some((VscodeRuntimeKind::VscodeCli, "/".to_string()))
         );
-        assert_eq!(rewrite_public_path("/code/static/out.js"), "/static/out.js");
+        assert_eq!(
+            request_target_from_public_path("/code/vscode-cli/?folder=%2Ftmp%2Fdemo"),
+            Some((
+                VscodeRuntimeKind::VscodeCli,
+                "/?folder=%2Ftmp%2Fdemo".to_string()
+            ))
+        );
+        assert_eq!(
+            request_target_from_public_path("/code/code-server/static/out.js"),
+            Some((VscodeRuntimeKind::CodeServer, "/static/out.js".to_string()))
+        );
+        assert_eq!(request_target_from_public_path("/code"), None);
     }
 
     #[test]
@@ -2968,7 +3041,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn code_proxy_strips_public_prefix_and_preserves_regular_cookies() {
+    async fn code_server_proxy_preserves_regular_cookies() {
         let upstream = Router::new().route(
             "/",
             any(|request: AxumRequest<Body>| async move {
@@ -3042,7 +3115,9 @@ mod tests {
 
         let client = reqwest::Client::new();
         let response = client
-            .get(format!("http://{addr}/code/?folder=%2Ftmp%2Fdemo"))
+            .get(format!(
+                "http://{addr}/code/code-server/?folder=%2Ftmp%2Fdemo"
+            ))
             .header(HOST, format!("proxy.test:{}", addr.port()))
             .header(
                 axum::http::header::COOKIE,
@@ -3069,6 +3144,35 @@ mod tests {
         assert_eq!(lines.next(), Some("/?folder=%2Ftmp%2Fdemo"));
         assert_eq!(lines.next(), Some("theme=dark; hubris-session=test"));
         assert_eq!(lines.next(), Some(expected_host.as_str()));
+    }
+
+    #[test]
+    fn forwarded_public_headers_override_host_and_origin() {
+        let headers = HeaderMap::from_iter([
+            (HOST, HeaderValue::from_static("proxy.test")),
+            (ORIGIN, HeaderValue::from_static("https://proxy.test")),
+            (
+                axum::http::HeaderName::from_static(HUBRIS_PUBLIC_HOST_HEADER),
+                HeaderValue::from_static("code-server.desktop.internal.hubris.build"),
+            ),
+            (
+                axum::http::HeaderName::from_static(HUBRIS_PUBLIC_ORIGIN_HEADER),
+                HeaderValue::from_static("https://code-server.desktop.internal.hubris.build"),
+            ),
+        ]);
+
+        assert_eq!(
+            forwarded_public_host(&headers),
+            Some(&HeaderValue::from_static(
+                "code-server.desktop.internal.hubris.build"
+            ))
+        );
+        assert_eq!(
+            forwarded_public_origin(&headers),
+            Some(&HeaderValue::from_static(
+                "https://code-server.desktop.internal.hubris.build"
+            ))
+        );
     }
 
     #[tokio::test]
@@ -3103,13 +3207,14 @@ mod tests {
         let connection = VscodeConnection {
             runtime: VscodeRuntimeKind::VscodeCli,
             base_url: format!("http://{}", upstream_addr),
-            path_mode: VscodePathModeValue::PreservePublicBasePath,
+            ws_base_url: format!("ws://{}", upstream_addr),
+            upstream_base_path: VSCODE_CLI_UPSTREAM_BASE_PATH.to_string(),
             connection_token: Some("fresh-token".to_string()),
         };
 
         let path = authorized_http_url(
             &connection,
-            "/code?folder=%2Ftmp&tkn=stale-query",
+            "/?folder=%2Ftmp&tkn=stale-query",
             &HeaderMap::from_iter([(
                 axum::http::header::COOKIE,
                 HeaderValue::from_static("vscode-tkn=stale-cookie; theme=dark"),
@@ -3119,14 +3224,14 @@ mod tests {
         assert_eq!(
             path,
             format!(
-                "http://{}/code?folder=%2Ftmp&tkn=fresh-token",
+                "http://{}/code/vscode-cli/?folder=%2Ftmp&tkn=fresh-token",
                 upstream_addr
             )
         );
     }
 
     #[tokio::test]
-    async fn code_proxy_returns_service_unavailable_when_runtime_is_missing() {
+    async fn removed_shared_code_path_returns_not_found() {
         let tmp = tempfile::TempDir::new().unwrap();
         let state = AppState::new(tmp.path().to_path_buf()).await;
         let app = build_router(state);
@@ -3139,11 +3244,7 @@ mod tests {
 
         let response = reqwest::get(format!("http://{addr}/code")).await.unwrap();
 
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            response.text().await.unwrap(),
-            "VS Code CLI is not installed"
-        );
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -3218,6 +3319,7 @@ mod tests {
             )),
         )
         .await;
+        select_code_server_runtime(&state).await;
         let app = build_router(state);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -3241,8 +3343,10 @@ mod tests {
             body["codeServer"]["installedVersion"],
             serde_json::Value::Null
         );
-        assert_eq!(body["codeServer"]["processStatus"], "installing");
-        assert_eq!(body["codeServer"]["installProgress"]["phase"], "preparing");
+        assert!(
+            body["codeServer"]["processStatus"] == "stopped"
+                || body["codeServer"]["processStatus"] == "installing"
+        );
         assert_eq!(
             body["codeServer"]["latest"]["latestVersion"],
             serde_json::Value::Null

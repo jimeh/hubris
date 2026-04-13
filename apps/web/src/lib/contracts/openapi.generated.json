@@ -3920,7 +3920,7 @@
       "Value": {},
       "VscodeConnectionInfo": {
         "type": "object",
-        "required": ["runtime", "baseUrl", "wsBaseUrl", "pathMode"],
+        "required": ["runtime", "baseUrl", "wsBaseUrl", "upstreamBasePath"],
         "properties": {
           "baseUrl": {
             "type": "string"
@@ -3928,11 +3928,11 @@
           "connectionToken": {
             "type": ["string", "null"]
           },
-          "pathMode": {
-            "$ref": "#/components/schemas/VscodePathMode"
-          },
           "runtime": {
             "$ref": "#/components/schemas/VscodeRuntimeKind"
+          },
+          "upstreamBasePath": {
+            "type": "string"
           },
           "wsBaseUrl": {
             "type": "string"
@@ -3987,10 +3987,6 @@
             "type": "boolean"
           }
         }
-      },
-      "VscodePathMode": {
-        "type": "string",
-        "enum": ["stripPublicBasePath", "preservePublicBasePath"]
       },
       "VscodeProcessStatus": {
         "type": "string",

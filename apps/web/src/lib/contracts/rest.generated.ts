@@ -1250,8 +1250,8 @@ export interface components {
     VscodeConnectionInfo: {
       baseUrl: string;
       connectionToken?: string | null;
-      pathMode: components["schemas"]["VscodePathMode"];
       runtime: components["schemas"]["VscodeRuntimeKind"];
+      upstreamBasePath: string;
       wsBaseUrl: string;
     };
     /** @enum {string} */
@@ -1275,8 +1275,6 @@ export interface components {
       latestVersion?: string | null;
       updateAvailable: boolean;
     };
-    /** @enum {string} */
-    VscodePathMode: "stripPublicBasePath" | "preservePublicBasePath";
     /** @enum {string} */
     VscodeProcessStatus:
       | "running"

@@ -340,3 +340,8 @@ embeddings.**
   In Hubris proxies, only treat a cookie/query token as valid when it matches
   the current runtime token; otherwise upsert the current `?tkn=` so the browser
   can mint a fresh cookie.
+- Electron/Node `fetch()` ignores a custom `Host` header. Desktop VS Code
+  runtime hosts therefore cannot proxy directly to the loopback runtime if the
+  upstream must see the public runtime host/origin; send desktop runtime traffic
+  through Hubris' Rust `/code/<runtime>` proxy and pass the public runtime
+  identity in explicit override headers instead.

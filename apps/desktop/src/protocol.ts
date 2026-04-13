@@ -6,10 +6,9 @@ import type { Session } from "electron";
 
 const require = createRequire(__filename);
 
-const VSCODE_CONNECTION_PATH = "/_hubris/vscode/connection";
 const DESKTOP_WS_BRIDGE_SCRIPT_PATH = "/_hubris/desktop/ws-bridge.js";
-const VSCODE_TOKEN_COOKIE_NAME = "vscode-tkn";
-const VSCODE_TOKEN_QUERY_PARAM = "tkn";
+const HUBRIS_PUBLIC_HOST_HEADER = "x-hubris-public-host";
+const HUBRIS_PUBLIC_ORIGIN_HEADER = "x-hubris-public-origin";
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
   "keep-alive",
@@ -23,8 +22,20 @@ const HOP_BY_HOP_HEADERS = new Set([
 
 export const HUBRIS_SCHEME = "https";
 export const HUBRIS_HOST = "desktop.internal.hubris.build";
+export const HUBRIS_VSCODE_CLI_HOST = `vscode-cli.${HUBRIS_HOST}`;
+export const HUBRIS_CODE_SERVER_HOST = `code-server.${HUBRIS_HOST}`;
 export const HUBRIS_ORIGIN = `${HUBRIS_SCHEME}://${HUBRIS_HOST}`;
 export const HUBRIS_WS_ORIGIN = `wss://${HUBRIS_HOST}`;
+export const HUBRIS_VSCODE_CLI_ORIGIN = `${HUBRIS_SCHEME}://${HUBRIS_VSCODE_CLI_HOST}`;
+export const HUBRIS_CODE_SERVER_ORIGIN = `${HUBRIS_SCHEME}://${HUBRIS_CODE_SERVER_HOST}`;
+
+const HUBRIS_INTERNAL_HOSTS = new Set([
+  HUBRIS_HOST,
+  HUBRIS_VSCODE_CLI_HOST,
+  HUBRIS_CODE_SERVER_HOST,
+]);
+
+type VscodeRuntime = "codeServer" | "vscodeCli";
 
 export type DesktopProtocolTargets = {
   frontendDistDir?: string;
@@ -37,27 +48,21 @@ export type DesktopProtocolTargets = {
 export type HubrisRouteKind = "frontend" | "backend" | "code";
 export type HubrisWebSocketRouteKind = "backend" | "code" | "vite";
 
+export type DesktopWebSocketTarget = {
+  cookieUrl: string;
+  publicOrigin: string;
+  targetUrl: string;
+  upstreamHost: string;
+};
+
 export type DesktopProtocolContext = {
   handleRequest(request: Request): Promise<Response>;
-  resolveWebSocketTarget(url: string): Promise<string>;
+  resolveWebSocketTarget(url: string): Promise<DesktopWebSocketTarget>;
 };
 
 type CookieStore = Pick<Session, "cookies">["cookies"];
 
-type VscodePathMode = "stripPublicBasePath" | "preservePublicBasePath";
-
-type VscodeConnectionInfo = {
-  runtime: "codeServer" | "vscodeCli";
-  baseUrl: string;
-  wsBaseUrl: string;
-  pathMode: VscodePathMode;
-  connectionToken?: string;
-};
-
-type ProtocolState = {
-  vscodeConnection?: VscodeConnectionInfo;
-  vscodeConnectionPromise?: Promise<VscodeConnectionInfo>;
-};
+type ProtocolState = Record<string, never>;
 
 type ParsedSetCookie = {
   name: string;
@@ -74,6 +79,8 @@ type ProxyRequestOptions = {
   hostUrl?: string;
   cookies?: CookieStore;
   cookieUrl?: string;
+  publicHost?: string;
+  publicOrigin?: string;
   stripOrigin?: boolean;
 };
 
@@ -85,6 +92,13 @@ export function classifyHubrisRequest(url: string): HubrisRouteKind {
   const parsed = new URL(url);
   if (!isHubrisHttpUrl(parsed)) {
     return "frontend";
+  }
+
+  const runtime = runtimeFromHubrisHost(parsed.host);
+  if (runtime) {
+    return parsed.pathname === DESKTOP_WS_BRIDGE_SCRIPT_PATH
+      ? "frontend"
+      : "code";
   }
 
   const pathname = parsed.pathname;
@@ -100,10 +114,6 @@ export function classifyHubrisRequest(url: string): HubrisRouteKind {
     return "backend";
   }
 
-  if (pathname === "/code" || pathname.startsWith("/code/")) {
-    return "code";
-  }
-
   return "frontend";
 }
 
@@ -114,16 +124,16 @@ export function classifyHubrisWebSocket(
   const parsed = new URL(url, HUBRIS_ORIGIN);
   if (
     (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") ||
-    parsed.host !== HUBRIS_HOST
+    !HUBRIS_INTERNAL_HOSTS.has(parsed.host)
   ) {
     return null;
   }
 
-  const pathname = parsed.pathname;
-  if (pathname === "/code" || pathname.startsWith("/code/")) {
+  if (runtimeFromHubrisHost(parsed.host)) {
     return "code";
   }
 
+  const pathname = parsed.pathname;
   if (
     pathname === "/api/terminal/ws" ||
     pathname.startsWith("/api/terminal/ws/")
@@ -138,24 +148,10 @@ export function classifyHubrisWebSocket(
   return null;
 }
 
-export function rewriteVscodePath(
-  pathAndQuery: string,
-  pathMode: VscodePathMode,
-): string {
-  if (pathMode === "preservePublicBasePath") {
-    return pathAndQuery;
-  }
-
-  const stripped = pathAndQuery.replace(/^\/code/, "");
-  if (stripped === "") {
-    return "/";
-  }
-
-  if (stripped.startsWith("/") || stripped.startsWith("?")) {
-    return `/${stripped.replace(/^\/+/, "")}`;
-  }
-
-  return `/${stripped}`;
+export function vscodeOrigin(runtime: VscodeRuntime): string {
+  return runtime === "vscodeCli"
+    ? HUBRIS_VSCODE_CLI_ORIGIN
+    : HUBRIS_CODE_SERVER_ORIGIN;
 }
 
 export async function registerHubrisProtocol(
@@ -202,7 +198,10 @@ export function buildDesktopRuntimeConfig(): string {
     apiBase: `${HUBRIS_ORIGIN}/api`,
     eventsUrl: `${HUBRIS_ORIGIN}/api/events`,
     terminalWsBase: `${HUBRIS_WS_ORIGIN}/api/terminal/ws`,
-    codeBase: `${HUBRIS_ORIGIN}/code/`,
+    vscodeBases: {
+      codeServer: `${HUBRIS_CODE_SERVER_ORIGIN}/`,
+      vscodeCli: `${HUBRIS_VSCODE_CLI_ORIGIN}/`,
+    },
   });
 }
 
@@ -243,7 +242,7 @@ function webSocketBridgeScript(): string {
     "  function shouldBridge(url) {",
     "    try {",
     "      var parsed = new URL(String(url), window.location.href);",
-    `      return (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') && parsed.host === ${JSON.stringify(HUBRIS_HOST)};`,
+    `      return (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') && ${JSON.stringify(Array.from(HUBRIS_INTERNAL_HOSTS))}.indexOf(parsed.host) !== -1;`,
     "    } catch (_error) {",
     "      return false;",
     "    }",
@@ -376,7 +375,8 @@ async function handleHubrisProtocolRequest(
   targets: DesktopProtocolTargets,
   state: ProtocolState,
 ): Promise<Response> {
-  const pathname = new URL(request.url).pathname;
+  const requestUrl = new URL(request.url);
+  const pathname = requestUrl.pathname;
   if (pathname === DESKTOP_WS_BRIDGE_SCRIPT_PATH) {
     return new Response(webSocketBridgeScript(), {
       headers: {
@@ -392,7 +392,15 @@ async function handleHubrisProtocolRequest(
   }
 
   if (route === "code") {
-    return proxyToVscode(request, cookies, targets, state);
+    const runtime = runtimeFromHubrisHost(requestUrl.host);
+    if (!runtime) {
+      return new Response("not found", { status: 404 });
+    }
+    return proxyToVscode(request, cookies, targets, state, runtime);
+  }
+
+  if (pathname === "/code" || pathname.startsWith("/code/")) {
+    return new Response("not found", { status: 404 });
   }
 
   if (targets.frontendHttpOrigin) {
@@ -408,28 +416,49 @@ async function handleHubrisProtocolRequest(
 
 async function resolveHubrisWebSocketTarget(
   url: string,
-  cookies: CookieStore,
+  _cookies: CookieStore,
   targets: DesktopProtocolTargets,
-  state: ProtocolState,
-): Promise<string> {
+  _state: ProtocolState,
+): Promise<DesktopWebSocketTarget> {
   const parsed = new URL(url, HUBRIS_WS_ORIGIN);
   const route = classifyHubrisWebSocket(url, Boolean(targets.viteWsOrigin));
   const pathAndQuery = `${parsed.pathname}${parsed.search}`;
 
   if (route === "backend") {
-    return new URL(pathAndQuery, targets.backendWsOrigin).toString();
+    const targetUrl = new URL(pathAndQuery, targets.backendWsOrigin);
+    return {
+      cookieUrl: parsed.toString(),
+      publicOrigin: `${parsed.protocol === "wss:" ? "https" : "http"}://${parsed.host}`,
+      targetUrl: targetUrl.toString(),
+      upstreamHost: targetUrl.host,
+    };
   }
 
   if (route === "code") {
-    const connection = await getVscodeConnection(cookies, targets, state);
-    return new URL(
-      authorizedVscodePath(pathAndQuery, connection, null),
-      connection.wsBaseUrl,
-    ).toString();
+    const runtime = runtimeFromHubrisHost(parsed.host);
+    if (!runtime) {
+      throw new Error(`unsupported websocket target: ${url}`);
+    }
+    const targetUrl = new URL(
+      backendRuntimePath(runtime, pathAndQuery),
+      targets.backendWsOrigin,
+    );
+    return {
+      cookieUrl: parsed.toString(),
+      publicOrigin: `${parsed.protocol === "wss:" ? "https" : "http"}://${parsed.host}`,
+      targetUrl: targetUrl.toString(),
+      upstreamHost: targetUrl.host,
+    };
   }
 
   if (route === "vite" && targets.viteWsOrigin) {
-    return new URL(pathAndQuery, targets.viteWsOrigin).toString();
+    const targetUrl = new URL(pathAndQuery, targets.viteWsOrigin);
+    return {
+      cookieUrl: parsed.toString(),
+      publicOrigin: `${parsed.protocol === "wss:" ? "https" : "http"}://${parsed.host}`,
+      targetUrl: targetUrl.toString(),
+      upstreamHost: targetUrl.host,
+    };
   }
 
   throw new Error(`unsupported websocket target: ${url}`);
@@ -479,55 +508,30 @@ async function proxyToVscode(
   cookies: CookieStore,
   targets: DesktopProtocolTargets,
   state: ProtocolState,
+  runtime: VscodeRuntime,
 ): Promise<Response> {
-  if (shouldRefreshVscodeConnection(request.url)) {
-    invalidateVscodeConnection(state);
-  }
-
-  try {
-    return await proxyToVscodeWithFreshConnection(
-      request,
-      cookies,
-      targets,
-      state,
-    );
-  } catch (error) {
-    invalidateVscodeConnection(state);
-    try {
-      return await proxyToVscodeWithFreshConnection(
-        request,
-        cookies,
-        targets,
-        state,
-      );
-    } catch {
-      throw error;
-    }
-  }
+  return proxyToVscodeViaBackend(request, cookies, targets, state, runtime);
 }
 
-async function proxyToVscodeWithFreshConnection(
+async function proxyToVscodeViaBackend(
   request: Request,
   cookies: CookieStore,
   targets: DesktopProtocolTargets,
-  state: ProtocolState,
+  _state: ProtocolState,
+  runtime: VscodeRuntime,
 ): Promise<Response> {
-  const connection = await getVscodeConnection(cookies, targets, state);
   const url = new URL(request.url);
-  const cookieHeader =
-    request.headers.get("cookie") ||
-    (await cookieHeaderForUrl(cookies, request.url));
-  const targetPath = authorizedVscodePath(
-    `${url.pathname}${url.search}`,
-    connection,
-    cookieHeader,
-  );
   const upstream = await proxyRequest(request, {
-    targetUrl: new URL(targetPath, connection.baseUrl).toString(),
+    targetUrl: new URL(
+      backendRuntimePath(runtime, `${url.pathname}${url.search}`),
+      targets.backendHttpOrigin,
+    ).toString(),
     cookies,
     cookieUrl: request.url,
+    publicHost: url.host,
+    publicOrigin: url.origin,
   });
-  await mirrorResponseCookies(cookies, [HUBRIS_ORIGIN], upstream.headers);
+  await mirrorResponseCookies(cookies, [url.origin], upstream.headers);
   return maybeInjectHtml(upstream, codeServerHtmlInjection(), true);
 }
 
@@ -539,6 +543,12 @@ async function proxyRequest(
   sanitizeForwardRequestHeaders(headers);
   if (options.hostUrl) {
     headers.set("host", new URL(options.hostUrl).host);
+  }
+  if (options.publicHost) {
+    headers.set(HUBRIS_PUBLIC_HOST_HEADER, options.publicHost);
+  }
+  if (options.publicOrigin) {
+    headers.set(HUBRIS_PUBLIC_ORIGIN_HEADER, options.publicOrigin);
   }
 
   if (options.cookies && options.cookieUrl && !headers.has("cookie")) {
@@ -569,164 +579,35 @@ async function proxyRequest(
   return fetch(options.targetUrl, init);
 }
 
-async function getVscodeConnection(
-  cookies: CookieStore,
-  targets: DesktopProtocolTargets,
-  state: ProtocolState,
-): Promise<VscodeConnectionInfo> {
-  if (state.vscodeConnection) {
-    return state.vscodeConnection;
+function runtimeFromHubrisHost(host: string): VscodeRuntime | null {
+  if (host === HUBRIS_VSCODE_CLI_HOST) {
+    return "vscodeCli";
   }
-
-  if (!state.vscodeConnectionPromise) {
-    state.vscodeConnectionPromise = fetchVscodeConnection(cookies, targets)
-      .then((connection) => {
-        state.vscodeConnection = connection;
-        return connection;
-      })
-      .finally(() => {
-        state.vscodeConnectionPromise = undefined;
-      });
+  if (host === HUBRIS_CODE_SERVER_HOST) {
+    return "codeServer";
   }
-
-  return state.vscodeConnectionPromise;
-}
-
-function invalidateVscodeConnection(state: ProtocolState): void {
-  delete state.vscodeConnection;
-  delete state.vscodeConnectionPromise;
-}
-
-async function fetchVscodeConnection(
-  cookies: CookieStore,
-  targets: DesktopProtocolTargets,
-): Promise<VscodeConnectionInfo> {
-  const headers = new Headers({
-    accept: "application/json",
-  });
-  const cookieHeader = await cookieHeaderForUrl(
-    cookies,
-    `${HUBRIS_ORIGIN}${VSCODE_CONNECTION_PATH}`,
-  );
-  if (cookieHeader) {
-    headers.set("cookie", cookieHeader);
-  }
-
-  const response = await fetch(
-    new URL(VSCODE_CONNECTION_PATH, targets.backendHttpOrigin),
-    {
-      headers,
-      redirect: "manual",
-    },
-  );
-
-  if (!response.ok) {
-    const details = await response.text();
-    throw new Error(
-      `failed to resolve vscode connection (${response.status}): ${details}`,
-    );
-  }
-
-  const payload = (await response.json()) as Partial<{
-    runtime: "codeServer" | "vscodeCli";
-    baseUrl: string;
-    wsBaseUrl: string;
-    pathMode: VscodePathMode;
-    connectionToken?: string;
-  }>;
-  if (
-    (payload.runtime !== "codeServer" && payload.runtime !== "vscodeCli") ||
-    typeof payload.baseUrl !== "string" ||
-    typeof payload.wsBaseUrl !== "string" ||
-    (payload.pathMode !== "stripPublicBasePath" &&
-      payload.pathMode !== "preservePublicBasePath")
-  ) {
-    throw new Error("invalid vscode connection response");
-  }
-
-  return {
-    runtime: payload.runtime,
-    baseUrl: payload.baseUrl,
-    wsBaseUrl: payload.wsBaseUrl,
-    pathMode: payload.pathMode,
-    connectionToken:
-      typeof payload.connectionToken === "string"
-        ? payload.connectionToken
-        : undefined,
-  };
-}
-
-function shouldRefreshVscodeConnection(requestUrl: string): boolean {
-  const { pathname } = new URL(requestUrl);
-  return pathname === "/code" || pathname === "/code/";
-}
-
-export function authorizedVscodePath(
-  pathAndQuery: string,
-  connection: VscodeConnectionInfo,
-  cookieHeader: string | null,
-): string {
-  let targetPath = rewriteVscodePath(pathAndQuery, connection.pathMode);
-  if (
-    connection.runtime === "vscodeCli" &&
-    connection.connectionToken &&
-    !hasCurrentVscodeAuth(cookieHeader, targetPath, connection.connectionToken)
-  ) {
-    targetPath = upsertQueryParam(
-      targetPath,
-      VSCODE_TOKEN_QUERY_PARAM,
-      connection.connectionToken,
-    );
-  }
-  return targetPath;
-}
-
-function hasCurrentVscodeAuth(
-  cookieHeader: string | null,
-  pathAndQuery: string,
-  currentToken: string,
-): boolean {
-  return (
-    cookieToken(cookieHeader) === currentToken ||
-    queryParamValue(pathAndQuery, VSCODE_TOKEN_QUERY_PARAM) === currentToken
-  );
-}
-
-function cookieToken(cookieHeader: string | null): string | null {
-  const prefix = `${VSCODE_TOKEN_COOKIE_NAME}=`;
-  return (
-    cookieHeader
-      ?.split(";")
-      .find((part) => part.trimStart().startsWith(prefix))
-      ?.trimStart()
-      .slice(prefix.length) ?? null
-  );
-}
-
-function queryParamValue(pathAndQuery: string, key: string): string | null {
-  const query = pathAndQuery.split("?", 2)[1];
-  if (!query) return null;
-
-  for (const part of query.split("&")) {
-    const [paramKey, value] = part.split("=", 2);
-    if (paramKey === key) return value ?? "";
-  }
-
   return null;
 }
 
-function upsertQueryParam(
+function runtimeRouteSegment(runtime: VscodeRuntime): string {
+  return runtime === "vscodeCli" ? "vscode-cli" : "code-server";
+}
+
+function normalizeRuntimePath(pathAndQuery: string): string {
+  if (pathAndQuery === "") {
+    return "/";
+  }
+  if (pathAndQuery.startsWith("/") || pathAndQuery.startsWith("?")) {
+    return `/${pathAndQuery.replace(/^\/+/, "")}`;
+  }
+  return `/${pathAndQuery}`;
+}
+
+function backendRuntimePath(
+  runtime: VscodeRuntime,
   pathAndQuery: string,
-  key: string,
-  value: string,
 ): string {
-  const [path, query] = pathAndQuery.split("?", 2);
-  const params = (query ? query.split("&") : [])
-    .filter(Boolean)
-    .map((part) => part.split("=", 2))
-    .filter(([paramKey]) => paramKey !== key);
-  params.push([key, value]);
-  return `${path}?${params.map(([k, v = ""]) => `${k}=${v}`).join("&")}`;
+  return `/code/${runtimeRouteSegment(runtime)}${normalizeRuntimePath(pathAndQuery)}`;
 }
 
 async function cookieHeaderForUrl(
@@ -818,7 +699,7 @@ function contentTypeForPath(filePath: string): string {
 }
 
 function isHubrisHttpUrl(url: URL): boolean {
-  return url.protocol === "https:" && url.host === HUBRIS_HOST;
+  return url.protocol === "https:" && HUBRIS_INTERNAL_HOSTS.has(url.host);
 }
 
 function isSubPath(root: string, candidate: string): boolean {

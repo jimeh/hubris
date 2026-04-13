@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  allowedHubrisOrigins,
   classifyNavigationTarget,
   createHubrisWindowOptions,
   isAllowedNavigation,
@@ -42,53 +43,56 @@ describe("isAllowedNavigation", () => {
   it("allows same-origin navigation", () => {
     expect(
       isAllowedNavigation(
-        "https://desktop.internal.hubris.build/deep/link",
-        "https://desktop.internal.hubris.build",
+        "https://vscode-cli.desktop.internal.hubris.build/deep/link",
+        allowedHubrisOrigins(),
       ),
     ).toBe(true);
   });
 
   it("blocks cross-origin navigation", () => {
     expect(
-      isAllowedNavigation(
-        "https://example.com",
-        "https://desktop.internal.hubris.build",
-      ),
+      isAllowedNavigation("https://example.com", allowedHubrisOrigins()),
     ).toBe(false);
   });
 });
 
 describe("classifyNavigationTarget", () => {
-  const allowedOrigin = "https://desktop.internal.hubris.build";
+  const allowedOrigins = allowedHubrisOrigins();
 
   it("classifies same-origin URLs as internal", () => {
     expect(
       classifyNavigationTarget(
         "https://desktop.internal.hubris.build/deep/link",
-        allowedOrigin,
+        allowedOrigins,
+      ),
+    ).toBe("internal");
+    expect(
+      classifyNavigationTarget(
+        "https://code-server.desktop.internal.hubris.build/deep/link",
+        allowedOrigins,
       ),
     ).toBe("internal");
   });
 
   it("classifies external http URLs as external", () => {
     expect(
-      classifyNavigationTarget("http://example.com/docs", allowedOrigin),
+      classifyNavigationTarget("http://example.com/docs", allowedOrigins),
     ).toBe("external");
   });
 
   it("classifies external https URLs as external", () => {
     expect(
-      classifyNavigationTarget("https://example.com/docs", allowedOrigin),
+      classifyNavigationTarget("https://example.com/docs", allowedOrigins),
     ).toBe("external");
   });
 
   it("rejects non-http schemes", () => {
     expect(
-      classifyNavigationTarget("mailto:test@example.com", allowedOrigin),
+      classifyNavigationTarget("mailto:test@example.com", allowedOrigins),
     ).toBe("deny");
   });
 
   it("rejects malformed URLs", () => {
-    expect(classifyNavigationTarget("not a url", allowedOrigin)).toBe("deny");
+    expect(classifyNavigationTarget("not a url", allowedOrigins)).toBe("deny");
   });
 });

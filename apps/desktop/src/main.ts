@@ -24,6 +24,7 @@ import {
   registerHubrisScheme,
 } from "./protocol";
 import {
+  allowedHubrisOrigins,
   classifyNavigationTarget,
   createHubrisWindowOptions,
 } from "./security";
@@ -153,7 +154,7 @@ function configureBrowserSessionGuards(browserSession: Session) {
  */
 function configureWebContentsGuards(
   webContents: WebContents,
-  allowedOrigin: string,
+  allowedOrigins: string[],
 ) {
   const openExternalUrl = (url: string) => {
     void shell.openExternal(url).catch((error: unknown) => {
@@ -162,7 +163,7 @@ function configureWebContentsGuards(
   };
 
   webContents.setWindowOpenHandler(({ url }) => {
-    if (classifyNavigationTarget(url, allowedOrigin) === "external") {
+    if (classifyNavigationTarget(url, allowedOrigins) === "external") {
       openExternalUrl(url);
     }
 
@@ -176,7 +177,7 @@ function configureWebContentsGuards(
     preventDefault: () => void;
     url: string;
   }) => {
-    const target = classifyNavigationTarget(url, allowedOrigin);
+    const target = classifyNavigationTarget(url, allowedOrigins);
     if (target === "internal") {
       return;
     }
@@ -267,7 +268,7 @@ async function createMainWindow() {
   mainWindow = window;
   wireDesktopWindowStatePersistence(window, userDataPath);
 
-  configureWebContentsGuards(window.webContents, HUBRIS_ORIGIN);
+  configureWebContentsGuards(window.webContents, allowedHubrisOrigins());
   installBrowserViewBridge(window, profileMode);
   window.once("ready-to-show", () => {
     if (savedWindowState?.isMaximized) {

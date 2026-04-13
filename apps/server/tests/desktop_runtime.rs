@@ -84,7 +84,7 @@ async fn desktop_runtime_emits_startup_contract_and_serves_backend_after_bootstr
     assert_eq!(api.status(), StatusCode::OK);
 
     let code_server = client
-        .get(format!("{base}/_hubris/code-server/connection"))
+        .get(format!("{base}/_hubris/vscode/code-server/connection"))
         .header(reqwest::header::COOKIE, &cookie)
         .send()
         .await

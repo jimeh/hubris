@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  resetSettingsStoreForTests,
+  useSettingsStore,
+} from "@/lib/stores/settings";
 import type { Worktree } from "@/lib/types";
 import VscodeWorkbenchPane from "./VscodeWorkbenchPane";
 
@@ -20,12 +24,26 @@ function makeWorktree(): Worktree {
 }
 
 describe("VscodeWorkbenchPane", () => {
+  beforeEach(() => {
+    resetSettingsStoreForTests();
+  });
+
   it("renders the expected iframe URL", () => {
     render(<VscodeWorkbenchPane worktree={makeWorktree()} active />);
 
     expect(
       screen.getByTitle("VS Code workbench for feature-a"),
-    ).toHaveAttribute("src", "/code/?folder=%2Ftmp%2Ffeature-a");
+    ).toHaveAttribute("src", "/code/vscode-cli/?folder=%2Ftmp%2Ffeature-a");
+  });
+
+  it("switches to the selected runtime URL", () => {
+    useSettingsStore.getState().updateVscode({ runtime: "codeServer" });
+
+    render(<VscodeWorkbenchPane worktree={makeWorktree()} active />);
+
+    expect(
+      screen.getByTitle("VS Code workbench for feature-a"),
+    ).toHaveAttribute("src", "/code/code-server/?folder=%2Ftmp%2Ffeature-a");
   });
 
   it("keeps inactive panes mounted but hidden", () => {

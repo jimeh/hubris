@@ -32,7 +32,7 @@ use crate::api::tasks::{
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
 use crate::api::vscode::{
     InstallVscodeRequest, VscodeConnectionInfo, VscodeInstallPhase, VscodeInstallProgress,
-    VscodeLatestCheck, VscodePathMode, VscodeProcessStatus, VscodeRuntimeStatus, VscodeStatus,
+    VscodeLatestCheck, VscodeProcessStatus, VscodeRuntimeStatus, VscodeStatus,
 };
 use crate::api::worktrees::{
     CreateWorktreeRequest, GitCommitDetailsResponse, GitCommitPerson, GitCommitSummary,
@@ -116,7 +116,6 @@ use crate::tab::{GitDiffScope, TabInfo};
             VscodeLatestCheck,
             VscodeRuntimeStatus,
             VscodeStatus,
-            VscodePathMode,
             VscodeConnectionInfo,
             InstallVscodeRequest,
             ManagedProcessLifecycleStateValue,

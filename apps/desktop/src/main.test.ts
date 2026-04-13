@@ -181,6 +181,11 @@ async function loadMainModule({
   }));
 
   vi.doMock("./security", () => ({
+    allowedHubrisOrigins: vi.fn(() => [
+      "https://desktop.internal.hubris.build",
+      "https://vscode-cli.desktop.internal.hubris.build",
+      "https://code-server.desktop.internal.hubris.build",
+    ]),
     classifyNavigationTarget: vi.fn(() => "internal"),
     createHubrisWindowOptions,
   }));

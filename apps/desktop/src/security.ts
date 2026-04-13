@@ -1,6 +1,11 @@
 import type { BrowserWindowConstructorOptions } from "electron";
 
 import { desktopSessionPartition, type DesktopProfileMode } from "./profile";
+import {
+  HUBRIS_CODE_SERVER_ORIGIN,
+  HUBRIS_ORIGIN,
+  HUBRIS_VSCODE_CLI_ORIGIN,
+} from "./protocol";
 
 export const HUBRIS_WINDOW_TITLE = "Hubris";
 export const HUBRIS_WINDOW_WIDTH = 1440;
@@ -40,9 +45,9 @@ export function createHubrisWindowOptions(
  */
 export function isAllowedNavigation(
   url: string,
-  allowedOrigin: string,
+  allowedOrigins: string | string[],
 ): boolean {
-  return classifyNavigationTarget(url, allowedOrigin) === "internal";
+  return classifyNavigationTarget(url, allowedOrigins) === "internal";
 }
 
 /**
@@ -50,17 +55,24 @@ export function isAllowedNavigation(
  */
 export function classifyNavigationTarget(
   url: string,
-  allowedOrigin: string,
+  allowedOrigins: string | string[],
 ): NavigationTarget {
   try {
     const target = new URL(url);
-    const allowed = new URL(allowedOrigin);
+    const allowedList = Array.isArray(allowedOrigins)
+      ? allowedOrigins
+      : [allowedOrigins];
 
     if (
-      target.protocol === allowed.protocol &&
-      target.host === allowed.host &&
-      target.username === allowed.username &&
-      target.password === allowed.password
+      allowedList.some((allowedOrigin) => {
+        const allowed = new URL(allowedOrigin);
+        return (
+          target.protocol === allowed.protocol &&
+          target.host === allowed.host &&
+          target.username === allowed.username &&
+          target.password === allowed.password
+        );
+      })
     ) {
       return "internal";
     }
@@ -73,4 +85,8 @@ export function classifyNavigationTarget(
   } catch {
     return "deny";
   }
+}
+
+export function allowedHubrisOrigins(): string[] {
+  return [HUBRIS_ORIGIN, HUBRIS_VSCODE_CLI_ORIGIN, HUBRIS_CODE_SERVER_ORIGIN];
 }

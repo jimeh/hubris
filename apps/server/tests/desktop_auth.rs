@@ -195,7 +195,7 @@ async fn packaged_desktop_blocks_unauthenticated_requests() {
     assert_eq!(api.status(), StatusCode::UNAUTHORIZED);
 
     let code_server = client
-        .get(format!("{base}/_hubris/code-server/connection"))
+        .get(format!("{base}/_hubris/vscode/code-server/connection"))
         .send()
         .await
         .unwrap();
@@ -266,7 +266,7 @@ async fn packaged_desktop_bootstrap_is_one_time_and_authenticates_http_sse_and_w
     assert_eq!(projects.status(), StatusCode::OK);
 
     let code_server = client
-        .get(format!("{base}/_hubris/code-server/connection"))
+        .get(format!("{base}/_hubris/vscode/code-server/connection"))
         .header(reqwest::header::COOKIE, &cookie)
         .send()
         .await
