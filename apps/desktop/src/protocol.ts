@@ -4,6 +4,8 @@ import path from "node:path";
 
 import type { Session } from "electron";
 
+import { readDevServerState } from "./runtime";
+
 const require = createRequire(__filename);
 
 const DESKTOP_WS_BRIDGE_SCRIPT_PATH = "/_hubris/desktop/ws-bridge.js";
@@ -43,6 +45,10 @@ export type DesktopProtocolTargets = {
   backendHttpOrigin: string;
   backendWsOrigin: string;
   viteWsOrigin?: string;
+  devServerState?: {
+    devId: string;
+    devTmp: string;
+  };
 };
 
 export type HubrisRouteKind = "frontend" | "backend" | "code";
@@ -382,6 +388,7 @@ async function handleHubrisProtocolRequest(
   targets: DesktopProtocolTargets,
   state: ProtocolState,
 ): Promise<Response> {
+  const currentTargets = resolveCurrentTargets(targets);
   const requestUrl = new URL(request.url);
   const pathname = requestUrl.pathname;
   if (pathname === DESKTOP_WS_BRIDGE_SCRIPT_PATH) {
@@ -394,31 +401,42 @@ async function handleHubrisProtocolRequest(
   }
 
   const route = classifyHubrisRequest(request.url);
-  if (route === "backend") {
-    return proxyToBackend(request, cookies, targets);
-  }
+  try {
+    if (route === "backend") {
+      return proxyToBackend(request, cookies, targets, currentTargets);
+    }
 
-  if (route === "code") {
-    const runtime = runtimeFromHubrisHost(requestUrl.host);
-    if (!runtime) {
+    if (route === "code") {
+      const runtime = runtimeFromHubrisHost(requestUrl.host);
+      if (!runtime) {
+        return new Response("not found", { status: 404 });
+      }
+      return proxyToVscode(
+        request,
+        cookies,
+        targets,
+        currentTargets,
+        state,
+        runtime,
+      );
+    }
+
+    if (pathname === "/code" || pathname.startsWith("/code/")) {
       return new Response("not found", { status: 404 });
     }
-    return proxyToVscode(request, cookies, targets, state, runtime);
-  }
 
-  if (pathname === "/code" || pathname.startsWith("/code/")) {
-    return new Response("not found", { status: 404 });
-  }
+    if (targets.frontendHttpOrigin) {
+      return proxyFrontendHttp(request, targets, currentTargets);
+    }
 
-  if (targets.frontendHttpOrigin) {
-    return proxyFrontendHttp(request, targets);
-  }
+    if (!targets.frontendDistDir) {
+      return new Response("frontend unavailable", { status: 404 });
+    }
 
-  if (!targets.frontendDistDir) {
-    return new Response("frontend unavailable", { status: 404 });
+    return servePackagedFrontend(request, targets);
+  } catch (error) {
+    return protocolProxyErrorResponse(error);
   }
-
-  return servePackagedFrontend(request, targets);
 }
 
 async function resolveHubrisWebSocketTarget(
@@ -427,12 +445,13 @@ async function resolveHubrisWebSocketTarget(
   targets: DesktopProtocolTargets,
   _state: ProtocolState,
 ): Promise<DesktopWebSocketTarget> {
+  const currentTargets = resolveCurrentTargets(targets);
   const parsed = new URL(url, HUBRIS_WS_ORIGIN);
   const route = classifyHubrisWebSocket(url, Boolean(targets.viteWsOrigin));
   const pathAndQuery = `${parsed.pathname}${parsed.search}`;
 
   if (route === "backend") {
-    const targetUrl = new URL(pathAndQuery, targets.backendWsOrigin);
+    const targetUrl = new URL(pathAndQuery, currentTargets.backendWsOrigin);
     return {
       cookieUrl: parsed.toString(),
       publicOrigin: `${parsed.protocol === "wss:" ? "https" : "http"}://${parsed.host}`,
@@ -448,7 +467,7 @@ async function resolveHubrisWebSocketTarget(
     }
     const targetUrl = new URL(
       backendRuntimePath(runtime, pathAndQuery),
-      targets.backendWsOrigin,
+      currentTargets.backendWsOrigin,
     );
     return {
       cookieUrl: parsed.toString(),
@@ -458,8 +477,8 @@ async function resolveHubrisWebSocketTarget(
     };
   }
 
-  if (route === "vite" && targets.viteWsOrigin) {
-    const targetUrl = new URL(pathAndQuery, targets.viteWsOrigin);
+  if (route === "vite" && currentTargets.viteWsOrigin) {
+    const targetUrl = new URL(pathAndQuery, currentTargets.viteWsOrigin);
     return {
       cookieUrl: parsed.toString(),
       publicOrigin: `${parsed.protocol === "wss:" ? "https" : "http"}://${parsed.host}`,
@@ -474,21 +493,27 @@ async function resolveHubrisWebSocketTarget(
 async function proxyFrontendHttp(
   request: Request,
   targets: DesktopProtocolTargets,
+  currentTargets: DesktopProtocolTargets,
 ): Promise<Response> {
-  const frontendOrigin = targets.frontendHttpOrigin;
+  const frontendOrigin = currentTargets.frontendHttpOrigin;
   if (!frontendOrigin) {
     return new Response("frontend unavailable", { status: 404 });
   }
 
   const url = new URL(request.url);
-  const upstream = await proxyRequest(request, {
-    targetUrl: new URL(
-      `${url.pathname}${url.search}`,
-      frontendOrigin,
-    ).toString(),
-    hostUrl: frontendOrigin,
-    stripOrigin: true,
-  });
+  const upstream = await retryProxyRequest(
+    request,
+    targets,
+    currentTargets,
+    (resolvedTargets) => ({
+      targetUrl: new URL(
+        `${url.pathname}${url.search}`,
+        resolvedTargets.frontendHttpOrigin ?? frontendOrigin,
+      ).toString(),
+      hostUrl: resolvedTargets.frontendHttpOrigin ?? frontendOrigin,
+      stripOrigin: true,
+    }),
+  );
   return maybeInjectHtml(upstream, appHtmlInjection(), false);
 }
 
@@ -496,16 +521,22 @@ async function proxyToBackend(
   request: Request,
   cookies: CookieStore,
   targets: DesktopProtocolTargets,
+  currentTargets: DesktopProtocolTargets,
 ): Promise<Response> {
   const url = new URL(request.url);
-  const upstream = await proxyRequest(request, {
-    targetUrl: new URL(
-      `${url.pathname}${url.search}`,
-      targets.backendHttpOrigin,
-    ).toString(),
-    cookies,
-    cookieUrl: request.url,
-  });
+  const upstream = await retryProxyRequest(
+    request,
+    targets,
+    currentTargets,
+    (resolvedTargets) => ({
+      targetUrl: new URL(
+        `${url.pathname}${url.search}`,
+        resolvedTargets.backendHttpOrigin,
+      ).toString(),
+      cookies,
+      cookieUrl: request.url,
+    }),
+  );
   await mirrorResponseCookies(cookies, [HUBRIS_ORIGIN], upstream.headers);
   return stripSetCookieHeader(upstream);
 }
@@ -514,32 +545,68 @@ async function proxyToVscode(
   request: Request,
   cookies: CookieStore,
   targets: DesktopProtocolTargets,
+  currentTargets: DesktopProtocolTargets,
   state: ProtocolState,
   runtime: VscodeRuntime,
 ): Promise<Response> {
-  return proxyToVscodeViaBackend(request, cookies, targets, state, runtime);
+  return proxyToVscodeViaBackend(
+    request,
+    cookies,
+    targets,
+    currentTargets,
+    state,
+    runtime,
+  );
 }
 
 async function proxyToVscodeViaBackend(
   request: Request,
   cookies: CookieStore,
   targets: DesktopProtocolTargets,
+  currentTargets: DesktopProtocolTargets,
   _state: ProtocolState,
   runtime: VscodeRuntime,
 ): Promise<Response> {
   const url = new URL(request.url);
-  const upstream = await proxyRequest(request, {
-    targetUrl: new URL(
-      backendRuntimePath(runtime, `${url.pathname}${url.search}`),
-      targets.backendHttpOrigin,
-    ).toString(),
-    cookies,
-    cookieUrl: request.url,
-    publicHost: url.host,
-    publicOrigin: url.origin,
-  });
+  const upstream = await retryProxyRequest(
+    request,
+    targets,
+    currentTargets,
+    (resolvedTargets) => ({
+      targetUrl: new URL(
+        backendRuntimePath(runtime, `${url.pathname}${url.search}`),
+        resolvedTargets.backendHttpOrigin,
+      ).toString(),
+      cookies,
+      cookieUrl: request.url,
+      publicHost: url.host,
+      publicOrigin: url.origin,
+    }),
+  );
   await mirrorResponseCookies(cookies, [url.origin], upstream.headers);
   return maybeInjectHtml(upstream, codeServerHtmlInjection(), true);
+}
+
+async function retryProxyRequest(
+  request: Request,
+  targets: DesktopProtocolTargets,
+  currentTargets: DesktopProtocolTargets,
+  buildOptions: (
+    resolvedTargets: DesktopProtocolTargets,
+  ) => ProxyRequestOptions,
+): Promise<Response> {
+  const first = buildOptions(currentTargets);
+  try {
+    return await proxyRequest(request, first);
+  } catch (error) {
+    if (!targets.devServerState) {
+      throw error;
+    }
+
+    await delay(100);
+    const refreshedTargets = resolveCurrentTargets(targets);
+    return proxyRequest(request, buildOptions(refreshedTargets));
+  }
 }
 
 async function proxyRequest(
@@ -584,6 +651,42 @@ async function proxyRequest(
   }
 
   return fetch(options.targetUrl, init);
+}
+
+function resolveCurrentTargets(
+  targets: DesktopProtocolTargets,
+): DesktopProtocolTargets {
+  const devState = targets.devServerState;
+  if (!devState) {
+    return targets;
+  }
+
+  const frontend = readDevServerState(
+    "frontend",
+    devState.devId,
+    devState.devTmp,
+  );
+  const backend = readDevServerState(
+    "backend",
+    devState.devId,
+    devState.devTmp,
+  );
+
+  return {
+    ...targets,
+    ...(frontend
+      ? {
+          frontendHttpOrigin: `http://localhost:${frontend.port}`,
+          viteWsOrigin: `ws://localhost:${frontend.port}`,
+        }
+      : {}),
+    ...(backend
+      ? {
+          backendHttpOrigin: `http://127.0.0.1:${backend.port}`,
+          backendWsOrigin: `ws://127.0.0.1:${backend.port}`,
+        }
+      : {}),
+  };
 }
 
 function runtimeFromHubrisHost(host: string): VscodeRuntime | null {
@@ -741,6 +844,15 @@ async function isFile(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function protocolProxyErrorResponse(error: unknown): Response {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Response(message, { status: 502 });
 }
 
 async function maybeInjectHtml(

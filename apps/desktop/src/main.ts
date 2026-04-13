@@ -100,6 +100,10 @@ async function resolveProtocolTargets(): Promise<{
         backendHttpOrigin: `http://127.0.0.1:${backendPort}`,
         backendWsOrigin: `ws://127.0.0.1:${backendPort}`,
         viteWsOrigin: `ws://localhost:${frontendPort}`,
+        devServerState: {
+          devId,
+          devTmp,
+        },
       },
       sessionToken,
     };

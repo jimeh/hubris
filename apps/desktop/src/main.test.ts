@@ -297,6 +297,30 @@ describe("desktop main process startup", () => {
     );
   });
 
+  it("registers the protocol with dev-state metadata for live target refresh", async () => {
+    const state = await loadMainModule();
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.registerHubrisProtocol).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.registerHubrisProtocol).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        frontendHttpOrigin: "http://localhost:3001",
+        backendHttpOrigin: "http://127.0.0.1:4001",
+        backendWsOrigin: "ws://127.0.0.1:4001",
+        viteWsOrigin: "ws://localhost:3001",
+        devServerState: {
+          devId: "dev-id",
+          devTmp: "/tmp/hubris-dev",
+        },
+      }),
+    );
+  });
+
   it("blocks external will-navigate requests without crashing event binding", async () => {
     const state = await loadMainModule();
     state.classifyNavigationTarget.mockReturnValue("external");

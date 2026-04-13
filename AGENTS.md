@@ -345,3 +345,8 @@ embeddings.**
   upstream must see the public runtime host/origin; send desktop runtime traffic
   through Hubris' Rust `/code/<runtime>` proxy and pass the public runtime
   identity in explicit override headers instead.
+- Electron desktop dev should refresh backend/frontend loopback targets from the
+  shared `tmp/dev-<id>.*.json` files instead of assuming the first discovered
+  ports stay valid for the whole app session. Retrying proxied desktop dev
+  fetches once after refreshing those targets smooths over backend/frontend
+  restarts and avoids raw `fetch failed` noise in Electron.

@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -193,6 +197,62 @@ describe("createDesktopProtocolContext", () => {
     );
   });
 
+  it("refreshes backend targets from the dev-state files before proxying", async () => {
+    const devTmp = fs.mkdtempSync(path.join(os.tmpdir(), "hubris-desktop-"));
+
+    try {
+      fs.writeFileSync(
+        path.join(devTmp, "dev-dev-id.backend.json"),
+        '{"pid":1,"port":43123}',
+      );
+      fs.writeFileSync(
+        path.join(devTmp, "dev-dev-id.frontend.json"),
+        '{"pid":2,"port":5173}',
+      );
+
+      const cookies = {
+        get: vi.fn().mockResolvedValue([]),
+        set: vi.fn().mockResolvedValue(undefined),
+      };
+      const context = createDesktopProtocolContext(cookies as never, {
+        frontendHttpOrigin: "http://localhost:3000",
+        backendHttpOrigin: "http://127.0.0.1:3001",
+        backendWsOrigin: "ws://127.0.0.1:3001",
+        viteWsOrigin: "ws://localhost:3000",
+        devServerState: {
+          devId: "dev-id",
+          devTmp,
+        },
+      });
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async (input) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (
+            url === "http://127.0.0.1:43123/code/code-server/?folder=%2Ftmp"
+          ) {
+            return new Response("<html>code-server</html>", {
+              headers: { "content-type": "text/html; charset=utf-8" },
+            });
+          }
+
+          throw new Error(`unexpected fetch: ${url}`);
+        });
+
+      const response = await context.handleRequest(
+        new Request(`${HUBRIS_CODE_SERVER_ORIGIN}/?folder=%2Ftmp`),
+      );
+
+      await expect(response.text()).resolves.toContain("code-server");
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://127.0.0.1:43123/code/code-server/?folder=%2Ftmp",
+        expect.anything(),
+      );
+    } finally {
+      fs.rmSync(devTmp, { recursive: true, force: true });
+    }
+  });
+
   it("preserves the public runtime host when proxying runtime HTTP", async () => {
     const cookies = {
       get: vi.fn().mockResolvedValue([]),
@@ -259,6 +319,43 @@ describe("createDesktopProtocolContext", () => {
       targetUrl: "ws://backend.local/code/vscode-cli/?folder=%2Ftmp",
       upstreamHost: "backend.local",
     });
+  });
+
+  it("refreshes backend websocket targets from the dev-state files", async () => {
+    const devTmp = fs.mkdtempSync(path.join(os.tmpdir(), "hubris-desktop-"));
+
+    try {
+      fs.writeFileSync(
+        path.join(devTmp, "dev-dev-id.backend.json"),
+        '{"pid":1,"port":43123}',
+      );
+
+      const context = createDesktopProtocolContext(
+        {
+          get: vi.fn().mockResolvedValue([]),
+          set: vi.fn().mockResolvedValue(undefined),
+        } as never,
+        {
+          backendHttpOrigin: "http://127.0.0.1:3001",
+          backendWsOrigin: "ws://127.0.0.1:3001",
+          devServerState: {
+            devId: "dev-id",
+            devTmp,
+          },
+        },
+      );
+
+      const target = await context.resolveWebSocketTarget(
+        "wss://vscode-cli.desktop.internal.hubris.build/?folder=%2Ftmp",
+      );
+
+      expect(target.targetUrl).toBe(
+        "ws://127.0.0.1:43123/code/vscode-cli/?folder=%2Ftmp",
+      );
+      expect(target.upstreamHost).toBe("127.0.0.1:43123");
+    } finally {
+      fs.rmSync(devTmp, { recursive: true, force: true });
+    }
   });
 });
 

@@ -9,6 +9,7 @@ import {
   parseDesktopStartupMessage,
   parseDevServerState,
   parseFrontendState,
+  readDevServerState,
   runtimeBinaryName,
   waitForFrontendPort,
 } from "./runtime";
@@ -29,6 +30,26 @@ describe("parseDevServerState", () => {
       pid: 123,
       port: 3001,
     });
+  });
+});
+
+describe("readDevServerState", () => {
+  it("reads a current dev-state file from disk", () => {
+    const devTmp = fs.mkdtempSync(path.join(os.tmpdir(), "hubris-desktop-"));
+
+    try {
+      fs.writeFileSync(
+        path.join(devTmp, "dev-dev-id.backend.json"),
+        '{"pid":321,"port":4010}',
+      );
+
+      expect(readDevServerState("backend", "dev-id", devTmp)).toEqual({
+        pid: 321,
+        port: 4010,
+      });
+    } finally {
+      fs.rmSync(devTmp, { recursive: true, force: true });
+    }
   });
 });
 
