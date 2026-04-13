@@ -1,16 +1,5 @@
 import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import {
   SortableContext,
-  arrayMove,
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useMemo, useState, type RefObject, type UIEventHandler } from "react";
@@ -31,7 +20,6 @@ import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import { presentTab } from "@/lib/tabPresentation";
 import type { Tab } from "@/lib/types";
 import SortableTab from "./SortableTab";
-import SortableTabView from "./SortableTabView";
 
 type SortableTabStripProps = {
   worktreeId: string;
@@ -42,11 +30,12 @@ type SortableTabStripProps = {
   onActivate: (tabId: string) => void;
   onPin: (tabId: string) => void;
   onClose: (tabId: string) => void;
-  onReorder: (orderedIds: string[]) => Promise<void>;
+  onReorder?: (orderedIds: string[]) => Promise<void>;
   onRenameTerminalTab?: (tabId: string, label: string) => Promise<void>;
   onResetTerminalTabName?: (tabId: string) => Promise<void>;
   dirtyTabIds?: string[];
   lockedTabIds?: string[];
+  dragging?: boolean;
 };
 
 export default function SortableTabStrip({
@@ -58,15 +47,13 @@ export default function SortableTabStrip({
   onActivate,
   onPin,
   onClose,
-  onReorder,
+  onReorder: _onReorder,
   onRenameTerminalTab = async () => {},
   onResetTerminalTabName = async () => {},
   dirtyTabIds = [],
   lockedTabIds = [],
+  dragging = false,
 }: SortableTabStripProps) {
-  const [dragging, setDragging] = useState(false);
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [activeDragWidth, setActiveDragWidth] = useState<number | null>(null);
   const [renameTabId, setRenameTabId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const dirtyTabIdSet = useMemo(() => new Set(dirtyTabIds), [dirtyTabIds]);
@@ -89,10 +76,6 @@ export default function SortableTabStrip({
       ),
     [gitStatus, tabLabelMode, tabs, theme],
   );
-  const activeDragTab = useMemo(
-    () => tabs.find((tab) => tab.id === activeDragId) ?? null,
-    [activeDragId, tabs],
-  );
   const renameTab = useMemo(
     () =>
       renameTabId
@@ -103,42 +86,6 @@ export default function SortableTabStrip({
         : null,
     [renameTabId, tabs],
   );
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    }),
-  );
-
-  function clearDragState(): void {
-    setDragging(false);
-    setActiveDragId(null);
-    setActiveDragWidth(null);
-  }
-
-  function handleDragStart(event: DragStartEvent): void {
-    setDragging(true);
-    setActiveDragId(String(event.active.id));
-    setActiveDragWidth(event.active.rect.current.initial?.width ?? null);
-  }
-
-  function handleDragEnd(event: DragEndEvent): void {
-    const { active, over } = event;
-    clearDragState();
-
-    if (!over || active.id === over.id) {
-      return;
-    }
-
-    const oldIndex = tabs.findIndex((tab) => tab.id === active.id);
-    const newIndex = tabs.findIndex((tab) => tab.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) {
-      return;
-    }
-
-    const next = arrayMove(tabs, oldIndex, newIndex);
-    void onReorder(next.map((tab) => tab.id));
-  }
-
   function handleBeginRename(tabId: string): void {
     const tab = tabs.find(
       (candidate): candidate is Extract<Tab, { type: "terminal" }> =>
@@ -166,87 +113,49 @@ export default function SortableTabStrip({
 
   return (
     <>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={clearDragState}
+      <SortableContext
+        items={sortableItems}
+        strategy={horizontalListSortingStrategy}
       >
-        <SortableContext
-          items={sortableItems}
-          strategy={horizontalListSortingStrategy}
+        <div
+          ref={tabListRef}
+          role="tablist"
+          className="flex items-center gap-1 overflow-x-auto overflow-y-hidden"
+          data-tab-list="true"
+          data-tab-dragging={dragging || undefined}
+          onScroll={onScroll}
         >
-          <div
-            ref={tabListRef}
-            role="tablist"
-            className="flex items-center gap-1 overflow-x-auto overflow-y-hidden"
-            data-tab-list="true"
-            data-tab-dragging={dragging || undefined}
-            onScroll={onScroll}
-          >
-            {tabs.map((tab) => (
-              <SortableTab
-                key={tab.id}
-                tabId={tab.id}
-                label={tabPresentations[tab.id]?.label ?? tab.label}
-                labelSuffix={tabPresentations[tab.id]?.labelSuffix}
-                statusLabel={tabPresentations[tab.id]?.statusLabel}
-                title={tabPresentations[tab.id]?.title ?? tab.label}
-                iconKind={tabPresentations[tab.id]?.iconKind}
-                iconPath={tabPresentations[tab.id]?.iconPath}
-                iconId={tabPresentations[tab.id]?.iconId}
-                toneClass={tabPresentations[tab.id]?.toneClass}
-                isActive={tab.id === activeTabId}
-                preview={tab.preview}
-                dirty={dirtyTabIdSet.has(tab.id)}
-                notification={tab.type === "terminal" && !!tab.has_notification}
-                locked={lockedTabIdSet.has(tab.id)}
-                dragging={dragging}
-                canRenameTerminal={tab.type === "terminal"}
-                canResetTerminalName={
-                  tab.type === "terminal" && !!tab.customLabel
-                }
-                onBeginRenameTerminal={handleBeginRename}
-                onResetTerminalName={onResetTerminalTabName}
-                onActivateTab={onActivate}
-                onPinTab={onPin}
-                onCloseTab={onClose}
-              />
-            ))}
-          </div>
-        </SortableContext>
-
-        <DragOverlay>
-          {activeDragTab ? (
-            <SortableTabView
-              tabId={activeDragTab.id}
-              label={
-                tabPresentations[activeDragTab.id]?.label ?? activeDragTab.label
+          {tabs.map((tab) => (
+            <SortableTab
+              key={tab.id}
+              tabId={tab.id}
+              label={tabPresentations[tab.id]?.label ?? tab.label}
+              labelSuffix={tabPresentations[tab.id]?.labelSuffix}
+              statusLabel={tabPresentations[tab.id]?.statusLabel}
+              title={tabPresentations[tab.id]?.title ?? tab.label}
+              iconKind={tabPresentations[tab.id]?.iconKind}
+              iconPath={tabPresentations[tab.id]?.iconPath}
+              iconId={tabPresentations[tab.id]?.iconId}
+              toneClass={tabPresentations[tab.id]?.toneClass}
+              isActive={tab.id === activeTabId}
+              preview={tab.preview}
+              dirty={dirtyTabIdSet.has(tab.id)}
+              notification={tab.type === "terminal" && !!tab.has_notification}
+              locked={lockedTabIdSet.has(tab.id)}
+              dragging={dragging}
+              canRenameTerminal={tab.type === "terminal"}
+              canResetTerminalName={
+                tab.type === "terminal" && !!tab.customLabel
               }
-              labelSuffix={tabPresentations[activeDragTab.id]?.labelSuffix}
-              statusLabel={tabPresentations[activeDragTab.id]?.statusLabel}
-              title={
-                tabPresentations[activeDragTab.id]?.title ?? activeDragTab.label
-              }
-              iconKind={tabPresentations[activeDragTab.id]?.iconKind}
-              iconPath={tabPresentations[activeDragTab.id]?.iconPath}
-              iconId={tabPresentations[activeDragTab.id]?.iconId}
-              toneClass={tabPresentations[activeDragTab.id]?.toneClass}
-              isActive={activeDragTab.id === activeTabId}
-              preview={activeDragTab.preview}
-              dirty={dirtyTabIdSet.has(activeDragTab.id)}
-              notification={
-                activeDragTab.type === "terminal" &&
-                !!activeDragTab.has_notification
-              }
-              locked={lockedTabIdSet.has(activeDragTab.id)}
-              isOverlay
-              width={activeDragWidth}
+              onBeginRenameTerminal={handleBeginRename}
+              onResetTerminalName={onResetTerminalTabName}
+              onActivateTab={onActivate}
+              onPinTab={onPin}
+              onCloseTab={onClose}
             />
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+          ))}
+        </div>
+      </SortableContext>
 
       <Dialog
         open={renameTabId !== null}

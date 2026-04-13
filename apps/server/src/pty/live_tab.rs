@@ -1030,6 +1030,7 @@ mod tests {
                 id: "tab".to_string(),
                 session_id: "default".to_string(),
                 worktree_id: "worktree".to_string(),
+                pane_id: "pane-1".to_string(),
                 label: "Terminal 1".to_string(),
                 position: 1.0,
                 created_at: 0,

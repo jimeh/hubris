@@ -83,6 +83,7 @@ function makeTab(
     label: overrides.label ?? `Terminal ${overrides.id}`,
     position: overrides.position ?? 1,
     worktree_id: overrides.worktree_id ?? "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
     session_id: overrides.session_id ?? "default",
     type: overrides.type ?? "terminal",
     created_at: overrides.created_at ?? 0,
@@ -101,6 +102,7 @@ function makeFileTab(
       overrides.path,
     position: overrides.position ?? 1,
     worktree_id: overrides.worktree_id ?? "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
     session_id: overrides.session_id ?? "default",
     type: "file",
     created_at: overrides.created_at ?? 0,
@@ -120,6 +122,7 @@ function makeGitDiffTab(
       overrides.path,
     position: overrides.position ?? 1,
     worktree_id: overrides.worktree_id ?? "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
     session_id: overrides.session_id ?? "default",
     type: "git_diff",
     created_at: overrides.created_at ?? 0,
@@ -139,6 +142,7 @@ function makeBrowserTab(
     label: overrides.label ?? "localhost",
     position: overrides.position ?? 1,
     worktree_id: overrides.worktree_id ?? "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
     session_id: overrides.session_id ?? "default",
     type: "browser",
     created_at: overrides.created_at ?? 0,
@@ -200,9 +204,13 @@ describe("Tab store", () => {
       ],
     });
 
-    await store.useTabStore.getState().reorder("w1", ["c", "a", "b"]);
+    await store.useTabStore.getState().reorder("w1", "pane-1", ["c", "a", "b"]);
 
-    expect(mockReorderTabs).toHaveBeenCalledWith("w1", ["c", "a", "b"]);
+    expect(mockReorderTabs).toHaveBeenCalledWith("w1", "pane-1", [
+      "c",
+      "a",
+      "b",
+    ]);
     expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
       "c",
       "a",
@@ -425,6 +433,7 @@ describe("Tab store", () => {
     expect(mockCreateTab).toHaveBeenCalledWith({
       type: "git_diff",
       worktree_id: "w1",
+      pane_id: "pane-1",
       path: "src/main.ts",
       scope: "commit",
       original_path: undefined,
@@ -567,6 +576,7 @@ describe("Tab store", () => {
     expect(mockCreateTab).toHaveBeenCalledWith({
       type: "browser",
       worktree_id: "w1",
+      pane_id: "pane-1",
       url: "about:blank",
     });
     expect(created).toEqual(tab);

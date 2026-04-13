@@ -3,9 +3,16 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Globe,
+  MoreHorizontal,
   SquareTerminal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Tab } from "@/lib/types";
 import SortableTabStrip from "./tab-bar/SortableTabStrip";
 
@@ -15,6 +22,7 @@ const SCROLL_AMOUNT = 200;
 
 type Props = {
   worktreeId: string;
+  paneId?: string;
   tabs: Tab[];
   dirtyTabIds?: string[];
   lockedTabIds?: string[];
@@ -24,13 +32,17 @@ type Props = {
   onClose: (tabId: string) => void;
   onAddTerminal: () => void;
   onAddBrowser: () => Promise<void>;
-  onReorder: (orderedIds: string[]) => Promise<void>;
+  onReorder?: (orderedIds: string[]) => Promise<void>;
+  onSplitRight?: () => void;
+  onSplitDown?: () => void;
   onRenameTerminalTab?: (tabId: string, label: string) => Promise<void>;
   onResetTerminalTabName?: (tabId: string) => Promise<void>;
+  dragging?: boolean;
 };
 
 export default function TabBar({
   worktreeId,
+  paneId = "pane-1",
   tabs,
   dirtyTabIds = [],
   lockedTabIds = [],
@@ -40,9 +52,12 @@ export default function TabBar({
   onClose,
   onAddTerminal,
   onAddBrowser,
-  onReorder,
+  onReorder = async () => {},
+  onSplitRight,
+  onSplitDown,
   onRenameTerminalTab = async () => {},
   onResetTerminalTabName = async () => {},
+  dragging = false,
 }: Props) {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -144,6 +159,7 @@ export default function TabBar({
           onReorder={onReorder}
           onRenameTerminalTab={onRenameTerminalTab}
           onResetTerminalTabName={onResetTerminalTabName}
+          dragging={dragging}
         />
 
         {canScrollRight ? (
@@ -184,6 +200,28 @@ export default function TabBar({
         >
           <Globe className="h-3.5 w-3.5" />
         </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Pane Actions"
+              title="Pane Actions"
+              data-pane-id={paneId}
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => onSplitRight?.()}>
+              Split Right
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onSplitDown?.()}>
+              Split Down
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

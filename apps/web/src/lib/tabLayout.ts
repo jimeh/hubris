@@ -1,0 +1,474 @@
+import type {
+  Tab,
+  TabPaneSplitAxis,
+  WorktreePaneNode,
+  WorktreePaneTabs,
+  WorktreeTabLayout,
+} from "@/lib/types";
+
+export type PaneDropPlacement = "center" | "left" | "right" | "top" | "bottom";
+
+export type PaneTree =
+  | {
+      type: "leaf";
+      id: string;
+      paneId: string;
+    }
+  | {
+      type: "split";
+      id: string;
+      axis: TabPaneSplitAxis;
+      ratio: number;
+      first: PaneTree;
+      second: PaneTree;
+    };
+
+function makeId(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return `pane-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function makePaneId(): string {
+  return makeId();
+}
+
+function makeNodeId(): string {
+  return makeId();
+}
+
+function byStableTabOrder(left: Tab, right: Tab): number {
+  if (left.position !== right.position) {
+    return left.position - right.position;
+  }
+  const createdAtDiff = Number(left.created_at) - Number(right.created_at);
+  if (Number.isFinite(createdAtDiff) && createdAtDiff !== 0) {
+    return createdAtDiff;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+export function sortTabs(list: Tab[]): Tab[] {
+  return [...list].sort((left, right) => {
+    const worktreeDiff = left.worktree_id.localeCompare(right.worktree_id);
+    if (worktreeDiff !== 0) {
+      return worktreeDiff;
+    }
+    const paneDiff = left.pane_id.localeCompare(right.pane_id);
+    if (paneDiff !== 0) {
+      return paneDiff;
+    }
+    return byStableTabOrder(left, right);
+  });
+}
+
+export function tabsForPane(tabs: Tab[], paneId: string): Tab[] {
+  return tabs.filter((tab) => tab.pane_id === paneId).sort(byStableTabOrder);
+}
+
+function layoutNodeId(node: WorktreePaneNode): string {
+  return node.id;
+}
+
+function layoutNodesById(
+  layout: WorktreeTabLayout,
+): Map<string, WorktreePaneNode> | null {
+  const nodes = new Map<string, WorktreePaneNode>();
+  for (const node of layout.nodes) {
+    const id = layoutNodeId(node);
+    if (!id || nodes.has(id)) {
+      return null;
+    }
+    nodes.set(id, node);
+  }
+  return nodes;
+}
+
+export function firstPaneId(
+  layout: WorktreeTabLayout | null | undefined,
+): string | null {
+  if (!layout) {
+    return null;
+  }
+
+  const nodes = layoutNodesById(layout);
+  if (!nodes) {
+    return null;
+  }
+
+  let nextId = layout.rootId;
+  while (true) {
+    const node = nodes.get(nextId);
+    if (!node) {
+      return null;
+    }
+    if (node.type === "leaf") {
+      return node.pane_id;
+    }
+    nextId = node.first_id;
+  }
+}
+
+export function collectPaneIds(
+  layout: WorktreeTabLayout | null | undefined,
+): string[] {
+  if (!layout) {
+    return [];
+  }
+
+  const nodes = layoutNodesById(layout);
+  if (!nodes || !layout.rootId) {
+    return [];
+  }
+
+  const nodeMap = nodes;
+  const visited = new Set<string>();
+  const panes: string[] = [];
+
+  function visit(nodeId: string): void {
+    if (visited.has(nodeId)) {
+      return;
+    }
+    visited.add(nodeId);
+    const node = nodeMap.get(nodeId);
+    if (!node) {
+      return;
+    }
+    if (node.type === "leaf") {
+      panes.push(node.pane_id);
+      return;
+    }
+    visit(node.first_id);
+    visit(node.second_id);
+  }
+
+  visit(layout.rootId);
+  return panes;
+}
+
+export function buildPaneTree(
+  layout: WorktreeTabLayout | null | undefined,
+): PaneTree | null {
+  if (!layout) {
+    return null;
+  }
+
+  const nodes = layoutNodesById(layout);
+  if (!nodes) {
+    return null;
+  }
+
+  const nodeMap = nodes;
+
+  function build(nodeId: string): PaneTree | null {
+    const node = nodeMap.get(nodeId);
+    if (!node) {
+      return null;
+    }
+    if (node.type === "leaf") {
+      return {
+        type: "leaf",
+        id: node.id,
+        paneId: node.pane_id,
+      };
+    }
+
+    const first = build(node.first_id);
+    const second = build(node.second_id);
+    if (!first || !second) {
+      return null;
+    }
+
+    return {
+      type: "split",
+      id: node.id,
+      axis: node.axis,
+      ratio: node.ratio,
+      first,
+      second,
+    };
+  }
+
+  return build(layout.rootId);
+}
+
+export function createSinglePaneLayout(
+  paneId = makePaneId(),
+): WorktreeTabLayout {
+  const rootId = makeNodeId();
+  return {
+    rootId,
+    nodes: [{ type: "leaf", id: rootId, pane_id: paneId }],
+  };
+}
+
+type RebuiltNode = {
+  rootId: string;
+  nodes: WorktreePaneNode[];
+};
+
+function collapseTree(
+  tree: PaneTree,
+  paneTabIds: Map<string, string[]>,
+  isRoot: boolean,
+  fallbackPaneId: string,
+): PaneTree | null {
+  if (tree.type === "leaf") {
+    const hasTabs = (paneTabIds.get(tree.paneId) ?? []).length > 0;
+    if (!isRoot && !hasTabs) {
+      return null;
+    }
+    return tree;
+  }
+
+  const first = collapseTree(tree.first, paneTabIds, false, fallbackPaneId);
+  const second = collapseTree(tree.second, paneTabIds, false, fallbackPaneId);
+
+  if (first && second) {
+    return { ...tree, first, second };
+  }
+  if (first) {
+    return first;
+  }
+  if (second) {
+    return second;
+  }
+  if (!isRoot) {
+    return null;
+  }
+  return {
+    type: "leaf",
+    id: makeNodeId(),
+    paneId: fallbackPaneId,
+  };
+}
+
+function flattenTree(tree: PaneTree): RebuiltNode {
+  if (tree.type === "leaf") {
+    const id = makeNodeId();
+    return {
+      rootId: id,
+      nodes: [{ type: "leaf", id, pane_id: tree.paneId }],
+    };
+  }
+
+  const first = flattenTree(tree.first);
+  const second = flattenTree(tree.second);
+  const id = makeNodeId();
+
+  return {
+    rootId: id,
+    nodes: [
+      ...first.nodes,
+      ...second.nodes,
+      {
+        type: "split",
+        id,
+        axis: tree.axis,
+        ratio: tree.ratio,
+        first_id: first.rootId,
+        second_id: second.rootId,
+      },
+    ],
+  };
+}
+
+export function collapseLayoutToTabs(
+  layout: WorktreeTabLayout,
+  tabs: Tab[],
+): WorktreeTabLayout {
+  const tree = buildPaneTree(layout);
+  if (!tree) {
+    return layout;
+  }
+
+  const paneTabIds = new Map<string, string[]>();
+  for (const paneId of collectPaneIds(layout)) {
+    paneTabIds.set(
+      paneId,
+      tabsForPane(tabs, paneId).map((tab) => tab.id),
+    );
+  }
+
+  const fallbackPaneId =
+    firstPaneId(layout) ?? tabs[0]?.pane_id ?? makePaneId();
+  const collapsed = collapseTree(tree, paneTabIds, true, fallbackPaneId);
+  if (!collapsed) {
+    return createSinglePaneLayout(fallbackPaneId);
+  }
+
+  return flattenTree(collapsed);
+}
+
+function clonePaneTabsMap(
+  layout: WorktreeTabLayout,
+  tabs: Tab[],
+): Map<string, string[]> {
+  return new Map(
+    collectPaneIds(layout).map((paneId) => [
+      paneId,
+      tabsForPane(tabs, paneId).map((tab) => tab.id),
+    ]),
+  );
+}
+
+function reassignTabs(tabs: Tab[], paneTabs: Map<string, string[]>): Tab[] {
+  const byId = new Map(tabs.map((tab) => [tab.id, tab]));
+  const nextTabs: Tab[] = [];
+  const touchedIds = new Set<string>();
+
+  for (const [paneId, tabIds] of paneTabs) {
+    tabIds.forEach((tabId, index) => {
+      const tab = byId.get(tabId);
+      if (!tab) {
+        return;
+      }
+      touchedIds.add(tabId);
+      nextTabs.push({
+        ...tab,
+        pane_id: paneId,
+        position: index + 1,
+      });
+    });
+  }
+
+  for (const tab of tabs) {
+    if (!touchedIds.has(tab.id)) {
+      nextTabs.push(tab);
+    }
+  }
+
+  return sortTabs(nextTabs);
+}
+
+function splitAxisForPlacement(
+  placement: Exclude<PaneDropPlacement, "center">,
+): TabPaneSplitAxis {
+  return placement === "left" || placement === "right"
+    ? "vertical"
+    : "horizontal";
+}
+
+function replaceLeafWithSplit(
+  tree: PaneTree,
+  targetPaneId: string,
+  placement: Exclude<PaneDropPlacement, "center">,
+  newPaneId: string,
+): PaneTree {
+  if (tree.type === "leaf") {
+    if (tree.paneId !== targetPaneId) {
+      return tree;
+    }
+
+    const existingLeaf: PaneTree = {
+      type: "leaf",
+      id: makeNodeId(),
+      paneId: tree.paneId,
+    };
+    const newLeaf: PaneTree = {
+      type: "leaf",
+      id: makeNodeId(),
+      paneId: newPaneId,
+    };
+    const insertFirst = placement === "left" || placement === "top";
+
+    return {
+      type: "split",
+      id: makeNodeId(),
+      axis: splitAxisForPlacement(placement),
+      ratio: 0.5,
+      first: insertFirst ? newLeaf : existingLeaf,
+      second: insertFirst ? existingLeaf : newLeaf,
+    };
+  }
+
+  return {
+    ...tree,
+    first: replaceLeafWithSplit(tree.first, targetPaneId, placement, newPaneId),
+    second: replaceLeafWithSplit(
+      tree.second,
+      targetPaneId,
+      placement,
+      newPaneId,
+    ),
+  };
+}
+
+export function serializePaneTabs(
+  layout: WorktreeTabLayout,
+  tabs: Tab[],
+): WorktreePaneTabs[] {
+  return collectPaneIds(layout).map((paneId) => ({
+    paneId,
+    tabIds: tabsForPane(tabs, paneId).map((tab) => tab.id),
+  }));
+}
+
+export function moveTabBetweenPanes(
+  layout: WorktreeTabLayout,
+  tabs: Tab[],
+  tabId: string,
+  targetPaneId: string,
+  placement: PaneDropPlacement,
+  targetIndex?: number,
+): {
+  layout: WorktreeTabLayout;
+  tabs: Tab[];
+  destinationPaneId: string;
+} | null {
+  const draggedTab = tabs.find((tab) => tab.id === tabId);
+  if (!draggedTab) {
+    return null;
+  }
+
+  const paneTabs = clonePaneTabsMap(layout, tabs);
+  const sourcePaneIds = paneTabs.get(draggedTab.pane_id);
+  if (!sourcePaneIds) {
+    return null;
+  }
+
+  paneTabs.set(
+    draggedTab.pane_id,
+    sourcePaneIds.filter((candidateId) => candidateId !== tabId),
+  );
+
+  let nextLayout = layout;
+  let destinationPaneId = targetPaneId;
+
+  if (placement === "center") {
+    const targetPaneTabs = [...(paneTabs.get(targetPaneId) ?? [])];
+    const insertAt =
+      typeof targetIndex === "number"
+        ? Math.max(0, Math.min(targetPaneTabs.length, targetIndex))
+        : targetPaneTabs.length;
+    targetPaneTabs.splice(insertAt, 0, tabId);
+    paneTabs.set(targetPaneId, targetPaneTabs);
+  } else {
+    const tree = buildPaneTree(layout);
+    if (!tree) {
+      return null;
+    }
+    destinationPaneId = makePaneId();
+    const splitTree = replaceLeafWithSplit(
+      tree,
+      targetPaneId,
+      placement,
+      destinationPaneId,
+    );
+    nextLayout = flattenTree(splitTree);
+    paneTabs.set(destinationPaneId, [tabId]);
+  }
+
+  const nextTabs = reassignTabs(tabs, paneTabs);
+  const collapsedLayout = collapseLayoutToTabs(nextLayout, nextTabs);
+
+  return {
+    layout: collapsedLayout,
+    tabs: reassignTabs(nextTabs, clonePaneTabsMap(collapsedLayout, nextTabs)),
+    destinationPaneId,
+  };
+}

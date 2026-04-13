@@ -24,6 +24,7 @@ function makeTab(id: string, position: number): TerminalTab {
     label: `Tab ${id.toUpperCase()}`,
     position,
     worktree_id: "w1",
+    pane_id: "pane-1",
     session_id: "default",
     type: "terminal",
     created_at: 0,

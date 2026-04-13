@@ -80,6 +80,7 @@ const diffTab = {
   label: "README.md",
   position: 1,
   worktree_id: "w1",
+  pane_id: "pane-1",
   session_id: "default",
   type: "git_diff" as const,
   created_at: 0,

@@ -15,6 +15,7 @@ const SSE_EVENT_NAMES = [
   "tab_closed",
   "tab_updated",
   "tabs_reordered",
+  "worktree_tab_layout_updated",
   "project_added",
   "project_removed",
   "project_updated",

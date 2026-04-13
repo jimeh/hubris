@@ -1728,6 +1728,74 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/{worktree_id}/tab-layout": {
+      "put": {
+        "tags": ["crate::api::tabs"],
+        "operationId": "update_worktree_tab_layout",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorktreeTabLayoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Worktree tab layout updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorktreeTabLayoutState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid tab layout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Worktree not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings": {
       "get": {
         "tags": ["crate::api::settings"],
@@ -2504,6 +2572,9 @@
             "type": "object",
             "required": ["worktree_id", "type"],
             "properties": {
+              "pane_id": {
+                "type": ["string", "null"]
+              },
               "type": {
                 "type": "string",
                 "enum": ["terminal"]
@@ -2517,6 +2588,9 @@
             "type": "object",
             "required": ["worktree_id", "path", "type"],
             "properties": {
+              "pane_id": {
+                "type": ["string", "null"]
+              },
               "path": {
                 "type": "string"
               },
@@ -2542,6 +2616,9 @@
               "original_path": {
                 "type": ["string", "null"]
               },
+              "pane_id": {
+                "type": ["string", "null"]
+              },
               "path": {
                 "type": "string"
               },
@@ -2564,6 +2641,9 @@
             "type": "object",
             "required": ["worktree_id", "url", "type"],
             "properties": {
+              "pane_id": {
+                "type": ["string", "null"]
+              },
               "type": {
                 "type": "string",
                 "enum": ["browser"]
@@ -3087,8 +3167,11 @@
       },
       "ReorderTabsRequest": {
         "type": "object",
-        "required": ["worktree_id", "tab_ids"],
+        "required": ["worktree_id", "pane_id", "tab_ids"],
         "properties": {
+          "pane_id": {
+            "type": "string"
+          },
           "tab_ids": {
             "type": "array",
             "items": {
@@ -3356,6 +3439,7 @@
                   "id",
                   "session_id",
                   "worktree_id",
+                  "pane_id",
                   "label",
                   "position",
                   "created_at",
@@ -3374,6 +3458,9 @@
                     "type": "string"
                   },
                   "label": {
+                    "type": "string"
+                  },
+                  "pane_id": {
                     "type": "string"
                   },
                   "position": {
@@ -3409,6 +3496,7 @@
               "id",
               "session_id",
               "worktree_id",
+              "pane_id",
               "label",
               "position",
               "created_at",
@@ -3426,6 +3514,9 @@
                 "type": "string"
               },
               "label": {
+                "type": "string"
+              },
+              "pane_id": {
                 "type": "string"
               },
               "path": {
@@ -3456,6 +3547,7 @@
               "id",
               "session_id",
               "worktree_id",
+              "pane_id",
               "label",
               "position",
               "created_at",
@@ -3481,6 +3573,9 @@
               },
               "original_path": {
                 "type": ["string", "null"]
+              },
+              "pane_id": {
+                "type": "string"
               },
               "path": {
                 "type": "string"
@@ -3513,6 +3608,7 @@
               "id",
               "session_id",
               "worktree_id",
+              "pane_id",
               "label",
               "position",
               "created_at",
@@ -3544,6 +3640,9 @@
               "label": {
                 "type": "string"
               },
+              "pane_id": {
+                "type": "string"
+              },
               "position": {
                 "type": "number",
                 "format": "double"
@@ -3567,6 +3666,10 @@
             }
           }
         ]
+      },
+      "TabPaneSplitAxis": {
+        "type": "string",
+        "enum": ["horizontal", "vertical"]
       },
       "TaskDefinition": {
         "type": "object",
@@ -3914,6 +4017,27 @@
                 "$ref": "#/components/schemas/WorktreeUiMode"
               }
             ]
+          }
+        }
+      },
+      "UpdateWorktreeTabLayoutRequest": {
+        "type": "object",
+        "required": ["rootId", "nodes", "panes"],
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorktreePaneNode"
+            }
+          },
+          "panes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorktreePaneTabs"
+            }
+          },
+          "rootId": {
+            "type": "string"
           }
         }
       },
@@ -4407,6 +4531,74 @@
         "type": "string",
         "enum": ["dataDir", "repoLocalDotHubris"]
       },
+      "WorktreePaneNode": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["id", "pane_id", "type"],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "pane_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["leaf"]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "axis",
+              "ratio",
+              "first_id",
+              "second_id",
+              "type"
+            ],
+            "properties": {
+              "axis": {
+                "$ref": "#/components/schemas/TabPaneSplitAxis"
+              },
+              "first_id": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "ratio": {
+                "type": "number",
+                "format": "double"
+              },
+              "second_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["split"]
+              }
+            }
+          }
+        ]
+      },
+      "WorktreePaneTabs": {
+        "type": "object",
+        "required": ["paneId", "tabIds"],
+        "properties": {
+          "paneId": {
+            "type": "string"
+          },
+          "tabIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "WorktreeSettings": {
         "type": "object",
         "properties": {
@@ -4427,6 +4619,36 @@
                 "$ref": "#/components/schemas/WorktreeLocationMode"
               }
             ]
+          }
+        }
+      },
+      "WorktreeTabLayout": {
+        "type": "object",
+        "required": ["rootId", "nodes"],
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorktreePaneNode"
+            }
+          },
+          "rootId": {
+            "type": "string"
+          }
+        }
+      },
+      "WorktreeTabLayoutState": {
+        "type": "object",
+        "required": ["layout", "tabs"],
+        "properties": {
+          "layout": {
+            "$ref": "#/components/schemas/WorktreeTabLayout"
+          },
+          "tabs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TabInfo"
+            }
           }
         }
       },

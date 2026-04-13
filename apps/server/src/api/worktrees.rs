@@ -446,6 +446,7 @@ pub async fn resolve_worktree(
 }
 
 pub fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) {
+    state.tab_layouts.remove(worktree_id);
     let tab_ids: Vec<String> = state
         .tabs
         .iter()

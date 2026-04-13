@@ -8,8 +8,8 @@ use crate::events::EventBus;
 use crate::process_manager::ManagedProcessService;
 use crate::pty::live_tab::LiveTab;
 use crate::settings_manager::SettingsManager;
-use crate::tab::TabInfo;
 use crate::task_manager::TaskService;
+use crate::tab::{TabInfo, WorktreeTabLayout};
 use crate::vscode::{CodeServerManager, VscodeCliManager, VscodeManager, register_vscode_tasks};
 use crate::worktree_files::WorktreeFilesService;
 
@@ -18,6 +18,7 @@ pub type TabId = String;
 #[derive(Clone)]
 pub struct AppState {
     pub tabs: Arc<DashMap<TabId, TabInfo>>,
+    pub tab_layouts: Arc<DashMap<String, WorktreeTabLayout>>,
     pub terminal_tabs: Arc<DashMap<TabId, Arc<LiveTab>>>,
     pub events: Arc<EventBus>,
     pub next_terminal_num_by_worktree: Arc<DashMap<String, u32>>,
@@ -66,6 +67,7 @@ impl AppState {
 
         Self {
             tabs: Arc::new(DashMap::new()),
+            tab_layouts: Arc::new(DashMap::new()),
             terminal_tabs: Arc::new(DashMap::new()),
             events: events.clone(),
             next_terminal_num_by_worktree: Arc::new(DashMap::new()),

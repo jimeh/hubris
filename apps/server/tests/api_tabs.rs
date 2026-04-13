@@ -748,12 +748,14 @@ async fn test_reorder_tabs() {
     let id1 = t1["id"].as_str().unwrap();
     let id2 = t2["id"].as_str().unwrap();
     let id3 = t3["id"].as_str().unwrap();
+    let pane_id = t1["pane_id"].as_str().unwrap();
 
     // Reorder: 3, 1, 2
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
             "worktree_id": worktree_id,
+            "pane_id": pane_id,
             "tab_ids": [id3, id1, id2]
         }))
         .send()
@@ -787,12 +789,14 @@ async fn test_reorder_tabs_emits_session_scoped_event() {
     let t2 = create_tab(&client, &base, &worktree_id).await;
     let id1 = t1["id"].as_str().unwrap();
     let id2 = t2["id"].as_str().unwrap();
+    let pane_id = t1["pane_id"].as_str().unwrap();
     let mut rx = state.events.subscribe();
 
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
             "worktree_id": worktree_id,
+            "pane_id": pane_id,
             "tab_ids": [id2, id1]
         }))
         .send()
@@ -839,6 +843,7 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
             id: "tab-a".into(),
             session_id: "session-a".into(),
             worktree_id: "w1".into(),
+            pane_id: "pane-1".into(),
             label: "Terminal 1".into(),
             position: 1.0,
             created_at: 0,
@@ -857,6 +862,7 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
             id: "tab-b".into(),
             session_id: "session-b".into(),
             worktree_id: "w1".into(),
+            pane_id: "pane-1".into(),
             label: "Terminal 2".into(),
             position: 2.0,
             created_at: 0,
@@ -874,6 +880,7 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
             "worktree_id": "w1",
+            "pane_id": "pane-1",
             "tab_ids": ["tab-b", "tab-a"]
         }))
         .send()
@@ -893,14 +900,16 @@ async fn test_reorder_tabs_wrong_ids() {
     let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
     let worktree_id = first_worktree_id(&client, &base, &project_id).await;
 
+    let first = create_tab(&client, &base, &worktree_id).await;
     create_tab(&client, &base, &worktree_id).await;
-    create_tab(&client, &base, &worktree_id).await;
+    let pane_id = first["pane_id"].as_str().unwrap();
 
     // Missing one tab
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
             "worktree_id": worktree_id,
+            "pane_id": pane_id,
             "tab_ids": ["nonexistent"]
         }))
         .send()
@@ -913,6 +922,7 @@ async fn test_reorder_tabs_wrong_ids() {
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
             "worktree_id": worktree_id,
+            "pane_id": pane_id,
             "tab_ids": ["nonexistent", "also-nonexistent"]
         }))
         .send()

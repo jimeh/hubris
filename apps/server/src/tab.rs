@@ -10,6 +10,50 @@ pub enum GitDiffScope {
     Commit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TabPaneSplitAxis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WorktreePaneNode {
+    Leaf {
+        id: String,
+        pane_id: String,
+    },
+    Split {
+        id: String,
+        axis: TabPaneSplitAxis,
+        ratio: f64,
+        first_id: String,
+        second_id: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeTabLayout {
+    pub root_id: String,
+    pub nodes: Vec<WorktreePaneNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreePaneTabs {
+    pub pane_id: String,
+    pub tab_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeTabLayoutState {
+    pub layout: WorktreeTabLayout,
+    pub tabs: Vec<TabInfo>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalTabLabels {
@@ -21,13 +65,14 @@ pub struct TerminalTabLabels {
     pub title_label: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TabInfo {
     Terminal {
         id: String,
         session_id: String,
         worktree_id: String,
+        pane_id: String,
         label: String,
         position: f64,
         #[ts(type = "number")]
@@ -42,6 +87,7 @@ pub enum TabInfo {
         id: String,
         session_id: String,
         worktree_id: String,
+        pane_id: String,
         label: String,
         position: f64,
         #[ts(type = "number")]
@@ -53,6 +99,7 @@ pub enum TabInfo {
         id: String,
         session_id: String,
         worktree_id: String,
+        pane_id: String,
         label: String,
         position: f64,
         #[ts(type = "number")]
@@ -69,6 +116,7 @@ pub enum TabInfo {
         id: String,
         session_id: String,
         worktree_id: String,
+        pane_id: String,
         label: String,
         position: f64,
         #[ts(type = "number")]
@@ -105,6 +153,15 @@ impl TabInfo {
             | Self::File { worktree_id, .. }
             | Self::GitDiff { worktree_id, .. }
             | Self::Browser { worktree_id, .. } => worktree_id,
+        }
+    }
+
+    pub fn pane_id(&self) -> &str {
+        match self {
+            Self::Terminal { pane_id, .. }
+            | Self::File { pane_id, .. }
+            | Self::GitDiff { pane_id, .. }
+            | Self::Browser { pane_id, .. } => pane_id,
         }
     }
 
@@ -210,6 +267,15 @@ impl TabInfo {
             | Self::File { position, .. }
             | Self::GitDiff { position, .. }
             | Self::Browser { position, .. } => *position = next,
+        }
+    }
+
+    pub fn set_pane_id(&mut self, next: String) {
+        match self {
+            Self::Terminal { pane_id, .. }
+            | Self::File { pane_id, .. }
+            | Self::GitDiff { pane_id, .. }
+            | Self::Browser { pane_id, .. } => *pane_id = next,
         }
     }
 

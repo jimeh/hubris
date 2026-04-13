@@ -24,7 +24,9 @@ use crate::api::settings::{
     WorktreeSettings, WorktreeSettingsPatch,
 };
 use crate::api::system::SystemInfo;
-use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
+use crate::api::tabs::{
+    CreateTabRequest, ReorderTabsRequest, UpdateTabRequest, UpdateWorktreeTabLayoutRequest,
+};
 use crate::api::tasks::{
     StartTaskRequest, TaskDefinition, TaskDefinitionInputField, TaskInputFieldKind,
     TaskInvocationStatus, TaskRemoved, TaskState, TaskStepState, TaskStepStatus, TaskUpdated,
@@ -41,7 +43,10 @@ use crate::api::worktrees::{
     RenameWorktreeBranchRequest, ReorderWorktreesRequest, StartPoint, UpdateWorktreeRequest,
     Worktree, WorktreeGitPathActionRequest, WorktreeGitStatusResponse,
 };
-use crate::tab::{GitDiffScope, TabInfo};
+use crate::tab::{
+    GitDiffScope, TabInfo, TabPaneSplitAxis, WorktreePaneNode, WorktreePaneTabs, WorktreeTabLayout,
+    WorktreeTabLayoutState,
+};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -75,6 +80,7 @@ use crate::tab::{GitDiffScope, TabInfo};
         crate::api::projects::delete_project,
         crate::api::worktrees::list_project_worktrees,
         crate::api::worktrees::update_project_worktree,
+        crate::api::tabs::update_worktree_tab_layout,
         crate::api::worktrees::create_project_worktree,
         crate::api::worktrees::list_project_worktree_start_points,
         crate::api::worktrees::reorder_project_worktrees,
@@ -165,9 +171,15 @@ use crate::tab::{GitDiffScope, TabInfo};
             WorktreeGitPathActionRequest,
             RenameWorktreeBranchRequest,
             GitDiffScope,
+            TabPaneSplitAxis,
             TabInfo,
+            WorktreePaneNode,
+            WorktreePaneTabs,
+            WorktreeTabLayout,
+            WorktreeTabLayoutState,
             CreateTabRequest,
             UpdateTabRequest,
+            UpdateWorktreeTabLayoutRequest,
             ReorderTabsRequest,
             ClientControlMessage,
             ServerControlMessage,

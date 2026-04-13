@@ -76,6 +76,7 @@ function makeTab(overrides: Partial<FileTab> = {}): FileTab {
     label: "escape-link",
     position: 1,
     worktree_id: "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
     session_id: "default",
     type: "file",
     created_at: 0,

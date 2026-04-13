@@ -5,6 +5,7 @@ import {
   deleteTab,
   reorderTabs,
   updateTab,
+  updateWorktreeTabLayout,
 } from "@/lib/api";
 import {
   BLANK_BROWSER_URL,
@@ -17,10 +18,32 @@ import {
 } from "@/lib/desktopBrowser";
 import { getEventClient } from "@/lib/events";
 import { scheduleDisposeTabModels } from "@/lib/monaco";
-import type { BrowserTab, GitDiffScope, GitDiffTab, Tab } from "@/lib/types";
+import {
+  collapseLayoutToTabs,
+  collectPaneIds,
+  createSinglePaneLayout,
+  firstPaneId,
+  moveTabBetweenPanes,
+  serializePaneTabs,
+  sortTabs,
+  tabsForPane,
+  type PaneDropPlacement,
+} from "@/lib/tabLayout";
+import type {
+  BrowserTab,
+  GitDiffScope,
+  GitDiffTab,
+  Tab,
+  WorktreeTabLayout,
+  WorktreeTabLayoutState,
+} from "@/lib/types";
 
 const LS_ACTIVE_TAB = "hubris-active-tab";
 const LS_TAB_BY_WORKTREE = "hubris-active-tab-by-worktree";
+const LS_TAB_BY_PANE = "hubris-active-tab-by-pane";
+const LS_FOCUSED_PANE_BY_WORKTREE = "hubris-focused-pane-by-worktree";
+const DEFAULT_ROOT_PANE_ID = "pane-1";
+
 // Shares one createTab request across click+double-click for the same diff,
 // letting the later event upgrade the eventual tab from preview to pinned.
 const pendingGitDiffOpens = new Map<string, PendingGitDiffOpen>();
@@ -29,6 +52,7 @@ type OpenFileOptions = {
   worktreeId: string;
   path: string;
   preview: boolean;
+  paneId?: string;
 };
 
 type OpenGitDiffOptions = {
@@ -38,11 +62,13 @@ type OpenGitDiffOptions = {
   originalPath?: string | null;
   commitId?: string | null;
   preview: boolean;
+  paneId?: string;
 };
 
 type OpenBrowserOptions = {
   worktreeId: string;
   url?: string;
+  paneId?: string;
 };
 
 type BrowserTabUpdate = {
@@ -61,9 +87,12 @@ type PendingGitDiffOpen = {
 
 type TabsState = {
   tabs: Tab[];
+  layoutsByWorktree: Record<string, WorktreeTabLayout>;
   activeTabId: string | null;
   activeTabByWorktree: Record<string, string>;
-  addTerminal: (worktreeId: string) => Promise<Tab>;
+  activeTabByPane: Record<string, string>;
+  focusedPaneByWorktree: Record<string, string>;
+  addTerminal: (worktreeId: string, paneId?: string) => Promise<Tab>;
   setTerminalCustomLabel: (
     id: string,
     customLabel: string,
@@ -80,9 +109,36 @@ type TabsState = {
   close: (id: string) => Promise<void>;
   removeLocal: (id: string) => void;
   activate: (id: string) => void;
-  reorder: (worktreeId: string, orderedIds: string[]) => Promise<void>;
+  focusPane: (worktreeId: string, paneId: string) => void;
+  reorder: (
+    worktreeId: string,
+    paneId: string,
+    orderedIds: string[],
+  ) => Promise<void>;
+  moveTab: (
+    projectId: string,
+    worktreeId: string,
+    tabId: string,
+    targetPaneId: string,
+    placement: PaneDropPlacement,
+    targetTabId?: string,
+  ) => Promise<void>;
+  splitPane: (
+    projectId: string,
+    worktreeId: string,
+    paneId: string,
+    direction: "right" | "down",
+  ) => Promise<Tab>;
   switchToWorktree: (worktreeId: string) => void;
 };
+
+type PersistedSelection = Pick<
+  TabsState,
+  | "activeTabId"
+  | "activeTabByWorktree"
+  | "activeTabByPane"
+  | "focusedPaneByWorktree"
+>;
 
 function lsGet(key: string): string | null {
   try {
@@ -106,27 +162,43 @@ function lsSet(key: string, value: unknown): void {
   try {
     if (value == null) {
       localStorage.removeItem(key);
-    } else {
-      localStorage.setItem(
-        key,
-        typeof value === "string" ? value : JSON.stringify(value),
-      );
+      return;
     }
+
+    localStorage.setItem(
+      key,
+      typeof value === "string" ? value : JSON.stringify(value),
+    );
   } catch {
     // localStorage unavailable
   }
 }
 
-function persistSelection(
-  activeTabId: string | null,
-  activeTabByWorktree: Record<string, string>,
-): void {
-  lsSet(LS_ACTIVE_TAB, activeTabId);
-  lsSet(LS_TAB_BY_WORKTREE, activeTabByWorktree);
+function compactRecord(record: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => Boolean(value)),
+  );
 }
 
-function sortedTabs(list: Tab[]): Tab[] {
-  return [...list].sort((a, b) => a.position - b.position);
+function persistSelection(selection: PersistedSelection): void {
+  lsSet(LS_ACTIVE_TAB, selection.activeTabId);
+  lsSet(LS_TAB_BY_WORKTREE, compactRecord(selection.activeTabByWorktree));
+  lsSet(LS_TAB_BY_PANE, compactRecord(selection.activeTabByPane));
+  lsSet(
+    LS_FOCUSED_PANE_BY_WORKTREE,
+    compactRecord(selection.focusedPaneByWorktree),
+  );
+}
+
+function initialSelection(): PersistedSelection {
+  return {
+    activeTabId: lsGet(LS_ACTIVE_TAB),
+    activeTabByWorktree:
+      lsGetJson<Record<string, string>>(LS_TAB_BY_WORKTREE) ?? {},
+    activeTabByPane: lsGetJson<Record<string, string>>(LS_TAB_BY_PANE) ?? {},
+    focusedPaneByWorktree:
+      lsGetJson<Record<string, string>>(LS_FOCUSED_PANE_BY_WORKTREE) ?? {},
+  };
 }
 
 function tabKey(tab: Tab): string {
@@ -140,6 +212,7 @@ function tabKey(tab: Tab): string {
         tab.titleLabel ?? "",
         tab.position,
         tab.worktree_id,
+        tab.pane_id,
         tab.preview,
         tab.type,
         tab.has_notification ?? false,
@@ -150,6 +223,7 @@ function tabKey(tab: Tab): string {
         tab.label,
         tab.position,
         tab.worktree_id,
+        tab.pane_id,
         tab.preview,
         tab.type,
         tab.path,
@@ -160,6 +234,7 @@ function tabKey(tab: Tab): string {
         tab.label,
         tab.position,
         tab.worktree_id,
+        tab.pane_id,
         tab.preview,
         tab.type,
         tab.path,
@@ -173,6 +248,7 @@ function tabKey(tab: Tab): string {
         tab.label,
         tab.position,
         tab.worktree_id,
+        tab.pane_id,
         tab.preview,
         tab.type,
         tab.url,
@@ -183,7 +259,9 @@ function tabKey(tab: Tab): string {
 }
 
 function tabsEqual(a: Tab[], b: Tab[]): boolean {
-  if (a.length !== b.length) return false;
+  if (a.length !== b.length) {
+    return false;
+  }
   for (let index = 0; index < a.length; index += 1) {
     if (tabKey(a[index]) !== tabKey(b[index])) {
       return false;
@@ -192,71 +270,101 @@ function tabsEqual(a: Tab[], b: Tab[]): boolean {
   return true;
 }
 
-function activeTabMapEqual(
-  a: Record<string, string>,
-  b: Record<string, string>,
+function layoutEqual(
+  left: WorktreeTabLayout | undefined,
+  right: WorktreeTabLayout | undefined,
 ): boolean {
-  const aEntries = Object.entries(a).filter(([, value]) => value);
-  const bEntries = Object.entries(b).filter(([, value]) => value);
-  if (aEntries.length !== bEntries.length) {
-    return false;
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function layoutMapEqual(
+  a: Record<string, WorktreeTabLayout>,
+  b: Record<string, WorktreeTabLayout>,
+): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (!layoutEqual(a[key], b[key])) {
+      return false;
+    }
   }
-  return aEntries.every(([key, value]) => b[key] === value);
+  return true;
 }
 
 function tabsForWorktreeInternal(tabs: Tab[], worktreeId: string): Tab[] {
-  return tabs.filter((tab) => tab.worktree_id === worktreeId);
-}
-
-function setTabPreviewLocal(tabs: Tab[], id: string, preview: boolean): Tab[] {
-  return tabs.map((tab) => (tab.id === id ? { ...tab, preview } : tab));
+  return sortTabs(tabs.filter((tab) => tab.worktree_id === worktreeId));
 }
 
 function addTabIfMissing(tabs: Tab[], tab: Tab): Tab[] {
   return tabs.some((candidate) => candidate.id === tab.id)
-    ? tabs
-    : sortedTabs([...tabs, tab]);
+    ? sortTabs(tabs)
+    : sortTabs([...tabs, tab]);
 }
 
-function removeFromState(state: TabsState, id: string): Partial<TabsState> {
-  const removed = state.tabs.find((candidate) => candidate.id === id);
-  const tabs = state.tabs.filter((candidate) => candidate.id !== id);
-
-  const activeTabByWorktree = { ...state.activeTabByWorktree };
-  if (removed) {
-    const rememberedId = activeTabByWorktree[removed.worktree_id];
-    if (rememberedId === id) {
-      const nextWorktreeTab =
-        tabs
-          .filter((candidate) => candidate.worktree_id === removed.worktree_id)
-          .at(-1)?.id ?? "";
-      activeTabByWorktree[removed.worktree_id] = nextWorktreeTab;
+function ensureLayoutsForTabs(
+  tabs: Tab[],
+  layoutsByWorktree: Record<string, WorktreeTabLayout>,
+): Record<string, WorktreeTabLayout> {
+  const nextLayouts = { ...layoutsByWorktree };
+  for (const tab of tabs) {
+    if (!nextLayouts[tab.worktree_id]) {
+      nextLayouts[tab.worktree_id] = createSinglePaneLayout(tab.pane_id);
     }
   }
-
-  if (state.activeTabId !== id) {
-    persistSelection(state.activeTabId, activeTabByWorktree);
-    return { tabs, activeTabByWorktree };
-  }
-
-  const worktreeId = removed?.worktree_id;
-  const remaining = worktreeId
-    ? tabs.filter((candidate) => candidate.worktree_id === worktreeId)
-    : tabs;
-  const activeTabId = remaining.at(-1)?.id ?? null;
-  if (worktreeId) {
-    activeTabByWorktree[worktreeId] = activeTabId ?? "";
-  }
-  persistSelection(activeTabId, activeTabByWorktree);
-  return { tabs, activeTabId, activeTabByWorktree };
+  return nextLayouts;
 }
 
-function disposeDesktopBrowserTab(tab: Tab | null | undefined): void {
-  if (!tab || tab.type !== "browser" || !hasDesktopBrowserBridge()) {
-    return;
+function paneIdsForWorktree(
+  layoutsByWorktree: Record<string, WorktreeTabLayout>,
+  tabs: Tab[],
+  worktreeId: string,
+): string[] {
+  const fromLayout = collectPaneIds(layoutsByWorktree[worktreeId]);
+  if (fromLayout.length > 0) {
+    return fromLayout;
   }
 
-  desktopBrowserBridge()?.destroy({ tabId: tab.id });
+  return Array.from(
+    new Set(
+      tabsForWorktreeInternal(tabs, worktreeId).map((tab) => tab.pane_id),
+    ),
+  );
+}
+
+function resolvePaneIdForOpen(
+  state: TabsState,
+  worktreeId: string,
+  requestedPaneId?: string,
+): string {
+  const paneIds = paneIdsForWorktree(
+    state.layoutsByWorktree,
+    state.tabs,
+    worktreeId,
+  );
+
+  if (requestedPaneId && paneIds.includes(requestedPaneId)) {
+    return requestedPaneId;
+  }
+
+  const focusedPaneId = state.focusedPaneByWorktree[worktreeId];
+  if (focusedPaneId && paneIds.includes(focusedPaneId)) {
+    return focusedPaneId;
+  }
+
+  return (
+    firstPaneId(state.layoutsByWorktree[worktreeId]) ??
+    tabsForWorktreeInternal(state.tabs, worktreeId)[0]?.pane_id ??
+    requestedPaneId ??
+    DEFAULT_ROOT_PANE_ID
+  );
+}
+
+function resolvedPaneIdOrNew(
+  state: TabsState,
+  worktreeId: string,
+  requestedPaneId?: string,
+): string {
+  const paneId = resolvePaneIdForOpen(state, worktreeId, requestedPaneId);
+  return paneId || DEFAULT_ROOT_PANE_ID;
 }
 
 function removedTabs(previous: Tab[], next: Tab[]): Tab[] {
@@ -300,11 +408,16 @@ function findGitDiffTab(
   );
 }
 
-function findPreviewTab(tabs: Tab[], worktreeId: string): Tab | null {
+function findPreviewTab(
+  tabs: Tab[],
+  worktreeId: string,
+  paneId: string,
+): Tab | null {
   return (
     tabs.find(
       (tab) =>
         tab.worktree_id === worktreeId &&
+        tab.pane_id === paneId &&
         tab.preview &&
         tab.type !== "terminal",
     ) ?? null
@@ -321,27 +434,235 @@ function gitDiffOpenKey(options: OpenGitDiffOptions): string {
   ].join("|");
 }
 
-function activateLocal(
-  state: TabsState,
-  id: string,
-): Pick<TabsState, "activeTabId" | "activeTabByWorktree"> {
-  const tab = state.tabs.find((candidate) => candidate.id === id);
-  const activeTabByWorktree = { ...state.activeTabByWorktree };
-  if (tab) {
-    activeTabByWorktree[tab.worktree_id] = id;
+function disposeDesktopBrowserTab(tab: Tab | null | undefined): void {
+  if (!tab || tab.type !== "browser" || !hasDesktopBrowserBridge()) {
+    return;
   }
-  persistSelection(id, activeTabByWorktree);
-  return {
+
+  desktopBrowserBridge()?.destroy({ tabId: tab.id });
+}
+
+function activeTabMapEqual(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
+  return JSON.stringify(compactRecord(a)) === JSON.stringify(compactRecord(b));
+}
+
+function focusPaneLocal(
+  state: TabsState,
+  worktreeId: string,
+  paneId: string,
+): PersistedSelection {
+  const paneTabs = tabsForPane(
+    tabsForWorktreeInternal(state.tabs, worktreeId),
+    paneId,
+  );
+  const nextActiveTabByPane = { ...state.activeTabByPane };
+  const nextFocusedPaneByWorktree = {
+    ...state.focusedPaneByWorktree,
+    [worktreeId]: paneId,
+  };
+  const nextActiveTabByWorktree = { ...state.activeTabByWorktree };
+  const activeTabId =
+    (nextActiveTabByPane[paneId] &&
+      paneTabs.find((tab) => tab.id === nextActiveTabByPane[paneId])?.id) ??
+    paneTabs.at(-1)?.id ??
+    null;
+
+  if (activeTabId) {
+    nextActiveTabByPane[paneId] = activeTabId;
+    nextActiveTabByWorktree[worktreeId] = activeTabId;
+  } else {
+    delete nextActiveTabByPane[paneId];
+    delete nextActiveTabByWorktree[worktreeId];
+  }
+
+  const selection = {
+    activeTabId,
+    activeTabByWorktree: nextActiveTabByWorktree,
+    activeTabByPane: nextActiveTabByPane,
+    focusedPaneByWorktree: nextFocusedPaneByWorktree,
+  };
+  persistSelection(selection);
+  return selection;
+}
+
+function activateLocal(state: TabsState, id: string): PersistedSelection {
+  const tab = state.tabs.find((candidate) => candidate.id === id);
+  if (!tab) {
+    const selection = {
+      activeTabId: state.activeTabId,
+      activeTabByWorktree: state.activeTabByWorktree,
+      activeTabByPane: state.activeTabByPane,
+      focusedPaneByWorktree: state.focusedPaneByWorktree,
+    };
+    persistSelection(selection);
+    return selection;
+  }
+
+  const selection = {
     activeTabId: id,
-    activeTabByWorktree,
+    activeTabByWorktree: {
+      ...state.activeTabByWorktree,
+      [tab.worktree_id]: id,
+    },
+    activeTabByPane: {
+      ...state.activeTabByPane,
+      [tab.pane_id]: id,
+    },
+    focusedPaneByWorktree: {
+      ...state.focusedPaneByWorktree,
+      [tab.worktree_id]: tab.pane_id,
+    },
+  };
+  persistSelection(selection);
+  return selection;
+}
+
+function reconcileSelection(
+  state: TabsState,
+  nextTabs: Tab[],
+  nextLayoutsByWorktree: Record<string, WorktreeTabLayout>,
+): PersistedSelection {
+  const tabsById = new Map(nextTabs.map((tab) => [tab.id, tab]));
+  const previousActiveWorktreeId =
+    state.activeTabId &&
+    state.tabs.find((tab) => tab.id === state.activeTabId)?.worktree_id;
+  const nextActiveTabByPane = Object.fromEntries(
+    Object.entries(state.activeTabByPane).filter(
+      ([paneId, tabId]) => tabsById.get(tabId)?.pane_id === paneId,
+    ),
+  );
+  const nextFocusedPaneByWorktree: Record<string, string> = {};
+  const nextActiveTabByWorktree: Record<string, string> = {};
+  const worktreeIds = new Set([
+    ...Object.keys(nextLayoutsByWorktree),
+    ...nextTabs.map((tab) => tab.worktree_id),
+  ]);
+
+  for (const worktreeId of worktreeIds) {
+    const paneIds = paneIdsForWorktree(
+      nextLayoutsByWorktree,
+      nextTabs,
+      worktreeId,
+    );
+    if (paneIds.length === 0) {
+      continue;
+    }
+
+    for (const paneId of paneIds) {
+      const paneTabs = tabsForPane(
+        tabsForWorktreeInternal(nextTabs, worktreeId),
+        paneId,
+      );
+      if (paneTabs.length === 0) {
+        delete nextActiveTabByPane[paneId];
+        continue;
+      }
+      if (!paneTabs.some((tab) => tab.id === nextActiveTabByPane[paneId])) {
+        nextActiveTabByPane[paneId] = paneTabs.at(-1)?.id ?? "";
+      }
+    }
+
+    const focusedPaneId = state.focusedPaneByWorktree[worktreeId];
+    const nextFocusedPaneId =
+      (focusedPaneId && paneIds.includes(focusedPaneId) && focusedPaneId) ||
+      paneIds.find(
+        (paneId) =>
+          tabsForPane(tabsForWorktreeInternal(nextTabs, worktreeId), paneId)
+            .length > 0,
+      ) ||
+      paneIds[0];
+
+    nextFocusedPaneByWorktree[worktreeId] = nextFocusedPaneId;
+
+    const nextActiveForWorktree = nextActiveTabByPane[nextFocusedPaneId];
+    if (nextActiveForWorktree) {
+      nextActiveTabByWorktree[worktreeId] = nextActiveForWorktree;
+    }
+  }
+
+  let activeTabId =
+    (state.activeTabId &&
+      tabsById.has(state.activeTabId) &&
+      state.activeTabId) ||
+    null;
+  if (!activeTabId && previousActiveWorktreeId) {
+    activeTabId = nextActiveTabByWorktree[previousActiveWorktreeId] ?? null;
+  }
+
+  if (activeTabId) {
+    const activeTab = tabsById.get(activeTabId);
+    if (activeTab) {
+      nextActiveTabByPane[activeTab.pane_id] = activeTab.id;
+      nextActiveTabByWorktree[activeTab.worktree_id] = activeTab.id;
+      nextFocusedPaneByWorktree[activeTab.worktree_id] = activeTab.pane_id;
+    }
+  }
+
+  const selection = {
+    activeTabId,
+    activeTabByWorktree: nextActiveTabByWorktree,
+    activeTabByPane: nextActiveTabByPane,
+    focusedPaneByWorktree: nextFocusedPaneByWorktree,
+  };
+  persistSelection(selection);
+  return selection;
+}
+
+function nextStateAfterWorktreeLayout(
+  state: TabsState,
+  worktreeId: string,
+  nextLayoutState: WorktreeTabLayoutState,
+): Partial<TabsState> {
+  const nextTabs = sortTabs([
+    ...state.tabs.filter((tab) => tab.worktree_id !== worktreeId),
+    ...nextLayoutState.tabs,
+  ]);
+  const nextLayoutsByWorktree = ensureLayoutsForTabs(nextTabs, {
+    ...state.layoutsByWorktree,
+    [worktreeId]: nextLayoutState.layout,
+  });
+  const selection = reconcileSelection(state, nextTabs, nextLayoutsByWorktree);
+  return {
+    tabs: nextTabs,
+    layoutsByWorktree: nextLayoutsByWorktree,
+    ...selection,
+  };
+}
+
+function removeFromState(state: TabsState, id: string): Partial<TabsState> {
+  const closingTab = state.tabs.find((candidate) => candidate.id === id);
+  const nextTabs = state.tabs.filter((candidate) => candidate.id !== id);
+  const nextLayoutsByWorktree = { ...state.layoutsByWorktree };
+
+  if (closingTab && nextLayoutsByWorktree[closingTab.worktree_id]) {
+    nextLayoutsByWorktree[closingTab.worktree_id] = collapseLayoutToTabs(
+      nextLayoutsByWorktree[closingTab.worktree_id],
+      tabsForWorktreeInternal(nextTabs, closingTab.worktree_id),
+    );
+  }
+
+  const normalizedLayouts = ensureLayoutsForTabs(
+    nextTabs,
+    nextLayoutsByWorktree,
+  );
+  const selection = reconcileSelection(state, nextTabs, normalizedLayouts);
+
+  return {
+    tabs: nextTabs,
+    layoutsByWorktree: normalizedLayouts,
+    ...selection,
   };
 }
 
 async function replacePreviewIfNeeded(
   state: TabsState,
   worktreeId: string,
+  paneId: string,
 ): Promise<void> {
-  const previewTab = findPreviewTab(state.tabs, worktreeId);
+  const previewTab = findPreviewTab(state.tabs, worktreeId, paneId);
   if (!previewTab) {
     return;
   }
@@ -355,358 +676,557 @@ async function replacePreviewIfNeeded(
   }
 }
 
-export const useTabStore = create<TabsState>((set, get) => ({
-  tabs: [],
-  activeTabId: lsGet(LS_ACTIVE_TAB),
-  activeTabByWorktree:
-    lsGetJson<Record<string, string>>(LS_TAB_BY_WORKTREE) ?? {},
-  async addTerminal(worktreeId) {
-    const tab = await createTerminalTab(worktreeId);
-    set((state) => {
-      const tabs = addTabIfMissing(state.tabs, tab);
-      const activeTabByWorktree = {
-        ...state.activeTabByWorktree,
-        [worktreeId]: tab.id,
-      };
-      persistSelection(tab.id, activeTabByWorktree);
-      return {
-        tabs,
-        activeTabId: tab.id,
-        activeTabByWorktree,
-      };
-    });
-    return tab;
-  },
-  async setTerminalCustomLabel(id, customLabel) {
-    const existing = get().tabs.find((tab) => tab.id === id) ?? null;
-    if (!existing || existing.type !== "terminal") {
-      return existing;
-    }
+async function submitLayoutChange(
+  projectId: string,
+  worktreeId: string,
+  layout: WorktreeTabLayout,
+  tabs: Tab[],
+): Promise<WorktreeTabLayoutState> {
+  return updateWorktreeTabLayout(projectId, worktreeId, {
+    rootId: layout.rootId,
+    nodes: layout.nodes,
+    panes: serializePaneTabs(layout, tabs),
+  });
+}
 
-    const normalized = customLabel.trim();
-    const nextCustomLabel = normalized.length > 0 ? normalized : null;
-    set((state) => ({
-      tabs: sortedTabs(
-        state.tabs.map((tab) =>
-          tab.id === id && tab.type === "terminal"
-            ? { ...tab, customLabel: nextCustomLabel }
-            : tab,
-        ),
-      ),
-    }));
+export const useTabStore = create<TabsState>((set, get) => {
+  const selection = initialSelection();
 
-    try {
-      return await updateTab(id, { custom_label: customLabel });
-    } catch {
-      return { ...existing, customLabel: nextCustomLabel };
-    }
-  },
-  async resetTerminalCustomLabel(id) {
-    return get().setTerminalCustomLabel(id, "");
-  },
-  async openFile(options) {
-    const existing = findFileTab(get().tabs, options.worktreeId, options.path);
-    if (existing) {
-      if (!options.preview && existing.preview) {
-        set((state) => ({
-          tabs: sortedTabs(setTabPreviewLocal(state.tabs, existing.id, false)),
-          ...activateLocal(state, existing.id),
-        }));
-        try {
-          return await updateTab(existing.id, { preview: false });
-        } catch {
-          return { ...existing, preview: false };
-        }
-      }
-
-      set((state) => activateLocal(state, existing.id));
-      return existing;
-    }
-
-    if (options.preview) {
-      await replacePreviewIfNeeded(get(), options.worktreeId);
-    }
-
-    const tab = await createTab({
-      type: "file",
-      worktree_id: options.worktreeId,
-      path: options.path,
-      preview: options.preview,
-    });
-    set((state) => {
-      const tabs = addTabIfMissing(state.tabs, tab);
-      return {
-        tabs,
-        ...activateLocal(
-          {
-            ...state,
-            tabs,
-          } as TabsState,
-          tab.id,
-        ),
-      };
-    });
-    return tab;
-  },
-  async openGitDiff(options) {
-    const existing = findGitDiffTab(
-      get().tabs,
-      options.worktreeId,
-      options.path,
-      options.scope,
-      options.originalPath,
-      options.commitId,
-    );
-    if (existing) {
-      if (!options.preview && existing.preview) {
-        set((state) => ({
-          tabs: sortedTabs(setTabPreviewLocal(state.tabs, existing.id, false)),
-          ...activateLocal(state, existing.id),
-        }));
-        try {
-          return await updateTab(existing.id, { preview: false });
-        } catch {
-          return { ...existing, preview: false };
-        }
-      }
-
-      set((state) => activateLocal(state, existing.id));
-      return existing;
-    }
-
-    const pendingKey = gitDiffOpenKey(options);
-    const pending = pendingGitDiffOpens.get(pendingKey);
-    if (pending) {
-      if (!options.preview) {
-        pending.state.shouldPin = true;
-      }
-      return pending.promise;
-    }
-
-    const pendingState = {
-      shouldPin: !options.preview,
-    };
-    const pendingPromise = (async () => {
-      if (options.preview) {
-        await replacePreviewIfNeeded(get(), options.worktreeId);
-      }
-
-      const tab = await createTab({
-        type: "git_diff",
-        worktree_id: options.worktreeId,
-        path: options.path,
-        scope: options.scope,
-        original_path: options.originalPath ?? undefined,
-        commit_id: options.commitId ?? undefined,
-        preview: options.preview,
-      });
+  return {
+    tabs: [],
+    layoutsByWorktree: {},
+    ...selection,
+    async addTerminal(worktreeId, requestedPaneId) {
+      const paneId = resolvedPaneIdOrNew(get(), worktreeId, requestedPaneId);
+      const tab = await createTerminalTab(worktreeId, paneId);
       set((state) => {
-        const tabs = addTabIfMissing(state.tabs, tab);
+        const nextTabs = addTabIfMissing(state.tabs, tab);
+        const nextLayoutsByWorktree = ensureLayoutsForTabs(
+          nextTabs,
+          state.layoutsByWorktree,
+        );
         return {
-          tabs,
+          tabs: nextTabs,
+          layoutsByWorktree: nextLayoutsByWorktree,
           ...activateLocal(
             {
               ...state,
-              tabs,
+              tabs: nextTabs,
+              layoutsByWorktree: nextLayoutsByWorktree,
             } as TabsState,
             tab.id,
           ),
         };
       });
-
-      if (!pendingState.shouldPin || !tab.preview) {
-        return tab;
+      return tab;
+    },
+    async setTerminalCustomLabel(id, customLabel) {
+      const existing = get().tabs.find((tab) => tab.id === id) ?? null;
+      if (!existing || existing.type !== "terminal") {
+        return existing;
       }
 
+      const normalized = customLabel.trim();
+      const nextCustomLabel = normalized.length > 0 ? normalized : null;
       set((state) => ({
-        tabs: sortedTabs(setTabPreviewLocal(state.tabs, tab.id, false)),
-        ...activateLocal(state, tab.id),
-      }));
-      try {
-        return await updateTab(tab.id, { preview: false });
-      } catch {
-        return { ...tab, preview: false };
-      }
-    })().finally(() => {
-      pendingGitDiffOpens.delete(pendingKey);
-    });
-
-    pendingGitDiffOpens.set(pendingKey, {
-      state: pendingState,
-      promise: pendingPromise,
-    });
-
-    return pendingPromise;
-  },
-  async openBrowser(options) {
-    const url = normalizeBrowserUrl(options.url ?? BLANK_BROWSER_URL, {
-      allowBlank: true,
-    });
-    const tab = await createTab({
-      type: "browser",
-      worktree_id: options.worktreeId,
-      url,
-    });
-    set((state) => {
-      const tabs = addTabIfMissing(state.tabs, tab);
-      return {
-        tabs,
-        ...activateLocal(
-          {
-            ...state,
-            tabs,
-          } as TabsState,
-          tab.id,
+        tabs: sortTabs(
+          state.tabs.map((tab) =>
+            tab.id === id && tab.type === "terminal"
+              ? { ...tab, customLabel: nextCustomLabel }
+              : tab,
+          ),
         ),
+      }));
+
+      try {
+        return await updateTab(id, { custom_label: customLabel });
+      } catch {
+        return { ...existing, customLabel: nextCustomLabel };
+      }
+    },
+    async resetTerminalCustomLabel(id) {
+      return get().setTerminalCustomLabel(id, "");
+    },
+    async openFile(options) {
+      const existing = findFileTab(
+        get().tabs,
+        options.worktreeId,
+        options.path,
+      );
+      if (existing) {
+        if (!options.preview && existing.preview) {
+          set((state) => ({
+            tabs: sortTabs(
+              state.tabs.map((tab) =>
+                tab.id === existing.id ? { ...tab, preview: false } : tab,
+              ),
+            ),
+            ...activateLocal(state, existing.id),
+          }));
+          try {
+            return await updateTab(existing.id, { preview: false });
+          } catch {
+            return { ...existing, preview: false };
+          }
+        }
+
+        set((state) => activateLocal(state, existing.id));
+        return existing;
+      }
+
+      const paneId = resolvedPaneIdOrNew(
+        get(),
+        options.worktreeId,
+        options.paneId,
+      );
+      if (options.preview) {
+        await replacePreviewIfNeeded(get(), options.worktreeId, paneId);
+      }
+
+      const tab = await createTab({
+        type: "file",
+        worktree_id: options.worktreeId,
+        pane_id: paneId,
+        path: options.path,
+        preview: options.preview,
+      });
+      set((state) => {
+        const nextTabs = addTabIfMissing(state.tabs, tab);
+        const nextLayoutsByWorktree = ensureLayoutsForTabs(
+          nextTabs,
+          state.layoutsByWorktree,
+        );
+        return {
+          tabs: nextTabs,
+          layoutsByWorktree: nextLayoutsByWorktree,
+          ...activateLocal(
+            {
+              ...state,
+              tabs: nextTabs,
+              layoutsByWorktree: nextLayoutsByWorktree,
+            } as TabsState,
+            tab.id,
+          ),
+        };
+      });
+      return tab;
+    },
+    async openGitDiff(options) {
+      const existing = findGitDiffTab(
+        get().tabs,
+        options.worktreeId,
+        options.path,
+        options.scope,
+        options.originalPath,
+        options.commitId,
+      );
+      if (existing) {
+        if (!options.preview && existing.preview) {
+          set((state) => ({
+            tabs: sortTabs(
+              state.tabs.map((tab) =>
+                tab.id === existing.id ? { ...tab, preview: false } : tab,
+              ),
+            ),
+            ...activateLocal(state, existing.id),
+          }));
+          try {
+            return await updateTab(existing.id, { preview: false });
+          } catch {
+            return { ...existing, preview: false };
+          }
+        }
+
+        set((state) => activateLocal(state, existing.id));
+        return existing;
+      }
+
+      const pendingKey = gitDiffOpenKey(options);
+      const pending = pendingGitDiffOpens.get(pendingKey);
+      if (pending) {
+        if (!options.preview) {
+          pending.state.shouldPin = true;
+        }
+        return pending.promise;
+      }
+
+      const paneId = resolvedPaneIdOrNew(
+        get(),
+        options.worktreeId,
+        options.paneId,
+      );
+      const pendingState = {
+        shouldPin: !options.preview,
       };
-    });
-    return tab;
-  },
-  async setBrowserState(id, updates) {
-    const existing =
-      get().tabs.find(
-        (tab): tab is BrowserTab => tab.id === id && tab.type === "browser",
-      ) ?? null;
-    if (!existing) {
-      return existing;
-    }
+      const pendingPromise = (async () => {
+        if (options.preview) {
+          await replacePreviewIfNeeded(get(), options.worktreeId, paneId);
+        }
 
-    const nextUrl = updates.url
-      ? normalizeBrowserUrl(updates.url, { allowBlank: true })
-      : existing.url;
-    const nextHistory = updates.history
-      ? updates.history.map((entry) =>
-          normalizeBrowserUrl(entry, { allowBlank: true }),
-        )
-      : existing.history;
-    const nextHistoryIndex = updates.historyIndex ?? existing.history_index;
-    if (nextHistory.length === 0 || nextHistoryIndex >= nextHistory.length) {
-      throw new Error("history_index must point at an entry in history.");
-    }
-    const nextLabel =
-      updates.label ?? existing.label ?? browserLabelFromUrl(nextUrl);
+        const tab = await createTab({
+          type: "git_diff",
+          worktree_id: options.worktreeId,
+          pane_id: paneId,
+          path: options.path,
+          scope: options.scope,
+          original_path: options.originalPath ?? undefined,
+          commit_id: options.commitId ?? undefined,
+          preview: options.preview,
+        });
+        set((state) => {
+          const nextTabs = addTabIfMissing(state.tabs, tab);
+          const nextLayoutsByWorktree = ensureLayoutsForTabs(
+            nextTabs,
+            state.layoutsByWorktree,
+          );
+          return {
+            tabs: nextTabs,
+            layoutsByWorktree: nextLayoutsByWorktree,
+            ...activateLocal(
+              {
+                ...state,
+                tabs: nextTabs,
+                layoutsByWorktree: nextLayoutsByWorktree,
+              } as TabsState,
+              tab.id,
+            ),
+          };
+        });
 
-    if (
-      nextLabel === existing.label &&
-      nextUrl === existing.url &&
-      nextHistoryIndex === existing.history_index &&
-      nextHistory.length === existing.history.length &&
-      nextHistory.every((entry, index) => entry === existing.history[index])
-    ) {
-      return existing;
-    }
+        if (!pendingState.shouldPin || !tab.preview) {
+          return tab;
+        }
 
-    const optimistic: BrowserTab = {
-      ...existing,
-      label: nextLabel,
-      url: nextUrl,
-      history: nextHistory,
-      history_index: nextHistoryIndex,
-    };
-    set((state) => ({
-      tabs: sortedTabs(
-        state.tabs.map((tab) => (tab.id === id ? optimistic : tab)),
-      ),
-    }));
+        set((state) => ({
+          tabs: sortTabs(
+            state.tabs.map((candidate) =>
+              candidate.id === tab.id
+                ? { ...candidate, preview: false }
+                : candidate,
+            ),
+          ),
+          ...activateLocal(state, tab.id),
+        }));
+        try {
+          return await updateTab(tab.id, { preview: false });
+        } catch {
+          return { ...tab, preview: false };
+        }
+      })().finally(() => {
+        pendingGitDiffOpens.delete(pendingKey);
+      });
 
-    try {
-      return (await updateTab(id, {
+      pendingGitDiffOpens.set(pendingKey, {
+        state: pendingState,
+        promise: pendingPromise,
+      });
+
+      return pendingPromise;
+    },
+    async openBrowser(options) {
+      const paneId = resolvedPaneIdOrNew(
+        get(),
+        options.worktreeId,
+        options.paneId,
+      );
+      const url = normalizeBrowserUrl(options.url ?? BLANK_BROWSER_URL, {
+        allowBlank: true,
+      });
+      const tab = await createTab({
+        type: "browser",
+        worktree_id: options.worktreeId,
+        pane_id: paneId,
+        url,
+      });
+      set((state) => {
+        const nextTabs = addTabIfMissing(state.tabs, tab);
+        const nextLayoutsByWorktree = ensureLayoutsForTabs(
+          nextTabs,
+          state.layoutsByWorktree,
+        );
+        return {
+          tabs: nextTabs,
+          layoutsByWorktree: nextLayoutsByWorktree,
+          ...activateLocal(
+            {
+              ...state,
+              tabs: nextTabs,
+              layoutsByWorktree: nextLayoutsByWorktree,
+            } as TabsState,
+            tab.id,
+          ),
+        };
+      });
+      return tab;
+    },
+    async setBrowserState(id, updates) {
+      const existing =
+        get().tabs.find(
+          (tab): tab is BrowserTab => tab.id === id && tab.type === "browser",
+        ) ?? null;
+      if (!existing) {
+        return existing;
+      }
+
+      const nextUrl = updates.url
+        ? normalizeBrowserUrl(updates.url, { allowBlank: true })
+        : existing.url;
+      const nextHistory = updates.history
+        ? updates.history.map((entry) =>
+            normalizeBrowserUrl(entry, { allowBlank: true }),
+          )
+        : existing.history;
+      const nextHistoryIndex = updates.historyIndex ?? existing.history_index;
+      if (nextHistory.length === 0 || nextHistoryIndex >= nextHistory.length) {
+        throw new Error("history_index must point at an entry in history.");
+      }
+      const nextLabel =
+        updates.label ?? existing.label ?? browserLabelFromUrl(nextUrl);
+
+      if (
+        nextLabel === existing.label &&
+        nextUrl === existing.url &&
+        nextHistoryIndex === existing.history_index &&
+        nextHistory.length === existing.history.length &&
+        nextHistory.every((entry, index) => entry === existing.history[index])
+      ) {
+        return existing;
+      }
+
+      const optimistic: BrowserTab = {
+        ...existing,
         label: nextLabel,
         url: nextUrl,
         history: nextHistory,
         history_index: nextHistoryIndex,
-      })) as BrowserTab;
-    } catch {
-      return optimistic;
-    }
-  },
-  async pin(id) {
-    const existing = get().tabs.find((tab) => tab.id === id) ?? null;
-    if (!existing || !existing.preview) {
-      return existing;
-    }
+      };
+      set((state) => ({
+        tabs: sortTabs(
+          state.tabs.map((tab) => (tab.id === id ? optimistic : tab)),
+        ),
+      }));
 
-    set((state) => ({
-      tabs: sortedTabs(setTabPreviewLocal(state.tabs, id, false)),
-    }));
+      try {
+        return (await updateTab(id, {
+          label: nextLabel,
+          url: nextUrl,
+          history: nextHistory,
+          history_index: nextHistoryIndex,
+        })) as BrowserTab;
+      } catch {
+        return optimistic;
+      }
+    },
+    async pin(id) {
+      const existing = get().tabs.find((tab) => tab.id === id) ?? null;
+      if (!existing || !existing.preview) {
+        return existing;
+      }
 
-    try {
-      return await updateTab(id, { preview: false });
-    } catch {
-      return { ...existing, preview: false };
-    }
-  },
-  async close(id) {
-    const closingTab = get().tabs.find((candidate) => candidate.id === id);
-    if (!closingTab) {
-      return;
-    }
+      set((state) => ({
+        tabs: sortTabs(
+          state.tabs.map((tab) =>
+            tab.id === id ? { ...tab, preview: false } : tab,
+          ),
+        ),
+      }));
 
-    set((state) => removeFromState(state, id));
+      try {
+        return await updateTab(id, { preview: false });
+      } catch {
+        return { ...existing, preview: false };
+      }
+    },
+    async close(id) {
+      const closingTab = get().tabs.find((candidate) => candidate.id === id);
+      if (!closingTab) {
+        return;
+      }
 
-    try {
-      await deleteTab(id);
-    } catch {
-      // Already gone.
-    }
+      set((state) => removeFromState(state, id));
 
-    disposeDesktopBrowserTab(closingTab);
-    scheduleDisposeTabModels(closingTab);
-  },
-  removeLocal(id) {
-    const closingTab = get().tabs.find((candidate) => candidate.id === id);
-    set((state) => removeFromState(state, id));
-    if (closingTab) {
+      try {
+        await deleteTab(id);
+      } catch {
+        // Already gone.
+      }
+
       disposeDesktopBrowserTab(closingTab);
       scheduleDisposeTabModels(closingTab);
-    }
-  },
-  activate(id) {
-    set((state) => activateLocal(state, id));
-  },
-  async reorder(worktreeId, orderedIds) {
-    set((state) => {
-      const byId = Object.fromEntries(
-        state.tabs.map((tab) => [tab.id, tab]),
-      ) as Record<string, Tab>;
-      const reordered: Tab[] = [];
-      for (let index = 0; index < orderedIds.length; index += 1) {
-        const tab = byId[orderedIds[index]];
-        if (tab) {
-          reordered.push({ ...tab, position: index + 1 });
-        }
+    },
+    removeLocal(id) {
+      const closingTab = get().tabs.find((candidate) => candidate.id === id);
+      set((state) => removeFromState(state, id));
+      if (closingTab) {
+        disposeDesktopBrowserTab(closingTab);
+        scheduleDisposeTabModels(closingTab);
       }
-      const otherTabs = state.tabs.filter(
-        (tab) => tab.worktree_id !== worktreeId,
-      );
-      return {
-        tabs: sortedTabs([...otherTabs, ...reordered]),
-      };
-    });
+    },
+    activate(id) {
+      set((state) => activateLocal(state, id));
+    },
+    focusPane(worktreeId, paneId) {
+      set((state) => focusPaneLocal(state, worktreeId, paneId));
+    },
+    async reorder(worktreeId, paneId, orderedIds) {
+      set((state) => ({
+        tabs: sortTabs(
+          state.tabs.map((tab) => {
+            if (tab.worktree_id !== worktreeId || tab.pane_id !== paneId) {
+              return tab;
+            }
+            const index = orderedIds.indexOf(tab.id);
+            return index >= 0 ? { ...tab, position: index + 1 } : tab;
+          }),
+        ),
+      }));
 
-    await reorderTabs(worktreeId, orderedIds);
-  },
-  switchToWorktree(worktreeId) {
-    set((state) => {
-      if (state.activeTabId) {
-        const current = state.tabs.find((tab) => tab.id === state.activeTabId);
-        if (current?.worktree_id === worktreeId) {
-          return state;
-        }
-      }
-
+      await reorderTabs(worktreeId, paneId, orderedIds);
+    },
+    async moveTab(
+      projectId,
+      worktreeId,
+      tabId,
+      targetPaneId,
+      placement,
+      targetTabId,
+    ) {
+      const state = get();
       const worktreeTabs = tabsForWorktreeInternal(state.tabs, worktreeId);
-      const remembered = state.activeTabByWorktree[worktreeId];
-      const activeTabId =
-        (remembered && worktreeTabs.find((tab) => tab.id === remembered)?.id) ||
-        worktreeTabs[0]?.id ||
-        null;
+      const layout =
+        state.layoutsByWorktree[worktreeId] ??
+        createSinglePaneLayout(worktreeTabs[0]?.pane_id);
+      const targetIndex =
+        targetTabId && placement === "center"
+          ? tabsForPane(worktreeTabs, targetPaneId).findIndex(
+              (tab) => tab.id === targetTabId,
+            )
+          : undefined;
+      const next = moveTabBetweenPanes(
+        layout,
+        worktreeTabs,
+        tabId,
+        targetPaneId,
+        placement,
+        typeof targetIndex === "number" && targetIndex >= 0
+          ? targetIndex
+          : undefined,
+      );
+      if (!next) {
+        return;
+      }
 
-      persistSelection(activeTabId, state.activeTabByWorktree);
-      return { activeTabId };
-    });
-  },
-}));
+      set((current) => {
+        const nextTabs = sortTabs([
+          ...current.tabs.filter((tab) => tab.worktree_id !== worktreeId),
+          ...next.tabs,
+        ]);
+        const nextLayoutsByWorktree = ensureLayoutsForTabs(nextTabs, {
+          ...current.layoutsByWorktree,
+          [worktreeId]: next.layout,
+        });
+        const selection = activateLocal(
+          {
+            ...current,
+            tabs: nextTabs,
+            layoutsByWorktree: nextLayoutsByWorktree,
+          } as TabsState,
+          tabId,
+        );
+        return {
+          tabs: nextTabs,
+          layoutsByWorktree: nextLayoutsByWorktree,
+          ...selection,
+        };
+      });
+
+      const serverState = await submitLayoutChange(
+        projectId,
+        worktreeId,
+        next.layout,
+        next.tabs,
+      );
+      set((current) =>
+        nextStateAfterWorktreeLayout(current, worktreeId, serverState),
+      );
+    },
+    async splitPane(projectId, worktreeId, paneId, direction) {
+      const tab = await get().addTerminal(worktreeId, paneId);
+      await get().moveTab(
+        projectId,
+        worktreeId,
+        tab.id,
+        paneId,
+        direction === "right" ? "right" : "bottom",
+      );
+      return get().tabs.find((candidate) => candidate.id === tab.id) ?? tab;
+    },
+    switchToWorktree(worktreeId) {
+      set((state) => {
+        if (state.activeTabId) {
+          const current = state.tabs.find(
+            (tab) => tab.id === state.activeTabId,
+          );
+          if (current?.worktree_id === worktreeId) {
+            return state;
+          }
+        }
+
+        const paneIds = paneIdsForWorktree(
+          state.layoutsByWorktree,
+          state.tabs,
+          worktreeId,
+        );
+        if (paneIds.length === 0) {
+          const selection = {
+            activeTabId: null,
+            activeTabByWorktree: state.activeTabByWorktree,
+            activeTabByPane: state.activeTabByPane,
+            focusedPaneByWorktree: state.focusedPaneByWorktree,
+          };
+          persistSelection(selection);
+          return { activeTabId: null };
+        }
+
+        const focusedPaneId =
+          (state.focusedPaneByWorktree[worktreeId] &&
+            paneIds.includes(state.focusedPaneByWorktree[worktreeId]) &&
+            state.focusedPaneByWorktree[worktreeId]) ||
+          paneIds[0];
+
+        const paneTabs = tabsForPane(
+          tabsForWorktreeInternal(state.tabs, worktreeId),
+          focusedPaneId,
+        );
+        const activeTabId =
+          (state.activeTabByPane[focusedPaneId] &&
+            paneTabs.find(
+              (tab) => tab.id === state.activeTabByPane[focusedPaneId],
+            )?.id) ||
+          paneTabs[0]?.id ||
+          null;
+
+        const selection = {
+          activeTabId,
+          activeTabByWorktree: {
+            ...state.activeTabByWorktree,
+            ...(activeTabId ? { [worktreeId]: activeTabId } : {}),
+          },
+          activeTabByPane: {
+            ...state.activeTabByPane,
+            ...(activeTabId ? { [focusedPaneId]: activeTabId } : {}),
+          },
+          focusedPaneByWorktree: {
+            ...state.focusedPaneByWorktree,
+            [worktreeId]: focusedPaneId,
+          },
+        };
+        persistSelection(selection);
+        return selection;
+      });
+    },
+  };
+});
 
 let initialized = false;
 let eventUnsubscribers: Array<() => void> = [];
@@ -721,55 +1241,66 @@ function clearNotificationDismissTimer(): void {
 
 /** Derives the tab ID that needs notification dismissal. */
 function notifiedActiveTerminalTabId(state: TabsState): string | null {
-  if (!state.activeTabId) return null;
+  if (!state.activeTabId) {
+    return null;
+  }
   const tab = state.tabs.find(
-    (t) =>
-      t.id === state.activeTabId &&
-      t.type === "terminal" &&
-      !!t.has_notification,
+    (candidate) =>
+      candidate.id === state.activeTabId &&
+      candidate.type === "terminal" &&
+      !!candidate.has_notification,
   );
   return tab ? tab.id : null;
 }
 
 export function initializeTabStore(): void {
-  if (initialized) return;
+  if (initialized) {
+    return;
+  }
   initialized = true;
 
   const events = getEventClient();
 
   eventUnsubscribers = [
     events.on("snapshot", (data) => {
-      const incoming = sortedTabs(data.tabs);
+      const incomingTabs = sortTabs(data.tabs);
+      const incomingLayouts = ensureLayoutsForTabs(
+        incomingTabs,
+        data.tab_layouts,
+      );
       useTabStore.setState((state) => {
-        const incomingIds = new Set(incoming.map((tab) => tab.id));
-        const activeTabId =
-          state.activeTabId && incomingIds.has(state.activeTabId)
-            ? state.activeTabId
-            : null;
-        const activeTabByWorktree = Object.fromEntries(
-          Object.entries(state.activeTabByWorktree).filter(([, tabId]) =>
-            incomingIds.has(tabId),
-          ),
+        const selection = reconcileSelection(
+          state,
+          incomingTabs,
+          incomingLayouts,
         );
 
         if (
-          tabsEqual(state.tabs, incoming) &&
-          activeTabId === state.activeTabId &&
-          activeTabMapEqual(activeTabByWorktree, state.activeTabByWorktree)
+          tabsEqual(state.tabs, incomingTabs) &&
+          layoutMapEqual(state.layoutsByWorktree, incomingLayouts) &&
+          selection.activeTabId === state.activeTabId &&
+          activeTabMapEqual(
+            selection.activeTabByWorktree,
+            state.activeTabByWorktree,
+          ) &&
+          activeTabMapEqual(selection.activeTabByPane, state.activeTabByPane) &&
+          activeTabMapEqual(
+            selection.focusedPaneByWorktree,
+            state.focusedPaneByWorktree,
+          )
         ) {
           return state;
         }
 
-        for (const tab of removedTabs(state.tabs, incoming)) {
+        for (const tab of removedTabs(state.tabs, incomingTabs)) {
           disposeDesktopBrowserTab(tab);
           scheduleDisposeTabModels(tab);
         }
 
-        persistSelection(activeTabId, activeTabByWorktree);
         return {
-          tabs: incoming,
-          activeTabId,
-          activeTabByWorktree,
+          tabs: incomingTabs,
+          layoutsByWorktree: incomingLayouts,
+          ...selection,
         };
       });
     }),
@@ -778,8 +1309,14 @@ export function initializeTabStore(): void {
         if (state.tabs.some((candidate) => candidate.id === tab.id)) {
           return state;
         }
+        const nextTabs = addTabIfMissing(state.tabs, tab);
+        const nextLayoutsByWorktree = ensureLayoutsForTabs(
+          nextTabs,
+          state.layoutsByWorktree,
+        );
         return {
-          tabs: sortedTabs([...state.tabs, tab]),
+          tabs: nextTabs,
+          layoutsByWorktree: nextLayoutsByWorktree,
         };
       });
     }),
@@ -795,7 +1332,7 @@ export function initializeTabStore(): void {
     }),
     events.on("tab_updated", ({ tab }) => {
       useTabStore.setState((state) => ({
-        tabs: sortedTabs(
+        tabs: sortTabs(
           state.tabs.map((candidate) =>
             candidate.id === tab.id ? tab : candidate,
           ),
@@ -805,12 +1342,21 @@ export function initializeTabStore(): void {
     events.on("tabs_reordered", ({ tabs }) => {
       useTabStore.setState((state) => {
         const reorderedIds = new Set(tabs.map((tab) => tab.id));
-        const other = state.tabs.filter((tab) => !reorderedIds.has(tab.id));
-        return {
-          tabs: sortedTabs([...other, ...tabs]),
-        };
+        const nextTabs = sortTabs([
+          ...state.tabs.filter((tab) => !reorderedIds.has(tab.id)),
+          ...tabs,
+        ]);
+        return { tabs: nextTabs };
       });
     }),
+    events.on(
+      "worktree_tab_layout_updated",
+      ({ worktree_id, state: nextState }) => {
+        useTabStore.setState((current) =>
+          nextStateAfterWorktreeLayout(current, worktree_id, nextState),
+        );
+      },
+    ),
   ];
 
   // Auto-dismiss terminal notification after a short delay
@@ -818,19 +1364,23 @@ export function initializeTabStore(): void {
   let prevNotifiedId: string | null = null;
   const unsubscribeNotification = useTabStore.subscribe((state) => {
     const nextId = notifiedActiveTerminalTabId(state);
-    if (nextId === prevNotifiedId) return;
+    if (nextId === prevNotifiedId) {
+      return;
+    }
     prevNotifiedId = nextId;
 
     clearNotificationDismissTimer();
-    if (!nextId) return;
+    if (!nextId) {
+      return;
+    }
 
     notificationDismissTimer = setTimeout(() => {
       notificationDismissTimer = null;
-      useTabStore.setState((s) => ({
-        tabs: s.tabs.map((t) =>
-          t.id === nextId && t.type === "terminal"
-            ? { ...t, has_notification: false }
-            : t,
+      useTabStore.setState((state) => ({
+        tabs: state.tabs.map((tab) =>
+          tab.id === nextId && tab.type === "terminal"
+            ? { ...tab, has_notification: false }
+            : tab,
         ),
       }));
       void updateTab(nextId, { has_notification: false }).catch(() => {});
@@ -849,9 +1399,8 @@ export function resetTabStoreForTests(): void {
   initialized = false;
   useTabStore.setState({
     tabs: [],
-    activeTabId: lsGet(LS_ACTIVE_TAB),
-    activeTabByWorktree:
-      lsGetJson<Record<string, string>>(LS_TAB_BY_WORKTREE) ?? {},
+    layoutsByWorktree: {},
+    ...initialSelection(),
   });
 }
 

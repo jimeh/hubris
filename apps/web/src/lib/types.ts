@@ -7,6 +7,12 @@ export type TerminalTab = Extract<Tab, { type: "terminal" }>;
 export type FileTab = Extract<Tab, { type: "file" }>;
 export type GitDiffTab = Extract<Tab, { type: "git_diff" }>;
 export type BrowserTab = Extract<Tab, { type: "browser" }>;
+export type TabPaneSplitAxis = components["schemas"]["TabPaneSplitAxis"];
+export type WorktreePaneNode = components["schemas"]["WorktreePaneNode"];
+export type WorktreePaneTabs = components["schemas"]["WorktreePaneTabs"];
+export type WorktreeTabLayout = components["schemas"]["WorktreeTabLayout"];
+export type WorktreeTabLayoutState =
+  components["schemas"]["WorktreeTabLayoutState"];
 export type DirEntry = components["schemas"]["DirEntry"];
 export type ListFilesResponse = components["schemas"]["ListFilesResponse"];
 export type WorktreeFileKind = components["schemas"]["WorktreeFileKind"];
