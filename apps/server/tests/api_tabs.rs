@@ -109,6 +109,26 @@ async fn create_tab(client: &reqwest::Client, base: &str, worktree_id: &str) -> 
     res.json().await.unwrap()
 }
 
+async fn create_tab_in_pane(
+    client: &reqwest::Client,
+    base: &str,
+    worktree_id: &str,
+    pane_id: &str,
+) -> Value {
+    let res = client
+        .post(format!("{}/api/tabs", base))
+        .json(&serde_json::json!({
+            "type": "terminal",
+            "worktree_id": worktree_id,
+            "pane_id": pane_id,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    res.json().await.unwrap()
+}
+
 async fn create_browser_tab(
     client: &reqwest::Client,
     base: &str,
@@ -132,6 +152,26 @@ async fn create_browser_tab(
 async fn list_tabs(client: &reqwest::Client, base: &str) -> Vec<Value> {
     let res = client
         .get(format!("{}/api/tabs", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    res.json().await.unwrap()
+}
+
+async fn update_worktree_tab_layout(
+    client: &reqwest::Client,
+    base: &str,
+    project_id: &str,
+    worktree_id: &str,
+    payload: Value,
+) -> Value {
+    let res = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/tab-layout",
+            base, project_id, worktree_id
+        ))
+        .json(&payload)
         .send()
         .await
         .unwrap();
@@ -929,6 +969,57 @@ async fn test_reorder_tabs_wrong_ids() {
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_update_worktree_tab_layout_preserves_intentional_empty_split_pane() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let first = create_tab(&client, &base, &worktree_id).await;
+    let first_id = first["id"].as_str().unwrap();
+    let pane_id = first["pane_id"].as_str().unwrap();
+
+    let updated = update_worktree_tab_layout(
+        &client,
+        &base,
+        &project_id,
+        &worktree_id,
+        serde_json::json!({
+            "rootId": "split-root",
+            "nodes": [
+                { "type": "leaf", "id": "left-leaf", "pane_id": pane_id },
+                { "type": "leaf", "id": "right-leaf", "pane_id": "pane-2" },
+                {
+                    "type": "split",
+                    "id": "split-root",
+                    "axis": "vertical",
+                    "ratio": 0.5,
+                    "first_id": "left-leaf",
+                    "second_id": "right-leaf"
+                }
+            ],
+            "panes": [
+                { "paneId": pane_id, "tabIds": [first_id] },
+                { "paneId": "pane-2", "tabIds": [] }
+            ]
+        }),
+    )
+    .await;
+
+    assert_eq!(updated["layout"]["rootId"], "split-root");
+    assert_eq!(updated["tabs"].as_array().unwrap().len(), 1);
+
+    let created = create_tab_in_pane(&client, &base, &worktree_id, "pane-2").await;
+    assert_eq!(created["pane_id"], "pane-2");
+
+    let tabs = list_tabs(&client, &base).await;
+    assert_eq!(tabs.len(), 2);
+    assert!(tabs.iter().any(|tab| tab["pane_id"] == "pane-2"));
 }
 
 #[tokio::test]

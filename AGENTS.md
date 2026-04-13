@@ -203,16 +203,16 @@ or `pnpm-lock.yaml`.
   In Hubris proxies, only treat a cookie/query token as valid when it matches
   the current runtime token; otherwise upsert the current `?tkn=` so the browser
   can mint a fresh cookie.
+- Worktree split panes must keep terminal, browser, and Monaco-backed tab scenes
+  mounted in a worktree-level host. Reparenting those heavy tabs inside pane
+  subtrees causes terminal websocket reconnects, browser view churn, and blank
+  split panes during layout transitions.
 
 <!-- gitnexus:start -->
 
 # GitNexus — Code Intelligence
 
-<<<<<<< HEAD
-This project is indexed by GitNexus as **hubris** (3878 symbols, 11570
-=======
-This project is indexed by GitNexus as **hubris** (4097 symbols, 12121
->>>>>>> bd70a27 (docs: consolidate agent instructions)
+This project is indexed by GitNexus as **hubris** (4086 symbols, 12110
 relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 

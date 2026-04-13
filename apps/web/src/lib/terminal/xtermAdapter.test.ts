@@ -195,6 +195,16 @@ describe("createXtermAdapter", () => {
     expect(adapter.measureViewport()).toEqual({ cols: 132, rows: 41 });
   });
 
+  it("clamps tiny proposed viewport dimensions", () => {
+    const adapter = createXtermAdapter();
+    fitAddonInstances[0].proposeDimensions.mockReturnValue({
+      cols: 0,
+      rows: 0,
+    });
+
+    expect(adapter.measureViewport()).toEqual({ cols: 8, rows: 2 });
+  });
+
   it("updates font without forcing a local fit", () => {
     const adapter = createXtermAdapter();
     const terminal = terminalInstances[0];

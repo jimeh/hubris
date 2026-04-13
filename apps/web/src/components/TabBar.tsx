@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useDroppable } from "@dnd-kit/core";
 import {
   ChevronsLeft,
   ChevronsRight,
@@ -23,6 +24,7 @@ const SCROLL_AMOUNT = 200;
 type Props = {
   worktreeId: string;
   paneId?: string;
+  dropTargetId?: string;
   tabs: Tab[];
   dirtyTabIds?: string[];
   lockedTabIds?: string[];
@@ -43,6 +45,7 @@ type Props = {
 export default function TabBar({
   worktreeId,
   paneId = "pane-1",
+  dropTargetId,
   tabs,
   dirtyTabIds = [],
   lockedTabIds = [],
@@ -59,6 +62,10 @@ export default function TabBar({
   onResetTerminalTabName = async () => {},
   dragging = false,
 }: Props) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: dropTargetId ?? `pane-tab-bar:${paneId}`,
+    disabled: !dragging,
+  });
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const tabListRef = useRef<HTMLDivElement | null>(null);
@@ -126,8 +133,22 @@ export default function TabBar({
 
   return (
     <div
-      className="flex min-h-9 items-center border-b border-tab-border bg-tab-bar px-1"
+      ref={setNodeRef}
+      className={
+        "flex min-h-9 items-center border-b border-tab-border bg-tab-bar px-1"
+      }
       data-worktree-id={worktreeId}
+      data-pane-id={paneId}
+      data-pane-tab-bar-drop-active={dragging && isOver ? "true" : undefined}
+      style={
+        dragging && isOver
+          ? {
+              boxShadow: "inset 0 -1px 0 var(--primary)",
+              backgroundColor:
+                "color-mix(in srgb, var(--primary) 10%, var(--tab-bar))",
+            }
+          : undefined
+      }
     >
       <div className="relative min-w-0 flex-1">
         {canScrollLeft ? (

@@ -674,7 +674,6 @@ fn update_worktree_layout_state(
         }
     }
 
-    let layout = collapse_empty_panes(&layout, &pane_map)?;
     state
         .tab_layouts
         .insert(worktree_id.to_string(), layout.clone());

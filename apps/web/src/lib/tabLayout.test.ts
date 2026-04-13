@@ -3,6 +3,7 @@ import {
   buildPaneTree,
   collapseLayoutToTabs,
   moveTabBetweenPanes,
+  setPaneSplitRatio,
   serializePaneTabs,
   type PaneTree,
 } from "@/lib/tabLayout";
@@ -116,5 +117,25 @@ describe("tabLayout", () => {
 
     expect(collectLeafPaneIds(buildPaneTree(collapsed))).toEqual(["pane-b"]);
     expect(paneTabs).toEqual([{ paneId: "pane-b", tabIds: ["tab-b"] }]);
+  });
+
+  it("updates a split ratio without rebuilding the layout shape", () => {
+    const layout = splitLayout("pane-a", "pane-b");
+
+    const next = setPaneSplitRatio(layout, "split-root", 0.7);
+
+    expect(next.rootId).toBe("split-root");
+    expect(next.nodes).toEqual([
+      { type: "leaf", id: "leaf-left", pane_id: "pane-a" },
+      { type: "leaf", id: "leaf-right", pane_id: "pane-b" },
+      {
+        type: "split",
+        id: "split-root",
+        axis: "vertical",
+        ratio: 0.7,
+        first_id: "leaf-left",
+        second_id: "leaf-right",
+      },
+    ]);
   });
 });

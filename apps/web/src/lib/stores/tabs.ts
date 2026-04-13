@@ -24,7 +24,9 @@ import {
   createSinglePaneLayout,
   firstPaneId,
   moveTabBetweenPanes,
+  setPaneSplitRatio,
   serializePaneTabs,
+  splitPaneInLayout,
   sortTabs,
   tabsForPane,
   type PaneDropPlacement,
@@ -110,6 +112,8 @@ type TabsState = {
   removeLocal: (id: string) => void;
   activate: (id: string) => void;
   focusPane: (worktreeId: string, paneId: string) => void;
+  setSplitRatio: (worktreeId: string, nodeId: string, ratio: number) => boolean;
+  persistLayout: (projectId: string, worktreeId: string) => Promise<void>;
   reorder: (
     worktreeId: string,
     paneId: string,
@@ -123,6 +127,12 @@ type TabsState = {
     placement: PaneDropPlacement,
     targetTabId?: string,
   ) => Promise<void>;
+  createSplitPane: (
+    projectId: string,
+    worktreeId: string,
+    paneId: string,
+    direction: "right" | "down",
+  ) => Promise<string | null>;
   splitPane: (
     projectId: string,
     worktreeId: string,
@@ -1068,6 +1078,46 @@ export const useTabStore = create<TabsState>((set, get) => {
     focusPane(worktreeId, paneId) {
       set((state) => focusPaneLocal(state, worktreeId, paneId));
     },
+    setSplitRatio(worktreeId, nodeId, ratio) {
+      let changed = false;
+      set((state) => {
+        const layout = state.layoutsByWorktree[worktreeId];
+        if (!layout) {
+          return state;
+        }
+
+        const nextLayout = setPaneSplitRatio(layout, nodeId, ratio);
+        if (layoutEqual(layout, nextLayout)) {
+          return state;
+        }
+        changed = true;
+
+        return {
+          layoutsByWorktree: {
+            ...state.layoutsByWorktree,
+            [worktreeId]: nextLayout,
+          },
+        };
+      });
+      return changed;
+    },
+    async persistLayout(projectId, worktreeId) {
+      const state = get();
+      const layout = state.layoutsByWorktree[worktreeId];
+      if (!layout) {
+        return;
+      }
+
+      const serverState = await submitLayoutChange(
+        projectId,
+        worktreeId,
+        layout,
+        tabsForWorktreeInternal(state.tabs, worktreeId),
+      );
+      set((current) =>
+        nextStateAfterWorktreeLayout(current, worktreeId, serverState),
+      );
+    },
     async reorder(worktreeId, paneId, orderedIds) {
       set((state) => ({
         tabs: sortTabs(
@@ -1150,16 +1200,67 @@ export const useTabStore = create<TabsState>((set, get) => {
         nextStateAfterWorktreeLayout(current, worktreeId, serverState),
       );
     },
-    async splitPane(projectId, worktreeId, paneId, direction) {
-      const tab = await get().addTerminal(worktreeId, paneId);
-      await get().moveTab(
-        projectId,
-        worktreeId,
-        tab.id,
+    async createSplitPane(projectId, worktreeId, paneId, direction) {
+      const state = get();
+      const worktreeTabs = tabsForWorktreeInternal(state.tabs, worktreeId);
+      const layout =
+        state.layoutsByWorktree[worktreeId] ??
+        createSinglePaneLayout(worktreeTabs[0]?.pane_id);
+      const next = splitPaneInLayout(
+        layout,
         paneId,
         direction === "right" ? "right" : "bottom",
       );
-      return get().tabs.find((candidate) => candidate.id === tab.id) ?? tab;
+      if (!next) {
+        return null;
+      }
+
+      set((current) => ({
+        ...(() => {
+          const focusedPaneByWorktree = {
+            ...current.focusedPaneByWorktree,
+            [worktreeId]: next.destinationPaneId,
+          };
+          const selection = {
+            activeTabId: current.activeTabId,
+            activeTabByWorktree: current.activeTabByWorktree,
+            activeTabByPane: current.activeTabByPane,
+            focusedPaneByWorktree,
+          };
+          persistSelection(selection);
+          return {
+            layoutsByWorktree: {
+              ...current.layoutsByWorktree,
+              [worktreeId]: next.layout,
+            },
+            focusedPaneByWorktree,
+          };
+        })(),
+      }));
+
+      const serverState = await submitLayoutChange(
+        projectId,
+        worktreeId,
+        next.layout,
+        worktreeTabs,
+      );
+      set((current) =>
+        nextStateAfterWorktreeLayout(current, worktreeId, serverState),
+      );
+      return next.destinationPaneId;
+    },
+    async splitPane(projectId, worktreeId, paneId, direction) {
+      const destinationPaneId = await get().createSplitPane(
+        projectId,
+        worktreeId,
+        paneId,
+        direction,
+      );
+      const tab = await get().addTerminal(
+        worktreeId,
+        destinationPaneId ?? paneId,
+      );
+      return tab;
     },
     switchToWorktree(worktreeId) {
       set((state) => {

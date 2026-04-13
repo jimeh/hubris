@@ -4,7 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabBar, { SortableTabView } from "@/components/TabBar";
 import type { TerminalTab } from "@/lib/types";
 
+const useDroppableMock = vi.fn();
 let resizeCallback: ResizeObserverCallback | null = null;
+
+vi.mock("@dnd-kit/core", () => ({
+  useDroppable: (...args: unknown[]) => useDroppableMock(...args),
+}));
 
 class ResizeObserverMock {
   constructor(callback: ResizeObserverCallback) {
@@ -106,6 +111,10 @@ describe("TabBar", () => {
   beforeEach(() => {
     resizeCallback = null;
     vi.restoreAllMocks();
+    useDroppableMock.mockReturnValue({
+      isOver: false,
+      setNodeRef: vi.fn(),
+    });
     window.ResizeObserver = ResizeObserverMock;
     window.requestAnimationFrame = (callback: FrameRequestCallback) => {
       callback(0);
@@ -211,6 +220,22 @@ describe("TabBar", () => {
 
     await waitFor(() => {
       expect(props.onAddBrowser).toHaveBeenCalledWith();
+    });
+  });
+
+  it("marks the pane tab bar as an active drop target during drag", () => {
+    useDroppableMock.mockReturnValue({
+      isOver: true,
+      setNodeRef: vi.fn(),
+    });
+
+    render(<TabBar {...baseProps()} tabs={[makeTab("a", 1)]} dragging />);
+
+    const tabBar = screen.getByRole("tablist").closest("[data-worktree-id]");
+    expect(tabBar).toHaveAttribute("data-pane-tab-bar-drop-active", "true");
+    expect(useDroppableMock).toHaveBeenCalledWith({
+      id: "pane-tab-bar:pane-1",
+      disabled: false,
     });
   });
 

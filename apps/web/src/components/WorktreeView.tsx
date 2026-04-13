@@ -37,6 +37,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
 import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useTabStore } from "@/lib/stores/tabs";
@@ -78,27 +83,24 @@ type PaneLeafProps = {
   onRenameTerminalTab: (tabId: string, label: string) => Promise<void>;
   onResetTerminalTabName: (tabId: string) => Promise<void>;
   onFocusPane: () => void;
-  onTabClosed: (tabId: string) => void;
+  registerViewport: (paneId: string, element: HTMLDivElement | null) => void;
   emptyState: ReactNode;
 };
 
-function comparePanelOrder(a: Tab, b: Tab): number {
-  const left = Number(a.created_at);
-  const right = Number(b.created_at);
+type ViewportRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 
-  if (Number.isFinite(left) && Number.isFinite(right) && left !== right) {
-    return left - right;
-  }
-
-  const createdAtComparison = String(a.created_at).localeCompare(
-    String(b.created_at),
-  );
-  if (createdAtComparison !== 0) {
-    return createdAtComparison;
-  }
-
-  return a.id.localeCompare(b.id);
-}
+type PaneViewportProps = {
+  paneId: string;
+  dragging: boolean;
+  hasTabs: boolean;
+  emptyState: ReactNode;
+  registerViewport: (paneId: string, element: HTMLDivElement | null) => void;
+};
 
 function paneDropTargetId(
   paneId: string,
@@ -107,9 +109,21 @@ function paneDropTargetId(
   return `pane-drop:${paneId}:${placement}`;
 }
 
+function paneTabBarDropTargetId(paneId: string): string {
+  return `pane-tab-bar:${paneId}`;
+}
+
 function parsePaneDropTargetId(
   value: string | number,
 ): { paneId: string; placement: PaneDropPlacement } | null {
+  const tabBarParts = String(value).split(":");
+  if (tabBarParts.length === 2 && tabBarParts[0] === "pane-tab-bar") {
+    return {
+      paneId: tabBarParts[1],
+      placement: "center",
+    };
+  }
+
   const parts = String(value).split(":");
   if (parts.length !== 3 || parts[0] !== "pane-drop") {
     return null;
@@ -212,6 +226,57 @@ function PaneDropTargets({
   );
 }
 
+function PaneViewport({
+  paneId,
+  dragging,
+  hasTabs,
+  emptyState,
+  registerViewport,
+}: PaneViewportProps) {
+  const setViewportRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      registerViewport(paneId, element);
+    },
+    [paneId, registerViewport],
+  );
+
+  return (
+    <div className="relative flex-1 overflow-hidden">
+      <div
+        ref={setViewportRef}
+        className="absolute inset-0 overflow-hidden"
+        data-pane-viewport={paneId}
+      >
+        {!hasTabs ? emptyState : null}
+      </div>
+      <PaneDropTargets paneId={paneId} visible={dragging} />
+    </div>
+  );
+}
+
+function viewportRectsEqual(
+  left: Record<string, ViewportRect>,
+  right: Record<string, ViewportRect>,
+): boolean {
+  const paneIds = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const paneId of paneIds) {
+    const a = left[paneId];
+    const b = right[paneId];
+    if (
+      !a ||
+      !b ||
+      a.left !== b.left ||
+      a.top !== b.top ||
+      a.width !== b.width ||
+      a.height !== b.height
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function PaneLeaf({
   worktree,
   paneId,
@@ -231,18 +296,13 @@ function PaneLeaf({
   onRenameTerminalTab,
   onResetTerminalTabName,
   onFocusPane,
-  onTabClosed,
+  registerViewport,
   emptyState,
 }: PaneLeafProps) {
-  const panelTabs = useMemo(
-    () => [...paneTabs].sort(comparePanelOrder),
-    [paneTabs],
-  );
-
   return (
     <div
       className={cn(
-        "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
+        "relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
         focused && "ring-1 ring-inset ring-primary/40",
       )}
       data-pane-id={paneId}
@@ -251,6 +311,7 @@ function PaneLeaf({
       <TabBar
         worktreeId={worktree.id}
         paneId={paneId}
+        dropTargetId={paneTabBarDropTargetId(paneId)}
         tabs={paneTabs}
         dirtyTabIds={dirtyTabIds}
         lockedTabIds={lockedTabIds}
@@ -267,44 +328,13 @@ function PaneLeaf({
         dragging={dragging}
       />
 
-      <div className="relative flex-1 overflow-hidden">
-        {panelTabs.map((tab) => {
-          const visible = tab.id === activePaneTabId;
-          return (
-            <div
-              key={tab.id}
-              className={visible ? "absolute inset-0" : "hidden"}
-            >
-              {tab.type === "terminal" ? (
-                <TerminalTab
-                  tabId={tab.id}
-                  visible={visible}
-                  onClosed={onTabClosed}
-                />
-              ) : tab.type === "file" ? (
-                <FileEditorTab
-                  projectId={worktree.project_id}
-                  worktreeId={worktree.id}
-                  tab={tab}
-                  visible={visible}
-                />
-              ) : tab.type === "git_diff" ? (
-                <GitDiffTab
-                  projectId={worktree.project_id}
-                  worktreeId={worktree.id}
-                  tab={tab}
-                  visible={visible}
-                />
-              ) : tab.type === "browser" ? (
-                <BrowserTab tab={tab} visible={visible} />
-              ) : null}
-            </div>
-          );
-        })}
-
-        {paneTabs.length === 0 ? emptyState : null}
-        <PaneDropTargets paneId={paneId} visible={dragging} />
-      </div>
+      <PaneViewport
+        paneId={paneId}
+        dragging={dragging}
+        hasTabs={paneTabs.length > 0}
+        emptyState={emptyState}
+        registerViewport={registerViewport}
+      />
     </div>
   );
 }
@@ -312,39 +342,57 @@ function PaneLeaf({
 function PaneTreeView({
   node,
   renderLeaf,
+  onResizeSplit,
 }: {
   node: PaneTree;
   renderLeaf: (paneId: string) => ReactNode;
+  onResizeSplit: (nodeId: string, ratio: number) => void;
 }) {
   if (node.type === "leaf") {
     return <>{renderLeaf(node.paneId)}</>;
   }
 
-  const firstBasis = `${Math.round(node.ratio * 10000) / 100}%`;
-  const secondBasis = `${Math.round((1 - node.ratio) * 10000) / 100}%`;
-  const horizontal = node.axis === "vertical";
+  const orientation = node.axis === "vertical" ? "horizontal" : "vertical";
 
   return (
-    <div
-      className={cn(
-        "flex min-h-0 min-w-0 flex-1 overflow-hidden",
-        horizontal ? "flex-row" : "flex-col",
-      )}
+    <ResizablePanelGroup
+      orientation={orientation}
+      className="min-h-0 min-w-0 flex-1 overflow-hidden"
+      onLayoutChanged={(layout) => {
+        const nextRatio = layout[`${node.id}:first`] / 100;
+        if (Number.isFinite(nextRatio)) {
+          onResizeSplit(node.id, nextRatio);
+        }
+      }}
     >
-      <div
-        className="flex min-h-0 min-w-0 overflow-hidden"
-        style={{ flexBasis: firstBasis, flexGrow: 1, flexShrink: 1 }}
+      <ResizablePanel
+        id={`${node.id}:first`}
+        defaultSize={node.ratio * 100}
+        minSize={15}
       >
-        <PaneTreeView node={node.first} renderLeaf={renderLeaf} />
-      </div>
-      <div className={horizontal ? "w-px bg-border" : "h-px bg-border"} />
-      <div
-        className="flex min-h-0 min-w-0 overflow-hidden"
-        style={{ flexBasis: secondBasis, flexGrow: 1, flexShrink: 1 }}
+        <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
+          <PaneTreeView
+            node={node.first}
+            renderLeaf={renderLeaf}
+            onResizeSplit={onResizeSplit}
+          />
+        </div>
+      </ResizablePanel>
+      <ResizableHandle withHandle />
+      <ResizablePanel
+        id={`${node.id}:second`}
+        defaultSize={(1 - node.ratio) * 100}
+        minSize={15}
       >
-        <PaneTreeView node={node.second} renderLeaf={renderLeaf} />
-      </div>
-    </div>
+        <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
+          <PaneTreeView
+            node={node.second}
+            renderLeaf={renderLeaf}
+            onResizeSplit={onResizeSplit}
+          />
+        </div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 }
 
@@ -354,13 +402,23 @@ export default function WorktreeView({ worktree, active }: Props) {
   );
   const [isPendingCloseSaving, setIsPendingCloseSaving] = useState(false);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [paneViewportRects, setPaneViewportRects] = useState<
+    Record<string, ViewportRect>
+  >({});
   const isRightSidebarResizing = useWorktreeRightSidebarWidthStore(
     (state) => state.isResizing,
   );
   const initialRightSidebarWidthRef = useRef(
     useWorktreeRightSidebarWidthStore.getState().width,
   );
+  const layoutPersistTimersRef = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
   const viewRef = useRef<HTMLDivElement | null>(null);
+  const paneSceneLayerRef = useRef<HTMLDivElement | null>(null);
+  const paneViewportObserverRef = useRef<ResizeObserver | null>(null);
+  const paneViewportElementsRef = useRef(new Map<string, HTMLDivElement>());
+  const lastVisibleSceneRectsRef = useRef<Record<string, ViewportRect>>({});
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -379,6 +437,8 @@ export default function WorktreeView({ worktree, active }: Props) {
     moveTab,
     splitPane,
     focusPane,
+    setSplitRatio,
+    persistLayout,
     setTerminalCustomLabel,
     resetTerminalCustomLabel,
     openBrowser,
@@ -397,6 +457,8 @@ export default function WorktreeView({ worktree, active }: Props) {
       moveTab: state.moveTab,
       splitPane: state.splitPane,
       focusPane: state.focusPane,
+      setSplitRatio: state.setSplitRatio,
+      persistLayout: state.persistLayout,
       setTerminalCustomLabel: state.setTerminalCustomLabel,
       resetTerminalCustomLabel: state.resetTerminalCustomLabel,
       openBrowser: state.openBrowser,
@@ -474,16 +536,37 @@ export default function WorktreeView({ worktree, active }: Props) {
       ) as Record<string, Tab[]>,
     [worktreeTabs],
   );
+  const activeWorktreeTab = useMemo(
+    () => worktreeTabs.find((tab) => tab.id === activeTabId) ?? null,
+    [activeTabId, worktreeTabs],
+  );
+  const activePaneTabIds = useMemo(
+    () =>
+      Object.fromEntries(
+        Array.from(
+          new Set([
+            ...Object.keys(paneTabsById),
+            ...Object.keys(activeTabByPane),
+            activeWorktreeTab?.pane_id ?? "",
+          ]),
+        )
+          .filter(Boolean)
+          .map((paneId) => [
+            paneId,
+            activeTabByPane[paneId] ??
+              (activeWorktreeTab?.pane_id === paneId
+                ? activeWorktreeTab.id
+                : null),
+          ]),
+      ) as Record<string, string | null>,
+    [activeTabByPane, activeWorktreeTab, paneTabsById],
+  );
   const focusedPaneId =
     focusedPaneByWorktree[worktree.id] ??
     (paneTree?.type === "leaf" ? paneTree.paneId : worktreeTabs[0]?.pane_id);
   const pendingCloseTab = useMemo(
     () => worktreeTabs.find((tab) => tab.id === pendingCloseTabId) ?? null,
     [pendingCloseTabId, worktreeTabs],
-  );
-  const activeWorktreeTab = useMemo(
-    () => worktreeTabs.find((tab) => tab.id === activeTabId) ?? null,
-    [activeTabId, worktreeTabs],
   );
   const emptyState = useMemo(
     () => (
@@ -557,6 +640,97 @@ export default function WorktreeView({ worktree, active }: Props) {
     });
   }, []);
 
+  const recalculatePaneViewportRects = useCallback(() => {
+    const layer = paneSceneLayerRef.current;
+    if (!layer) {
+      return;
+    }
+
+    const layerRect = layer.getBoundingClientRect();
+    const nextRects: Record<string, ViewportRect> = {};
+
+    for (const [paneId, element] of paneViewportElementsRef.current) {
+      if (!element.isConnected) {
+        continue;
+      }
+
+      const rect = element.getBoundingClientRect();
+      nextRects[paneId] = {
+        left: Math.round(rect.left - layerRect.left),
+        top: Math.round(rect.top - layerRect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+    }
+
+    setPaneViewportRects((current) =>
+      viewportRectsEqual(current, nextRects) ? current : nextRects,
+    );
+  }, []);
+
+  const registerViewport = useCallback(
+    (paneId: string, element: HTMLDivElement | null) => {
+      const current = paneViewportElementsRef.current.get(paneId);
+      if (current === element) {
+        return;
+      }
+
+      if (current) {
+        paneViewportObserverRef.current?.unobserve(current);
+        paneViewportElementsRef.current.delete(paneId);
+      }
+
+      if (element) {
+        paneViewportElementsRef.current.set(paneId, element);
+        paneViewportObserverRef.current?.observe(element);
+      }
+
+      recalculatePaneViewportRects();
+    },
+    [recalculatePaneViewportRects],
+  );
+
+  useLayoutEffect(() => {
+    const observer = new ResizeObserver(() => {
+      recalculatePaneViewportRects();
+    });
+    paneViewportObserverRef.current = observer;
+
+    if (paneSceneLayerRef.current) {
+      observer.observe(paneSceneLayerRef.current);
+    }
+    for (const element of paneViewportElementsRef.current.values()) {
+      observer.observe(element);
+    }
+
+    const handleWindowResize = () => {
+      recalculatePaneViewportRects();
+    };
+
+    window.addEventListener("resize", handleWindowResize);
+    recalculatePaneViewportRects();
+
+    return () => {
+      paneViewportObserverRef.current = null;
+      observer.disconnect();
+      window.removeEventListener("resize", handleWindowResize);
+    };
+  }, [recalculatePaneViewportRects]);
+
+  useLayoutEffect(() => {
+    recalculatePaneViewportRects();
+  }, [paneTree, recalculatePaneViewportRects]);
+
+  useEffect(
+    () => () => {
+      for (const timer of layoutPersistTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      layoutPersistTimersRef.current.clear();
+    },
+    [],
+  );
+
   const handleTabClosed = useCallback(
     (tabId: string) => {
       removeLocal(tabId);
@@ -603,6 +777,26 @@ export default function WorktreeView({ worktree, active }: Props) {
       await resetTerminalCustomLabel(tabId);
     },
     [resetTerminalCustomLabel],
+  );
+  const handleResizeSplit = useCallback(
+    (nodeId: string, ratio: number) => {
+      const changed = setSplitRatio(worktree.id, nodeId, ratio);
+      if (!changed) {
+        return;
+      }
+
+      const existingTimer = layoutPersistTimersRef.current.get(nodeId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      const timer = setTimeout(() => {
+        layoutPersistTimersRef.current.delete(nodeId);
+        void persistLayout(worktree.project_id, worktree.id);
+      }, 150);
+      layoutPersistTimersRef.current.set(nodeId, timer);
+    },
+    [persistLayout, setSplitRatio, worktree.id, worktree.project_id],
   );
 
   function clearDragState(): void {
@@ -677,10 +871,7 @@ export default function WorktreeView({ worktree, active }: Props) {
         worktree={worktree}
         paneId={paneId}
         paneTabs={paneTabsById[paneId] ?? []}
-        activePaneTabId={
-          activeTabByPane[paneId] ??
-          (activeWorktreeTab?.pane_id === paneId ? activeWorktreeTab.id : null)
-        }
+        activePaneTabId={activePaneTabIds[paneId] ?? null}
         focused={focusedPaneId === paneId}
         dragging={draggingTabId !== null}
         dirtyTabIds={dirtyTabIds}
@@ -703,13 +894,12 @@ export default function WorktreeView({ worktree, active }: Props) {
         onRenameTerminalTab={handleRenameTerminalTab}
         onResetTerminalTabName={handleResetTerminalTabName}
         onFocusPane={() => focusPane(worktree.id, paneId)}
-        onTabClosed={handleTabClosed}
+        registerViewport={registerViewport}
         emptyState={emptyState}
       />
     ),
     [
-      activeWorktreeTab,
-      activeTabByPane,
+      activePaneTabIds,
       addTerminal,
       dirtyTabIds,
       draggingTabId,
@@ -721,14 +911,36 @@ export default function WorktreeView({ worktree, active }: Props) {
       handlePinTab,
       handleRenameTerminalTab,
       handleResetTerminalTabName,
-      handleTabClosed,
       lockedTabIds,
       openBrowser,
       paneTabsById,
+      registerViewport,
       splitPane,
       worktree,
     ],
   );
+
+  const sceneRectsByTabId = useMemo(() => {
+    const nextKnownRects = { ...lastVisibleSceneRectsRef.current };
+    const rectsByTabId: Record<string, ViewportRect | null> = {};
+
+    for (const tab of worktreeTabs) {
+      const isVisible = active && activePaneTabIds[tab.pane_id] === tab.id;
+      if (!isVisible) {
+        rectsByTabId[tab.id] = null;
+        continue;
+      }
+
+      const measuredRect = paneViewportRects[tab.pane_id];
+      if (measuredRect) {
+        nextKnownRects[tab.id] = measuredRect;
+      }
+      rectsByTabId[tab.id] = measuredRect ?? nextKnownRects[tab.id] ?? null;
+    }
+
+    lastVisibleSceneRectsRef.current = nextKnownRects;
+    return rectsByTabId;
+  }, [active, activePaneTabIds, paneViewportRects, worktreeTabs]);
 
   return (
     <div
@@ -754,12 +966,74 @@ export default function WorktreeView({ worktree, active }: Props) {
           onDragEnd={handleDragEnd}
           onDragCancel={clearDragState}
         >
-          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div
+            ref={paneSceneLayerRef}
+            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
+          >
             {paneTree ? (
-              <PaneTreeView node={paneTree} renderLeaf={renderLeaf} />
+              <PaneTreeView
+                node={paneTree}
+                renderLeaf={renderLeaf}
+                onResizeSplit={handleResizeSplit}
+              />
             ) : (
               renderLeaf(worktreeTabs[0]?.pane_id ?? "root")
             )}
+            <div className="pointer-events-none absolute inset-0 z-10">
+              {worktreeTabs.map((tab) => {
+                const rect = sceneRectsByTabId[tab.id];
+                const visible =
+                  rect !== null &&
+                  rect.width > 0 &&
+                  rect.height > 0 &&
+                  activePaneTabIds[tab.pane_id] === tab.id &&
+                  active;
+
+                return (
+                  <div
+                    key={tab.id}
+                    className={cn(
+                      "absolute overflow-hidden bg-background",
+                      visible ? "pointer-events-auto" : "hidden",
+                    )}
+                    style={
+                      rect
+                        ? {
+                            left: rect.left,
+                            top: rect.top,
+                            width: rect.width,
+                            height: rect.height,
+                          }
+                        : undefined
+                    }
+                  >
+                    {tab.type === "terminal" ? (
+                      <TerminalTab
+                        tabId={tab.id}
+                        visible={visible}
+                        onClosed={handleTabClosed}
+                      />
+                    ) : tab.type === "file" ? (
+                      <FileEditorTab
+                        projectId={worktree.project_id}
+                        worktreeId={worktree.id}
+                        tab={tab}
+                        visible={visible}
+                      />
+                    ) : tab.type === "git_diff" ? (
+                      <GitDiffTab
+                        projectId={worktree.project_id}
+                        worktreeId={worktree.id}
+                        tab={tab}
+                        visible={visible}
+                      />
+                    ) : tab.type === "browser" ? (
+                      <BrowserTab tab={tab} visible={visible} />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </DndContext>
       </div>

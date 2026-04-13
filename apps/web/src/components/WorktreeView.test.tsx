@@ -223,9 +223,40 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function makeSplitLayout() {
+  return {
+    rootId: "split-root",
+    nodes: [
+      { type: "leaf" as const, id: "leaf-a", pane_id: "pane-1" },
+      { type: "leaf" as const, id: "leaf-b", pane_id: "pane-2" },
+      {
+        type: "split" as const,
+        id: "split-root",
+        axis: "vertical" as const,
+        ratio: 0.5,
+        first_id: "leaf-a",
+        second_id: "leaf-b",
+      },
+    ],
+  };
+}
+
 describe("WorktreeView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      () => ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 1200,
+        bottom: 800,
+        width: 1200,
+        height: 800,
+        toJSON: () => ({}),
+      }),
+    );
     terminalRenderSpy.mockClear();
     localStorage.clear();
     setMobile(false);
@@ -256,7 +287,7 @@ describe("WorktreeView", () => {
 
     render(<WorktreeView worktree={worktree} active />);
 
-    expect(getTerminalRenderCounts()).toEqual({ a: 1, b: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2, b: 1 });
 
     act(() => {
       useTabStore.setState((state) => ({
@@ -264,7 +295,7 @@ describe("WorktreeView", () => {
       }));
     });
 
-    expect(getTerminalRenderCounts()).toEqual({ a: 1, b: 1, c: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2, b: 1, c: 1 });
   });
 
   it("shows empty-state copy for the separate terminal and browser buttons", () => {
@@ -293,7 +324,7 @@ describe("WorktreeView", () => {
 
     render(<WorktreeView worktree={worktree} active />);
 
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
 
     act(() => {
       useTabStore.setState((state) => ({
@@ -303,7 +334,7 @@ describe("WorktreeView", () => {
       }));
     });
 
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
   });
 
   it("does not rerender terminal tabs when worktree tabs reorder", async () => {
@@ -320,7 +351,7 @@ describe("WorktreeView", () => {
 
     render(<WorktreeView worktree={worktree} active />);
 
-    expect(getTerminalRenderCounts()).toEqual({ a: 1, b: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2, b: 1 });
 
     act(() => {
       useTabStore.setState((state) => ({
@@ -334,7 +365,7 @@ describe("WorktreeView", () => {
       }));
     });
 
-    expect(getTerminalRenderCounts()).toEqual({ a: 1, b: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2, b: 1 });
   });
 
   it("updates right sidebar width without rerendering terminal tabs", async () => {
@@ -347,7 +378,7 @@ describe("WorktreeView", () => {
     });
 
     render(<WorktreeView worktree={worktree} active />);
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
     expect(screen.getByText("Files panel")).toBeInTheDocument();
 
     const viewRoot = document.querySelector<HTMLElement>(
@@ -375,7 +406,7 @@ describe("WorktreeView", () => {
     expect(host?.style.getPropertyValue("--worktree-right-sidebar-width")).toBe(
       "",
     );
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
 
     const resizeHandle = await screen.findByRole("button", {
       name: "Resize right sidebar",
@@ -386,7 +417,7 @@ describe("WorktreeView", () => {
     expect(
       viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
     ).toBe("428px");
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
 
     Object.defineProperty(resizeHandle, "setPointerCapture", {
       value: vi.fn(),
@@ -423,7 +454,7 @@ describe("WorktreeView", () => {
     expect(
       viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
     ).toBe("468px");
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
 
     act(() => {
       setMobile(true);
@@ -449,7 +480,7 @@ describe("WorktreeView", () => {
     expect(
       viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
     ).toBe("484px");
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
 
     act(() => {
       useWorktreeRightSidebarStore.getState().toggleDesktop();
@@ -462,7 +493,7 @@ describe("WorktreeView", () => {
     );
     expect(sidebarWrapper?.dataset.state).toBe("closed");
     expect(sidebarPanel).toHaveAttribute("aria-hidden", "true");
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
 
     act(() => {
       useWorktreeRightSidebarStore.getState().toggleDesktop();
@@ -473,7 +504,7 @@ describe("WorktreeView", () => {
     expect(
       viewRoot?.style.getPropertyValue("--worktree-right-sidebar-width"),
     ).toBe("484px");
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
   });
 
   it("renders the right sidebar in hubris mode", async () => {
@@ -495,7 +526,7 @@ describe("WorktreeView", () => {
     });
 
     render(<WorktreeView worktree={worktree} active />);
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
 
     act(() => {
       useFileEditorStore.setState({
@@ -520,7 +551,7 @@ describe("WorktreeView", () => {
       });
     });
 
-    expect(getTerminalRenderCounts()).toEqual({ a: 1 });
+    expect(getTerminalRenderCounts()).toEqual({ a: 2 });
   });
 
   it("keeps browser panes mounted and switches visibility with the active tab", () => {
@@ -563,6 +594,42 @@ describe("WorktreeView", () => {
       "data-visible",
       "true",
     );
+  });
+
+  it("renders active scenes in both panes of a split layout", () => {
+    const worktree = makeWorktree();
+    const terminalTab = makeTab("terminal-a", worktree.id, {
+      pane_id: "pane-1",
+      position: 1,
+    });
+    const browserTab = makeBrowserTab("browser-b", worktree.id, {
+      pane_id: "pane-2",
+      position: 1,
+      url: "https://example.com/docs",
+    });
+
+    useTabStore.setState({
+      tabs: [terminalTab, browserTab],
+      layoutsByWorktree: { [worktree.id]: makeSplitLayout() },
+      activeTabId: terminalTab.id,
+      activeTabByWorktree: { [worktree.id]: terminalTab.id },
+      activeTabByPane: {
+        "pane-1": terminalTab.id,
+        "pane-2": browserTab.id,
+      },
+      focusedPaneByWorktree: { [worktree.id]: "pane-1" },
+    });
+
+    render(<WorktreeView worktree={worktree} active />);
+
+    expect(screen.getByTestId("browser-browser-b")).toHaveAttribute(
+      "data-visible",
+      "true",
+    );
+    expect(screen.getByTestId("browser-browser-b")).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-tab-id="terminal-a"]'),
+    ).toHaveAttribute("data-visible", "true");
   });
 
   it("keeps the save dialog open when saving a dirty file tab fails", async () => {

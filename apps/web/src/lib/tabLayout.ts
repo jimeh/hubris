@@ -206,6 +206,10 @@ export function createSinglePaneLayout(
   };
 }
 
+function clampSplitRatio(ratio: number): number {
+  return Math.max(0.1, Math.min(0.9, ratio));
+}
+
 type RebuiltNode = {
   rootId: string;
   nodes: WorktreePaneNode[];
@@ -471,4 +475,60 @@ export function moveTabBetweenPanes(
     tabs: reassignTabs(nextTabs, clonePaneTabsMap(collapsedLayout, nextTabs)),
     destinationPaneId,
   };
+}
+
+export function splitPaneInLayout(
+  layout: WorktreeTabLayout,
+  targetPaneId: string,
+  placement: Exclude<PaneDropPlacement, "center">,
+): {
+  layout: WorktreeTabLayout;
+  destinationPaneId: string;
+} | null {
+  const tree = buildPaneTree(layout);
+  if (!tree) {
+    return null;
+  }
+
+  if (!collectPaneIds(layout).includes(targetPaneId)) {
+    return null;
+  }
+
+  const destinationPaneId = makePaneId();
+  const splitTree = replaceLeafWithSplit(
+    tree,
+    targetPaneId,
+    placement,
+    destinationPaneId,
+  );
+
+  return {
+    layout: flattenTree(splitTree),
+    destinationPaneId,
+  };
+}
+
+/** Updates a split node's ratio while preserving the rest of the layout. */
+export function setPaneSplitRatio(
+  layout: WorktreeTabLayout,
+  nodeId: string,
+  ratio: number,
+): WorktreeTabLayout {
+  const nextRatio = clampSplitRatio(ratio);
+  let changed = false;
+
+  const nextNodes = layout.nodes.map((node) => {
+    if (node.type !== "split" || node.id !== nodeId) {
+      return node;
+    }
+
+    if (Math.abs(node.ratio - nextRatio) < 0.001) {
+      return node;
+    }
+
+    changed = true;
+    return { ...node, ratio: nextRatio };
+  });
+
+  return changed ? { ...layout, nodes: nextNodes } : layout;
 }
