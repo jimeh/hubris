@@ -339,7 +339,10 @@ describe("desktop main process startup", () => {
     expect(navigationHandler).toBeTypeOf("function");
 
     const preventDefault = vi.fn();
-    navigationHandler?.({ preventDefault }, "https://example.com/docs");
+    navigationHandler?.({
+      preventDefault,
+      url: "https://example.com/docs",
+    });
 
     expect(preventDefault).toHaveBeenCalledTimes(1);
   });
@@ -362,7 +365,10 @@ describe("desktop main process startup", () => {
     expect(navigationHandler).toBeTypeOf("function");
 
     const preventDefault = vi.fn();
-    navigationHandler?.({ preventDefault }, "https://example.com/embed");
+    navigationHandler?.({
+      preventDefault,
+      url: "https://example.com/embed",
+    });
 
     expect(preventDefault).toHaveBeenCalledTimes(1);
   });

@@ -595,6 +595,10 @@ async function retryProxyRequest(
     resolvedTargets: DesktopProtocolTargets,
   ) => ProxyRequestOptions,
 ): Promise<Response> {
+  const retryRequest =
+    request.method === "GET" || request.method === "HEAD"
+      ? request
+      : request.clone();
   const first = buildOptions(currentTargets);
   try {
     return await proxyRequest(request, first);
@@ -605,7 +609,7 @@ async function retryProxyRequest(
 
     await delay(100);
     const refreshedTargets = resolveCurrentTargets(targets);
-    return proxyRequest(request, buildOptions(refreshedTargets));
+    return proxyRequest(retryRequest, buildOptions(refreshedTargets));
   }
 }
 

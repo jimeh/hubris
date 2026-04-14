@@ -318,6 +318,69 @@ describe("createDesktopProtocolContext", () => {
     await expect(response.text()).resolves.toContain("boom");
   });
 
+  it("retries proxied POST requests with a fresh request body in dev mode", async () => {
+    const devTmp = fs.mkdtempSync(path.join(os.tmpdir(), "hubris-desktop-"));
+
+    try {
+      fs.writeFileSync(
+        path.join(devTmp, "dev-dev-id.backend.json"),
+        '{"pid":1,"port":43123}',
+      );
+
+      const cookies = {
+        get: vi.fn().mockResolvedValue([]),
+        set: vi.fn().mockResolvedValue(undefined),
+      };
+      const context = createDesktopProtocolContext(cookies as never, {
+        backendHttpOrigin: "http://127.0.0.1:3001",
+        backendWsOrigin: "ws://127.0.0.1:3001",
+        devServerState: {
+          devId: "dev-id",
+          devTmp,
+        },
+      });
+
+      let attempts = 0;
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async (input, init) => {
+          attempts += 1;
+          if (attempts === 1) {
+            throw new Error("backend restarting");
+          }
+
+          const forwarded = new Request(
+            input instanceof Request ? input : String(input),
+            {
+              method: init?.method,
+              headers: init?.headers,
+              body: init?.body as BodyInit,
+              duplex: "half",
+            } as RequestInit & { duplex: "half" },
+          );
+
+          expect(await forwarded.text()).toBe('{"ok":true}');
+          return new Response("ok");
+        });
+
+      const response = await context.handleRequest(
+        new Request("https://desktop.internal.hubris.build/api/projects", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: '{"ok":true}',
+          duplex: "half",
+        } as RequestInit & { duplex: "half" }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      fs.rmSync(devTmp, { recursive: true, force: true });
+    }
+  });
+
   it("resolves runtime websocket targets onto the runtime upstream path", async () => {
     const cookies = {
       get: vi.fn().mockResolvedValue([]),

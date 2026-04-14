@@ -2365,16 +2365,18 @@ mod tests {
         state.processes.register_controller(code_server.clone());
         code_server.register_process_callback().await;
 
+        let tasks = Arc::new(TaskService::new(state.events.clone()));
         let vscode_cli = state.vscode.vscode_cli.clone();
-        register_vscode_tasks(&state.tasks, code_server.clone(), vscode_cli.clone());
+        register_vscode_tasks(&tasks, code_server.clone(), vscode_cli.clone());
         let vscode = Arc::new(VscodeManager::new(
             state.settings.clone(),
             state.events.clone(),
-            state.tasks.clone(),
+            tasks.clone(),
             code_server,
             vscode_cli,
         ));
         vscode.register_status_callbacks().await;
+        state.tasks = tasks;
         state.vscode = vscode;
         select_code_server_runtime(state).await;
     }
