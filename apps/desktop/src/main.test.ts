@@ -344,6 +344,29 @@ describe("desktop main process startup", () => {
     expect(preventDefault).toHaveBeenCalledTimes(1);
   });
 
+  it("blocks external will-frame-navigate requests", async () => {
+    const state = await loadMainModule();
+    state.classifyNavigationTarget.mockReturnValue("external");
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.createdWindows).toHaveLength(1);
+    });
+
+    const navigationHandler =
+      state.createdWindows[0].webContents.on.mock.calls.find(
+        ([event]) => event === "will-frame-navigate",
+      )?.[1];
+
+    expect(navigationHandler).toBeTypeOf("function");
+
+    const preventDefault = vi.fn();
+    navigationHandler?.({ preventDefault }, "https://example.com/embed");
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+  });
+
   it("seeds desktop session cookies for the main and runtime origins", async () => {
     const state = await loadMainModule();
 

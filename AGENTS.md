@@ -350,3 +350,7 @@ embeddings.**
   ports stay valid for the whole app session. Retrying proxied desktop dev
   fetches once after refreshing those targets smooths over backend/frontend
   restarts and avoids raw `fetch failed` noise in Electron.
+- Electron emits `will-frame-navigate` at runtime, but the current desktop
+  TypeScript typings do not expose that event on `WebContents`. Keep subframe
+  navigation guards behind a narrow typed cast instead of assuming the event is
+  unavailable.

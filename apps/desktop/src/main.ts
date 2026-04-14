@@ -192,6 +192,15 @@ function configureWebContentsGuards(
   webContents.on("will-navigate", (event, url) => {
     blockIfDisallowed(event, url);
   });
+  // Electron emits this at runtime, but the current desktop typings omit it.
+  (
+    webContents.on as unknown as (
+      event: string,
+      listener: (event: { preventDefault: () => void }, url: string) => void,
+    ) => void
+  )("will-frame-navigate", (event, url) => {
+    blockIfDisallowed(event, url);
+  });
   webContents.on("will-redirect", (event, url) => {
     blockIfDisallowed(event, url);
   });

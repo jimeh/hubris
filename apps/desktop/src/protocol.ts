@@ -403,7 +403,7 @@ async function handleHubrisProtocolRequest(
   const route = classifyHubrisRequest(request.url);
   try {
     if (route === "backend") {
-      return proxyToBackend(request, cookies, targets, currentTargets);
+      return await proxyToBackend(request, cookies, targets, currentTargets);
     }
 
     if (route === "code") {
@@ -411,7 +411,7 @@ async function handleHubrisProtocolRequest(
       if (!runtime) {
         return new Response("not found", { status: 404 });
       }
-      return proxyToVscode(
+      return await proxyToVscode(
         request,
         cookies,
         targets,
@@ -426,14 +426,14 @@ async function handleHubrisProtocolRequest(
     }
 
     if (targets.frontendHttpOrigin) {
-      return proxyFrontendHttp(request, targets, currentTargets);
+      return await proxyFrontendHttp(request, targets, currentTargets);
     }
 
     if (!targets.frontendDistDir) {
       return new Response("frontend unavailable", { status: 404 });
     }
 
-    return servePackagedFrontend(request, targets);
+    return await servePackagedFrontend(request, targets);
   } catch (error) {
     return protocolProxyErrorResponse(error);
   }

@@ -299,6 +299,25 @@ describe("createDesktopProtocolContext", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
+  it("returns a 502 response when an async proxy request rejects", async () => {
+    const cookies = {
+      get: vi.fn().mockResolvedValue([]),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    const context = createDesktopProtocolContext(cookies as never, {
+      backendHttpOrigin: "http://backend.local",
+      backendWsOrigin: "ws://backend.local",
+    });
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("boom"));
+
+    const response = await context.handleRequest(
+      new Request("https://desktop.internal.hubris.build/api/projects"),
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.text()).resolves.toContain("boom");
+  });
+
   it("resolves runtime websocket targets onto the runtime upstream path", async () => {
     const cookies = {
       get: vi.fn().mockResolvedValue([]),

@@ -310,6 +310,14 @@ pub struct TaskService {
     backend: Arc<dyn TaskBackend>,
 }
 
+enum ScopeReservation {
+    Inserted,
+    Existing {
+        task_id: String,
+        slot: Arc<TaskInvocationSlot>,
+    },
+}
+
 struct TaskServiceInner {
     events: Arc<EventBus>,
     registry: TaskRegistry,
@@ -896,33 +904,6 @@ impl TaskService {
         let metadata = definition.metadata().clone();
         let task_id = Uuid::new_v4().to_string();
 
-        if let Some(scope_key) = prepared.scope_key.as_deref() {
-            let maybe_existing = {
-                let mut scopes = self
-                    .inner
-                    .active_scopes
-                    .write()
-                    .expect("task scopes poisoned");
-                match scopes.get(scope_key).cloned() {
-                    Some(existing_id) => Some(existing_id),
-                    None => {
-                        scopes.insert(scope_key.to_string(), task_id.clone());
-                        None
-                    }
-                }
-            };
-            if let Some(existing_id) = maybe_existing {
-                let snapshot = self.get(&existing_id).await?;
-                if snapshot.definition_name == definition_name {
-                    return Ok(snapshot);
-                }
-                return Err(TaskActionError::conflict(format!(
-                    "task scope {scope_key} is already busy with {} ({existing_id})",
-                    snapshot.definition_name
-                )));
-            }
-        }
-
         let slot = Arc::new(TaskInvocationSlot {
             definition_name: metadata.name.clone(),
             title: metadata.title.clone(),
@@ -940,22 +921,39 @@ impl TaskService {
             }),
         });
 
+        if let Some(scope_key) = prepared.scope_key.as_deref() {
+            loop {
+                let reservation = self.reserve_scope(scope_key, &task_id, &slot);
+                match reservation {
+                    ScopeReservation::Inserted => break,
+                    ScopeReservation::Existing {
+                        task_id: existing_id,
+                        slot: existing_slot,
+                    } => {
+                        let snapshot = snapshot_for_slot(&existing_id, &existing_slot).await;
+                        if !snapshot.status.is_active() {
+                            self.clear_scope_if_matches(scope_key, &existing_id);
+                            continue;
+                        }
+                        if snapshot.definition_name == definition_name {
+                            return Ok(snapshot);
+                        }
+                        return Err(TaskActionError::conflict(format!(
+                            "task scope {scope_key} is already busy with {} ({existing_id})",
+                            snapshot.definition_name
+                        )));
+                    }
+                }
+            }
+        } else {
+            self.insert_pending_invocation(&task_id, &slot);
+        }
+
         let handle = TaskInvocationHandle {
             task_id: task_id.clone(),
             slot: slot.clone(),
             service: Arc::downgrade(&self.inner),
         };
-
-        self.inner
-            .invocations
-            .write()
-            .expect("task invocations poisoned")
-            .insert(task_id.clone(), slot.clone());
-        self.inner
-            .order
-            .write()
-            .expect("task order poisoned")
-            .push_front(task_id.clone());
 
         let enqueue_result = self
             .backend
@@ -996,33 +994,79 @@ impl TaskService {
             .expect("task invocations poisoned")
             .remove(task_id);
 
-        if let Some(index) = self
+        let mut order = self.inner.order.write().expect("task order poisoned");
+        if let Some(index) = order.iter().position(|candidate| candidate == task_id) {
+            order.remove(index);
+        }
+        drop(order);
+
+        if let Some(scope_key) = scope_key {
+            self.clear_scope_if_matches(scope_key, task_id);
+        }
+    }
+
+    fn reserve_scope(
+        &self,
+        scope_key: &str,
+        task_id: &str,
+        slot: &Arc<TaskInvocationSlot>,
+    ) -> ScopeReservation {
+        let mut scopes = self
             .inner
+            .active_scopes
+            .write()
+            .expect("task scopes poisoned");
+        let mut invocations = self
+            .inner
+            .invocations
+            .write()
+            .expect("task invocations poisoned");
+
+        if let Some(existing_id) = scopes.get(scope_key).cloned() {
+            if let Some(existing_slot) = invocations.get(&existing_id).cloned() {
+                return ScopeReservation::Existing {
+                    task_id: existing_id,
+                    slot: existing_slot,
+                };
+            }
+            scopes.remove(scope_key);
+        }
+
+        scopes.insert(scope_key.to_string(), task_id.to_string());
+        invocations.insert(task_id.to_string(), slot.clone());
+        drop(invocations);
+        self.inner
             .order
             .write()
             .expect("task order poisoned")
-            .iter()
-            .position(|candidate| candidate == task_id)
-        {
-            self.inner
-                .order
-                .write()
-                .expect("task order poisoned")
-                .remove(index);
-        }
+            .push_front(task_id.to_string());
+        ScopeReservation::Inserted
+    }
 
-        if let Some(scope_key) = scope_key {
-            let mut scopes = self
-                .inner
-                .active_scopes
-                .write()
-                .expect("task scopes poisoned");
-            if scopes
-                .get(scope_key)
-                .is_some_and(|active_task_id| active_task_id == task_id)
-            {
-                scopes.remove(scope_key);
-            }
+    fn insert_pending_invocation(&self, task_id: &str, slot: &Arc<TaskInvocationSlot>) {
+        self.inner
+            .invocations
+            .write()
+            .expect("task invocations poisoned")
+            .insert(task_id.to_string(), slot.clone());
+        self.inner
+            .order
+            .write()
+            .expect("task order poisoned")
+            .push_front(task_id.to_string());
+    }
+
+    fn clear_scope_if_matches(&self, scope_key: &str, task_id: &str) {
+        let mut scopes = self
+            .inner
+            .active_scopes
+            .write()
+            .expect("task scopes poisoned");
+        if scopes
+            .get(scope_key)
+            .is_some_and(|active_task_id| active_task_id == task_id)
+        {
+            scopes.remove(scope_key);
         }
     }
 }
@@ -1782,7 +1826,7 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.kind(), TaskActionErrorKind::Conflict);
 
-        wait_for_status(&service, &first.id, TaskStateValue::Running).await;
+        wait_for_status_text(&service, &first.id, "Waiting").await;
         notify.notify_waiters();
         let _ = wait_for_terminal(&service, &first.id).await;
     }
@@ -1812,7 +1856,7 @@ mod tests {
         assert_eq!(first.id, second.id);
         assert_eq!(service.list().await.len(), 1);
 
-        wait_for_status(&service, &first.id, TaskStateValue::Running).await;
+        wait_for_status_text(&service, &first.id, "Waiting").await;
         notify.notify_waiters();
         let _ = wait_for_terminal(&service, &first.id).await;
     }
@@ -1848,9 +1892,70 @@ mod tests {
         assert_eq!(error.kind(), TaskActionErrorKind::Conflict);
         assert_eq!(service.list().await.len(), 1);
 
-        wait_for_status(&service, &started.id, TaskStateValue::Running).await;
+        wait_for_status_text(&service, &started.id, "Waiting").await;
         notify.notify_waiters();
         let _ = wait_for_terminal(&service, &started.id).await;
+    }
+
+    #[tokio::test]
+    async fn stale_scope_without_visible_invocation_is_recovered() {
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        let notify = Arc::new(Notify::new());
+        service.register_typed_task(DemoTask {
+            name: "demo.wait",
+            behavior: DemoBehavior::WaitForNotify {
+                notify: notify.clone(),
+            },
+            scope_key: Some("scope:stale"),
+            broadcast_updates: true,
+        });
+        service
+            .inner
+            .active_scopes
+            .write()
+            .expect("task scopes poisoned")
+            .insert("scope:stale".to_string(), "missing-task".to_string());
+
+        let started = service.start("demo.wait", TaskInput::new()).await.unwrap();
+
+        assert_ne!(started.id, "missing-task");
+        assert_eq!(service.list().await.len(), 1);
+
+        wait_for_status_text(&service, &started.id, "Waiting").await;
+        notify.notify_waiters();
+        let _ = wait_for_terminal(&service, &started.id).await;
+    }
+
+    #[tokio::test]
+    async fn terminal_scope_snapshot_does_not_dedupe_new_start() {
+        let service = TaskService::new(Arc::new(EventBus::new()));
+        service.register_typed_task(DemoTask {
+            name: "demo.weighted",
+            behavior: DemoBehavior::WeightedProgress,
+            scope_key: Some("scope:terminal"),
+            broadcast_updates: true,
+        });
+
+        let first = service
+            .start("demo.weighted", TaskInput::new())
+            .await
+            .unwrap();
+        let _ = wait_for_terminal(&service, &first.id).await;
+
+        service
+            .inner
+            .active_scopes
+            .write()
+            .expect("task scopes poisoned")
+            .insert("scope:terminal".to_string(), first.id.clone());
+
+        let restarted = service
+            .start("demo.weighted", TaskInput::new())
+            .await
+            .unwrap();
+
+        assert_ne!(restarted.id, first.id);
+        let _ = wait_for_terminal(&service, &restarted.id).await;
     }
 
     #[tokio::test]
@@ -1940,13 +2045,14 @@ mod tests {
         second_input.insert("skipPrepare".to_string(), serde_json::json!(false));
         let second = service.start("demo.wait-two", second_input).await.unwrap();
 
-        wait_for_status(&service, &first.id, TaskStateValue::Running).await;
+        wait_for_status_text(&service, &first.id, "Waiting").await;
         tokio::time::sleep(Duration::from_millis(50)).await;
         let snapshot = service.get(&second.id).await.unwrap();
         assert_eq!(snapshot.status, TaskStateValue::Pending);
 
         notify_one.notify_waiters();
         let _ = wait_for_terminal(&service, &first.id).await;
+        wait_for_status_text(&service, &second.id, "Waiting").await;
         notify_two.notify_waiters();
         let _ = wait_for_terminal(&service, &second.id).await;
     }
@@ -2171,16 +2277,16 @@ mod tests {
         assert!(finalized.load(Ordering::Relaxed));
     }
 
-    async fn wait_for_status(service: &TaskService, task_id: &str, expected: TaskStateValue) {
+    async fn wait_for_status_text(service: &TaskService, task_id: &str, expected: &str) {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
         loop {
             let snapshot = service.get(task_id).await.unwrap();
-            if snapshot.status == expected {
+            if snapshot.status_text.as_deref() == Some(expected) {
                 return;
             }
             assert!(
                 tokio::time::Instant::now() < deadline,
-                "task {task_id} did not reach {expected:?} in time"
+                "task {task_id} did not reach status text {expected:?} in time"
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
