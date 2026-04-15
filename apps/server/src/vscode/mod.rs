@@ -555,7 +555,6 @@ impl VscodeManager {
                                 .as_deref()
                                 .is_some_and(|scope| scope.starts_with("vscode-runtime:"))
                     }
-                    crate::events::EventKind::TaskRemoved(_) => true,
                     _ => false,
                 };
 
@@ -3761,6 +3760,57 @@ mod tests {
 
         let error = restart_task.await.unwrap().unwrap_err();
         assert!(matches!(error, VscodeCliError::NotInstalled));
+    }
+
+    #[tokio::test]
+    async fn unrelated_task_removals_do_not_publish_vscode_updates() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let events = Arc::new(EventBus::new());
+        let process_service = Arc::new(ManagedProcessService::new(events.clone()));
+        let settings = Arc::new(
+            SettingsManager::new(tmp.path().join("settings.toml"))
+                .await
+                .unwrap(),
+        );
+        let tasks = Arc::new(TaskService::new(events.clone()));
+        let code_server = Arc::new(CodeServerManager::new(
+            tmp.path().join("code-server"),
+            events.clone(),
+            process_service.clone(),
+        ));
+        let vscode_cli = Arc::new(VscodeCliManager::new(
+            tmp.path().join("vscode-cli"),
+            events.clone(),
+            process_service,
+        ));
+        let manager = Arc::new(VscodeManager::new(
+            settings,
+            events.clone(),
+            tasks,
+            code_server,
+            vscode_cli,
+        ));
+        manager.register_status_callbacks().await;
+
+        let mut rx = events.subscribe();
+        events.emit(EventKind::TaskRemoved(Box::new(
+            crate::api::tasks::TaskRemoved {
+                id: "other-task".to_string(),
+            },
+        )));
+
+        let saw_vscode_update = tokio::time::timeout(Duration::from_millis(100), async {
+            loop {
+                let event = rx.recv().await.unwrap();
+                if matches!(event.kind, EventKind::VscodeUpdated(_)) {
+                    return true;
+                }
+            }
+        })
+        .await
+        .is_ok();
+
+        assert!(!saw_vscode_update);
     }
 
     async fn wait_for_running_status(manager: &CodeServerManager) {
