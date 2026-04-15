@@ -18,6 +18,7 @@ export type TabViewProps = {
   locked?: boolean;
   dragging?: boolean;
   isOverlay?: boolean;
+  showCloseButton?: boolean;
   width?: number | null;
   onActivateTab?: (tabId: string) => void;
   onPinTab?: (tabId: string) => void;

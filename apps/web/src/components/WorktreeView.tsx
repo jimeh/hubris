@@ -1062,6 +1062,10 @@ export default function WorktreeView({ worktree, active }: Props) {
                       worktreeId={worktree.id}
                       tab={draggedTab}
                       width={draggingTabWidth}
+                      isActive={
+                        activePaneTabIds[draggedTab.pane_id] === draggedTab.id
+                      }
+                      paneFocused={focusedPaneId === draggedTab.pane_id}
                     />
                   ) : null;
                 })()

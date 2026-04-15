@@ -10,9 +10,17 @@ type Props = {
   worktreeId: string;
   tab: Tab;
   width: number | null;
+  isActive: boolean;
+  paneFocused: boolean;
 };
 
-export default function TabDragOverlay({ worktreeId, tab, width }: Props) {
+export default function TabDragOverlay({
+  worktreeId,
+  tab,
+  width,
+  isActive,
+  paneFocused,
+}: Props) {
   const theme = useThemeSettings((state) => state.activeTheme);
   const tabLabelMode = useTerminalSettings(
     (state) => state.settings.tabLabelMode,
@@ -36,13 +44,15 @@ export default function TabDragOverlay({ worktreeId, tab, width }: Props) {
       iconPath={presentation.iconPath}
       iconId={presentation.iconId}
       toneClass={presentation.toneClass}
-      isActive
-      paneFocused
+      isActive={isActive}
+      paneFocused={paneFocused}
       preview={tab.preview}
       notification={tab.type === "terminal" && !!tab.has_notification}
       isOverlay
+      showCloseButton
       width={width}
-      className="pointer-events-none opacity-100 shadow-lg"
+      onCloseTab={() => {}}
+      className="pointer-events-none opacity-100 drop-shadow-lg"
     />
   );
 }

@@ -87,4 +87,27 @@ describe("SortableTabView", () => {
       ),
     ).toHaveClass("truncate");
   });
+
+  it("renders overlay tabs with the close button and active border styling", () => {
+    render(
+      <SortableTabView
+        tabId="t1"
+        label="Terminal 1"
+        title="Terminal 1"
+        isActive
+        isOverlay
+        showCloseButton
+        onCloseTab={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Close Terminal 1" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("tab")).toHaveClass("bg-tab-active");
+    expect(screen.getByRole("tab")).toHaveClass(
+      "shadow-[inset_0_-2px_0_var(--tab-active-border)]",
+    );
+    expect(screen.getByRole("tab")).not.toHaveClass("opacity-50");
+  });
 });

@@ -29,6 +29,7 @@ const SortableTabView = memo(
       locked = false,
       dragging = false,
       isOverlay = false,
+      showCloseButton = false,
       width,
       style,
       onActivateTab,
@@ -89,7 +90,7 @@ const SortableTabView = memo(
             : dragging
               ? "text-tab-inactive-foreground"
               : "text-tab-inactive-foreground hover:text-foreground",
-          isOverlay && "pointer-events-none opacity-50",
+          isOverlay && "pointer-events-none",
           className,
         )}
         data-tab-drag-item="true"
@@ -164,7 +165,7 @@ const SortableTabView = memo(
             <span className="sr-only">read-only</span>
           </>
         ) : null}
-        {isOverlay || !onCloseTab ? null : (
+        {!onCloseTab || (isOverlay && !showCloseButton) ? null : (
           <button
             type="button"
             aria-label={`Close ${title ?? label}`}

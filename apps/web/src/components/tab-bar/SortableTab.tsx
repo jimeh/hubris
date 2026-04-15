@@ -72,9 +72,8 @@ const SortableTab = memo(function SortableTab({
   const style: CSSProperties = {
     transform: isDragging ? undefined : CSS.Transform.toString(transform),
     transition: isDragging ? undefined : transition,
-    opacity: isDragging ? 0.72 : undefined,
+    visibility: isDragging ? "hidden" : undefined,
     pointerEvents: isDragging ? "none" : undefined,
-    zIndex: isDragging ? 20 : undefined,
   };
 
   const tabView = (
