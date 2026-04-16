@@ -39,6 +39,15 @@ describe("EventClient typing", () => {
       } | null>();
     });
 
+    client.on("managed_process_updated", (payload) => {
+      expectTypeOf(payload.name).toEqualTypeOf<string>();
+      expectTypeOf(payload.command).toEqualTypeOf<string[]>();
+      expectTypeOf(payload.lifecycleState).toEqualTypeOf<
+        "stopped" | "starting" | "running" | "stopping" | "error"
+      >();
+      expectTypeOf(payload.pid).toEqualTypeOf<number | null>();
+    });
+
     client.on("task_updated", (payload) => {
       type TaskStepState = (typeof payload.task.steps)[number]["state"];
 
