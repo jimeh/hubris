@@ -11,6 +11,8 @@ import WebSocket, { type RawData } from "ws";
 
 import {
   HUBRIS_ORIGIN,
+  HUBRIS_CODE_SERVER_ORIGIN,
+  HUBRIS_VSCODE_CLI_ORIGIN,
   classifyHubrisWebSocket,
   type DesktopProtocolContext,
   type DesktopProtocolTargets,
@@ -58,6 +60,8 @@ type ActiveBridge = {
 const activeBridgeState: { current: ActiveBridge | null } = {
   current: null,
 };
+const HUBRIS_PUBLIC_HOST_HEADER = "x-hubris-public-host";
+const HUBRIS_PUBLIC_ORIGIN_HEADER = "x-hubris-public-origin";
 
 const sockets = new Map<string, SocketRecord>();
 const observedWebContents = new Set<number>();
@@ -103,17 +107,18 @@ async function handleConnect(
     throw new Error(`unsupported desktop websocket URL: ${payload.url}`);
   }
 
-  const upstreamUrl = await activeBridge.protocolContext.resolveWebSocketTarget(
+  const target = await activeBridge.protocolContext.resolveWebSocketTarget(
     payload.url,
   );
-  const requestUrl = new URL(payload.url, HUBRIS_ORIGIN);
   const headers: Record<string, string> = {
-    origin: HUBRIS_ORIGIN,
-    host: requestUrl.host,
+    origin: target.publicOrigin,
+    host: target.upstreamHost,
+    [HUBRIS_PUBLIC_HOST_HEADER]: new URL(target.publicOrigin).host,
+    [HUBRIS_PUBLIC_ORIGIN_HEADER]: target.publicOrigin,
   };
   const cookieHeader = await cookieHeaderForUrl(
     activeBridge.cookies,
-    payload.url,
+    target.cookieUrl,
   );
   if (cookieHeader) {
     headers.cookie = cookieHeader;
@@ -123,7 +128,7 @@ async function handleConnect(
     payload.protocols && payload.protocols.length > 0
       ? payload.protocols
       : undefined;
-  const socket = new WebSocket(upstreamUrl, protocols, {
+  const socket = new WebSocket(target.targetUrl, protocols, {
     headers,
   });
   const id = randomUUID();
@@ -256,7 +261,11 @@ function assertTrustedFrame(frame: FrameIdentity): void {
   }
 
   const parsed = new URL(url);
-  if (parsed.origin !== HUBRIS_ORIGIN) {
+  if (
+    parsed.origin !== HUBRIS_ORIGIN &&
+    parsed.origin !== HUBRIS_VSCODE_CLI_ORIGIN &&
+    parsed.origin !== HUBRIS_CODE_SERVER_ORIGIN
+  ) {
     throw new Error(`untrusted websocket bridge caller: ${url}`);
   }
 }

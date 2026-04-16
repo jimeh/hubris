@@ -148,6 +148,7 @@ async function loadMainModule({
   const waitForBackendPort = vi.fn(() => backendPorts.shift()!);
   const registerHubrisProtocol = vi.fn(async () => ({}));
   const createHubrisWindowOptions = vi.fn(() => ({ title: "Hubris" }));
+  const classifyNavigationTarget = vi.fn(() => "internal");
   const loadDesktopWindowState = vi.fn(() => savedWindowState);
   const wireDesktopWindowStatePersistence = vi.fn();
 
@@ -181,7 +182,12 @@ async function loadMainModule({
   }));
 
   vi.doMock("./security", () => ({
-    classifyNavigationTarget: vi.fn(() => "internal"),
+    allowedHubrisOrigins: vi.fn(() => [
+      "https://desktop.internal.hubris.build",
+      "https://vscode-cli.desktop.internal.hubris.build",
+      "https://code-server.desktop.internal.hubris.build",
+    ]),
+    classifyNavigationTarget,
     createHubrisWindowOptions,
   }));
 
@@ -221,6 +227,7 @@ async function loadMainModule({
   return {
     app,
     appOnHandlers,
+    classifyNavigationTarget,
     createHubrisWindowOptions,
     createdWindows,
     browserSession,
@@ -287,6 +294,117 @@ describe("desktop main process startup", () => {
     );
     expect(state.events.indexOf("window-created")).toBeLessThan(
       state.events.indexOf("activate-registered"),
+    );
+  });
+
+  it("registers the protocol with dev-state metadata for live target refresh", async () => {
+    const state = await loadMainModule();
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.registerHubrisProtocol).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.registerHubrisProtocol).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        frontendHttpOrigin: "http://localhost:3001",
+        backendHttpOrigin: "http://127.0.0.1:4001",
+        backendWsOrigin: "ws://127.0.0.1:4001",
+        viteWsOrigin: "ws://localhost:3001",
+        devServerState: {
+          devId: "dev-id",
+          devTmp: "/tmp/hubris-dev",
+        },
+      }),
+    );
+  });
+
+  it("blocks external will-navigate requests without crashing event binding", async () => {
+    const state = await loadMainModule();
+    state.classifyNavigationTarget.mockReturnValue("external");
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.createdWindows).toHaveLength(1);
+    });
+
+    const navigationHandler =
+      state.createdWindows[0].webContents.on.mock.calls.find(
+        ([event]) => event === "will-navigate",
+      )?.[1];
+
+    expect(navigationHandler).toBeTypeOf("function");
+
+    const preventDefault = vi.fn();
+    navigationHandler?.({
+      preventDefault,
+      url: "https://example.com/docs",
+    });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks external will-frame-navigate requests", async () => {
+    const state = await loadMainModule();
+    state.classifyNavigationTarget.mockReturnValue("external");
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.createdWindows).toHaveLength(1);
+    });
+
+    const navigationHandler =
+      state.createdWindows[0].webContents.on.mock.calls.find(
+        ([event]) => event === "will-frame-navigate",
+      )?.[1];
+
+    expect(navigationHandler).toBeTypeOf("function");
+
+    const preventDefault = vi.fn();
+    navigationHandler?.({
+      preventDefault,
+      url: "https://example.com/embed",
+    });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+  });
+
+  it("seeds desktop session cookies for the main and runtime origins", async () => {
+    const state = await loadMainModule();
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.desktopSession.cookies.set).toHaveBeenCalledTimes(3);
+    });
+
+    expect(state.desktopSession.cookies.set).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        url: "https://desktop.internal.hubris.build/",
+        name: "hubris_desktop_session",
+        value: "desktop-session-token",
+      }),
+    );
+    expect(state.desktopSession.cookies.set).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        url: "https://vscode-cli.desktop.internal.hubris.build/",
+        name: "hubris_desktop_session",
+        value: "desktop-session-token",
+      }),
+    );
+    expect(state.desktopSession.cookies.set).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        url: "https://code-server.desktop.internal.hubris.build/",
+        name: "hubris_desktop_session",
+        value: "desktop-session-token",
+      }),
     );
   });
 

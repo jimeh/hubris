@@ -110,8 +110,8 @@ or `pnpm-lock.yaml`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (3533 symbols, 10818
-relationships, 295 execution flows). Use the GitNexus MCP tools to understand
+This project is indexed by GitNexus as **hubris** (3878 symbols, 11570
+relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in
@@ -340,3 +340,22 @@ embeddings.**
   In Hubris proxies, only treat a cookie/query token as valid when it matches
   the current runtime token; otherwise upsert the current `?tkn=` so the browser
   can mint a fresh cookie.
+- Electron/Node `fetch()` ignores a custom `Host` header. Desktop VS Code
+  runtime hosts therefore cannot proxy directly to the loopback runtime if the
+  upstream must see the public runtime host/origin; send desktop runtime traffic
+  through Hubris' Rust `/code/<runtime>` proxy and pass the public runtime
+  identity in explicit override headers instead.
+- Electron desktop dev should refresh backend/frontend loopback targets from the
+  shared `tmp/dev-<id>.*.json` files instead of assuming the first discovered
+  ports stay valid for the whole app session. Retrying proxied desktop dev
+  fetches once after refreshing those targets smooths over backend/frontend
+  restarts and avoids raw `fetch failed` noise in Electron.
+- Electron emits `will-frame-navigate` at runtime, but the current desktop
+  TypeScript typings do not expose that event on `WebContents`. Keep subframe
+  navigation guards behind a narrow typed cast instead of assuming the event is
+  unavailable.
+- Task-backed VS Code install APIs snapshot status immediately after enqueueing
+  work. In fast tests or CI, that snapshot can still be `Stopped` or already be
+  terminal even though install progress events were emitted correctly; assert on
+  the event stream or eventual state instead of assuming an intermediate
+  `Installing` snapshot.

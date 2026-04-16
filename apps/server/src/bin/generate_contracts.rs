@@ -11,6 +11,10 @@ use hubris_server::api::settings::{
     SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings, TerminalTabLabelMode,
     VscodeRuntimeKind, VscodeSettings, WorktreeLocationMode, WorktreeSettings,
 };
+use hubris_server::api::tasks::{
+    TaskDefinition, TaskDefinitionInputField, TaskInputFieldKind, TaskInvocationStatus,
+    TaskRemoved, TaskState, TaskStepDefinition, TaskStepState, TaskStepStatus, TaskUpdated,
+};
 use hubris_server::api::terminal::{ClientControlMessage, ServerControlMessage};
 use hubris_server::api::vscode::{
     VscodeInstallPhase, VscodeInstallProgress, VscodeLatestCheck, VscodeProcessStatus,
@@ -96,6 +100,16 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<ManagedProcessLifecycleStateValue>(&mut sse, &cfg)?;
     push_ts_export::<ManagedProcessExitInfo>(&mut sse, &cfg)?;
     push_ts_export::<ManagedProcessStatus>(&mut sse, &cfg)?;
+    push_ts_export::<TaskState>(&mut sse, &cfg)?;
+    push_ts_export::<TaskStepState>(&mut sse, &cfg)?;
+    push_ts_export::<TaskInputFieldKind>(&mut sse, &cfg)?;
+    push_ts_export::<TaskDefinitionInputField>(&mut sse, &cfg)?;
+    push_ts_export::<TaskDefinition>(&mut sse, &cfg)?;
+    push_ts_export::<TaskStepDefinition>(&mut sse, &cfg)?;
+    push_ts_export::<TaskStepStatus>(&mut sse, &cfg)?;
+    push_ts_export::<TaskInvocationStatus>(&mut sse, &cfg)?;
+    push_ts_export::<TaskUpdated>(&mut sse, &cfg)?;
+    push_ts_export::<TaskRemoved>(&mut sse, &cfg)?;
     push_ts_export::<EventKind>(&mut sse, &cfg)?;
     fs::write(&sse_path, sse)?;
 

@@ -9,6 +9,7 @@ pub mod pty;
 mod settings_manager;
 pub mod state;
 pub mod tab;
+pub mod task_manager;
 mod vscode;
 pub mod worktree_files;
 pub mod worktree_path_policy;
@@ -19,8 +20,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use axum::Extension;
 use axum::Router;
-use axum::http::Method;
 use axum::http::header::CONTENT_TYPE;
+use axum::http::{Method, StatusCode};
 use axum::middleware;
 use axum::routing::{any, delete, get, post, put};
 use tokio::sync::Notify;
@@ -49,10 +50,11 @@ use api::projects::{add_project, delete_project, list_projects, reorder_projects
 use api::settings::{get_settings, patch_settings, put_settings};
 use api::system::get_system_info;
 use api::tabs::{create_tab, delete_tab, list_tabs, reorder_tabs, update_tab};
+use api::tasks::{get_task, list_task_definitions, list_tasks, start_task};
 use api::terminal::ws_handler;
 use api::vscode::{
-    check_vscode_update, get_desktop_vscode_connection, get_vscode_status, install_vscode,
-    restart_vscode, start_vscode, stop_vscode,
+    check_vscode_update, get_desktop_code_server_connection, get_desktop_vscode_cli_connection,
+    get_vscode_status, install_vscode, restart_vscode, start_vscode, stop_vscode,
 };
 use api::worktrees::{
     create_project_worktree, delete_project_worktree, discard_project_worktree_path,
@@ -295,6 +297,9 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route("/processes/{id}/start", post(start_managed_process))
         .route("/processes/{id}/stop", post(stop_managed_process))
         .route("/processes/{id}/restart", post(restart_managed_process))
+        .route("/tasks/definitions", get(list_task_definitions))
+        .route("/tasks", get(list_tasks).post(start_task))
+        .route("/tasks/{id}", get(get_task))
         .route("/vscode", get(get_vscode_status))
         .route("/vscode/check-update", post(check_vscode_update))
         .route("/vscode/install", post(install_vscode))
@@ -330,9 +335,15 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
     };
 
     let mut router = Router::new()
-        .route("/code", any(proxy_code_request))
-        .route("/code/", any(proxy_code_request))
-        .route("/code/{*path}", any(proxy_code_request))
+        .route("/code/vscode-cli", any(proxy_code_request))
+        .route("/code/vscode-cli/", any(proxy_code_request))
+        .route("/code/vscode-cli/{*path}", any(proxy_code_request))
+        .route("/code/code-server", any(proxy_code_request))
+        .route("/code/code-server/", any(proxy_code_request))
+        .route("/code/code-server/{*path}", any(proxy_code_request))
+        .route("/code", any(|| async { StatusCode::NOT_FOUND }))
+        .route("/code/", any(|| async { StatusCode::NOT_FOUND }))
+        .route("/code/{*path}", any(|| async { StatusCode::NOT_FOUND }))
         .nest("/api", api);
 
     if access
@@ -344,8 +355,12 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
 
     if access.desktop().is_some() {
         router = router.route(
-            "/_hubris/vscode/connection",
-            get(get_desktop_vscode_connection),
+            "/_hubris/vscode/vscode-cli/connection",
+            get(get_desktop_vscode_cli_connection),
+        );
+        router = router.route(
+            "/_hubris/vscode/code-server/connection",
+            get(get_desktop_code_server_connection),
         );
     }
 

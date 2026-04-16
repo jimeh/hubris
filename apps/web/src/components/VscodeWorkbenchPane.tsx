@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { codeBase } from "@/lib/desktopRuntime";
+import { vscodeBase } from "@/lib/desktopRuntime";
+import { useSettingsStore } from "@/lib/stores/settings";
 import type { Worktree } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -10,9 +11,10 @@ type Props = {
 
 /** Hosts a persistent VS Code workbench iframe for one worktree. */
 export default function VscodeWorkbenchPane({ worktree, active }: Props) {
+  const runtime = useSettingsStore((state) => state.settings.vscode.runtime);
   const src = useMemo(() => {
     const params = new URLSearchParams({ folder: worktree.path });
-    const base = codeBase();
+    const base = vscodeBase(runtime);
     if (base.startsWith("/")) {
       return `${base}?${params.toString()}`;
     }
@@ -20,7 +22,7 @@ export default function VscodeWorkbenchPane({ worktree, active }: Props) {
     const url = new URL(base);
     url.search = params.toString();
     return url.toString();
-  }, [worktree.path]);
+  }, [runtime, worktree.path]);
 
   return (
     <div

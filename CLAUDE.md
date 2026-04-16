@@ -4,7 +4,7 @@
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (3716 symbols, 11170
+This project is indexed by GitNexus as **hubris** (3878 symbols, 11570
 relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 

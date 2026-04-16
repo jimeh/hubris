@@ -25,10 +25,14 @@ use crate::api::settings::{
 };
 use crate::api::system::SystemInfo;
 use crate::api::tabs::{CreateTabRequest, ReorderTabsRequest, UpdateTabRequest};
+use crate::api::tasks::{
+    StartTaskRequest, TaskDefinition, TaskDefinitionInputField, TaskInputFieldKind,
+    TaskInvocationStatus, TaskRemoved, TaskState, TaskStepState, TaskStepStatus, TaskUpdated,
+};
 use crate::api::terminal::{ClientControlMessage, ServerControlMessage};
 use crate::api::vscode::{
     InstallVscodeRequest, VscodeConnectionInfo, VscodeInstallPhase, VscodeInstallProgress,
-    VscodeLatestCheck, VscodePathMode, VscodeProcessStatus, VscodeRuntimeStatus, VscodeStatus,
+    VscodeLatestCheck, VscodeProcessStatus, VscodeRuntimeStatus, VscodeStatus,
 };
 use crate::api::worktrees::{
     CreateWorktreeRequest, GitCommitDetailsResponse, GitCommitPerson, GitCommitSummary,
@@ -54,6 +58,10 @@ use crate::tab::{GitDiffScope, TabInfo};
         crate::api::processes::start_managed_process,
         crate::api::processes::stop_managed_process,
         crate::api::processes::restart_managed_process,
+        crate::api::tasks::list_task_definitions,
+        crate::api::tasks::list_tasks,
+        crate::api::tasks::get_task,
+        crate::api::tasks::start_task,
         crate::api::files::list_files,
         crate::api::files::list_project_worktree_files,
         crate::api::files::get_project_worktree_file_content,
@@ -108,12 +116,21 @@ use crate::tab::{GitDiffScope, TabInfo};
             VscodeLatestCheck,
             VscodeRuntimeStatus,
             VscodeStatus,
-            VscodePathMode,
             VscodeConnectionInfo,
             InstallVscodeRequest,
             ManagedProcessLifecycleStateValue,
             ManagedProcessExitInfo,
             ManagedProcessStatus,
+            TaskState,
+            TaskStepState,
+            TaskInputFieldKind,
+            TaskDefinitionInputField,
+            TaskDefinition,
+            TaskStepStatus,
+            TaskInvocationStatus,
+            TaskUpdated,
+            TaskRemoved,
+            StartTaskRequest,
             WorktreeFileKind,
             WorktreeFileEntry,
             ListWorktreeFilesResponse,

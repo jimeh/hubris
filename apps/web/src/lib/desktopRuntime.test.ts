@@ -3,10 +3,10 @@ import { describe, expect, it, beforeEach } from "vitest";
 
 import {
   apiBase,
-  codeBase,
   eventsUrl,
   resetDesktopRuntimeConfigForTests,
   terminalWsUrlBase,
+  vscodeBase,
 } from "./desktopRuntime";
 
 describe("desktopRuntime", () => {
@@ -18,7 +18,8 @@ describe("desktopRuntime", () => {
     expect(apiBase()).toBe("/api");
     expect(eventsUrl()).toBe("/api/events?session_id=default");
     expect(terminalWsUrlBase()).toBe("");
-    expect(codeBase()).toBe("/code/");
+    expect(vscodeBase("vscodeCli")).toBe("/code/vscode-cli/");
+    expect(vscodeBase("codeServer")).toBe("/code/code-server/");
   });
 
   it("uses injected desktop config when present", () => {
@@ -26,7 +27,10 @@ describe("desktopRuntime", () => {
       apiBase: "https://desktop.internal.hubris.build/api",
       eventsUrl: "https://desktop.internal.hubris.build/api/events",
       terminalWsBase: "wss://desktop.internal.hubris.build/api/terminal/ws",
-      codeBase: "https://desktop.internal.hubris.build/code/",
+      vscodeBases: {
+        codeServer: "https://code-server.desktop.internal.hubris.build/",
+        vscodeCli: "https://vscode-cli.desktop.internal.hubris.build/",
+      },
     };
 
     expect(apiBase()).toBe("https://desktop.internal.hubris.build/api");
@@ -36,6 +40,11 @@ describe("desktopRuntime", () => {
     expect(terminalWsUrlBase()).toBe(
       "wss://desktop.internal.hubris.build/api/terminal/ws",
     );
-    expect(codeBase()).toBe("https://desktop.internal.hubris.build/code/");
+    expect(vscodeBase("codeServer")).toBe(
+      "https://code-server.desktop.internal.hubris.build/",
+    );
+    expect(vscodeBase("vscodeCli")).toBe(
+      "https://vscode-cli.desktop.internal.hubris.build/",
+    );
   });
 });

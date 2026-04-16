@@ -24,6 +24,7 @@ import {
   registerHubrisScheme,
 } from "./protocol";
 import {
+  allowedHubrisOrigins,
   classifyNavigationTarget,
   createHubrisWindowOptions,
 } from "./security";
@@ -99,6 +100,10 @@ async function resolveProtocolTargets(): Promise<{
         backendHttpOrigin: `http://127.0.0.1:${backendPort}`,
         backendWsOrigin: `ws://127.0.0.1:${backendPort}`,
         viteWsOrigin: `ws://localhost:${frontendPort}`,
+        devServerState: {
+          devId,
+          devTmp,
+        },
       },
       sessionToken,
     };
@@ -153,7 +158,7 @@ function configureBrowserSessionGuards(browserSession: Session) {
  */
 function configureWebContentsGuards(
   webContents: WebContents,
-  allowedOrigin: string,
+  allowedOrigins: string[],
 ) {
   const openExternalUrl = (url: string) => {
     void shell.openExternal(url).catch((error: unknown) => {
@@ -162,7 +167,7 @@ function configureWebContentsGuards(
   };
 
   webContents.setWindowOpenHandler(({ url }) => {
-    if (classifyNavigationTarget(url, allowedOrigin) === "external") {
+    if (classifyNavigationTarget(url, allowedOrigins) === "external") {
       openExternalUrl(url);
     }
 
@@ -176,7 +181,7 @@ function configureWebContentsGuards(
     preventDefault: () => void;
     url: string;
   }) => {
-    const target = classifyNavigationTarget(url, allowedOrigin);
+    const target = classifyNavigationTarget(url, allowedOrigins);
     if (target === "internal") {
       return;
     }
@@ -190,7 +195,13 @@ function configureWebContentsGuards(
   webContents.on("will-navigate", (details) => {
     blockIfDisallowed(details);
   });
-  webContents.on("will-frame-navigate", (details) => {
+  // Electron emits this at runtime, but the current desktop typings omit it.
+  (
+    webContents.on as unknown as (
+      event: string,
+      listener: (details: { preventDefault: () => void; url: string }) => void,
+    ) => void
+  )("will-frame-navigate", (details) => {
     blockIfDisallowed(details);
   });
   webContents.on("will-redirect", (details) => {
@@ -233,7 +244,7 @@ async function initializeDesktop() {
       } else {
         await seedDesktopSessionCookies(
           desktopSession.cookies,
-          [HUBRIS_ORIGIN],
+          allowedHubrisOrigins(),
           sessionToken,
         );
       }
@@ -267,7 +278,7 @@ async function createMainWindow() {
   mainWindow = window;
   wireDesktopWindowStatePersistence(window, userDataPath);
 
-  configureWebContentsGuards(window.webContents, HUBRIS_ORIGIN);
+  configureWebContentsGuards(window.webContents, allowedHubrisOrigins());
   installBrowserViewBridge(window, profileMode);
   window.once("ready-to-show", () => {
     if (savedWindowState?.isMaximized) {
@@ -373,7 +384,11 @@ async function bootstrapPackagedBackend(
     throw new Error(`desktop bootstrap failed with status ${response.status}`);
   }
 
-  await seedDesktopSessionCookies(cookies, [HUBRIS_ORIGIN], sessionToken);
+  await seedDesktopSessionCookies(
+    cookies,
+    allowedHubrisOrigins(),
+    sessionToken,
+  );
 }
 
 async function seedDesktopSessionCookies(

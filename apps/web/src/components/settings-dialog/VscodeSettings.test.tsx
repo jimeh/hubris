@@ -6,6 +6,7 @@ import {
   resetSettingsStoreForTests,
   useSettingsStore,
 } from "@/lib/stores/settings";
+import { resetTaskStoreForTests, useTaskStore } from "@/lib/stores/tasks";
 import { resetVscodeStoreForTests, setVscodeStatus } from "@/lib/stores/vscode";
 import VscodeSettings from "./VscodeSettings";
 
@@ -48,6 +49,7 @@ function makeRuntimeStatus(
     latest: null,
     installProgress: null,
     message: null,
+    activeTaskId: null,
     ...overrides,
   };
 }
@@ -79,6 +81,7 @@ describe("VscodeSettings", () => {
       })),
     );
     resetSettingsStoreForTests();
+    resetTaskStoreForTests();
     resetVscodeStoreForTests();
     useSettingsStore.getState().updateVscode({ runtime: "vscodeCli" });
     mockCheckVscodeUpdate.mockReset();
@@ -129,6 +132,51 @@ describe("VscodeSettings", () => {
     expect(await screen.findByText("Downloading runtime")).toBeInTheDocument();
     expect(screen.getByText(/Downloading VS Code CLI 42%/)).toBeInTheDocument();
     expect(screen.getByLabelText("Install progress")).toBeInTheDocument();
+  });
+
+  it("prefers generic task progress when the runtime has an active task", async () => {
+    useTaskStore.setState({
+      tasksById: {
+        "task-1": {
+          id: "task-1",
+          definitionName: "vscode.install-runtime",
+          title: "Install VS Code Runtime",
+          status: "running",
+          statusText: "Downloading runtime",
+          progressPercent: 42,
+          createdAt: "2025-01-01T00:00:00Z",
+          startedAt: "2025-01-01T00:00:01Z",
+          finishedAt: null,
+          scopeKey: "vscode-runtime:vscodeCli",
+          failureMessage: null,
+          broadcastUpdates: true,
+          steps: [
+            {
+              id: "download-runtime",
+              name: "download-runtime",
+              state: "running",
+              progressPercent: 42,
+              error: null,
+              rollbackError: null,
+            },
+          ],
+        },
+      },
+    });
+    setVscodeStatus(
+      makeStatus({
+        vscodeCli: makeRuntimeStatus({
+          processStatus: "installing",
+          activeTaskId: "task-1",
+        }),
+      }),
+    );
+
+    render(<VscodeSettings />);
+
+    expect(await screen.findByText("Download Runtime")).toBeInTheDocument();
+    expect(screen.getByText("Downloading runtime")).toBeInTheDocument();
+    expect(screen.getByLabelText("Task progress")).toBeInTheDocument();
   });
 
   it("checks for updates and offers an upgrade when a newer version exists", async () => {

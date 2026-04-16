@@ -20,6 +20,9 @@ describe("EventClient typing", () => {
       expectTypeOf(payload.selectedRuntime).toEqualTypeOf<
         "codeServer" | "vscodeCli"
       >();
+      expectTypeOf(payload.codeServer.activeTaskId).toEqualTypeOf<
+        string | null
+      >();
       expectTypeOf(payload.vscodeCli.processStatus).toEqualTypeOf<
         "error" | "running" | "starting" | "stopped" | "stopping" | "installing"
       >();
@@ -34,6 +37,33 @@ describe("EventClient typing", () => {
         downloadedBytes: bigint | null;
         totalBytes: bigint | null;
       } | null>();
+    });
+
+    client.on("managed_process_updated", (payload) => {
+      expectTypeOf(payload.id).toEqualTypeOf<string>();
+      expectTypeOf(payload.kind).toEqualTypeOf<string>();
+      expectTypeOf(payload.lifecycleState).toEqualTypeOf<
+        "stopped" | "starting" | "running" | "stopping" | "exited" | "error"
+      >();
+      expectTypeOf(payload.pid).toEqualTypeOf<number | null>();
+      expectTypeOf(payload.lastError).toEqualTypeOf<string | null>();
+    });
+
+    client.on("task_updated", (payload) => {
+      type TaskStepState = (typeof payload.task.steps)[number]["state"];
+
+      expectTypeOf(payload.task.definitionName).toEqualTypeOf<string>();
+      expectTypeOf(payload.task.progressPercent).toEqualTypeOf<number>();
+      expectTypeOf<TaskStepState>().toEqualTypeOf<
+        | "pending"
+        | "running"
+        | "skipped"
+        | "succeeded"
+        | "failed"
+        | "rollingBack"
+        | "rolledBack"
+        | "rollbackFailed"
+      >();
     });
   });
 

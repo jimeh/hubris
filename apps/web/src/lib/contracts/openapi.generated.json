@@ -2031,6 +2031,143 @@
         }
       }
     },
+    "/api/tasks": {
+      "get": {
+        "tags": ["crate::api::tasks"],
+        "operationId": "list_tasks",
+        "responses": {
+          "200": {
+            "description": "Task invocations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskInvocationStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["crate::api::tasks"],
+        "operationId": "start_task",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartTaskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Started or reused task invocation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskInvocationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid task request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown task definition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting active task scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/definitions": {
+      "get": {
+        "tags": ["crate::api::tasks"],
+        "operationId": "list_task_definitions",
+        "responses": {
+          "200": {
+            "description": "Task definitions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskDefinition"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{id}": {
+      "get": {
+        "tags": ["crate::api::tasks"],
+        "operationId": "get_task",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Task invocation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task invocation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskInvocationStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown task invocation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/terminal/ws": {
       "get": {
         "tags": ["crate::api::terminal"],
@@ -3177,6 +3314,25 @@
           }
         }
       },
+      "StartTaskRequest": {
+        "type": "object",
+        "required": ["definitionName"],
+        "properties": {
+          "definitionName": {
+            "type": "string"
+          },
+          "input": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Value"
+              }
+            ]
+          }
+        }
+      },
       "SystemInfo": {
         "type": "object",
         "description": "Static system information that does not change at runtime.",
@@ -3412,6 +3568,212 @@
           }
         ]
       },
+      "TaskDefinition": {
+        "type": "object",
+        "required": ["name", "title", "broadcastUpdates"],
+        "properties": {
+          "broadcastUpdates": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "inputFields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskDefinitionInputField"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskStepDefinition"
+            }
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskDefinitionInputField": {
+        "type": "object",
+        "required": ["name", "title", "required", "kind"],
+        "properties": {
+          "description": {
+            "type": ["string", "null"]
+          },
+          "enumValues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TaskInputFieldKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskInputFieldKind": {
+        "type": "string",
+        "enum": ["string", "boolean"]
+      },
+      "TaskInvocationStatus": {
+        "type": "object",
+        "required": [
+          "id",
+          "definitionName",
+          "title",
+          "status",
+          "progressPercent",
+          "createdAt",
+          "broadcastUpdates",
+          "steps"
+        ],
+        "properties": {
+          "broadcastUpdates": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "definitionName": {
+            "type": "string"
+          },
+          "failureMessage": {
+            "type": ["string", "null"]
+          },
+          "finishedAt": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "progressPercent": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "scopeKey": {
+            "type": ["string", "null"]
+          },
+          "startedAt": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskState"
+          },
+          "statusText": {
+            "type": ["string", "null"]
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskStepStatus"
+            }
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskRemoved": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "succeeded",
+          "failed",
+          "rollingBack",
+          "rolledBack",
+          "rollbackFailed"
+        ]
+      },
+      "TaskStepDefinition": {
+        "type": "object",
+        "required": ["id", "title", "weight"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TaskStepState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "skipped",
+          "succeeded",
+          "failed",
+          "rollingBack",
+          "rolledBack",
+          "rollbackFailed"
+        ]
+      },
+      "TaskStepStatus": {
+        "type": "object",
+        "required": ["id", "name", "state", "progressPercent"],
+        "properties": {
+          "error": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "progressPercent": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rollbackError": {
+            "type": ["string", "null"]
+          },
+          "state": {
+            "$ref": "#/components/schemas/TaskStepState"
+          }
+        }
+      },
+      "TaskUpdated": {
+        "type": "object",
+        "required": ["task"],
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/TaskInvocationStatus"
+          }
+        }
+      },
       "TerminalFontSource": {
         "type": "string",
         "enum": ["default", "system", "bundled"]
@@ -3555,9 +3917,10 @@
           }
         }
       },
+      "Value": {},
       "VscodeConnectionInfo": {
         "type": "object",
-        "required": ["runtime", "baseUrl", "wsBaseUrl", "pathMode"],
+        "required": ["runtime", "baseUrl", "wsBaseUrl", "upstreamBasePath"],
         "properties": {
           "baseUrl": {
             "type": "string"
@@ -3565,11 +3928,11 @@
           "connectionToken": {
             "type": ["string", "null"]
           },
-          "pathMode": {
-            "$ref": "#/components/schemas/VscodePathMode"
-          },
           "runtime": {
             "$ref": "#/components/schemas/VscodeRuntimeKind"
+          },
+          "upstreamBasePath": {
+            "type": "string"
           },
           "wsBaseUrl": {
             "type": "string"
@@ -3625,10 +3988,6 @@
           }
         }
       },
-      "VscodePathMode": {
-        "type": "string",
-        "enum": ["stripPublicBasePath", "preservePublicBasePath"]
-      },
       "VscodeProcessStatus": {
         "type": "string",
         "enum": [
@@ -3648,6 +4007,9 @@
         "type": "object",
         "required": ["supported", "processStatus"],
         "properties": {
+          "activeTaskId": {
+            "type": ["string", "null"]
+          },
           "installProgress": {
             "oneOf": [
               {

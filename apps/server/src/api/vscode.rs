@@ -11,8 +11,8 @@ use crate::api::settings::VscodeRuntimeKind;
 use crate::state::AppState;
 use crate::vscode::{
     CodeServerInstallPhaseValue, CodeServerProcessStatusValue, ManagerCodeServerInstallProgress,
-    ManagerCodeServerLatestCheck, VscodeConnection, VscodeError, VscodePathModeValue,
-    VscodeRuntimeStatusSnapshot, VscodeStatusSnapshot,
+    ManagerCodeServerLatestCheck, VscodeConnection, VscodeError, VscodeRuntimeStatusSnapshot,
+    VscodeStatusSnapshot,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
@@ -70,6 +70,8 @@ pub struct VscodeRuntimeStatus {
     pub install_progress: Option<VscodeInstallProgress>,
     #[serde(default)]
     pub message: Option<String>,
+    #[serde(default)]
+    pub active_task_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
@@ -80,20 +82,13 @@ pub struct VscodeStatus {
     pub vscode_cli: VscodeRuntimeStatus,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub enum VscodePathMode {
-    StripPublicBasePath,
-    PreservePublicBasePath,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct VscodeConnectionInfo {
     pub runtime: VscodeRuntimeKind,
     pub base_url: String,
     pub ws_base_url: String,
-    pub path_mode: VscodePathMode,
+    pub upstream_base_path: String,
     #[serde(default)]
     pub connection_token: Option<String>,
 }
@@ -162,6 +157,7 @@ impl From<VscodeRuntimeStatusSnapshot> for VscodeRuntimeStatus {
             latest: value.latest.map(Into::into),
             install_progress: value.install_progress.map(Into::into),
             message: value.message,
+            active_task_id: value.active_task_id,
         }
     }
 }
@@ -176,23 +172,13 @@ impl From<VscodeStatusSnapshot> for VscodeStatus {
     }
 }
 
-impl From<VscodePathModeValue> for VscodePathMode {
-    fn from(value: VscodePathModeValue) -> Self {
-        match value {
-            VscodePathModeValue::StripPublicBasePath => Self::StripPublicBasePath,
-            VscodePathModeValue::PreservePublicBasePath => Self::PreservePublicBasePath,
-        }
-    }
-}
-
 impl From<VscodeConnection> for VscodeConnectionInfo {
     fn from(value: VscodeConnection) -> Self {
-        let ws_base_url = value.ws_base_url();
         Self {
             runtime: value.runtime,
             base_url: value.base_url,
-            ws_base_url,
-            path_mode: value.path_mode.into(),
+            ws_base_url: value.ws_base_url,
+            upstream_base_path: value.upstream_base_path,
             connection_token: value.connection_token,
         }
     }
@@ -221,6 +207,12 @@ fn map_vscode_error(error: &VscodeError) -> StatusCode {
             | crate::vscode::VscodeCliError::Http(_)
             | crate::vscode::VscodeCliError::Archive(_)
             | crate::vscode::VscodeCliError::Spawn(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        },
+        VscodeError::Task(error) => match error.kind() {
+            crate::task_manager::TaskActionErrorKind::NotFound => StatusCode::NOT_FOUND,
+            crate::task_manager::TaskActionErrorKind::InvalidRequest => StatusCode::BAD_REQUEST,
+            crate::task_manager::TaskActionErrorKind::Conflict => StatusCode::CONFLICT,
+            crate::task_manager::TaskActionErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         },
     }
 }
@@ -332,9 +324,17 @@ pub async fn restart_vscode(State(state): State<AppState>) -> Response {
     }
 }
 
-pub async fn get_desktop_vscode_connection(State(state): State<AppState>) -> Response {
-    match state.vscode.ensure_ready().await {
+async fn desktop_vscode_connection(state: &AppState, runtime: VscodeRuntimeKind) -> Response {
+    match state.vscode.ensure_runtime_ready(runtime).await {
         Ok(connection) => Json(VscodeConnectionInfo::from(connection)).into_response(),
         Err(error) => vscode_error_response(error),
     }
+}
+
+pub async fn get_desktop_vscode_cli_connection(State(state): State<AppState>) -> Response {
+    desktop_vscode_connection(&state, VscodeRuntimeKind::VscodeCli).await
+}
+
+pub async fn get_desktop_code_server_connection(State(state): State<AppState>) -> Response {
+    desktop_vscode_connection(&state, VscodeRuntimeKind::CodeServer).await
 }

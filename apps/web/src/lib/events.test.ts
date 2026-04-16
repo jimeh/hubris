@@ -121,6 +121,36 @@ describe("EventClient", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("dispatches managed_process_updated events", () => {
+    const client = new EventClient();
+    const handler = vi.fn();
+    client.on("managed_process_updated", handler);
+    client.connect();
+
+    mockEs.simulateEvent("managed_process_updated", {
+      type: "managed_process_updated",
+      data: {
+        id: "code-server",
+        kind: "vscode",
+        lifecycleState: "running",
+        pid: 12345,
+        startedAt: "2026-04-16T12:00:00Z",
+        lastExit: null,
+        lastError: null,
+      },
+    });
+
+    expect(handler).toHaveBeenCalledWith({
+      id: "code-server",
+      kind: "vscode",
+      lifecycleState: "running",
+      pid: 12345,
+      startedAt: "2026-04-16T12:00:00Z",
+      lastExit: null,
+      lastError: null,
+    });
+  });
+
   it("skips events with missing data field", () => {
     const client = new EventClient();
     const handler = vi.fn();

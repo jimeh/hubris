@@ -8,6 +8,7 @@ use ts_rs::TS;
 use crate::api::processes::ManagedProcessStatus;
 use crate::api::projects::Project;
 use crate::api::settings::{Settings, SettingsState, SettingsStatus};
+use crate::api::tasks::{TaskInvocationStatus, TaskRemoved, TaskUpdated};
 use crate::api::vscode::VscodeStatus;
 use crate::api::worktrees::Worktree;
 use crate::tab::TabInfo;
@@ -32,6 +33,7 @@ pub enum EventKind {
         settings_status: SettingsStatus,
         vscode: Box<VscodeStatus>,
         managed_processes: Vec<ManagedProcessStatus>,
+        tasks: Vec<TaskInvocationStatus>,
     },
     #[serde(rename = "tab_created")]
     TabCreated { session_id: String, tab: TabInfo },
@@ -91,6 +93,10 @@ pub enum EventKind {
     VscodeUpdated(Box<VscodeStatus>),
     #[serde(rename = "managed_process_updated")]
     ManagedProcessUpdated(Box<ManagedProcessStatus>),
+    #[serde(rename = "task_updated")]
+    TaskUpdated(Box<TaskUpdated>),
+    #[serde(rename = "task_removed")]
+    TaskRemoved(Box<TaskRemoved>),
 }
 
 impl EventKind {
@@ -114,6 +120,8 @@ impl EventKind {
             EventKind::SettingsUpdated(_) => "settings_updated",
             EventKind::VscodeUpdated(_) => "vscode_updated",
             EventKind::ManagedProcessUpdated(_) => "managed_process_updated",
+            EventKind::TaskUpdated(_) => "task_updated",
+            EventKind::TaskRemoved(_) => "task_removed",
         }
     }
 }
@@ -216,6 +224,7 @@ mod tests {
                         latest: None,
                         install_progress: None,
                         message: None,
+                        active_task_id: None,
                     },
                     vscode_cli: crate::api::vscode::VscodeRuntimeStatus {
                         supported: true,
@@ -224,9 +233,11 @@ mod tests {
                         latest: None,
                         install_progress: None,
                         message: None,
+                        active_task_id: None,
                     },
                 }),
                 managed_processes: vec![],
+                tasks: vec![],
             }
             .event_name(),
             "snapshot"
@@ -249,6 +260,7 @@ mod tests {
                     latest: None,
                     install_progress: None,
                     message: None,
+                    active_task_id: None,
                 },
                 vscode_cli: crate::api::vscode::VscodeRuntimeStatus {
                     supported: true,
@@ -257,6 +269,7 @@ mod tests {
                     latest: None,
                     install_progress: None,
                     message: None,
+                    active_task_id: None,
                 },
             }))
             .event_name(),
@@ -274,6 +287,13 @@ mod tests {
             }))
             .event_name(),
             "managed_process_updated"
+        );
+        assert_eq!(
+            EventKind::TaskRemoved(Box::new(TaskRemoved {
+                id: "task-1".into(),
+            }))
+            .event_name(),
+            "task_removed"
         );
     }
 }

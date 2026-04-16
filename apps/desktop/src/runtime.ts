@@ -19,6 +19,8 @@ export type DevServerState = {
   port: number;
 };
 
+export type DevServerKind = "backend" | "frontend";
+
 export type PackagedRuntimeOptions = {
   runtimeExecutable: string;
   dataDir: string;
@@ -118,22 +120,18 @@ export async function waitForBackendPort(
 }
 
 async function waitForDevServerState(
-  kind: "backend" | "frontend",
+  kind: DevServerKind,
   devId: string,
   devTmp: string,
   timeoutMs: number,
 ): Promise<DevServerState> {
-  const stateFile = path.join(devTmp, `dev-${devId}.${kind}.json`);
+  const stateFile = devServerStateFile(kind, devId, devTmp);
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
-    try {
-      const state = parseDevServerState(fs.readFileSync(stateFile, "utf-8"));
-      if (state) {
-        return state;
-      }
-    } catch {
-      // The state file may not exist yet, or the writer may still be flushing.
+    const state = readDevServerState(kind, devId, devTmp);
+    if (state) {
+      return state;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -142,6 +140,35 @@ async function waitForDevServerState(
   throw new Error(
     `${kind} did not report a port within ${timeoutMs / 1000} seconds`,
   );
+}
+
+/**
+ * Return the dev-state file path for a given dev server kind.
+ */
+export function devServerStateFile(
+  kind: DevServerKind,
+  devId: string,
+  devTmp: string,
+): string {
+  return path.join(devTmp, `dev-${devId}.${kind}.json`);
+}
+
+/**
+ * Read and parse the current dev-state file for a backend or frontend server.
+ */
+export function readDevServerState(
+  kind: DevServerKind,
+  devId: string,
+  devTmp: string,
+): DevServerState | null {
+  try {
+    return parseDevServerState(
+      fs.readFileSync(devServerStateFile(kind, devId, devTmp), "utf-8"),
+    );
+  } catch {
+    // The state file may not exist yet, or the writer may still be flushing.
+    return null;
+  }
 }
 
 /**
