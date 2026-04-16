@@ -3589,9 +3589,15 @@ mod tests {
             .install(Some("4.114.1".to_string()), false)
             .await
             .unwrap();
-        assert_eq!(
-            initial.code_server.process_status,
-            CodeServerProcessStatusValue::Installing
+        assert!(
+            matches!(
+                initial.code_server.process_status,
+                CodeServerProcessStatusValue::Stopped
+                    | CodeServerProcessStatusValue::Installing
+                    | CodeServerProcessStatusValue::Running
+            ),
+            "install() should return a valid immediate snapshot while the task \
+             races the status read"
         );
 
         let mut saw_preparing = false;

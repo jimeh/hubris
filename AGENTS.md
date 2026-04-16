@@ -354,3 +354,8 @@ embeddings.**
   TypeScript typings do not expose that event on `WebContents`. Keep subframe
   navigation guards behind a narrow typed cast instead of assuming the event is
   unavailable.
+- Task-backed VS Code install APIs snapshot status immediately after enqueueing
+  work. In fast tests or CI, that snapshot can still be `Stopped` or already be
+  terminal even though install progress events were emitted correctly; assert on
+  the event stream or eventual state instead of assuming an intermediate
+  `Installing` snapshot.
