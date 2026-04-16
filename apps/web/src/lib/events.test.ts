@@ -130,30 +130,24 @@ describe("EventClient", () => {
     mockEs.simulateEvent("managed_process_updated", {
       type: "managed_process_updated",
       data: {
-        name: "code-server",
-        command: ["code-server"],
-        cwd: "/tmp/runtime",
+        id: "code-server",
+        kind: "vscode",
         lifecycleState: "running",
-        desiredStatus: "running",
         pid: 12345,
         startedAt: "2026-04-16T12:00:00Z",
-        uptimeMs: 1000,
-        health: null,
         lastExit: null,
+        lastError: null,
       },
     });
 
     expect(handler).toHaveBeenCalledWith({
-      name: "code-server",
-      command: ["code-server"],
-      cwd: "/tmp/runtime",
+      id: "code-server",
+      kind: "vscode",
       lifecycleState: "running",
-      desiredStatus: "running",
       pid: 12345,
       startedAt: "2026-04-16T12:00:00Z",
-      uptimeMs: 1000,
-      health: null,
       lastExit: null,
+      lastError: null,
     });
   });
 
