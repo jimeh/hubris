@@ -632,6 +632,41 @@ describe("WorktreeView", () => {
     ).toHaveAttribute("data-visible", "true");
   });
 
+  it("renders horizontal split handles as a 1px line with external hit margins", () => {
+    const worktree = makeWorktree();
+    const topTab = makeTab("terminal-a", worktree.id, {
+      pane_id: "pane-1",
+      position: 1,
+    });
+    const bottomTab = makeTab("terminal-b", worktree.id, {
+      pane_id: "pane-2",
+      position: 1,
+    });
+
+    useTabStore.setState({
+      tabs: [topTab, bottomTab],
+      layoutsByWorktree: { [worktree.id]: makeSplitLayout() },
+      activeTabId: topTab.id,
+      activeTabByWorktree: { [worktree.id]: topTab.id },
+      activeTabByPane: {
+        "pane-1": topTab.id,
+        "pane-2": bottomTab.id,
+      },
+      focusedPaneByWorktree: { [worktree.id]: "pane-1" },
+    });
+
+    render(<WorktreeView worktree={worktree} active />);
+
+    const separator = screen.getByRole("separator");
+    expect(separator).toHaveClass("-mx-1");
+    expect(separator).toHaveClass("aria-[orientation=horizontal]:h-px");
+    expect(separator).not.toHaveClass("aria-[orientation=horizontal]:h-2");
+    expect(separator).toHaveClass("aria-[orientation=horizontal]:after:top-0");
+    expect(separator).toHaveClass(
+      "aria-[orientation=horizontal]:after:translate-y-0",
+    );
+  });
+
   it("keeps the save dialog open when saving a dirty file tab fails", async () => {
     const closeSpy = vi.fn().mockResolvedValue(undefined);
     const saveAttempt = deferred<void>();

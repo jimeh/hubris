@@ -253,25 +253,23 @@ function collapseTree(
 
 function flattenTree(tree: PaneTree): RebuiltNode {
   if (tree.type === "leaf") {
-    const id = makeNodeId();
     return {
-      rootId: id,
-      nodes: [{ type: "leaf", id, pane_id: tree.paneId }],
+      rootId: tree.id,
+      nodes: [{ type: "leaf", id: tree.id, pane_id: tree.paneId }],
     };
   }
 
   const first = flattenTree(tree.first);
   const second = flattenTree(tree.second);
-  const id = makeNodeId();
 
   return {
-    rootId: id,
+    rootId: tree.id,
     nodes: [
       ...first.nodes,
       ...second.nodes,
       {
         type: "split",
-        id,
+        id: tree.id,
         axis: tree.axis,
         ratio: tree.ratio,
         first_id: first.rootId,

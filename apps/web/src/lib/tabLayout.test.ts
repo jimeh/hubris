@@ -83,6 +83,20 @@ describe("tabLayout", () => {
     ]);
   });
 
+  it("keeps existing split node ids when moving between non-empty panes", () => {
+    const layout = splitLayout("pane-a", "pane-b");
+    const tabs: Tab[] = [
+      makeTerminalTab("tab-a", "pane-a", 1),
+      makeTerminalTab("tab-b", "pane-a", 2),
+      makeTerminalTab("tab-c", "pane-b", 1),
+    ];
+
+    const next = moveTabBetweenPanes(layout, tabs, "tab-b", "pane-b", "center");
+
+    expect(next).not.toBeNull();
+    expect(next?.layout).toEqual(layout);
+  });
+
   it("splits a pane when dropping on an edge target", () => {
     const layout: WorktreeTabLayout = {
       rootId: "leaf-root",

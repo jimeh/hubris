@@ -383,13 +383,15 @@ function PaneTreeView({
       </ResizablePanel>
       <ResizableHandle
         className={cn(
-          "z-20 -mx-[3px] w-2 cursor-col-resize touch-none bg-transparent",
+          "z-20 -mx-1 w-2 cursor-col-resize touch-none bg-transparent",
           "after:w-px after:bg-border/80 hover:after:bg-border",
           "focus-visible:after:bg-border",
-          "aria-[orientation=horizontal]:-my-[3px]",
-          "aria-[orientation=horizontal]:h-2 aria-[orientation=horizontal]:w-full",
+          "aria-[orientation=horizontal]:h-px aria-[orientation=horizontal]:w-full",
           "aria-[orientation=horizontal]:cursor-row-resize",
+          "aria-[orientation=horizontal]:after:top-0",
+          "aria-[orientation=horizontal]:after:bottom-auto",
           "aria-[orientation=horizontal]:after:h-px",
+          "aria-[orientation=horizontal]:after:translate-y-0",
         )}
       />
       <ResizablePanel
@@ -433,6 +435,8 @@ export default function WorktreeView({ worktree, active }: Props) {
   const paneViewportObserverRef = useRef<ResizeObserver | null>(null);
   const paneViewportElementsRef = useRef(new Map<string, HTMLDivElement>());
   const lastVisibleSceneRectsRef = useRef<Record<string, ViewportRect>>({});
+  const paneViewportRecalcFrameRef = useRef<number | null>(null);
+  const paneViewportRecalcFrameAfterPaintRef = useRef<number | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -704,9 +708,31 @@ export default function WorktreeView({ worktree, active }: Props) {
     [recalculatePaneViewportRects],
   );
 
+  const schedulePaneViewportRecalc = useCallback(() => {
+    recalculatePaneViewportRects();
+
+    if (paneViewportRecalcFrameRef.current !== null) {
+      cancelAnimationFrame(paneViewportRecalcFrameRef.current);
+    }
+    if (paneViewportRecalcFrameAfterPaintRef.current !== null) {
+      cancelAnimationFrame(paneViewportRecalcFrameAfterPaintRef.current);
+    }
+
+    paneViewportRecalcFrameRef.current = requestAnimationFrame(() => {
+      paneViewportRecalcFrameRef.current = null;
+      recalculatePaneViewportRects();
+      paneViewportRecalcFrameAfterPaintRef.current = requestAnimationFrame(
+        () => {
+          paneViewportRecalcFrameAfterPaintRef.current = null;
+          recalculatePaneViewportRects();
+        },
+      );
+    });
+  }, [recalculatePaneViewportRects]);
+
   useLayoutEffect(() => {
     const observer = new ResizeObserver(() => {
-      recalculatePaneViewportRects();
+      schedulePaneViewportRecalc();
     });
     paneViewportObserverRef.current = observer;
 
@@ -718,22 +744,36 @@ export default function WorktreeView({ worktree, active }: Props) {
     }
 
     const handleWindowResize = () => {
-      recalculatePaneViewportRects();
+      schedulePaneViewportRecalc();
     };
 
     window.addEventListener("resize", handleWindowResize);
-    recalculatePaneViewportRects();
+    schedulePaneViewportRecalc();
 
     return () => {
       paneViewportObserverRef.current = null;
       observer.disconnect();
       window.removeEventListener("resize", handleWindowResize);
+      if (paneViewportRecalcFrameRef.current !== null) {
+        cancelAnimationFrame(paneViewportRecalcFrameRef.current);
+        paneViewportRecalcFrameRef.current = null;
+      }
+      if (paneViewportRecalcFrameAfterPaintRef.current !== null) {
+        cancelAnimationFrame(paneViewportRecalcFrameAfterPaintRef.current);
+        paneViewportRecalcFrameAfterPaintRef.current = null;
+      }
     };
-  }, [recalculatePaneViewportRects]);
+  }, [schedulePaneViewportRecalc]);
 
   useLayoutEffect(() => {
-    recalculatePaneViewportRects();
-  }, [paneTree, recalculatePaneViewportRects]);
+    schedulePaneViewportRecalc();
+  }, [
+    active,
+    activePaneTabIds,
+    paneTree,
+    schedulePaneViewportRecalc,
+    worktreeTabs.length,
+  ]);
 
   useEffect(
     () => () => {
