@@ -303,10 +303,7 @@ function PaneLeaf({
 }: PaneLeafProps) {
   return (
     <div
-      className={cn(
-        "relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-        focused && "ring-1 ring-inset ring-primary/40",
-      )}
+      className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
       data-pane-id={paneId}
       onMouseDown={onFocusPane}
     >
@@ -1067,6 +1064,7 @@ export default function WorktreeView({ worktree, active }: Props) {
                       <TerminalTab
                         tabId={tab.id}
                         visible={visible}
+                        focused={focusedPaneId === tab.pane_id}
                         onClosed={handleTabClosed}
                       />
                     ) : tab.type === "file" ? (

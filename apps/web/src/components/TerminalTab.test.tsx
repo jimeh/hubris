@@ -346,6 +346,23 @@ describe("TerminalTab", () => {
     });
   });
 
+  it("focuses the terminal when pane focus changes while remaining visible", () => {
+    const { rerender } = render(
+      <TerminalTab tabId="tab-1" visible focused={false} onClosed={vi.fn()} />,
+    );
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.open();
+    });
+
+    expect(mockTerminal.focus).toHaveBeenCalledTimes(2);
+
+    rerender(<TerminalTab tabId="tab-1" visible focused onClosed={vi.fn()} />);
+
+    expect(mockTerminal.focus).toHaveBeenCalledTimes(3);
+  });
+
   it("cancels pending resize retry frames during cleanup", () => {
     window.requestAnimationFrame = vi.fn(() => 42);
     currentViewport = null;

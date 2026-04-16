@@ -8,9 +8,15 @@ import { useTerminalConnection } from "@/components/terminal/useTerminalConnecti
 type Props = {
   tabId: string;
   visible: boolean;
+  focused?: boolean;
   onClosed?: (tabId: string) => void;
 };
-function TerminalTab({ tabId, visible, onClosed }: Props) {
+function TerminalTab({
+  tabId,
+  visible,
+  focused = true,
+  onClosed,
+}: Props) {
   const themeVersion = useThemeSettings((state) => state.version);
   const terminalVersion = useTerminalSettings((state) => state.version);
   const fontFamily = useTerminalSettings((state) => state.fontFamily);
@@ -79,6 +85,18 @@ function TerminalTab({ tabId, visible, onClosed }: Props) {
     terminalRef.current.updateFont(fontFamily, fontSize);
     sendResize(true);
   }, [fontFamily, fontSize, sendResize, terminalVersion]);
+
+  useEffect(() => {
+    if (!visible || !focused || !terminalRef.current) {
+      return;
+    }
+
+    const frameId = requestAnimationFrame(() => {
+      terminalRef.current?.focus();
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [focused, visible]);
 
   return (
     <div className="terminal-wrapper">
