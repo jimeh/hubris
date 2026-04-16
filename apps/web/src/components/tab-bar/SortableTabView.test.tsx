@@ -79,6 +79,7 @@ describe("SortableTabView", () => {
     );
 
     expect(screen.getByRole("tab")).toHaveClass("min-w-0");
+    expect(screen.getByRole("tab")).toHaveClass("shrink-0");
     expect(screen.getByRole("tab")).toHaveClass("max-w-72");
     expect(screen.getByRole("tab")).toHaveClass("overflow-hidden");
     expect(

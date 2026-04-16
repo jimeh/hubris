@@ -43,6 +43,8 @@ const SortableTabView = memo(
     },
     ref,
   ) {
+    const mutedActiveBorderClass =
+      "shadow-[inset_0_-2px_0_color-mix(in_srgb,_var(--tab-active-border)_55%,_transparent)]";
     const mergedStyle =
       width == null
         ? style
@@ -82,11 +84,11 @@ const SortableTabView = memo(
         style={mergedStyle}
         title={title}
         className={cn(
-          "inline-flex h-full min-h-9 min-w-0 max-w-72 cursor-default select-none items-center gap-1.5 overflow-hidden whitespace-nowrap pl-3 pr-2.5 text-sm transition-colors",
+          "inline-flex h-full min-h-9 min-w-0 shrink-0 max-w-72 cursor-default select-none items-center gap-1.5 overflow-hidden whitespace-nowrap pl-3 pr-2.5 text-sm transition-colors",
           isActive
             ? paneFocused
               ? "bg-tab-active text-tab-active-foreground shadow-[inset_0_-2px_0_var(--tab-active-border)]"
-              : "bg-tab-bar text-tab-inactive-foreground shadow-[inset_0_-2px_0_var(--tab-border)]"
+              : cn("text-tab-inactive-foreground", mutedActiveBorderClass)
             : dragging
               ? "text-tab-inactive-foreground"
               : "text-tab-inactive-foreground hover:text-foreground",

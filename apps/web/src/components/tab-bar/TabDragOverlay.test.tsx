@@ -61,5 +61,38 @@ describe("TabDragOverlay", () => {
     expect(overlayTab).not.toHaveClass(
       "shadow-[inset_0_-2px_0_var(--tab-active-border)]",
     );
+    expect(overlayTab).not.toHaveClass("bg-tab-bar");
+  });
+
+  it("mirrors muted active styling for unfocused active tabs", () => {
+    const tab: TerminalTab = {
+      id: "t1",
+      label: "Terminal 1",
+      position: 1,
+      worktree_id: "w1",
+      pane_id: "pane-1",
+      session_id: "default",
+      type: "terminal",
+      created_at: 0,
+      preview: false,
+    };
+
+    render(
+      <TabDragOverlay
+        worktreeId="w1"
+        tab={tab}
+        width={240}
+        isActive
+        paneFocused={false}
+      />,
+    );
+
+    const overlayTab = screen.getByRole("tab");
+    expect(overlayTab).toHaveClass("text-tab-inactive-foreground");
+    expect(overlayTab).toHaveClass(
+      "shadow-[inset_0_-2px_0_color-mix(in_srgb,_var(--tab-active-border)_55%,_transparent)]",
+    );
+    expect(overlayTab).not.toHaveClass("bg-tab-active");
+    expect(overlayTab).not.toHaveClass("bg-tab-bar");
   });
 });

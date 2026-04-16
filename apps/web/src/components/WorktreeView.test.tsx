@@ -632,6 +632,38 @@ describe("WorktreeView", () => {
     ).toHaveAttribute("data-visible", "true");
   });
 
+  it("focuses a pane when clicking inside its terminal scene", () => {
+    const worktree = makeWorktree();
+    const leftTab = makeTab("terminal-a", worktree.id, {
+      pane_id: "pane-1",
+      position: 1,
+    });
+    const rightTab = makeTab("terminal-b", worktree.id, {
+      pane_id: "pane-2",
+      position: 1,
+    });
+
+    useTabStore.setState({
+      tabs: [leftTab, rightTab],
+      layoutsByWorktree: { [worktree.id]: makeSplitLayout() },
+      activeTabId: leftTab.id,
+      activeTabByWorktree: { [worktree.id]: leftTab.id },
+      activeTabByPane: {
+        "pane-1": leftTab.id,
+        "pane-2": rightTab.id,
+      },
+      focusedPaneByWorktree: { [worktree.id]: "pane-1" },
+    });
+
+    render(<WorktreeView worktree={worktree} active />);
+
+    fireEvent.mouseDown(document.querySelector('[data-tab-id="terminal-b"]')!);
+
+    expect(useTabStore.getState().focusedPaneByWorktree[worktree.id]).toBe(
+      "pane-2",
+    );
+  });
+
   it("renders horizontal split handles as a 1px line with external hit margins", () => {
     const worktree = makeWorktree();
     const topTab = makeTab("terminal-a", worktree.id, {

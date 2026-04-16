@@ -249,8 +249,10 @@ describe("TabBar", () => {
     );
 
     const activeTab = screen.getByRole("tab", { selected: true });
-    expect(activeTab).toHaveClass("bg-tab-bar");
-    expect(activeTab).toHaveClass("shadow-[inset_0_-2px_0_var(--tab-border)]");
+    expect(activeTab).not.toHaveClass("bg-tab-bar");
+    expect(activeTab).toHaveClass(
+      "shadow-[inset_0_-2px_0_color-mix(in_srgb,_var(--tab-active-border)_55%,_transparent)]",
+    );
     expect(activeTab).not.toHaveClass("bg-tab-active");
   });
 

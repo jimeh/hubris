@@ -1049,6 +1049,7 @@ export default function WorktreeView({ worktree, active }: Props) {
                       "absolute overflow-hidden bg-background",
                       visible ? "pointer-events-auto" : "hidden",
                     )}
+                    onMouseDown={() => focusPane(worktree.id, tab.pane_id)}
                     style={
                       rect
                         ? {
