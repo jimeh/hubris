@@ -280,7 +280,7 @@ pub async fn list_files(
         entries.push(DirEntry { name, is_git_repo });
     }
 
-    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    entries.sort_by_key(|entry| entry.name.to_lowercase());
 
     Ok(Json(ListFilesResponse {
         path: dir.to_string_lossy().to_string(),

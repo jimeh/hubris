@@ -324,7 +324,7 @@ fn sort_non_local(mut non_local: Vec<Worktree>, order: &[String]) -> Vec<Worktre
     }
 
     let mut remaining: Vec<Worktree> = by_id.into_values().collect();
-    remaining.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    remaining.sort_by_key(|worktree| worktree.name.to_lowercase());
     ordered.extend(remaining);
     ordered
 }
