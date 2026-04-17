@@ -265,6 +265,8 @@ describe("TabBar", () => {
     expect(buttons[1]).toHaveAttribute("aria-label", "Next Change");
     expect(buttons[2]).toHaveAttribute("aria-label", "Split Vertically");
     expect(buttons[3]).toHaveAttribute("aria-label", "Split Horizontally");
+    expect(buttons[4]).toHaveAttribute("aria-label", "New Browser");
+    expect(buttons[5]).toHaveAttribute("aria-label", "New Terminal");
 
     fireEvent.click(screen.getByRole("button", { name: "Previous Change" }));
     fireEvent.click(screen.getByRole("button", { name: "Next Change" }));
@@ -277,7 +279,7 @@ describe("TabBar", () => {
     const props = baseProps();
     const { rerender } = render(<TabBar {...props} tabs={[makeTab("a", 1)]} />);
 
-    expect(screen.getAllByTestId("tab-bar-pane-1-divider")).toHaveLength(1);
+    expect(screen.queryByTestId("tab-bar-pane-1-divider")).not.toBeInTheDocument();
 
     rerender(
       <TabBar
@@ -294,7 +296,7 @@ describe("TabBar", () => {
       />,
     );
 
-    expect(screen.getAllByTestId("tab-bar-pane-1-divider")).toHaveLength(2);
+    expect(screen.getAllByTestId("tab-bar-pane-1-divider")).toHaveLength(1);
   });
 
   it("marks the pane tab bar as an active drop target during drag", () => {

@@ -265,22 +265,6 @@ export default function TabBar({
         >
           <Rows2 className="h-2.5 w-2.5" />
         </Button>
-        <div
-          className="mx-1 h-3.5 w-px bg-border/80"
-          aria-hidden="true"
-          data-testid={`tab-bar-${paneId}-divider`}
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="New Terminal"
-          title="New Terminal"
-          className="h-6 w-6"
-          onClick={onAddTerminal}
-        >
-          <SquareTerminal className="h-2.5 w-2.5" />
-        </Button>
         <Button
           type="button"
           variant="ghost"
@@ -293,6 +277,17 @@ export default function TabBar({
           }}
         >
           <Globe className="h-2.5 w-2.5" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="New Terminal"
+          title="New Terminal"
+          className="h-6 w-6"
+          onClick={onAddTerminal}
+        >
+          <SquareTerminal className="h-2.5 w-2.5" />
         </Button>
       </div>
     </div>

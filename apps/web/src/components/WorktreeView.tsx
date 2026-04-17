@@ -63,8 +63,8 @@ type Props = {
 type PaneDropTargetProps = {
   paneId: string;
   placement: PaneDropPlacement;
-  className: string;
-  label: string;
+  geometryClassName: string;
+  indicatorClassName: string;
 };
 
 type PaneLeafProps = {
@@ -186,33 +186,34 @@ function parsePaneDropTargetId(
 function PaneDropTarget({
   paneId,
   placement,
-  className,
-  label,
+  geometryClassName,
+  indicatorClassName,
 }: PaneDropTargetProps) {
   const { isOver, setNodeRef } = useDroppable({
     id: paneDropTargetId(paneId, placement),
   });
 
   return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        "absolute rounded-md border border-dashed border-transparent transition-colors",
-        "bg-transparent",
-        isOver && "border-primary/70 bg-primary/12",
-        className,
-      )}
-      data-pane-drop-target={placement}
-    >
-      <span
+    <>
+      <div
+        ref={setNodeRef}
         className={cn(
-          "pointer-events-none absolute inset-0 hidden items-center justify-center text-[11px] font-medium text-muted-foreground",
-          isOver && "flex text-primary",
+          "absolute rounded-md border border-dashed border-transparent",
+          "pointer-events-auto bg-transparent",
+          geometryClassName,
         )}
-      >
-        {label}
-      </span>
-    </div>
+        data-pane-drop-target={placement}
+      />
+      <div
+        className={cn(
+          "pointer-events-none absolute rounded-md border border-dashed",
+          "border-transparent bg-transparent transition-colors",
+          isOver && "border-primary/70 bg-primary/12",
+          indicatorClassName,
+        )}
+        data-pane-drop-indicator={placement}
+      />
+    </>
   );
 }
 
@@ -232,32 +233,32 @@ function PaneDropTargets({
       <PaneDropTarget
         paneId={paneId}
         placement="left"
-        label="Split Left"
-        className="pointer-events-auto inset-y-0 left-0 w-[24%]"
+        geometryClassName="inset-y-0 left-0 w-[24%]"
+        indicatorClassName="inset-y-0 left-0 w-1/2"
       />
       <PaneDropTarget
         paneId={paneId}
         placement="right"
-        label="Split Right"
-        className="pointer-events-auto inset-y-0 right-0 w-[24%]"
+        geometryClassName="inset-y-0 right-0 w-[24%]"
+        indicatorClassName="inset-y-0 right-0 w-1/2"
       />
       <PaneDropTarget
         paneId={paneId}
         placement="top"
-        label="Split Up"
-        className="pointer-events-auto inset-x-0 top-0 h-[24%]"
+        geometryClassName="inset-x-0 top-0 h-[24%]"
+        indicatorClassName="inset-x-0 top-0 h-1/2"
       />
       <PaneDropTarget
         paneId={paneId}
         placement="bottom"
-        label="Split Down"
-        className="pointer-events-auto inset-x-0 bottom-0 h-[24%]"
+        geometryClassName="inset-x-0 bottom-0 h-[24%]"
+        indicatorClassName="inset-x-0 bottom-0 h-1/2"
       />
       <PaneDropTarget
         paneId={paneId}
         placement="center"
-        label="Move Tab"
-        className="pointer-events-auto inset-[24%]"
+        geometryClassName="inset-[28%]"
+        indicatorClassName="inset-0"
       />
     </div>
   );
