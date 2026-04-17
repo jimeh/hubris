@@ -1250,17 +1250,35 @@ export const useTabStore = create<TabsState>((set, get) => {
       return next.destinationPaneId;
     },
     async splitPane(projectId, worktreeId, paneId, direction) {
+      const state = get();
+      const previousTabs = tabsForWorktreeInternal(state.tabs, worktreeId);
+      const previousLayout =
+        state.layoutsByWorktree[worktreeId] ??
+        createSinglePaneLayout(previousTabs[0]?.pane_id);
       const destinationPaneId = await get().createSplitPane(
         projectId,
         worktreeId,
         paneId,
         direction,
       );
-      const tab = await get().addTerminal(
-        worktreeId,
-        destinationPaneId ?? paneId,
-      );
-      return tab;
+      try {
+        const tab = await get().addTerminal(
+          worktreeId,
+          destinationPaneId ?? paneId,
+        );
+        return tab;
+      } catch (error) {
+        const serverState = await submitLayoutChange(
+          projectId,
+          worktreeId,
+          previousLayout,
+          previousTabs,
+        );
+        set((current) =>
+          nextStateAfterWorktreeLayout(current, worktreeId, serverState),
+        );
+        throw error;
+      }
     },
     switchToWorktree(worktreeId) {
       set((state) => {

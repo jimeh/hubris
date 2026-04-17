@@ -425,6 +425,70 @@ describe("Tab store", () => {
     ).toBeLessThan(mockCreateTerminalTab.mock.invocationCallOrder[0]);
   });
 
+  it("splitPane rolls back the layout if creating the new terminal fails", async () => {
+    const store = await getStore();
+    let nextId = 0;
+    vi.spyOn(globalThis.crypto, "randomUUID").mockImplementation(
+      () => `00000000-0000-4000-8000-00000000000${nextId++}`,
+    );
+    mockUpdateWorktreeTabLayout
+      .mockResolvedValueOnce({
+        layout: {
+          rootId: "split-root",
+          nodes: [
+            { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
+            {
+              type: "leaf",
+              id: "leaf-b",
+              pane_id: "00000000-0000-4000-8000-000000000000",
+            },
+            {
+              type: "split",
+              id: "split-root",
+              axis: "vertical",
+              ratio: 0.5,
+              first_id: "leaf-a",
+              second_id: "leaf-b",
+            },
+          ],
+        },
+        tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+      })
+      .mockResolvedValueOnce({
+        layout: {
+          rootId: "leaf-a",
+          nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+        },
+        tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+      });
+    mockCreateTerminalTab.mockRejectedValue(new Error("boom"));
+
+    mockEvents.emit("snapshot", {
+      tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+      tab_layouts: {
+        w1: {
+          rootId: "leaf-a",
+          nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+        },
+      },
+    });
+
+    await expect(
+      store.useTabStore.getState().splitPane("p1", "w1", "pane-1", "right"),
+    ).rejects.toThrow("boom");
+
+    expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(2);
+    expect(mockUpdateWorktreeTabLayout.mock.calls[1]?.[2]).toEqual({
+      rootId: "leaf-a",
+      nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+      panes: [{ paneId: "pane-1", tabIds: ["a"] }],
+    });
+    expect(store.useTabStore.getState().layoutsByWorktree.w1).toEqual({
+      rootId: "leaf-a",
+      nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+    });
+  });
+
   it("snapshot prunes stale active-tab persistence", async () => {
     localStorage.setItem("hubris-active-tab", "gone");
     localStorage.setItem(

@@ -479,11 +479,10 @@ fn collapse_empty_panes(
                     return Ok(None);
                 }
 
-                let next_id = make_layout_node_id();
                 Ok(Some((
-                    next_id.clone(),
+                    node_id.to_string(),
                     vec![WorktreePaneNode::Leaf {
-                        id: next_id,
+                        id: node_id.to_string(),
                         pane_id: pane_id.clone(),
                     }],
                 )))
@@ -505,16 +504,15 @@ fn collapse_empty_panes(
                         Some((first_root_id, mut first_nodes)),
                         Some((second_root_id, second_nodes)),
                     ) => {
-                        let next_id = make_layout_node_id();
                         first_nodes.extend(second_nodes);
                         first_nodes.push(WorktreePaneNode::Split {
-                            id: next_id.clone(),
+                            id: node_id.to_string(),
                             axis: *axis,
                             ratio: normalize_split_ratio(*ratio),
                             first_id: first_root_id,
                             second_id: second_root_id,
                         });
-                        Ok(Some((next_id, first_nodes)))
+                        Ok(Some((node_id.to_string(), first_nodes)))
                     }
                     (Some(child), None) | (None, Some(child)) => Ok(Some(child)),
                     (None, None) if is_root => {

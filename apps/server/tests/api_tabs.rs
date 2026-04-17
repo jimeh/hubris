@@ -1023,6 +1023,53 @@ async fn test_update_worktree_tab_layout_preserves_intentional_empty_split_pane(
 }
 
 #[tokio::test]
+async fn test_closing_tab_without_empty_pane_does_not_emit_layout_update() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let first = create_tab(&client, &base, &worktree_id).await;
+    create_tab(&client, &base, &worktree_id).await;
+    let closed_id = first["id"].as_str().unwrap().to_string();
+
+    let mut rx = state.events.subscribe();
+    let res = client
+        .delete(format!("{}/api/tabs/{}", base, &closed_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match &rx.recv().await.unwrap().kind {
+                EventKind::TabClosed { tab_id, .. } if *tab_id == closed_id => break,
+                EventKind::WorktreeTabLayoutUpdated { .. } => {
+                    panic!("unexpected layout update event after closing tab");
+                }
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    let no_layout_update = tokio::time::timeout(Duration::from_millis(250), async {
+        loop {
+            if let EventKind::WorktreeTabLayoutUpdated { .. } = &rx.recv().await.unwrap().kind {
+                panic!("unexpected delayed layout update event after closing tab");
+            }
+        }
+    })
+    .await;
+    assert!(no_layout_update.is_err());
+}
+
+#[tokio::test]
 async fn test_create_tab_label_increments() {
     let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
