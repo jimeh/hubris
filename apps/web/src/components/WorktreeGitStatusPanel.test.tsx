@@ -915,7 +915,9 @@ describe("WorktreeGitStatusPanel", () => {
       await screen.findByRole("button", { name: "Show list view" }),
     );
 
-    expect((await screen.findAllByText("README copy.md")).length).toBeGreaterThanOrEqual(2);
+    expect(
+      (await screen.findAllByText("README copy.md")).length,
+    ).toBeGreaterThanOrEqual(2);
     expect(consoleError).not.toHaveBeenCalledWith(
       expect.stringContaining("same key"),
       expect.anything(),

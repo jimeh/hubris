@@ -279,7 +279,9 @@ describe("TabBar", () => {
     const props = baseProps();
     const { rerender } = render(<TabBar {...props} tabs={[makeTab("a", 1)]} />);
 
-    expect(screen.queryByTestId("tab-bar-pane-1-divider")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("tab-bar-pane-1-divider"),
+    ).not.toBeInTheDocument();
 
     rerender(
       <TabBar

@@ -8,8 +8,8 @@ use crate::events::EventBus;
 use crate::process_manager::ManagedProcessService;
 use crate::pty::live_tab::LiveTab;
 use crate::settings_manager::SettingsManager;
-use crate::task_manager::TaskService;
 use crate::tab::{TabInfo, WorktreeTabLayout};
+use crate::task_manager::TaskService;
 use crate::vscode::{CodeServerManager, VscodeCliManager, VscodeManager, register_vscode_tasks};
 use crate::worktree_files::WorktreeFilesService;
 
