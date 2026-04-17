@@ -3,17 +3,12 @@ import { useDroppable } from "@dnd-kit/core";
 import {
   ChevronsLeft,
   ChevronsRight,
+  Columns2,
   Globe,
-  MoreHorizontal,
+  Rows2,
   SquareTerminal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import type { Tab } from "@/lib/types";
 import SortableTabStrip from "./tab-bar/SortableTabStrip";
 
@@ -199,16 +194,42 @@ export default function TabBar({
           </button>
         ) : null}
       </div>
-      <div className="ml-1 flex shrink-0 items-center gap-1">
+      <div className="ml-1 flex shrink-0 items-center gap-0.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Split Vertically"
+          title="Split Vertically"
+          data-pane-id={paneId}
+          className="h-6 w-6"
+          onClick={onSplitRight}
+        >
+          <Columns2 className="h-2.5 w-2.5" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Split Horizontally"
+          title="Split Horizontally"
+          data-pane-id={paneId}
+          className="h-6 w-6"
+          onClick={onSplitDown}
+        >
+          <Rows2 className="h-2.5 w-2.5" />
+        </Button>
+        <div className="mx-1 h-3.5 w-px bg-border/80" aria-hidden="true" />
         <Button
           type="button"
           variant="ghost"
           size="icon-sm"
           aria-label="New Terminal"
           title="New Terminal"
+          className="h-6 w-6"
           onClick={onAddTerminal}
         >
-          <SquareTerminal className="h-3.5 w-3.5" />
+          <SquareTerminal className="h-2.5 w-2.5" />
         </Button>
         <Button
           type="button"
@@ -216,34 +237,13 @@ export default function TabBar({
           size="icon-sm"
           aria-label="New Browser"
           title="New Browser"
+          className="h-6 w-6"
           onClick={() => {
             void onAddBrowser();
           }}
         >
-          <Globe className="h-3.5 w-3.5" />
+          <Globe className="h-2.5 w-2.5" />
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Pane Actions"
-              title="Pane Actions"
-              data-pane-id={paneId}
-            >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => onSplitRight?.()}>
-              Split Right
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onSplitDown?.()}>
-              Split Down
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     </div>
   );

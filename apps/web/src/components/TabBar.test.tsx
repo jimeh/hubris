@@ -46,6 +46,8 @@ function baseProps() {
     onClose: vi.fn(),
     onAddTerminal: vi.fn(),
     onAddBrowser: vi.fn().mockResolvedValue(undefined),
+    onSplitRight: vi.fn(),
+    onSplitDown: vi.fn(),
     onReorder: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -212,6 +214,12 @@ describe("TabBar", () => {
     const props = baseProps();
 
     render(<TabBar {...props} tabs={[makeTab("a", 1)]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Split Vertically" }));
+    expect(props.onSplitRight).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Split Horizontally" }));
+    expect(props.onSplitDown).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "New Terminal" }));
     expect(props.onAddTerminal).toHaveBeenCalledTimes(1);
