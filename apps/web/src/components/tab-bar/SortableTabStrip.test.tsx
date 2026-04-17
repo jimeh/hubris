@@ -38,17 +38,21 @@ vi.mock("@/lib/tabPresentation", () => ({
 
 vi.mock("./SortableTab", () => ({
   default: ({
+    tabId,
     label,
     title,
     iconKind,
     toneClass,
   }: {
+    tabId: string;
     label: string;
     title?: string;
     iconKind?: string;
     toneClass?: string;
   }) => (
-    <div>{`${label}:${title ?? ""}:${iconKind ?? ""}:${toneClass ?? ""}`}</div>
+    <div data-sortable-tab={tabId}>
+      {`${label}:${title ?? ""}:${iconKind ?? ""}:${toneClass ?? ""}`}
+    </div>
   ),
 }));
 
@@ -76,6 +80,8 @@ describe("SortableTabStrip", () => {
     render(
       <SortableTabStrip
         worktreeId="w1"
+        paneId="pane-1"
+        tabBarDropTargetId="pane-tab-bar:pane-1"
         tabs={[makeTab("a", 1), makeTab("b", 2)]}
         activeTabId="a"
         tabListRef={createRef<HTMLDivElement>()}
@@ -98,6 +104,8 @@ describe("SortableTabStrip", () => {
     render(
       <SortableTabStrip
         worktreeId="w1"
+        paneId="pane-1"
+        tabBarDropTargetId="pane-tab-bar:pane-1"
         tabs={[makeTab("a", 1), makeTab("b", 2)]}
         activeTabId="a"
         tabListRef={createRef<HTMLDivElement>()}
@@ -119,6 +127,8 @@ describe("SortableTabStrip", () => {
     render(
       <SortableTabStrip
         worktreeId="w1"
+        paneId="pane-1"
+        tabBarDropTargetId="pane-tab-bar:pane-1"
         tabs={[makeTab("a", 1), makeTab("b", 2)]}
         activeTabId="a"
         tabListRef={createRef<HTMLDivElement>()}
@@ -133,5 +143,83 @@ describe("SortableTabStrip", () => {
       "data-tab-dragging",
       "true",
     );
+  });
+
+  it("shows an insert indicator before the hovered tab for cross-pane drags", () => {
+    const { container } = render(
+      <SortableTabStrip
+        worktreeId="w1"
+        paneId="pane-1"
+        tabBarDropTargetId="pane-tab-bar:pane-1"
+        tabs={[makeTab("a", 1), makeTab("b", 2)]}
+        activeTabId="a"
+        tabListRef={createRef<HTMLDivElement>()}
+        onScroll={vi.fn()}
+        onActivate={vi.fn()}
+        onPin={vi.fn()}
+        onClose={vi.fn()}
+        dragging
+        draggingTabId="external-tab"
+        dragOverId="b"
+      />,
+    );
+
+    const tabBWrapper = container.querySelector('[data-tab-strip-item="b"]');
+    const indicator = container.querySelector("[data-tab-insert-indicator]");
+
+    expect(indicator).toBeInTheDocument();
+    expect(tabBWrapper?.firstElementChild).toBe(indicator);
+  });
+
+  it("shows an insert indicator after the hovered tab for same-pane drags moving right", () => {
+    const { container } = render(
+      <SortableTabStrip
+        worktreeId="w1"
+        paneId="pane-1"
+        tabBarDropTargetId="pane-tab-bar:pane-1"
+        tabs={[makeTab("a", 1), makeTab("b", 2)]}
+        activeTabId="a"
+        tabListRef={createRef<HTMLDivElement>()}
+        onScroll={vi.fn()}
+        onActivate={vi.fn()}
+        onPin={vi.fn()}
+        onClose={vi.fn()}
+        dragging
+        draggingTabId="a"
+        dragOverId="b"
+      />,
+    );
+
+    const tabBWrapper = container.querySelector('[data-tab-strip-item="b"]');
+    const indicator = container.querySelector("[data-tab-insert-indicator]");
+
+    expect(indicator).toBeInTheDocument();
+    expect(tabBWrapper?.lastElementChild).toBe(indicator);
+  });
+
+  it("shows an insert indicator at the end when hovering the pane tab bar", () => {
+    const { container } = render(
+      <SortableTabStrip
+        worktreeId="w1"
+        paneId="pane-1"
+        tabBarDropTargetId="pane-tab-bar:pane-1"
+        tabs={[makeTab("a", 1), makeTab("b", 2)]}
+        activeTabId="a"
+        tabListRef={createRef<HTMLDivElement>()}
+        onScroll={vi.fn()}
+        onActivate={vi.fn()}
+        onPin={vi.fn()}
+        onClose={vi.fn()}
+        dragging
+        draggingTabId="external-tab"
+        dragOverId="pane-tab-bar:pane-1"
+      />,
+    );
+
+    const tabBWrapper = container.querySelector('[data-tab-strip-item="b"]');
+    const indicator = container.querySelector("[data-tab-insert-indicator]");
+
+    expect(indicator).toBeInTheDocument();
+    expect(tabBWrapper?.lastElementChild).toBe(indicator);
   });
 });

@@ -52,7 +52,11 @@ export default function TabDragOverlay({
       showCloseButton
       width={width}
       onCloseTab={() => {}}
-      className="pointer-events-none opacity-100 drop-shadow-lg"
+      className={
+        isActive
+          ? "pointer-events-none opacity-75 drop-shadow-lg"
+          : "pointer-events-none bg-tab-bar opacity-80 drop-shadow-lg"
+      }
     />
   );
 }

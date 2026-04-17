@@ -70,9 +70,8 @@ const SortableTab = memo(function SortableTab({
   } = useSortable({ id: tabId });
 
   const style: CSSProperties = {
-    transform: isDragging ? undefined : CSS.Transform.toString(transform),
-    transition: isDragging ? undefined : transition,
-    visibility: isDragging ? "hidden" : undefined,
+    transform: dragging ? undefined : CSS.Transform.toString(transform),
+    transition: dragging ? undefined : transition,
     pointerEvents: isDragging ? "none" : undefined,
   };
 

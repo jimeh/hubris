@@ -188,7 +188,7 @@ describe("SortableTab", () => {
     expect(onResetTerminalName).toHaveBeenCalledWith("t1");
   });
 
-  it("keeps the dragged tab in layout but makes it invisible", () => {
+  it("keeps the dragged tab visible and in place while dragging", () => {
     mockIsDragging = true;
 
     render(
@@ -208,7 +208,7 @@ describe("SortableTab", () => {
     );
 
     const draggedTab = screen.getByText("Terminal 1");
-    expect(draggedTab).toHaveStyle({ visibility: "hidden" });
+    expect(draggedTab).not.toHaveStyle({ visibility: "hidden" });
     expect(draggedTab).toHaveStyle({ pointerEvents: "none" });
   });
 });

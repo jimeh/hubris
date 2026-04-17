@@ -61,7 +61,8 @@ describe("TabDragOverlay", () => {
     expect(overlayTab).not.toHaveClass(
       "shadow-[inset_0_-2px_0_var(--tab-active-border)]",
     );
-    expect(overlayTab).not.toHaveClass("bg-tab-bar");
+    expect(overlayTab).toHaveClass("bg-tab-bar");
+    expect(overlayTab).toHaveClass("opacity-80");
   });
 
   it("mirrors muted active styling for unfocused active tabs", () => {
@@ -94,5 +95,34 @@ describe("TabDragOverlay", () => {
     );
     expect(overlayTab).not.toHaveClass("bg-tab-active");
     expect(overlayTab).not.toHaveClass("bg-tab-bar");
+    expect(overlayTab).toHaveClass("opacity-75");
+  });
+
+  it("renders active overlays with reduced opacity", () => {
+    const tab: TerminalTab = {
+      id: "t1",
+      label: "Terminal 1",
+      position: 1,
+      worktree_id: "w1",
+      pane_id: "pane-1",
+      session_id: "default",
+      type: "terminal",
+      created_at: 0,
+      preview: false,
+    };
+
+    render(
+      <TabDragOverlay
+        worktreeId="w1"
+        tab={tab}
+        width={240}
+        isActive
+        paneFocused={true}
+      />,
+    );
+
+    const overlayTab = screen.getByRole("tab");
+    expect(overlayTab).toHaveClass("bg-tab-active");
+    expect(overlayTab).toHaveClass("opacity-75");
   });
 });

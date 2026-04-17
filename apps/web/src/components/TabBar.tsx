@@ -49,6 +49,8 @@ type Props = {
   onRenameTerminalTab?: (tabId: string, label: string) => Promise<void>;
   onResetTerminalTabName?: (tabId: string) => Promise<void>;
   dragging?: boolean;
+  draggingTabId?: string | null;
+  dragOverId?: string | null;
 };
 
 export default function TabBar({
@@ -72,8 +74,10 @@ export default function TabBar({
   onRenameTerminalTab = async () => {},
   onResetTerminalTabName = async () => {},
   dragging = false,
+  draggingTabId = null,
+  dragOverId = null,
 }: Props) {
-  const { isOver, setNodeRef } = useDroppable({
+  const { setNodeRef } = useDroppable({
     id: dropTargetId ?? `pane-tab-bar:${paneId}`,
     disabled: !dragging,
   });
@@ -148,16 +152,6 @@ export default function TabBar({
       className="flex min-h-9 items-stretch border-b border-tab-border bg-tab-bar px-1"
       data-worktree-id={worktreeId}
       data-pane-id={paneId}
-      data-pane-tab-bar-drop-active={dragging && isOver ? "true" : undefined}
-      style={
-        dragging && isOver
-          ? {
-              boxShadow: "inset 0 -1px 0 var(--primary)",
-              backgroundColor:
-                "color-mix(in srgb, var(--primary) 10%, var(--tab-bar))",
-            }
-          : undefined
-      }
     >
       <div className="relative min-w-0 flex-1 self-stretch">
         {canScrollLeft ? (
@@ -177,6 +171,8 @@ export default function TabBar({
 
         <SortableTabStrip
           worktreeId={worktreeId}
+          paneId={paneId}
+          tabBarDropTargetId={dropTargetId ?? `pane-tab-bar:${paneId}`}
           tabs={tabs}
           dirtyTabIds={dirtyTabIds}
           lockedTabIds={lockedTabIds}
@@ -191,6 +187,8 @@ export default function TabBar({
           onRenameTerminalTab={onRenameTerminalTab}
           onResetTerminalTabName={onResetTerminalTabName}
           dragging={dragging}
+          draggingTabId={draggingTabId}
+          dragOverId={dragOverId}
         />
 
         {canScrollRight ? (

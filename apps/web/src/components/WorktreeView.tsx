@@ -7,6 +7,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
@@ -75,6 +76,8 @@ type PaneLeafProps = {
   activeTabActions: TabBarAction[];
   focused: boolean;
   dragging: boolean;
+  draggingTabId: string | null;
+  dragOverId: string | null;
   dirtyTabIds: string[];
   lockedTabIds: string[];
   onActivateTab: (tabId: string) => void;
@@ -331,6 +334,8 @@ function PaneLeaf({
   activeTabActions,
   focused,
   dragging,
+  draggingTabId,
+  dragOverId,
   dirtyTabIds,
   lockedTabIds,
   onActivateTab,
@@ -372,6 +377,8 @@ function PaneLeaf({
         onRenameTerminalTab={onRenameTerminalTab}
         onResetTerminalTabName={onResetTerminalTabName}
         dragging={dragging}
+        draggingTabId={draggingTabId}
+        dragOverId={dragOverId}
       />
 
       <PaneViewport
@@ -460,6 +467,7 @@ export default function WorktreeView({ worktree, active }: Props) {
   );
   const [isPendingCloseSaving, setIsPendingCloseSaving] = useState(false);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [draggingTabWidth, setDraggingTabWidth] = useState<number | null>(null);
   const [tabBarActionsByTabId, setTabBarActionsByTabId] = useState<
     Record<string, TabBarAction[]>
@@ -930,12 +938,17 @@ export default function WorktreeView({ worktree, active }: Props) {
 
   function clearDragState(): void {
     setDraggingTabId(null);
+    setDragOverId(null);
     setDraggingTabWidth(null);
   }
 
   function handleDragStart(event: DragStartEvent): void {
     setDraggingTabId(String(event.active.id));
     setDraggingTabWidth(event.active.rect.current.initial?.width ?? null);
+  }
+
+  function handleDragOver(event: DragOverEvent): void {
+    setDragOverId(event.over ? String(event.over.id) : null);
   }
 
   function handleDragEnd(event: DragEndEvent): void {
@@ -1017,6 +1030,8 @@ export default function WorktreeView({ worktree, active }: Props) {
           activeTabActions={activeTabActions}
           focused={focusedPaneId === paneId}
           dragging={draggingTabId !== null}
+          draggingTabId={draggingTabId}
+          dragOverId={dragOverId}
           dirtyTabIds={dirtyTabIds}
           lockedTabIds={lockedTabIds}
           onActivateTab={handleActivateTab}
@@ -1046,6 +1061,7 @@ export default function WorktreeView({ worktree, active }: Props) {
       activePaneTabIds,
       addTerminal,
       dirtyTabIds,
+      dragOverId,
       draggingTabId,
       emptyState,
       focusPane,
@@ -1108,6 +1124,7 @@ export default function WorktreeView({ worktree, active }: Props) {
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
           onDragCancel={clearDragState}
         >

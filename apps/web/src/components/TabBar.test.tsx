@@ -299,7 +299,7 @@ describe("TabBar", () => {
     expect(screen.getAllByTestId("tab-bar-pane-1-divider")).toHaveLength(1);
   });
 
-  it("marks the pane tab bar as an active drop target during drag", () => {
+  it("registers the pane tab bar as a drop target during drag", () => {
     useDroppableMock.mockReturnValue({
       isOver: true,
       setNodeRef: vi.fn(),
@@ -307,8 +307,6 @@ describe("TabBar", () => {
 
     render(<TabBar {...baseProps()} tabs={[makeTab("a", 1)]} dragging />);
 
-    const tabBar = screen.getByRole("tablist").closest("[data-worktree-id]");
-    expect(tabBar).toHaveAttribute("data-pane-tab-bar-drop-active", "true");
     expect(useDroppableMock).toHaveBeenCalledWith({
       id: "pane-tab-bar:pane-1",
       disabled: false,
