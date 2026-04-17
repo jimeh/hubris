@@ -489,6 +489,58 @@ describe("Tab store", () => {
     });
   });
 
+  it("closing the focused pane falls back to the previously focused pane", async () => {
+    const store = await getStore();
+    mockDeleteTab.mockResolvedValue(undefined);
+
+    mockEvents.emit("snapshot", {
+      tabs: [
+        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" }),
+        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-2" }),
+        makeTab({ id: "c", worktree_id: "w1", pane_id: "pane-3" }),
+      ],
+      tab_layouts: {
+        w1: {
+          rootId: "split-root",
+          nodes: [
+            { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
+            { type: "leaf", id: "leaf-b", pane_id: "pane-2" },
+            { type: "leaf", id: "leaf-c", pane_id: "pane-3" },
+            {
+              type: "split",
+              id: "split-right",
+              axis: "horizontal",
+              ratio: 0.5,
+              first_id: "leaf-b",
+              second_id: "leaf-c",
+            },
+            {
+              type: "split",
+              id: "split-root",
+              axis: "vertical",
+              ratio: 0.5,
+              first_id: "leaf-a",
+              second_id: "split-right",
+            },
+          ],
+        },
+      },
+    });
+
+    store.useTabStore.getState().focusPane("w1", "pane-3");
+    store.useTabStore.getState().focusPane("w1", "pane-2");
+
+    await store.useTabStore.getState().close("b");
+
+    expect(store.useTabStore.getState().focusedPaneByWorktree.w1).toBe(
+      "pane-3",
+    );
+    expect(store.useTabStore.getState().activeTabId).toBe("c");
+    expect(
+      store.useTabStore.getState().focusedPaneHistoryByWorktree.w1,
+    ).toEqual(["pane-3", "pane-1"]);
+  });
+
   it("snapshot prunes stale active-tab persistence", async () => {
     localStorage.setItem("hubris-active-tab", "gone");
     localStorage.setItem(

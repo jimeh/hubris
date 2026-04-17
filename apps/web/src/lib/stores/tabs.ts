@@ -94,6 +94,7 @@ type TabsState = {
   activeTabByWorktree: Record<string, string>;
   activeTabByPane: Record<string, string>;
   focusedPaneByWorktree: Record<string, string>;
+  focusedPaneHistoryByWorktree: Record<string, string[]>;
   addTerminal: (worktreeId: string, paneId?: string) => Promise<Tab>;
   setTerminalCustomLabel: (
     id: string,
@@ -150,6 +151,9 @@ type PersistedSelection = Pick<
   | "focusedPaneByWorktree"
 >;
 
+type SelectionState = PersistedSelection &
+  Pick<TabsState, "focusedPaneHistoryByWorktree">;
+
 function lsGet(key: string): string | null {
   try {
     return localStorage.getItem(key);
@@ -200,14 +204,28 @@ function persistSelection(selection: PersistedSelection): void {
   );
 }
 
-function initialSelection(): PersistedSelection {
+function initialFocusedPaneHistory(
+  focusedPaneByWorktree: Record<string, string>,
+): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.entries(focusedPaneByWorktree)
+      .filter(([, paneId]) => Boolean(paneId))
+      .map(([worktreeId, paneId]) => [worktreeId, [paneId]]),
+  );
+}
+
+function initialSelection(): SelectionState {
+  const focusedPaneByWorktree =
+    lsGetJson<Record<string, string>>(LS_FOCUSED_PANE_BY_WORKTREE) ?? {};
   return {
     activeTabId: lsGet(LS_ACTIVE_TAB),
     activeTabByWorktree:
       lsGetJson<Record<string, string>>(LS_TAB_BY_WORKTREE) ?? {},
     activeTabByPane: lsGetJson<Record<string, string>>(LS_TAB_BY_PANE) ?? {},
-    focusedPaneByWorktree:
-      lsGetJson<Record<string, string>>(LS_FOCUSED_PANE_BY_WORKTREE) ?? {},
+    focusedPaneByWorktree,
+    focusedPaneHistoryByWorktree: initialFocusedPaneHistory(
+      focusedPaneByWorktree,
+    ),
   };
 }
 
@@ -459,11 +477,60 @@ function activeTabMapEqual(
   return JSON.stringify(compactRecord(a)) === JSON.stringify(compactRecord(b));
 }
 
+function paneHistoryMapEqual(
+  a: Record<string, string[]>,
+  b: Record<string, string[]>,
+): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function pushPaneFocusHistory(
+  historyByWorktree: Record<string, string[]>,
+  worktreeId: string,
+  paneId: string,
+): Record<string, string[]> {
+  const nextHistory = [
+    paneId,
+    ...(historyByWorktree[worktreeId] ?? []).filter(
+      (candidate) => candidate !== paneId,
+    ),
+  ];
+  return {
+    ...historyByWorktree,
+    [worktreeId]: nextHistory,
+  };
+}
+
+function prunePaneFocusHistory(
+  historyByWorktree: Record<string, string[]>,
+  worktreeId: string,
+  paneIds: string[],
+  preferredPaneId?: string,
+): Record<string, string[]> {
+  const paneIdSet = new Set(paneIds);
+  const preserved = (historyByWorktree[worktreeId] ?? []).filter(
+    (paneId, index, array) =>
+      paneIdSet.has(paneId) && array.indexOf(paneId) === index,
+  );
+  const nextHistory =
+    preferredPaneId && paneIdSet.has(preferredPaneId)
+      ? [
+          preferredPaneId,
+          ...preserved.filter((paneId) => paneId !== preferredPaneId),
+        ]
+      : preserved;
+
+  return {
+    ...historyByWorktree,
+    [worktreeId]: nextHistory,
+  };
+}
+
 function focusPaneLocal(
   state: TabsState,
   worktreeId: string,
   paneId: string,
-): PersistedSelection {
+): SelectionState {
   const paneTabs = tabsForPane(
     tabsForWorktreeInternal(state.tabs, worktreeId),
     paneId,
@@ -473,6 +540,11 @@ function focusPaneLocal(
     ...state.focusedPaneByWorktree,
     [worktreeId]: paneId,
   };
+  const nextFocusedPaneHistoryByWorktree = pushPaneFocusHistory(
+    state.focusedPaneHistoryByWorktree,
+    worktreeId,
+    paneId,
+  );
   const nextActiveTabByWorktree = { ...state.activeTabByWorktree };
   const activeTabId =
     (nextActiveTabByPane[paneId] &&
@@ -493,12 +565,13 @@ function focusPaneLocal(
     activeTabByWorktree: nextActiveTabByWorktree,
     activeTabByPane: nextActiveTabByPane,
     focusedPaneByWorktree: nextFocusedPaneByWorktree,
+    focusedPaneHistoryByWorktree: nextFocusedPaneHistoryByWorktree,
   };
   persistSelection(selection);
   return selection;
 }
 
-function activateLocal(state: TabsState, id: string): PersistedSelection {
+function activateLocal(state: TabsState, id: string): SelectionState {
   const tab = state.tabs.find((candidate) => candidate.id === id);
   if (!tab) {
     const selection = {
@@ -506,11 +579,17 @@ function activateLocal(state: TabsState, id: string): PersistedSelection {
       activeTabByWorktree: state.activeTabByWorktree,
       activeTabByPane: state.activeTabByPane,
       focusedPaneByWorktree: state.focusedPaneByWorktree,
+      focusedPaneHistoryByWorktree: state.focusedPaneHistoryByWorktree,
     };
     persistSelection(selection);
     return selection;
   }
 
+  const nextFocusedPaneHistoryByWorktree = pushPaneFocusHistory(
+    state.focusedPaneHistoryByWorktree,
+    tab.worktree_id,
+    tab.pane_id,
+  );
   const selection = {
     activeTabId: id,
     activeTabByWorktree: {
@@ -525,6 +604,7 @@ function activateLocal(state: TabsState, id: string): PersistedSelection {
       ...state.focusedPaneByWorktree,
       [tab.worktree_id]: tab.pane_id,
     },
+    focusedPaneHistoryByWorktree: nextFocusedPaneHistoryByWorktree,
   };
   persistSelection(selection);
   return selection;
@@ -534,7 +614,7 @@ function reconcileSelection(
   state: TabsState,
   nextTabs: Tab[],
   nextLayoutsByWorktree: Record<string, WorktreeTabLayout>,
-): PersistedSelection {
+): SelectionState {
   const tabsById = new Map(nextTabs.map((tab) => [tab.id, tab]));
   const previousActiveWorktreeId =
     state.activeTabId &&
@@ -546,6 +626,9 @@ function reconcileSelection(
   );
   const nextFocusedPaneByWorktree: Record<string, string> = {};
   const nextActiveTabByWorktree: Record<string, string> = {};
+  const nextFocusedPaneHistoryByWorktree = {
+    ...state.focusedPaneHistoryByWorktree,
+  };
   const worktreeIds = new Set([
     ...Object.keys(nextLayoutsByWorktree),
     ...nextTabs.map((tab) => tab.worktree_id),
@@ -576,7 +659,16 @@ function reconcileSelection(
     }
 
     const focusedPaneId = state.focusedPaneByWorktree[worktreeId];
+    const history =
+      nextFocusedPaneHistoryByWorktree[worktreeId]?.filter((paneId) =>
+        paneIds.includes(paneId),
+      ) ?? [];
     const nextFocusedPaneId =
+      history.find(
+        (paneId) =>
+          tabsForPane(tabsForWorktreeInternal(nextTabs, worktreeId), paneId)
+            .length > 0,
+      ) ||
       (focusedPaneId && paneIds.includes(focusedPaneId) && focusedPaneId) ||
       paneIds.find(
         (paneId) =>
@@ -586,6 +678,10 @@ function reconcileSelection(
       paneIds[0];
 
     nextFocusedPaneByWorktree[worktreeId] = nextFocusedPaneId;
+    nextFocusedPaneHistoryByWorktree[worktreeId] = [
+      nextFocusedPaneId,
+      ...history.filter((paneId) => paneId !== nextFocusedPaneId),
+    ];
 
     const nextActiveForWorktree = nextActiveTabByPane[nextFocusedPaneId];
     if (nextActiveForWorktree) {
@@ -608,6 +704,12 @@ function reconcileSelection(
       nextActiveTabByPane[activeTab.pane_id] = activeTab.id;
       nextActiveTabByWorktree[activeTab.worktree_id] = activeTab.id;
       nextFocusedPaneByWorktree[activeTab.worktree_id] = activeTab.pane_id;
+      nextFocusedPaneHistoryByWorktree[activeTab.worktree_id] = [
+        activeTab.pane_id,
+        ...(
+          nextFocusedPaneHistoryByWorktree[activeTab.worktree_id] ?? []
+        ).filter((paneId) => paneId !== activeTab.pane_id),
+      ];
     }
   }
 
@@ -616,6 +718,7 @@ function reconcileSelection(
     activeTabByWorktree: nextActiveTabByWorktree,
     activeTabByPane: nextActiveTabByPane,
     focusedPaneByWorktree: nextFocusedPaneByWorktree,
+    focusedPaneHistoryByWorktree: nextFocusedPaneHistoryByWorktree,
   };
   persistSelection(selection);
   return selection;
@@ -1221,11 +1324,17 @@ export const useTabStore = create<TabsState>((set, get) => {
             ...current.focusedPaneByWorktree,
             [worktreeId]: next.destinationPaneId,
           };
+          const focusedPaneHistoryByWorktree = pushPaneFocusHistory(
+            current.focusedPaneHistoryByWorktree,
+            worktreeId,
+            next.destinationPaneId,
+          );
           const selection = {
             activeTabId: current.activeTabId,
             activeTabByWorktree: current.activeTabByWorktree,
             activeTabByPane: current.activeTabByPane,
             focusedPaneByWorktree,
+            focusedPaneHistoryByWorktree,
           };
           persistSelection(selection);
           return {
@@ -1234,6 +1343,7 @@ export const useTabStore = create<TabsState>((set, get) => {
               [worktreeId]: next.layout,
             },
             focusedPaneByWorktree,
+            focusedPaneHistoryByWorktree,
           };
         })(),
       }));
@@ -1302,12 +1412,18 @@ export const useTabStore = create<TabsState>((set, get) => {
             activeTabByWorktree: state.activeTabByWorktree,
             activeTabByPane: state.activeTabByPane,
             focusedPaneByWorktree: state.focusedPaneByWorktree,
+            focusedPaneHistoryByWorktree: state.focusedPaneHistoryByWorktree,
           };
           persistSelection(selection);
           return { activeTabId: null };
         }
 
+        const focusedPaneHistory =
+          state.focusedPaneHistoryByWorktree[worktreeId]?.filter((paneId) =>
+            paneIds.includes(paneId),
+          ) ?? [];
         const focusedPaneId =
+          focusedPaneHistory[0] ||
           (state.focusedPaneByWorktree[worktreeId] &&
             paneIds.includes(state.focusedPaneByWorktree[worktreeId]) &&
             state.focusedPaneByWorktree[worktreeId]) ||
@@ -1339,6 +1455,12 @@ export const useTabStore = create<TabsState>((set, get) => {
             ...state.focusedPaneByWorktree,
             [worktreeId]: focusedPaneId,
           },
+          focusedPaneHistoryByWorktree: prunePaneFocusHistory(
+            state.focusedPaneHistoryByWorktree,
+            worktreeId,
+            paneIds,
+            focusedPaneId,
+          ),
         };
         persistSelection(selection);
         return selection;
@@ -1406,6 +1528,10 @@ export function initializeTabStore(): void {
           activeTabMapEqual(
             selection.focusedPaneByWorktree,
             state.focusedPaneByWorktree,
+          ) &&
+          paneHistoryMapEqual(
+            selection.focusedPaneHistoryByWorktree,
+            state.focusedPaneHistoryByWorktree,
           )
         ) {
           return state;
