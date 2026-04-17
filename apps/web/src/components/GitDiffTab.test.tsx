@@ -2,6 +2,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GitDiffTab from "./GitDiffTab";
+import type { TabBarAction } from "@/components/TabBar";
 import type { GitDiffSession } from "@/lib/stores/gitDiffTabs";
 import type { GitDiffTab as GitDiffTabType } from "@/lib/types";
 
@@ -11,6 +12,7 @@ const save = vi.fn().mockResolvedValue(undefined);
 const reload = vi.fn();
 const clearExternalChange = vi.fn();
 const pin = vi.fn();
+const goToDiff = vi.fn();
 
 const editableSession: GitDiffSession = {
   tabId: "diff-1",
@@ -36,9 +38,38 @@ const sessionState: { session: GitDiffSession } = {
   session: editableSession,
 };
 
-vi.mock("@monaco-editor/react", () => ({
-  DiffEditor: () => <div data-testid="diff-editor" />,
-}));
+vi.mock("@monaco-editor/react", async () => {
+  const { useEffect } = await vi.importActual<typeof import("react")>("react");
+
+  return {
+    DiffEditor: ({
+      onMount,
+    }: {
+      onMount?: (editor: unknown, monaco: unknown) => void;
+    }) => {
+      useEffect(() => {
+        onMount?.(
+          {
+            getModifiedEditor: () => ({
+              getValue: () => sessionState.session.draft,
+              onDidChangeModelContent: () => ({
+                dispose: vi.fn(),
+              }),
+              addCommand: vi.fn(),
+            }),
+            goToDiff,
+          },
+          {
+            KeyMod: { CtrlCmd: 2048 },
+            KeyCode: { KeyS: 49 },
+          },
+        );
+      }, [onMount]);
+
+      return <div data-testid="diff-editor" />;
+    },
+  };
+});
 
 vi.mock("@/lib/monaco", () => ({
   applyMonacoTheme: vi.fn(),
@@ -155,5 +186,82 @@ describe("GitDiffTab", () => {
     expect(
       screen.queryByRole("button", { name: "Save" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("registers previous and next diff actions after mount", () => {
+    const setTabBarActionsForTab = vi.fn();
+
+    render(
+      <GitDiffTab
+        projectId="p1"
+        worktreeId="w1"
+        tab={makeTab()}
+        visible
+        setTabBarActionsForTab={setTabBarActionsForTab}
+      />,
+    );
+
+    expect(setTabBarActionsForTab).toHaveBeenCalledWith(
+      "diff-1",
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "previous-change",
+          label: "Previous Change",
+          disabled: false,
+        }),
+        expect.objectContaining({
+          id: "next-change",
+          label: "Next Change",
+          disabled: false,
+        }),
+      ]),
+    );
+  });
+
+  it("invokes Monaco diff navigation from registered actions", () => {
+    const setTabBarActionsForTab = vi.fn();
+
+    render(
+      <GitDiffTab
+        projectId="p1"
+        worktreeId="w1"
+        tab={makeTab()}
+        visible
+        setTabBarActionsForTab={setTabBarActionsForTab}
+      />,
+    );
+
+    const registeredActions = setTabBarActionsForTab.mock.calls.at(-1)?.[1] as
+      | TabBarAction[]
+      | undefined;
+
+    expect(registeredActions).toBeDefined();
+
+    void registeredActions
+      ?.find((action) => action.id === "previous-change")
+      ?.onClick();
+    void registeredActions
+      ?.find((action) => action.id === "next-change")
+      ?.onClick();
+
+    expect(goToDiff).toHaveBeenNthCalledWith(1, "previous");
+    expect(goToDiff).toHaveBeenNthCalledWith(2, "next");
+  });
+
+  it("unregisters diff actions on unmount", () => {
+    const setTabBarActionsForTab = vi.fn();
+    const view = render(
+      <GitDiffTab
+        projectId="p1"
+        worktreeId="w1"
+        tab={makeTab()}
+        visible
+        setTabBarActionsForTab={setTabBarActionsForTab}
+      />,
+    );
+
+    view.unmount();
+
+    expect(setTabBarActionsForTab).toHaveBeenLastCalledWith("diff-1", null);
   });
 });

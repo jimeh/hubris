@@ -5,6 +5,7 @@ import {
   moveTabBetweenPanes,
   setPaneSplitRatio,
   serializePaneTabs,
+  sortTabs,
   type PaneTree,
 } from "@/lib/tabLayout";
 import type { Tab, TerminalTab, WorktreeTabLayout } from "@/lib/types";
@@ -150,6 +151,23 @@ describe("tabLayout", () => {
         first_id: "leaf-left",
         second_id: "leaf-right",
       },
+    ]);
+  });
+
+  it("dedupes repeated tab ids when sorting tabs", () => {
+    const tabs: Tab[] = [
+      makeTerminalTab("tab-a", "pane-a", 1),
+      {
+        ...makeTerminalTab("tab-a", "pane-b", 2),
+        created_at: 10,
+      },
+      makeTerminalTab("tab-b", "pane-b", 1),
+    ];
+
+    expect(tabs.map((tab) => tab.id)).toEqual(["tab-a", "tab-a", "tab-b"]);
+    expect(sortTabs(tabs).map((tab) => [tab.id, tab.pane_id])).toEqual([
+      ["tab-b", "pane-b"],
+      ["tab-a", "pane-b"],
     ]);
   });
 });

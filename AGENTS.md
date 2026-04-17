@@ -207,6 +207,13 @@ or `pnpm-lock.yaml`.
   mounted in a worktree-level host. Reparenting those heavy tabs inside pane
   subtrees causes terminal websocket reconnects, browser view churn, and blank
   split panes during layout transitions.
+- The split-pane scene host should keep heavy tab scenes in a stable host order
+  independent of tab-strip reorders. Reordering Monaco-backed scenes in the DOM
+  can trigger editor lifecycle crashes during drag/drop even when tab identity
+  is otherwise stable.
+- Git status views should not key rows by bare `path` alone. The same path can
+  appear more than once in a rendered section/tree, so React keys need section
+  or index context to avoid duplicate-key crashes.
 
 <!-- gitnexus:start -->
 

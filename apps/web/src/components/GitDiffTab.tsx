@@ -4,10 +4,18 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type ComponentProps,
 } from "react";
 import { DiffEditor } from "@monaco-editor/react";
-import { LoaderCircle, RefreshCw, Save } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  LoaderCircle,
+  RefreshCw,
+  Save,
+} from "lucide-react";
+import type { TabBarAction } from "@/components/TabBar";
 import { Button } from "@/components/ui/button";
 import { applyMonacoTheme, getGitDiffModelPaths } from "@/lib/monaco";
 import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
@@ -21,9 +29,23 @@ type Props = {
   worktreeId: string;
   tab: GitDiffTabType;
   visible: boolean;
+  setTabBarActionsForTab?: (
+    tabId: string,
+    actions: TabBarAction[] | null,
+  ) => void;
 };
 
-function GitDiffTab({ projectId, worktreeId, tab, visible }: Props) {
+type DiffEditorInstance = Parameters<
+  NonNullable<ComponentProps<typeof DiffEditor>["onMount"]>
+>[0];
+
+function GitDiffTab({
+  projectId,
+  worktreeId,
+  tab,
+  visible,
+  setTabBarActionsForTab,
+}: Props) {
   const session = useGitDiffStore((state) => state.sessions[tab.id]);
   const ensureLoaded = useGitDiffStore((state) => state.ensureLoaded);
   const updateDraft = useGitDiffStore((state) => state.updateDraft);
@@ -65,6 +87,34 @@ function GitDiffTab({ projectId, worktreeId, tab, visible }: Props) {
     applyMonacoTheme(state.activeTheme, state.editorThemeData);
   }, []);
   const changeDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const diffEditorRef = useRef<DiffEditorInstance | null>(null);
+  const [diffEditorReady, setDiffEditorReady] = useState(false);
+
+  const goToPreviousChange = useCallback(() => {
+    diffEditorRef.current?.goToDiff("previous");
+  }, []);
+  const goToNextChange = useCallback(() => {
+    diffEditorRef.current?.goToDiff("next");
+  }, []);
+  const tabBarActions = useMemo<TabBarAction[]>(
+    () => [
+      {
+        id: "previous-change",
+        icon: ChevronUp,
+        label: "Previous Change",
+        onClick: goToPreviousChange,
+        disabled: !diffEditorReady,
+      },
+      {
+        id: "next-change",
+        icon: ChevronDown,
+        label: "Next Change",
+        onClick: goToNextChange,
+        disabled: !diffEditorReady,
+      },
+    ],
+    [diffEditorReady, goToNextChange, goToPreviousChange],
+  );
 
   const handleMount = useCallback(
     (
@@ -75,6 +125,8 @@ function GitDiffTab({ projectId, worktreeId, tab, visible }: Props) {
         NonNullable<ComponentProps<typeof DiffEditor>["onMount"]>
       >[1],
     ) => {
+      diffEditorRef.current = editor;
+      setDiffEditorReady(true);
       const modifiedEditor = editor.getModifiedEditor();
 
       changeDisposableRef.current?.dispose();
@@ -107,12 +159,18 @@ function GitDiffTab({ projectId, worktreeId, tab, visible }: Props) {
     void ensureLoaded(projectId, worktreeId, tab);
   }, [ensureLoaded, projectId, tab, worktreeId]);
 
+  useEffect(() => {
+    setTabBarActionsForTab?.(tab.id, tabBarActions);
+  }, [setTabBarActionsForTab, tab.id, tabBarActions]);
+
   useEffect(
     () => () => {
       changeDisposableRef.current?.dispose();
       changeDisposableRef.current = null;
+      diffEditorRef.current = null;
+      setTabBarActionsForTab?.(tab.id, null);
     },
-    [],
+    [setTabBarActionsForTab, tab.id],
   );
 
   if (!session || session.loadStatus === "loading") {

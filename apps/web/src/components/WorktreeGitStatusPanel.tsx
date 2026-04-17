@@ -86,6 +86,29 @@ type Props = {
 type TreeOpenState = Record<string, boolean>;
 type ChangeSection = "unstaged" | "staged";
 type DiffScope = ChangeSection | "commit";
+
+function gitChangeKey(
+  section: ChangeSection,
+  change: WorktreeGitFileChange,
+  index: number,
+): string {
+  return [
+    section,
+    change.path,
+    change.original_path ?? "",
+    change.change_type,
+    index,
+  ].join(":");
+}
+
+function treeNodeKey(
+  scope: DiffScope,
+  path: string,
+  kind: WorktreeGitStatusTreeNode["kind"],
+  index: number,
+): string {
+  return [scope, kind, path, index].join(":");
+}
 type SectionKey = ChangeSection | "commits";
 type SectionOpenState = Record<SectionKey, boolean>;
 type SectionOpenStateByWorktree = Record<string, SectionOpenState>;
@@ -760,10 +783,10 @@ function TreeDirectoryNode({
         <CollapsibleContent>
           <div className="ml-[15px] border-l border-sidebar-border/70 pl-[9px]">
             <SidebarMenu className="gap-0.5 py-0.5">
-              {node.children.map((child) =>
+              {node.children.map((child, index) =>
                 child.kind === "directory" ? (
                   <TreeDirectoryNode
-                    key={child.path}
+                    key={treeNodeKey(section, child.path, child.kind, index)}
                     node={child}
                     depth={depth + 1}
                     section={section}
@@ -776,7 +799,7 @@ function TreeDirectoryNode({
                   />
                 ) : (
                   <TreeFileNode
-                    key={child.path}
+                    key={treeNodeKey(section, child.path, child.kind, index)}
                     node={child}
                     section={section}
                     theme={theme}
@@ -896,9 +919,9 @@ function StatusFileSection({
           <p className="text-sm text-muted-foreground">No changes.</p>
         ) : viewMode === "list" ? (
           <SidebarMenu>
-            {changes.map((change) => (
+            {changes.map((change, index) => (
               <FilePathRow
-                key={change.path}
+                key={gitChangeKey(section, change, index)}
                 change={change}
                 section={section}
                 theme={theme}
@@ -910,10 +933,10 @@ function StatusFileSection({
           </SidebarMenu>
         ) : (
           <SidebarMenu>
-            {tree.map((node) =>
+            {tree.map((node, index) =>
               node.kind === "directory" ? (
                 <TreeDirectoryNode
-                  key={node.path}
+                  key={treeNodeKey(section, node.path, node.kind, index)}
                   node={node}
                   depth={0}
                   section={section}
@@ -926,7 +949,7 @@ function StatusFileSection({
                 />
               ) : (
                 <TreeFileNode
-                  key={node.path}
+                  key={treeNodeKey(section, node.path, node.kind, index)}
                   node={node}
                   section={section}
                   theme={theme}
@@ -1078,10 +1101,10 @@ function CommitTreeDirectoryNode({
         <CollapsibleContent>
           <div className="ml-[15px] border-l border-sidebar-border/70 pl-[9px]">
             <SidebarMenu className="gap-0.5 py-0.5">
-              {node.children.map((child) =>
+              {node.children.map((child, index) =>
                 child.kind === "directory" ? (
                   <CommitTreeDirectoryNode
-                    key={child.path}
+                    key={treeNodeKey("commit", child.path, child.kind, index)}
                     node={child}
                     depth={depth + 1}
                     theme={theme}
@@ -1092,7 +1115,7 @@ function CommitTreeDirectoryNode({
                   />
                 ) : (
                   <CommitTreeFileNode
-                    key={child.path}
+                    key={treeNodeKey("commit", child.path, child.kind, index)}
                     node={child}
                     theme={theme}
                     commitId={commitId}

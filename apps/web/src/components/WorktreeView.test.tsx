@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
+import type { TabBarAction } from "@/components/TabBar";
 import type {
   BrowserTab,
   FileTab,
@@ -39,17 +40,30 @@ const terminalRenderSpy = vi.fn<(tabId: string) => void>();
 
 vi.mock("@/components/TabBar", () => ({
   default: ({
+    paneId = "pane-1",
     tabs,
+    activeTabActions = [],
     onClose,
     onAddTerminal,
     onAddBrowser,
   }: {
+    paneId?: string;
     tabs: Array<{ id: string }>;
+    activeTabActions?: TabBarAction[];
     onClose: (tabId: string) => void;
     onAddTerminal?: () => void;
     onAddBrowser?: () => Promise<void>;
   }) => (
-    <div>
+    <div data-testid={`tab-bar-${paneId}`}>
+      {activeTabActions.map((action) => (
+        <button
+          key={action.id}
+          disabled={action.disabled}
+          onClick={() => void action.onClick()}
+        >
+          {action.label}
+        </button>
+      ))}
       <button onClick={() => onAddTerminal?.()}>Add terminal</button>
       <button onClick={() => void onAddBrowser?.()}>Add browser</button>
       {tabs.map((tab) => (
@@ -91,9 +105,39 @@ vi.mock("@/components/FileEditorTab", () => ({
   default: () => <div>File editor</div>,
 }));
 
-vi.mock("@/components/GitDiffTab", () => ({
-  default: () => <div>Git diff</div>,
-}));
+vi.mock("@/components/GitDiffTab", async () => {
+  const { useEffect } = await vi.importActual<typeof import("react")>("react");
+
+  return {
+    default: function MockGitDiffTab({
+      tab,
+      setTabBarActionsForTab,
+    }: {
+      tab: { id: string };
+      setTabBarActionsForTab?: (
+        tabId: string,
+        actions: TabBarAction[] | null,
+      ) => void;
+    }) {
+      useEffect(() => {
+        setTabBarActionsForTab?.(tab.id, [
+          {
+            id: `action-${tab.id}`,
+            icon: (() => null) as never,
+            label: `Action ${tab.id}`,
+            onClick: () => {},
+          },
+        ]);
+
+        return () => {
+          setTabBarActionsForTab?.(tab.id, null);
+        };
+      }, [setTabBarActionsForTab, tab.id]);
+
+      return <div data-testid={`git-diff-${tab.id}`}>Git diff</div>;
+    },
+  };
+});
 
 vi.mock("@/components/BrowserTab", () => ({
   default: ({
@@ -368,6 +412,51 @@ describe("WorktreeView", () => {
     expect(getTerminalRenderCounts()).toEqual({ a: 2, b: 1 });
   });
 
+  it("keeps hosted scene order stable when tab strip order changes", () => {
+    const worktree = makeWorktree();
+
+    useTabStore.setState({
+      tabs: [
+        makeTab("a", worktree.id, { position: 1, created_at: 10 }),
+        makeTab("b", worktree.id, { position: 2, created_at: 20 }),
+        makeGitDiffTab("diff-1", worktree.id, {
+          position: 3,
+          created_at: 30,
+          path: "README copy.md",
+        }),
+      ],
+      activeTabId: "diff-1",
+      activeTabByWorktree: { [worktree.id]: "diff-1" },
+      activeTabByPane: { "pane-1": "diff-1" },
+      focusedPaneByWorktree: { [worktree.id]: "pane-1" },
+    });
+
+    const view = render(<WorktreeView worktree={worktree} active />);
+    const sceneIdsBefore = Array.from(
+      view.container.querySelectorAll("[data-tab-scene]"),
+    ).map((element) => element.getAttribute("data-tab-scene"));
+
+    act(() => {
+      useTabStore.setState((state) => ({
+        tabs: state.tabs.map((tab) =>
+          tab.id === "diff-1"
+            ? { ...tab, position: 1 }
+            : tab.id === "a"
+              ? { ...tab, position: 2 }
+              : tab.id === "b"
+                ? { ...tab, position: 3 }
+                : tab,
+        ),
+      }));
+    });
+
+    const sceneIdsAfter = Array.from(
+      view.container.querySelectorAll("[data-tab-scene]"),
+    ).map((element) => element.getAttribute("data-tab-scene"));
+
+    expect(sceneIdsAfter).toEqual(sceneIdsBefore);
+  });
+
   it("updates right sidebar width without rerendering terminal tabs", async () => {
     const worktree = makeWorktree();
 
@@ -630,6 +719,84 @@ describe("WorktreeView", () => {
     expect(
       document.querySelector('[data-tab-id="terminal-a"]'),
     ).toHaveAttribute("data-visible", "true");
+  });
+
+  it("shows active-tab actions only in the focused pane", () => {
+    const worktree = makeWorktree();
+    const leftTab = makeGitDiffTab("diff-a", worktree.id, {
+      pane_id: "pane-1",
+      position: 1,
+    });
+    const rightTab = makeGitDiffTab("diff-b", worktree.id, {
+      pane_id: "pane-2",
+      position: 1,
+    });
+
+    useTabStore.setState({
+      tabs: [leftTab, rightTab],
+      layoutsByWorktree: { [worktree.id]: makeSplitLayout() },
+      activeTabId: leftTab.id,
+      activeTabByWorktree: { [worktree.id]: leftTab.id },
+      activeTabByPane: {
+        "pane-1": leftTab.id,
+        "pane-2": rightTab.id,
+      },
+      focusedPaneByWorktree: { [worktree.id]: "pane-1" },
+    });
+
+    render(<WorktreeView worktree={worktree} active />);
+
+    expect(screen.getByTestId("tab-bar-pane-1")).toHaveTextContent(
+      "Action diff-a",
+    );
+    expect(screen.getByTestId("tab-bar-pane-2")).not.toHaveTextContent(
+      "Action diff-b",
+    );
+  });
+
+  it("switches active-tab actions when pane focus changes", () => {
+    const worktree = makeWorktree();
+    const leftTab = makeGitDiffTab("diff-a", worktree.id, {
+      pane_id: "pane-1",
+      position: 1,
+    });
+    const rightTab = makeGitDiffTab("diff-b", worktree.id, {
+      pane_id: "pane-2",
+      position: 1,
+    });
+
+    useTabStore.setState({
+      tabs: [leftTab, rightTab],
+      layoutsByWorktree: { [worktree.id]: makeSplitLayout() },
+      activeTabId: leftTab.id,
+      activeTabByWorktree: { [worktree.id]: leftTab.id },
+      activeTabByPane: {
+        "pane-1": leftTab.id,
+        "pane-2": rightTab.id,
+      },
+      focusedPaneByWorktree: { [worktree.id]: "pane-1" },
+    });
+
+    render(<WorktreeView worktree={worktree} active />);
+
+    expect(screen.getByTestId("tab-bar-pane-1")).toHaveTextContent(
+      "Action diff-a",
+    );
+    expect(screen.getByTestId("tab-bar-pane-2")).not.toHaveTextContent(
+      "Action diff-b",
+    );
+
+    fireEvent.mouseDown(screen.getByTestId("git-diff-diff-b"));
+
+    expect(useTabStore.getState().focusedPaneByWorktree[worktree.id]).toBe(
+      "pane-2",
+    );
+    expect(screen.getByTestId("tab-bar-pane-1")).not.toHaveTextContent(
+      "Action diff-a",
+    );
+    expect(screen.getByTestId("tab-bar-pane-2")).toHaveTextContent(
+      "Action diff-b",
+    );
   });
 
   it("focuses a pane when clicking inside its terminal scene", () => {

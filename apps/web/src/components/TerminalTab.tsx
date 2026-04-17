@@ -11,12 +11,7 @@ type Props = {
   focused?: boolean;
   onClosed?: (tabId: string) => void;
 };
-function TerminalTab({
-  tabId,
-  visible,
-  focused = true,
-  onClosed,
-}: Props) {
+function TerminalTab({ tabId, visible, focused = true, onClosed }: Props) {
   const themeVersion = useThemeSettings((state) => state.version);
   const terminalVersion = useTerminalSettings((state) => state.version);
   const fontFamily = useTerminalSettings((state) => state.fontFamily);

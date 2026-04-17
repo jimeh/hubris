@@ -52,8 +52,16 @@ function byStableTabOrder(left: Tab, right: Tab): number {
   return left.id.localeCompare(right.id);
 }
 
+function dedupeTabsById(list: Tab[]): Tab[] {
+  const latestById = new Map<string, Tab>();
+  for (const tab of list) {
+    latestById.set(tab.id, tab);
+  }
+  return [...latestById.values()];
+}
+
 export function sortTabs(list: Tab[]): Tab[] {
-  return [...list].sort((left, right) => {
+  return dedupeTabsById(list).sort((left, right) => {
     const worktreeDiff = left.worktree_id.localeCompare(right.worktree_id);
     if (worktreeDiff !== 0) {
       return worktreeDiff;
@@ -326,7 +334,7 @@ function reassignTabs(tabs: Tab[], paneTabs: Map<string, string[]>): Tab[] {
   for (const [paneId, tabIds] of paneTabs) {
     tabIds.forEach((tabId, index) => {
       const tab = byId.get(tabId);
-      if (!tab) {
+      if (!tab || touchedIds.has(tabId)) {
         return;
       }
       touchedIds.add(tabId);

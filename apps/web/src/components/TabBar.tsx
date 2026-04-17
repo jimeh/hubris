@@ -7,6 +7,7 @@ import {
   Globe,
   Rows2,
   SquareTerminal,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Tab } from "@/lib/types";
@@ -16,11 +17,23 @@ export { default as SortableTabView } from "./tab-bar/SortableTabView";
 
 const SCROLL_AMOUNT = 200;
 
+/**
+ * Action contributed by the active tab for the pane header.
+ */
+export type TabBarAction = {
+  id: string;
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void | Promise<void>;
+  disabled?: boolean;
+};
+
 type Props = {
   worktreeId: string;
   paneId?: string;
   dropTargetId?: string;
   tabs: Tab[];
+  activeTabActions?: TabBarAction[];
   paneFocused?: boolean;
   dirtyTabIds?: string[];
   lockedTabIds?: string[];
@@ -43,6 +56,7 @@ export default function TabBar({
   paneId = "pane-1",
   dropTargetId,
   tabs,
+  activeTabActions = [],
   paneFocused = true,
   dirtyTabIds = [],
   lockedTabIds = [],
@@ -194,7 +208,39 @@ export default function TabBar({
           </button>
         ) : null}
       </div>
-      <div className="ml-1 flex shrink-0 items-center gap-0.5">
+      <div
+        className="ml-1 flex shrink-0 items-center gap-0.5"
+        data-pane-tab-bar-actions
+        data-testid={`tab-bar-${paneId}-actions`}
+      >
+        {activeTabActions.map((action) => {
+          const Icon = action.icon;
+
+          return (
+            <Button
+              key={action.id}
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={action.label}
+              title={action.label}
+              className="h-6 w-6"
+              disabled={action.disabled}
+              onClick={() => {
+                void action.onClick();
+              }}
+            >
+              <Icon className="h-2.5 w-2.5" />
+            </Button>
+          );
+        })}
+        {activeTabActions.length > 0 ? (
+          <div
+            className="mx-1 h-3.5 w-px bg-border/80"
+            aria-hidden="true"
+            data-testid={`tab-bar-${paneId}-divider`}
+          />
+        ) : null}
         <Button
           type="button"
           variant="ghost"
@@ -219,7 +265,11 @@ export default function TabBar({
         >
           <Rows2 className="h-2.5 w-2.5" />
         </Button>
-        <div className="mx-1 h-3.5 w-px bg-border/80" aria-hidden="true" />
+        <div
+          className="mx-1 h-3.5 w-px bg-border/80"
+          aria-hidden="true"
+          data-testid={`tab-bar-${paneId}-divider`}
+        />
         <Button
           type="button"
           variant="ghost"

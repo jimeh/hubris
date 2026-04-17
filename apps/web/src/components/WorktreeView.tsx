@@ -10,6 +10,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -25,7 +26,7 @@ import { useShallow } from "zustand/react/shallow";
 import BrowserTab from "@/components/BrowserTab";
 import FileEditorTab from "@/components/FileEditorTab";
 import GitDiffTab from "@/components/GitDiffTab";
-import TabBar from "@/components/TabBar";
+import TabBar, { type TabBarAction } from "@/components/TabBar";
 import TerminalTab from "@/components/TerminalTab";
 import WorktreeRightSidebar from "@/components/WorktreeRightSidebar";
 import TabDragOverlay from "@/components/tab-bar/TabDragOverlay";
@@ -71,6 +72,7 @@ type PaneLeafProps = {
   paneId: string;
   paneTabs: Tab[];
   activePaneTabId: string | null;
+  activeTabActions: TabBarAction[];
   focused: boolean;
   dragging: boolean;
   dirtyTabIds: string[];
@@ -96,6 +98,14 @@ type ViewportRect = {
   height: number;
 };
 
+const PARKED_SCENE_STYLE = {
+  left: -10_000,
+  top: 0,
+  width: 1,
+  height: 1,
+  visibility: "hidden",
+} satisfies CSSProperties;
+
 type PaneViewportProps = {
   paneId: string;
   dragging: boolean;
@@ -103,6 +113,31 @@ type PaneViewportProps = {
   emptyState: ReactNode;
   registerViewport: (paneId: string, element: HTMLDivElement | null) => void;
 };
+
+const DISABLED_GIT_DIFF_TAB_ACTIONS: TabBarAction[] = [
+  {
+    id: "previous-change",
+    icon: ChevronUp,
+    label: "Previous Change",
+    onClick: () => {},
+    disabled: true,
+  },
+  {
+    id: "next-change",
+    icon: ChevronDown,
+    label: "Next Change",
+    onClick: () => {},
+    disabled: true,
+  },
+];
+
+function fallbackTabBarActions(tab: Tab | null): TabBarAction[] {
+  if (tab?.type !== "git_diff") {
+    return [];
+  }
+
+  return DISABLED_GIT_DIFF_TAB_ACTIONS;
+}
 
 function paneDropTargetId(
   paneId: string,
@@ -279,11 +314,20 @@ function viewportRectsEqual(
   return true;
 }
 
+function byStableSceneOrder(left: Tab, right: Tab): number {
+  const createdAtDiff = Number(left.created_at) - Number(right.created_at);
+  if (Number.isFinite(createdAtDiff) && createdAtDiff !== 0) {
+    return createdAtDiff;
+  }
+  return left.id.localeCompare(right.id);
+}
+
 function PaneLeaf({
   worktree,
   paneId,
   paneTabs,
   activePaneTabId,
+  activeTabActions,
   focused,
   dragging,
   dirtyTabIds,
@@ -312,6 +356,7 @@ function PaneLeaf({
         paneId={paneId}
         dropTargetId={paneTabBarDropTargetId(paneId)}
         tabs={paneTabs}
+        activeTabActions={activeTabActions}
         paneFocused={focused}
         dirtyTabIds={dirtyTabIds}
         lockedTabIds={lockedTabIds}
@@ -415,6 +460,9 @@ export default function WorktreeView({ worktree, active }: Props) {
   const [isPendingCloseSaving, setIsPendingCloseSaving] = useState(false);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [draggingTabWidth, setDraggingTabWidth] = useState<number | null>(null);
+  const [tabBarActionsByTabId, setTabBarActionsByTabId] = useState<
+    Record<string, TabBarAction[]>
+  >({});
   const [paneViewportRects, setPaneViewportRects] = useState<
     Record<string, ViewportRect>
   >({});
@@ -554,6 +602,10 @@ export default function WorktreeView({ worktree, active }: Props) {
   const activeWorktreeTab = useMemo(
     () => worktreeTabs.find((tab) => tab.id === activeTabId) ?? null,
     [activeTabId, worktreeTabs],
+  );
+  const sceneTabs = useMemo(
+    () => [...worktreeTabs].sort(byStableSceneOrder),
+    [worktreeTabs],
   );
   const activePaneTabIds = useMemo(
     () =>
@@ -849,6 +901,31 @@ export default function WorktreeView({ worktree, active }: Props) {
     },
     [persistLayout, setSplitRatio, worktree.id, worktree.project_id],
   );
+  const setTabBarActionsForTab = useCallback(
+    (tabId: string, actions: TabBarAction[] | null) => {
+      setTabBarActionsByTabId((current) => {
+        if (actions === null) {
+          if (!(tabId in current)) {
+            return current;
+          }
+
+          const next = { ...current };
+          delete next[tabId];
+          return next;
+        }
+
+        if (current[tabId] === actions) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [tabId]: actions,
+        };
+      });
+    },
+    [],
+  );
 
   function clearDragState(): void {
     setDraggingTabId(null);
@@ -918,39 +995,52 @@ export default function WorktreeView({ worktree, active }: Props) {
   }
 
   const renderLeaf = useCallback(
-    (paneId: string) => (
-      <PaneLeaf
-        key={paneId}
-        worktree={worktree}
-        paneId={paneId}
-        paneTabs={paneTabsById[paneId] ?? []}
-        activePaneTabId={activePaneTabIds[paneId] ?? null}
-        focused={focusedPaneId === paneId}
-        dragging={draggingTabId !== null}
-        dirtyTabIds={dirtyTabIds}
-        lockedTabIds={lockedTabIds}
-        onActivateTab={handleActivateTab}
-        onPinTab={handlePinTab}
-        onCloseTab={handleCloseTab}
-        onAddTerminal={() => {
-          void addTerminal(worktree.id, paneId);
-        }}
-        onAddBrowser={async () => {
-          await openBrowser({ worktreeId: worktree.id, paneId });
-        }}
-        onSplitRight={() => {
-          void splitPane(worktree.project_id, worktree.id, paneId, "right");
-        }}
-        onSplitDown={() => {
-          void splitPane(worktree.project_id, worktree.id, paneId, "down");
-        }}
-        onRenameTerminalTab={handleRenameTerminalTab}
-        onResetTerminalTabName={handleResetTerminalTabName}
-        onFocusPane={() => focusPane(worktree.id, paneId)}
-        registerViewport={registerViewport}
-        emptyState={emptyState}
-      />
-    ),
+    (paneId: string) => {
+      const activePaneTabId = activePaneTabIds[paneId] ?? null;
+      const activePaneTab =
+        paneTabsById[paneId]?.find((tab) => tab.id === activePaneTabId) ?? null;
+      const activeTabActions =
+        focusedPaneId === paneId
+          ? ((activePaneTabId
+              ? tabBarActionsByTabId[activePaneTabId]
+              : undefined) ?? fallbackTabBarActions(activePaneTab))
+          : [];
+
+      return (
+        <PaneLeaf
+          key={paneId}
+          worktree={worktree}
+          paneId={paneId}
+          paneTabs={paneTabsById[paneId] ?? []}
+          activePaneTabId={activePaneTabId}
+          activeTabActions={activeTabActions}
+          focused={focusedPaneId === paneId}
+          dragging={draggingTabId !== null}
+          dirtyTabIds={dirtyTabIds}
+          lockedTabIds={lockedTabIds}
+          onActivateTab={handleActivateTab}
+          onPinTab={handlePinTab}
+          onCloseTab={handleCloseTab}
+          onAddTerminal={() => {
+            void addTerminal(worktree.id, paneId);
+          }}
+          onAddBrowser={async () => {
+            await openBrowser({ worktreeId: worktree.id, paneId });
+          }}
+          onSplitRight={() => {
+            void splitPane(worktree.project_id, worktree.id, paneId, "right");
+          }}
+          onSplitDown={() => {
+            void splitPane(worktree.project_id, worktree.id, paneId, "down");
+          }}
+          onRenameTerminalTab={handleRenameTerminalTab}
+          onResetTerminalTabName={handleResetTerminalTabName}
+          onFocusPane={() => focusPane(worktree.id, paneId)}
+          registerViewport={registerViewport}
+          emptyState={emptyState}
+        />
+      );
+    },
     [
       activePaneTabIds,
       addTerminal,
@@ -969,6 +1059,7 @@ export default function WorktreeView({ worktree, active }: Props) {
       paneTabsById,
       registerViewport,
       splitPane,
+      tabBarActionsByTabId,
       worktree,
     ],
   );
@@ -977,7 +1068,7 @@ export default function WorktreeView({ worktree, active }: Props) {
     const nextKnownRects = { ...lastVisibleSceneRectsRef.current };
     const rectsByTabId: Record<string, ViewportRect | null> = {};
 
-    for (const tab of worktreeTabs) {
+    for (const tab of sceneTabs) {
       const isVisible = active && activePaneTabIds[tab.pane_id] === tab.id;
       if (!isVisible) {
         rectsByTabId[tab.id] = null;
@@ -993,7 +1084,7 @@ export default function WorktreeView({ worktree, active }: Props) {
 
     lastVisibleSceneRectsRef.current = nextKnownRects;
     return rectsByTabId;
-  }, [active, activePaneTabIds, paneViewportRects, worktreeTabs]);
+  }, [active, activePaneTabIds, paneViewportRects, sceneTabs]);
 
   return (
     <div
@@ -1033,7 +1124,7 @@ export default function WorktreeView({ worktree, active }: Props) {
               renderLeaf(worktreeTabs[0]?.pane_id ?? "root")
             )}
             <div className="pointer-events-none absolute inset-0 z-10">
-              {worktreeTabs.map((tab) => {
+              {sceneTabs.map((tab) => {
                 const rect = sceneRectsByTabId[tab.id];
                 const visible =
                   rect !== null &&
@@ -1045,20 +1136,21 @@ export default function WorktreeView({ worktree, active }: Props) {
                 return (
                   <div
                     key={tab.id}
+                    data-tab-scene={tab.id}
                     className={cn(
                       "absolute overflow-hidden bg-background",
-                      visible ? "pointer-events-auto" : "hidden",
+                      visible ? "pointer-events-auto" : "pointer-events-none",
                     )}
                     onMouseDown={() => focusPane(worktree.id, tab.pane_id)}
                     style={
-                      rect
+                      visible && rect
                         ? {
                             left: rect.left,
                             top: rect.top,
                             width: rect.width,
                             height: rect.height,
                           }
-                        : undefined
+                        : PARKED_SCENE_STYLE
                     }
                   >
                     {tab.type === "terminal" ? (
@@ -1081,6 +1173,7 @@ export default function WorktreeView({ worktree, active }: Props) {
                         worktreeId={worktree.id}
                         tab={tab}
                         visible={visible}
+                        setTabBarActionsForTab={setTabBarActionsForTab}
                       />
                     ) : tab.type === "browser" ? (
                       <BrowserTab tab={tab} visible={visible} />

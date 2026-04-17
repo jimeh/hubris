@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { act, useCallback, useState } from "react";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabBar, { SortableTabView } from "@/components/TabBar";
 import type { TerminalTab } from "@/lib/types";
@@ -229,6 +230,71 @@ describe("TabBar", () => {
     await waitFor(() => {
       expect(props.onAddBrowser).toHaveBeenCalledWith();
     });
+  });
+
+  it("renders contributed active-tab actions before pane controls", () => {
+    const props = baseProps();
+    const onPreviousChange = vi.fn();
+    const onNextChange = vi.fn();
+
+    render(
+      <TabBar
+        {...props}
+        tabs={[makeTab("a", 1)]}
+        activeTabActions={[
+          {
+            id: "previous-change",
+            icon: ChevronsLeft,
+            label: "Previous Change",
+            onClick: onPreviousChange,
+          },
+          {
+            id: "next-change",
+            icon: ChevronsRight,
+            label: "Next Change",
+            onClick: onNextChange,
+          },
+        ]}
+      />,
+    );
+
+    const actions = screen.getByTestId("tab-bar-pane-1-actions");
+    const buttons = actions.querySelectorAll("button");
+
+    expect(buttons[0]).toHaveAttribute("aria-label", "Previous Change");
+    expect(buttons[1]).toHaveAttribute("aria-label", "Next Change");
+    expect(buttons[2]).toHaveAttribute("aria-label", "Split Vertically");
+    expect(buttons[3]).toHaveAttribute("aria-label", "Split Horizontally");
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous Change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next Change" }));
+
+    expect(onPreviousChange).toHaveBeenCalledTimes(1);
+    expect(onNextChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the extra divider only when active-tab actions exist", () => {
+    const props = baseProps();
+    const { rerender } = render(<TabBar {...props} tabs={[makeTab("a", 1)]} />);
+
+    expect(screen.getAllByTestId("tab-bar-pane-1-divider")).toHaveLength(1);
+
+    rerender(
+      <TabBar
+        {...props}
+        tabs={[makeTab("a", 1)]}
+        activeTabActions={[
+          {
+            id: "previous-change",
+            icon: ChevronsLeft,
+            label: "Previous Change",
+            onClick: vi.fn(),
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByTestId("tab-bar-pane-1-divider")).toHaveLength(2);
   });
 
   it("marks the pane tab bar as an active drop target during drag", () => {
