@@ -12,6 +12,7 @@ use crate::api::tasks::{TaskInvocationStatus, TaskRemoved, TaskUpdated};
 use crate::api::vscode::VscodeStatus;
 use crate::api::worktrees::Worktree;
 use crate::tab::{TabInfo, WorktreeTabLayout, WorktreeTabLayoutState};
+use crate::worktree_state::WorktreeRestoreState;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Event {
@@ -26,6 +27,7 @@ pub enum EventKind {
     Snapshot {
         tabs: Vec<TabInfo>,
         tab_layouts: HashMap<String, WorktreeTabLayout>,
+        worktree_restore_state: HashMap<String, WorktreeRestoreState>,
         projects: Vec<Project>,
         worktrees: HashMap<String, Vec<Worktree>>,
         project_errors: HashMap<String, String>,
@@ -218,6 +220,7 @@ mod tests {
             EventKind::Snapshot {
                 tabs: vec![],
                 tab_layouts: HashMap::new(),
+                worktree_restore_state: HashMap::new(),
                 projects: vec![],
                 worktrees: HashMap::new(),
                 project_errors: HashMap::new(),

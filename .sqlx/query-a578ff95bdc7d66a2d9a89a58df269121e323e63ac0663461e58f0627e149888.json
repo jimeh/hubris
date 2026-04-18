@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                    INSERT INTO browser_history_entries (tab_id, history_index, url)\n                    VALUES (?1, ?2, ?3)\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "a578ff95bdc7d66a2d9a89a58df269121e323e63ac0663461e58f0627e149888"
+}

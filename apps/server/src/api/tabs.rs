@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::Json;
@@ -17,12 +18,16 @@ use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
 use crate::pty::live_tab::{
-    DEFAULT_SCROLLBACK, LiveTab, TerminalSize, normalize_shell_process_name,
+    DEFAULT_SCROLLBACK, LiveTab, RestoredTerminalBuffers, TerminalSize,
+    normalize_shell_process_name,
 };
 use crate::state::AppState;
 use crate::tab::{
     GitDiffScope, TabInfo, TerminalTabLabels, WorktreePaneNode, WorktreePaneTabs,
     WorktreeTabLayout, WorktreeTabLayoutState,
+};
+use crate::worktree_state::{
+    TerminalFlush, TerminalPersistedState, TerminalRestorePayload, WorktreeSnapshot,
 };
 
 type TerminalCloseReceiver = tokio::sync::broadcast::Receiver<()>;
@@ -38,6 +43,8 @@ const BROWSER_FIELDS_REQUIRE_BROWSER_TAB_MESSAGE: &str =
     "Browser tab fields can only be updated on browser tabs.";
 const INVALID_LAYOUT_MESSAGE: &str = "Invalid tab layout.";
 const BLANK_BROWSER_URL: &str = "about:blank";
+const TERMINAL_PERSIST_INTERVAL: Duration = Duration::from_secs(1);
+const TERMINAL_PERSIST_THRESHOLD_BYTES: usize = 32 * 1024;
 
 #[derive(Debug)]
 pub struct TabsApiError {
@@ -606,6 +613,33 @@ fn reconcile_worktree_layout(state: &AppState, worktree_id: &str) {
     }
 }
 
+fn worktree_snapshot(state: &AppState, project_id: &str, worktree_id: &str) -> WorktreeSnapshot {
+    WorktreeSnapshot {
+        project_id: project_id.to_string(),
+        worktree_id: worktree_id.to_string(),
+        layout: state
+            .tab_layouts
+            .get(worktree_id)
+            .map(|entry| entry.value().clone()),
+        tabs: worktree_tabs(state, worktree_id),
+        restore_state: state.restore_state_for_worktree(worktree_id),
+        next_terminal_number: state
+            .next_terminal_num_by_worktree
+            .get(worktree_id)
+            .map(|entry| *entry.value())
+            .unwrap_or(1),
+    }
+}
+
+pub fn persist_worktree_snapshot(state: &AppState, worktree_id: &str) {
+    let Some(project_id) = state.project_id_for_worktree(worktree_id) else {
+        return;
+    };
+    state
+        .persistence
+        .replace_worktree_state(worktree_snapshot(state, &project_id, worktree_id));
+}
+
 fn update_worktree_layout_state(
     state: &AppState,
     worktree_id: &str,
@@ -826,6 +860,7 @@ fn validate_browser_update(
 fn spawn_terminal_runtime(
     worktree_path: &str,
     info: TabInfo,
+    restore_payload: Option<TerminalRestorePayload>,
 ) -> Result<(Arc<LiveTab>, TerminalCloseReceiver), StatusCode> {
     let pty_system = NativePtySystem::default();
     let pair = pty_system
@@ -847,19 +882,142 @@ fn spawn_terminal_runtime(
     })?;
     drop(pair.slave);
 
-    let live_tab = LiveTab::spawn(
-        info,
-        shell_process_name,
-        PathBuf::from(worktree_path),
-        pair.master,
-        child,
-        DEFAULT_SCROLLBACK,
-        TerminalSize::default_pty(),
-    );
+    let worktree_root = PathBuf::from(worktree_path);
+    let live_tab = match restore_payload {
+        Some(payload) => LiveTab::spawn_restored(
+            info,
+            shell_process_name,
+            worktree_root,
+            pair.master,
+            child,
+            DEFAULT_SCROLLBACK,
+            payload.size,
+            RestoredTerminalBuffers {
+                total_bytes: payload.total_bytes,
+                scrollback: payload.scrollback,
+                snapshot: payload.snapshot,
+            },
+        ),
+        None => LiveTab::spawn(
+            info,
+            shell_process_name,
+            worktree_root,
+            pair.master,
+            child,
+            DEFAULT_SCROLLBACK,
+            TerminalSize::default_pty(),
+        ),
+    };
 
     let close_rx = live_tab.close_tx.subscribe();
     let tab = Arc::new(live_tab);
     Ok((tab, close_rx))
+}
+
+fn terminal_persisted_state(runtime: &LiveTab) -> TerminalPersistedState {
+    let (size, total_bytes, snapshot) = runtime.persistence_state();
+    TerminalPersistedState {
+        size,
+        total_bytes,
+        snapshot,
+    }
+}
+
+fn spawn_terminal_persistence_task(
+    state: &AppState,
+    project_id: String,
+    worktree_id: String,
+    tab_id: String,
+    runtime: Arc<LiveTab>,
+) {
+    let persistence = state.persistence.clone();
+    let mut output_rx = runtime.output_tx.subscribe();
+    let mut close_rx = runtime.close_tx.subscribe();
+    tokio::spawn(async move {
+        let mut buffered = Vec::new();
+        let mut interval = time::interval(TERMINAL_PERSIST_INTERVAL);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        let flush = |buffered: &mut Vec<u8>| {
+            let metadata = terminal_persisted_state(&runtime);
+            let output = std::mem::take(buffered);
+            persistence.enqueue_terminal_flush(TerminalFlush {
+                project_id: project_id.clone(),
+                worktree_id: worktree_id.clone(),
+                tab_id: tab_id.clone(),
+                metadata,
+                output,
+                flushed_at_ms: now_ms(),
+            });
+        };
+
+        loop {
+            tokio::select! {
+                result = output_rx.recv() => {
+                    match result {
+                        Ok(data) => {
+                            buffered.extend_from_slice(&data);
+                            if buffered.len() >= TERMINAL_PERSIST_THRESHOLD_BYTES {
+                                flush(&mut buffered);
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            flush(&mut buffered);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            if !buffered.is_empty() {
+                                flush(&mut buffered);
+                            }
+                            break;
+                        }
+                    }
+                }
+                _ = interval.tick() => {
+                    if !buffered.is_empty() {
+                        flush(&mut buffered);
+                    }
+                }
+                _ = close_rx.recv() => {
+                    if !buffered.is_empty() {
+                        flush(&mut buffered);
+                    }
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn register_terminal_runtime(
+    state: &AppState,
+    project_id: String,
+    worktree_id: String,
+    tab_id: String,
+    runtime: Arc<LiveTab>,
+    close_rx: TerminalCloseReceiver,
+) {
+    state.terminal_tabs.insert(tab_id.clone(), runtime.clone());
+    state.restored_terminal_tabs.remove(&tab_id);
+    spawn_terminal_notification_task(
+        state,
+        tab_id.clone(),
+        runtime.notification_tx.subscribe(),
+        runtime.close_tx.subscribe(),
+    );
+    spawn_terminal_title_task(
+        state,
+        tab_id.clone(),
+        runtime.title_tx.subscribe(),
+        runtime.close_tx.subscribe(),
+    );
+    spawn_terminal_smart_label_task(
+        state,
+        tab_id.clone(),
+        runtime.clone(),
+        runtime.close_tx.subscribe(),
+    );
+    spawn_terminal_persistence_task(state, project_id, worktree_id, tab_id.clone(), runtime);
+    spawn_terminal_cleanup_task(state.clone(), tab_id, close_rx);
 }
 
 fn spawn_terminal_notification_task(
@@ -932,6 +1090,7 @@ fn spawn_terminal_title_task(
     let tabs = state.tabs.clone();
     let terminal_tabs = state.terminal_tabs.clone();
     let events = state.events.clone();
+    let state_for_persist = state.clone();
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -963,6 +1122,8 @@ fn spawn_terminal_title_task(
                         });
                     }
 
+                    persist_worktree_snapshot(&state_for_persist, updated.worktree_id());
+
                     events.emit(EventKind::TabUpdated {
                         session_id: updated.session_id().to_string(),
                         tab: updated,
@@ -983,6 +1144,7 @@ fn spawn_terminal_smart_label_task(
     let tabs = state.tabs.clone();
     let terminal_tabs = state.terminal_tabs.clone();
     let events = state.events.clone();
+    let state_for_persist = state.clone();
     tokio::spawn(async move {
         let mut interval = time::interval(std::time::Duration::from_millis(750));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -1017,6 +1179,8 @@ fn spawn_terminal_smart_label_task(
                         });
                     }
 
+                    persist_worktree_snapshot(&state_for_persist, updated.worktree_id());
+
                     events.emit(EventKind::TabUpdated {
                         session_id: updated.session_id().to_string(),
                         tab: updated,
@@ -1028,14 +1192,18 @@ fn spawn_terminal_smart_label_task(
     });
 }
 
-fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: TerminalCloseReceiver) {
+fn spawn_terminal_cleanup_task(state: AppState, id: String, mut close_rx: TerminalCloseReceiver) {
     let tabs = state.tabs.clone();
     let terminal_tabs = state.terminal_tabs.clone();
     let tab_layouts = state.tab_layouts.clone();
+    let restored_terminal_tabs = state.restored_terminal_tabs.clone();
+    let terminal_restore_locks = state.terminal_restore_locks.clone();
     let events = state.events.clone();
     tokio::spawn(async move {
         let _ = close_rx.recv().await;
         terminal_tabs.remove(&id);
+        restored_terminal_tabs.remove(&id);
+        terminal_restore_locks.remove(&id);
         if let Some((_, tab)) = tabs.remove(&id) {
             events.emit(EventKind::TabClosed {
                 session_id: tab.session_id().to_string(),
@@ -1072,7 +1240,7 @@ fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: Termi
                 if next_layout != layout {
                     tab_layouts.insert(worktree_id.clone(), next_layout.clone());
                     events.emit(EventKind::WorktreeTabLayoutUpdated {
-                        worktree_id,
+                        worktree_id: worktree_id.clone(),
                         state: Box::new(WorktreeTabLayoutState {
                             layout: next_layout,
                             tabs: remaining_tabs,
@@ -1080,8 +1248,65 @@ fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: Termi
                     });
                 }
             }
+            persist_worktree_snapshot(&state, &worktree_id);
         }
     });
+}
+
+pub async fn ensure_terminal_runtime(
+    state: &AppState,
+    tab_id: &str,
+) -> Result<Option<Arc<LiveTab>>, StatusCode> {
+    if let Some(runtime) = state.terminal_tabs.get(tab_id) {
+        return Ok(Some(runtime.value().clone()));
+    }
+
+    let restore_lock = state.terminal_restore_lock(tab_id);
+    let _guard = restore_lock.lock().await;
+
+    if let Some(runtime) = state.terminal_tabs.get(tab_id) {
+        return Ok(Some(runtime.value().clone()));
+    }
+
+    let Some(restored) = state
+        .restored_terminal_tabs
+        .get(tab_id)
+        .map(|entry| entry.value().clone())
+    else {
+        return Ok(None);
+    };
+
+    let info = state
+        .tabs
+        .get(tab_id)
+        .map(|entry| entry.value().clone())
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let resolved = resolve_worktree(state, info.worktree_id())
+        .await?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let payload = state
+        .persistence
+        .clone()
+        .load_terminal_restore_payload(tab_id.to_string())
+        .await
+        .map_err(|error| {
+            tracing::error!(tab_id, "failed to load terminal restore payload: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let (runtime, close_rx) =
+        spawn_terminal_runtime(&resolved.worktree.path, info.clone(), Some(payload))?;
+
+    state.remember_worktree_project(info.worktree_id(), &restored.project_id);
+    register_terminal_runtime(
+        state,
+        restored.project_id,
+        restored.worktree_id,
+        tab_id.to_string(),
+        runtime.clone(),
+        close_rx,
+    );
+
+    Ok(Some(runtime))
 }
 
 #[utoipa::path(
@@ -1132,6 +1357,7 @@ pub async fn create_tab(
         .await
         .map_err(map_status_to_tab_error)?
         .ok_or_else(|| map_status_to_tab_error(StatusCode::NOT_FOUND))?;
+    state.remember_worktree_project(&worktree_id, &resolved.project_id);
 
     let terminal_number = if matches!(req, CreateTabRequest::Terminal { .. }) {
         next_terminal_number(&state, &worktree_id)
@@ -1178,19 +1404,14 @@ pub async fn create_tab(
 
     let terminal_runtime = if info.is_terminal() {
         Some(
-            spawn_terminal_runtime(&resolved.worktree.path, info.clone())
+            spawn_terminal_runtime(&resolved.worktree.path, info.clone(), None)
                 .map_err(map_status_to_tab_error)?,
         )
     } else {
         None
     };
-
-    if let Some((runtime, _)) = &terminal_runtime {
-        state
-            .terminal_tabs
-            .insert(info.id().to_string(), runtime.clone());
-    }
     state.tabs.insert(info.id().to_string(), info.clone());
+    persist_worktree_snapshot(&state, &worktree_id);
     state.events.emit(EventKind::TabCreated {
         session_id: info.session_id().to_string(),
         tab: info.clone(),
@@ -1209,26 +1430,14 @@ pub async fn create_tab(
         );
     }
     if let Some((runtime, close_rx)) = terminal_runtime {
-        let tab_id = info.id().to_string();
-        spawn_terminal_notification_task(
+        register_terminal_runtime(
             &state,
-            tab_id.clone(),
-            runtime.notification_tx.subscribe(),
-            runtime.close_tx.subscribe(),
+            resolved.project_id,
+            worktree_id,
+            info.id().to_string(),
+            runtime,
+            close_rx,
         );
-        spawn_terminal_title_task(
-            &state,
-            tab_id.clone(),
-            runtime.title_tx.subscribe(),
-            runtime.close_tx.subscribe(),
-        );
-        spawn_terminal_smart_label_task(
-            &state,
-            tab_id.clone(),
-            runtime.clone(),
-            runtime.close_tx.subscribe(),
-        );
-        spawn_terminal_cleanup_task(&state, tab_id, close_rx);
     }
 
     Ok((StatusCode::CREATED, Json(info)))
@@ -1254,12 +1463,15 @@ pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -
     if let Some((_, runtime)) = state.terminal_tabs.remove(&id) {
         runtime.notify_close();
     }
+    state.restored_terminal_tabs.remove(&id);
+    state.terminal_restore_locks.remove(&id);
 
     state.events.emit(EventKind::TabClosed {
         session_id: removed_tab.session_id().to_string(),
         tab_id: id,
     });
     reconcile_worktree_layout(&state, removed_tab.worktree_id());
+    persist_worktree_snapshot(&state, removed_tab.worktree_id());
     StatusCode::NO_CONTENT
 }
 
@@ -1350,6 +1562,7 @@ pub async fn update_tab(
         });
     }
 
+    persist_worktree_snapshot(&state, updated.worktree_id());
     state.events.emit(EventKind::TabUpdated {
         session_id: updated.session_id().to_string(),
         tab: updated.clone(),
@@ -1373,15 +1586,17 @@ pub async fn update_tab(
 )]
 pub async fn update_worktree_tab_layout(
     State(state): State<AppState>,
-    Path((_project_id, worktree_id)): Path<(String, String)>,
+    Path((project_id, worktree_id)): Path<(String, String)>,
     Json(request): Json<UpdateWorktreeTabLayoutRequest>,
 ) -> Result<Json<WorktreeTabLayoutState>, TabsApiError> {
     resolve_worktree(&state, &worktree_id)
         .await
         .map_err(map_status_to_tab_error)?
         .ok_or_else(|| map_status_to_tab_error(StatusCode::NOT_FOUND))?;
+    state.remember_worktree_project(&worktree_id, &project_id);
 
     let next_state = update_worktree_layout_state(&state, &worktree_id, request)?;
+    persist_worktree_snapshot(&state, &worktree_id);
     emit_layout_updated(
         &state,
         &worktree_id,
@@ -1455,9 +1670,10 @@ pub async fn reorder_tabs(
 
     state.events.emit(EventKind::TabsReordered {
         session_id,
-        worktree_id: req.worktree_id,
+        worktree_id: req.worktree_id.clone(),
         tabs: reordered.clone(),
     });
+    persist_worktree_snapshot(&state, &req.worktree_id);
 
     Ok(Json(reordered))
 }

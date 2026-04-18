@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { DesktopRuntimeStartupError } from "./runtime";
+
 type Deferred<T> = {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -48,11 +50,24 @@ type MockWindow = {
 async function loadMainModule({
   frontendPorts = [Promise.resolve(3001)],
   backendPorts = [Promise.resolve(4001)],
+  packagedRuntimeStartup = () =>
+    Promise.resolve({
+      ready: true,
+      pid: 123,
+      port: 4100,
+    }),
+  isPackaged = false,
   singleInstanceLock = true,
   savedWindowState = null,
 }: {
   frontendPorts?: Array<Promise<number>>;
   backendPorts?: Array<Promise<number>>;
+  packagedRuntimeStartup?: () => Promise<{
+    ready: boolean;
+    pid: number;
+    port: number;
+  }>;
+  isPackaged?: boolean;
   singleInstanceLock?: boolean;
   savedWindowState?: {
     bounds: { x: number; y: number; width: number; height: number };
@@ -96,7 +111,7 @@ async function loadMainModule({
   };
 
   const app = {
-    isPackaged: false,
+    isPackaged,
     getPath: vi.fn((name: string) =>
       name === "home" ? "/Users/tester" : "/Users/tester/Library",
     ),
@@ -146,6 +161,13 @@ async function loadMainModule({
 
   const waitForFrontendPort = vi.fn(() => frontendPorts.shift()!);
   const waitForBackendPort = vi.fn(() => backendPorts.shift()!);
+  const spawnPackagedRuntime = vi.fn(() => ({
+    child: {
+      killed: false,
+      kill: vi.fn(),
+    },
+    startup: packagedRuntimeStartup(),
+  }));
   const registerHubrisProtocol = vi.fn(async () => ({}));
   const createHubrisWindowOptions = vi.fn(() => ({ title: "Hubris" }));
   const classifyNavigationTarget = vi.fn(() => "internal");
@@ -158,23 +180,35 @@ async function loadMainModule({
     events.push("vscode-bridge-disposed");
   });
 
+  const showMessageBox = vi.fn(async () => ({ response: 0 }));
+  const showErrorBox = vi.fn();
+  const openExternal = vi.fn(async () => {});
+
   vi.doMock("electron", () => ({
     app,
     BrowserWindow: BrowserWindowMock,
+    dialog: {
+      showMessageBox,
+      showErrorBox,
+    },
     session: {
       fromPartition: vi.fn((partition: string) =>
         partition.includes("browser") ? browserSession : desktopSession,
       ),
     },
     shell: {
-      openExternal: vi.fn(async () => {}),
+      openExternal,
     },
   }));
 
   vi.doMock("./runtime", () => ({
+    DesktopRuntimeStartupError,
     createDesktopToken: vi.fn(() => "desktop-token"),
-    resolvePackagedPaths: vi.fn(),
-    spawnPackagedRuntime: vi.fn(),
+    resolvePackagedPaths: vi.fn(() => ({
+      frontendDistDir: "/resources/dist",
+      runtimeExecutable: "/resources/hubris-desktop-runtime",
+    })),
+    spawnPackagedRuntime,
     waitForBackendPort,
     waitForFrontendPort,
   }));
@@ -247,8 +281,12 @@ async function loadMainModule({
     disposeVscodeViewBridge,
     events,
     loadDesktopWindowState,
+    openExternal,
     ready,
     registerHubrisProtocol,
+    showErrorBox,
+    showMessageBox,
+    spawnPackagedRuntime,
     waitForBackendPort,
     waitForFrontendPort,
     wireDesktopWindowStatePersistence,
@@ -572,5 +610,67 @@ describe("desktop main process startup", () => {
     expect(state.disposeVscodeViewBridge).toHaveBeenCalledWith({
       destroyRecords: true,
     });
+  });
+
+  it("shows an open-link dialog when a packaged runtime conflicts with a running server", async () => {
+    const state = await loadMainModule({
+      isPackaged: true,
+      packagedRuntimeStartup: async () => {
+        throw new DesktopRuntimeStartupError("busy", {
+          conflict: {
+            holderPid: 321,
+            holderKind: "server",
+            listenUrl: "http://127.0.0.1:3001",
+          },
+        });
+      },
+    });
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.showMessageBox).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.showMessageBox).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Hubris is already running for this data directory.",
+        detail: "PID: 321\nURL: http://127.0.0.1:3001",
+        buttons: ["Open Running Server", "Quit"],
+      }),
+    );
+    expect(state.openExternal).toHaveBeenCalledWith("http://127.0.0.1:3001");
+    expect(state.app.quit).toHaveBeenCalled();
+  });
+
+  it("shows a PID-only dialog when another desktop runtime owns the data dir", async () => {
+    const state = await loadMainModule({
+      isPackaged: true,
+      packagedRuntimeStartup: async () => {
+        throw new DesktopRuntimeStartupError("busy", {
+          conflict: {
+            holderPid: 654,
+            holderKind: "desktop_runtime",
+          },
+        });
+      },
+    });
+
+    state.ready.resolve();
+
+    await waitUntil(() => {
+      expect(state.showMessageBox).toHaveBeenCalledTimes(1);
+    });
+
+    expect(state.showMessageBox).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message:
+          "Another Hubris desktop instance already owns this data directory.",
+        detail: "PID: 654",
+        buttons: ["Quit"],
+      }),
+    );
+    expect(state.openExternal).not.toHaveBeenCalled();
+    expect(state.app.quit).toHaveBeenCalled();
   });
 });

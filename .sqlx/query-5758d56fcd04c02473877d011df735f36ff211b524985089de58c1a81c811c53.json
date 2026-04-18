@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO terminal_chunks (\n                tab_id,\n                project_id,\n                worktree_id,\n                seq,\n                data,\n                byte_len,\n                created_at_ms\n            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "5758d56fcd04c02473877d011df735f36ff211b524985089de58c1a81c811c53"
+}

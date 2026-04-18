@@ -62,6 +62,10 @@ type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
 type UpdateWorktreeTabLayoutRequest =
   components["schemas"]["UpdateWorktreeTabLayoutRequest"];
+export type UpdateWorktreeRestoreStateRequest = {
+  activeTabId?: string | null;
+  focusedPaneId?: string | null;
+};
 type ApiErrorResponse = components["schemas"]["ApiErrorResponse"];
 type WriteWorktreeFileContentRequest =
   components["schemas"]["WriteWorktreeFileContentRequest"];
@@ -640,6 +644,28 @@ export async function updateWorktreeTabLayout(
     throwStatusError(res.status, message ?? undefined);
   }
   return res.json();
+}
+
+export async function updateWorktreeRestoreState(
+  projectId: string,
+  worktreeId: string,
+  restoreState: UpdateWorktreeRestoreStateRequest,
+): Promise<void> {
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/restore-state`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        activeTabId: restoreState.activeTabId ?? null,
+        focusedPaneId: restoreState.focusedPaneId ?? null,
+      }),
+    },
+  );
+  if (!res.ok && res.status !== 404) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
 }
 
 export function terminalWsUrl(tabId: string): string {

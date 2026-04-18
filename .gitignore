@@ -12,6 +12,7 @@
 /node_modules/
 /target/
 /tmp/
+/apps/server/tmp/
 
 # Ignore all data files in the server crate, except for editor themes.
 /apps/server/data/*

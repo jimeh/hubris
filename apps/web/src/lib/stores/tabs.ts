@@ -5,6 +5,7 @@ import {
   deleteTab,
   reorderTabs,
   updateTab,
+  updateWorktreeRestoreState,
   updateWorktreeTabLayout,
 } from "@/lib/api";
 import {
@@ -31,6 +32,7 @@ import {
   tabsForPane,
   type PaneDropPlacement,
 } from "@/lib/tabLayout";
+import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type {
   BrowserTab,
   GitDiffScope,
@@ -154,6 +156,11 @@ type PersistedSelection = Pick<
 type SelectionState = PersistedSelection &
   Pick<TabsState, "focusedPaneHistoryByWorktree">;
 
+type WorktreeRestoreSelection = {
+  activeTabId?: string | null;
+  focusedPaneId?: string | null;
+};
+
 function lsGet(key: string): string | null {
   try {
     return localStorage.getItem(key);
@@ -204,6 +211,51 @@ function persistSelection(selection: PersistedSelection): void {
   );
 }
 
+function projectIdForWorktree(worktreeId: string): string | null {
+  for (const [projectId, worktrees] of Object.entries(
+    useWorktreeStore.getState().worktreesByProject,
+  )) {
+    if (worktrees.some((worktree) => worktree.id === worktreeId)) {
+      return projectId;
+    }
+  }
+  return null;
+}
+
+const restoreStatePersistTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+
+function schedulePersistRestoreState(
+  worktreeId: string,
+  selection: PersistedSelection,
+): void {
+  const projectId = projectIdForWorktree(worktreeId);
+  if (!projectId) {
+    return;
+  }
+
+  const activeTabId = selection.activeTabByWorktree[worktreeId] ?? null;
+  const focusedPaneId = selection.focusedPaneByWorktree[worktreeId] ?? null;
+
+  const existingTimer = restoreStatePersistTimers.get(worktreeId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  restoreStatePersistTimers.set(
+    worktreeId,
+    setTimeout(() => {
+      restoreStatePersistTimers.delete(worktreeId);
+      void updateWorktreeRestoreState(projectId, worktreeId, {
+        activeTabId,
+        focusedPaneId,
+      }).catch(() => {});
+    }, 250),
+  );
+}
+
 function initialFocusedPaneHistory(
   focusedPaneByWorktree: Record<string, string>,
 ): Record<string, string[]> {
@@ -226,6 +278,68 @@ function initialSelection(): SelectionState {
     focusedPaneHistoryByWorktree: initialFocusedPaneHistory(
       focusedPaneByWorktree,
     ),
+  };
+}
+
+function seedSelectionFromBackendRestore(
+  state: TabsState,
+  tabs: Tab[],
+  layoutsByWorktree: Record<string, WorktreeTabLayout>,
+  restoreStateByWorktree: Record<string, WorktreeRestoreSelection>,
+): TabsState {
+  const nextActiveTabByWorktree = { ...state.activeTabByWorktree };
+  const nextActiveTabByPane = { ...state.activeTabByPane };
+  const nextFocusedPaneByWorktree = { ...state.focusedPaneByWorktree };
+  const nextFocusedPaneHistoryByWorktree = {
+    ...state.focusedPaneHistoryByWorktree,
+  };
+
+  for (const [worktreeId, restoreState] of Object.entries(
+    restoreStateByWorktree,
+  )) {
+    const paneIds = paneIdsForWorktree(layoutsByWorktree, tabs, worktreeId);
+    if (paneIds.length === 0) {
+      continue;
+    }
+
+    const activeTab = restoreState.activeTabId
+      ? (tabs.find(
+          (tab) =>
+            tab.id === restoreState.activeTabId &&
+            tab.worktree_id === worktreeId,
+        ) ?? null)
+      : null;
+    const focusedPaneId =
+      (restoreState.focusedPaneId &&
+      paneIds.includes(restoreState.focusedPaneId)
+        ? restoreState.focusedPaneId
+        : null) ||
+      activeTab?.pane_id ||
+      paneIds[0];
+
+    nextFocusedPaneByWorktree[worktreeId] = focusedPaneId;
+    nextFocusedPaneHistoryByWorktree[worktreeId] = [focusedPaneId];
+
+    if (activeTab) {
+      nextActiveTabByWorktree[worktreeId] = activeTab.id;
+      nextActiveTabByPane[activeTab.pane_id] = activeTab.id;
+    }
+  }
+
+  const selectedWorktreeId = useWorktreeStore.getState().selectedWorktreeId;
+  const activeTabId =
+    (selectedWorktreeId &&
+      nextActiveTabByWorktree[selectedWorktreeId] &&
+      nextActiveTabByWorktree[selectedWorktreeId]) ||
+    state.activeTabId;
+
+  return {
+    ...state,
+    activeTabId,
+    activeTabByWorktree: nextActiveTabByWorktree,
+    activeTabByPane: nextActiveTabByPane,
+    focusedPaneByWorktree: nextFocusedPaneByWorktree,
+    focusedPaneHistoryByWorktree: nextFocusedPaneHistoryByWorktree,
   };
 }
 
@@ -1157,6 +1271,13 @@ export const useTabStore = create<TabsState>((set, get) => {
       }
 
       set((state) => removeFromState(state, id));
+      const nextState = get();
+      schedulePersistRestoreState(closingTab.worktree_id, {
+        activeTabId: nextState.activeTabId,
+        activeTabByWorktree: nextState.activeTabByWorktree,
+        activeTabByPane: nextState.activeTabByPane,
+        focusedPaneByWorktree: nextState.focusedPaneByWorktree,
+      });
 
       try {
         await deleteTab(id);
@@ -1176,10 +1297,28 @@ export const useTabStore = create<TabsState>((set, get) => {
       }
     },
     activate(id) {
+      const tab = get().tabs.find((candidate) => candidate.id === id);
       set((state) => activateLocal(state, id));
+      if (!tab) {
+        return;
+      }
+      const nextState = get();
+      schedulePersistRestoreState(tab.worktree_id, {
+        activeTabId: nextState.activeTabId,
+        activeTabByWorktree: nextState.activeTabByWorktree,
+        activeTabByPane: nextState.activeTabByPane,
+        focusedPaneByWorktree: nextState.focusedPaneByWorktree,
+      });
     },
     focusPane(worktreeId, paneId) {
       set((state) => focusPaneLocal(state, worktreeId, paneId));
+      const nextState = get();
+      schedulePersistRestoreState(worktreeId, {
+        activeTabId: nextState.activeTabId,
+        activeTabByWorktree: nextState.activeTabByWorktree,
+        activeTabByPane: nextState.activeTabByPane,
+        focusedPaneByWorktree: nextState.focusedPaneByWorktree,
+      });
     },
     setSplitRatio(worktreeId, nodeId, ratio) {
       let changed = false;
@@ -1465,6 +1604,13 @@ export const useTabStore = create<TabsState>((set, get) => {
         persistSelection(selection);
         return selection;
       });
+      const nextState = get();
+      schedulePersistRestoreState(worktreeId, {
+        activeTabId: nextState.activeTabId,
+        activeTabByWorktree: nextState.activeTabByWorktree,
+        activeTabByPane: nextState.activeTabByPane,
+        focusedPaneByWorktree: nextState.focusedPaneByWorktree,
+      });
     },
   };
 });
@@ -1472,6 +1618,7 @@ export const useTabStore = create<TabsState>((set, get) => {
 let initialized = false;
 let eventUnsubscribers: Array<() => void> = [];
 let notificationDismissTimer: ReturnType<typeof setTimeout> | null = null;
+let hasHydratedBackendRestoreSelection = false;
 
 function clearNotificationDismissTimer(): void {
   if (notificationDismissTimer !== null) {
@@ -1510,8 +1657,16 @@ export function initializeTabStore(): void {
         data.tab_layouts,
       );
       useTabStore.setState((state) => {
+        const selectionSeedState = hasHydratedBackendRestoreSelection
+          ? state
+          : seedSelectionFromBackendRestore(
+              state,
+              incomingTabs,
+              incomingLayouts,
+              data.worktree_restore_state ?? {},
+            );
         const selection = reconcileSelection(
-          state,
+          selectionSeedState,
           incomingTabs,
           incomingLayouts,
         );
@@ -1548,6 +1703,7 @@ export function initializeTabStore(): void {
           ...selection,
         };
       });
+      hasHydratedBackendRestoreSelection = true;
     }),
     events.on("tab_created", ({ tab }) => {
       useTabStore.setState((state) => {
@@ -1637,11 +1793,16 @@ export function initializeTabStore(): void {
 export function resetTabStoreForTests(): void {
   clearNotificationDismissTimer();
   pendingGitDiffOpens.clear();
+  for (const timer of restoreStatePersistTimers.values()) {
+    clearTimeout(timer);
+  }
+  restoreStatePersistTimers.clear();
   for (const unsubscribe of eventUnsubscribers) {
     unsubscribe();
   }
   eventUnsubscribers = [];
   initialized = false;
+  hasHydratedBackendRestoreSelection = false;
   useTabStore.setState({
     tabs: [],
     layoutsByWorktree: {},

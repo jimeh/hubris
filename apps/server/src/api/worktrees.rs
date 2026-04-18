@@ -15,6 +15,8 @@ use crate::api::settings::{Settings, WorktreeLocationMode};
 use crate::events::EventKind;
 use crate::git;
 use crate::state::AppState;
+use crate::tab::WorktreePaneNode;
+use crate::worktree_state::WorktreeRestoreState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
 pub struct Worktree {
@@ -108,6 +110,15 @@ pub struct UpdateWorktreeRequest {
     pub source_ref: Option<String>,
     #[serde(default)]
     pub ui_mode: Option<WorktreeUiMode>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateWorktreeRestoreStateRequest {
+    #[serde(default)]
+    pub active_tab_id: Option<String>,
+    #[serde(default)]
+    pub focused_pane_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -234,8 +245,7 @@ struct ProjectMeta {
     worktree_ui_modes: HashMap<String, WorktreeUiMode>,
 }
 
-async fn load_meta(state: &AppState, project_id: &str) -> ProjectMeta {
-    let path = state.project_meta_file(project_id);
+async fn load_meta(path: PathBuf) -> ProjectMeta {
     match tokio::fs::read_to_string(path).await {
         Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
         Err(_) => ProjectMeta::default(),
@@ -366,7 +376,7 @@ pub async fn list_worktrees_for_project(
     state: &AppState,
     project: &Project,
 ) -> Result<Vec<Worktree>, String> {
-    let mut meta = load_meta(state, &project.id).await;
+    let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     let local_id = local_worktree_id(project);
     normalize_meta(&mut meta, &local_id);
 
@@ -386,20 +396,21 @@ pub async fn list_worktrees_for_project(
         position: 0.0,
     };
 
-    let mut non_local = Vec::with_capacity(meta.managed_worktrees.len());
-    for managed in &meta.managed_worktrees {
+    let managed_worktrees = meta.managed_worktrees.clone();
+    let mut non_local = Vec::with_capacity(managed_worktrees.len());
+    for managed in managed_worktrees {
+        let managed_id = managed.id.clone();
+        let branch = managed.branch;
+        let name = managed.name.unwrap_or_else(|| branch.clone());
         let path_buf = PathBuf::from(&managed.path);
         non_local.push(Worktree {
-            id: managed.id.clone(),
+            id: managed_id.clone(),
             project_id: project.id.clone(),
-            name: managed
-                .name
-                .clone()
-                .unwrap_or_else(|| managed.branch.clone()),
-            path: managed.path.clone(),
-            branch: managed.branch.clone(),
-            source_ref: managed.source_ref.clone(),
-            ui_mode: worktree_ui_mode(&meta, &managed.id),
+            name,
+            path: managed.path,
+            branch,
+            source_ref: managed.source_ref,
+            ui_mode: worktree_ui_mode(&meta, &managed_id),
             is_local: false,
             is_imported: managed.imported,
             missing_on_disk: tokio::fs::metadata(&path_buf).await.is_err(),
@@ -434,6 +445,7 @@ pub async fn resolve_worktree(
 
         if let Some(worktree) = worktrees.into_iter().find(|w| w.id == worktree_id) {
             let local_root = PathBuf::from(&project.path);
+            state.remember_worktree_project(&worktree.id, &project.id);
             return Ok(Some(ResolvedWorktree {
                 project_id: project.id.clone(),
                 local_root,
@@ -446,7 +458,7 @@ pub async fn resolve_worktree(
 }
 
 pub fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) {
-    state.tab_layouts.remove(worktree_id);
+    state.clear_worktree_runtime_state(worktree_id);
     let tab_ids: Vec<String> = state
         .tabs
         .iter()
@@ -467,6 +479,96 @@ pub fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) {
             });
         }
     }
+}
+
+fn normalize_restore_state(
+    state: &AppState,
+    worktree_id: &str,
+    request: UpdateWorktreeRestoreStateRequest,
+) -> WorktreeRestoreState {
+    let mut restore_state = WorktreeRestoreState {
+        active_tab_id: request.active_tab_id,
+        focused_pane_id: request.focused_pane_id,
+    };
+
+    if restore_state.active_tab_id.as_ref().is_some_and(|tab_id| {
+        state
+            .tabs
+            .get(tab_id)
+            .is_none_or(|tab| tab.worktree_id() != worktree_id)
+    }) {
+        restore_state.active_tab_id = None;
+    }
+
+    let valid_pane_ids: HashSet<String> = state
+        .tab_layouts
+        .get(worktree_id)
+        .map(|layout| {
+            layout
+                .nodes
+                .iter()
+                .filter_map(|node| match node {
+                    WorktreePaneNode::Leaf { pane_id, .. } => Some(pane_id.clone()),
+                    WorktreePaneNode::Split { .. } => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if restore_state
+        .focused_pane_id
+        .as_ref()
+        .is_some_and(|pane_id| !valid_pane_ids.contains(pane_id))
+    {
+        restore_state.focused_pane_id = None;
+    }
+
+    if restore_state.focused_pane_id.is_none()
+        && let Some(active_tab_id) = restore_state.active_tab_id.as_ref()
+    {
+        restore_state.focused_pane_id = state
+            .tabs
+            .get(active_tab_id)
+            .map(|tab| tab.pane_id().to_string());
+    }
+
+    restore_state
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/restore-state",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+    ),
+    request_body = UpdateWorktreeRestoreStateRequest,
+    responses(
+        (status = 204, description = "Worktree restore state updated"),
+        (status = 404, description = "Worktree not found"),
+    ),
+)]
+pub async fn put_worktree_restore_state(
+    State(state): State<AppState>,
+    Path((project_id, worktree_id)): Path<(String, String)>,
+    Json(request): Json<UpdateWorktreeRestoreStateRequest>,
+) -> StatusCode {
+    match resolve_worktree(&state, &worktree_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return StatusCode::NOT_FOUND,
+        Err(status) => return status,
+    }
+
+    state.remember_worktree_project(&worktree_id, &project_id);
+    let restore_state = normalize_restore_state(&state, &worktree_id, request);
+    state
+        .restore_state_by_worktree
+        .insert(worktree_id.clone(), restore_state.clone());
+    state
+        .persistence
+        .update_restore_state(project_id, worktree_id, restore_state);
+
+    StatusCode::NO_CONTENT
 }
 
 #[utoipa::path(
@@ -542,7 +644,7 @@ pub async fn update_project_worktree(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let mut meta = load_meta(&state, &project.id).await;
+    let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     if let Some(name) = &req.name {
         let trimmed = name.trim();
         if trimmed.is_empty() {
@@ -667,7 +769,7 @@ pub async fn create_project_worktree(
         position: 0.0,
     };
 
-    let mut meta = load_meta(&state, &project.id).await;
+    let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     meta.managed_worktrees.retain(|wt| wt.id != created_id);
     meta.managed_worktrees.push(ManagedWorktree {
         id: created.id.clone(),
@@ -947,7 +1049,7 @@ pub async fn rename_worktree_branch(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut meta = load_meta(&state, &project.id).await;
+    let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     if let Some(managed) = meta
         .managed_worktrees
         .iter_mut()
@@ -1207,7 +1309,7 @@ pub async fn reorder_project_worktrees(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let mut meta = load_meta(&state, &project.id).await;
+    let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     meta.worktree_order = req.worktree_ids.clone();
     normalize_meta(&mut meta, &local_worktree_id(project));
     save_meta(&state, &project.id, &meta).await?;
@@ -1269,7 +1371,7 @@ pub async fn list_importable_worktrees(
         }
     };
 
-    let meta = load_meta(&state, &project.id).await;
+    let meta = load_meta(state.project_meta_file(&project.id)).await;
     let local_path = tokio::fs::canonicalize(&project.path)
         .await
         .unwrap_or_else(|_| PathBuf::from(&project.path));
@@ -1368,7 +1470,7 @@ pub async fn import_project_worktree(
     let git_wt = matched.ok_or(StatusCode::BAD_REQUEST)?;
 
     // Check not already managed.
-    let mut meta = load_meta(&state, &project.id).await;
+    let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     let wt_id = git::worktree_id(&canonical);
     if meta.managed_worktrees.iter().any(|wt| wt.id == wt_id) {
         return Err(StatusCode::CONFLICT);
@@ -1495,7 +1597,7 @@ pub async fn delete_project_worktree(
         }
     }
 
-    let mut meta = load_meta(&state, &project.id).await;
+    let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     meta.managed_worktrees.retain(|wt| wt.id != worktree_id);
     meta.worktree_order.retain(|id| id != &worktree_id);
     meta.worktree_ui_modes.remove(&worktree_id);
@@ -1505,6 +1607,9 @@ pub async fn delete_project_worktree(
     }
 
     close_tabs_for_worktree(&state, &worktree_id);
+    state
+        .persistence
+        .delete_worktree(project.id.clone(), worktree_id.clone());
 
     state.events.emit(EventKind::WorktreeDeleted {
         project_id: project.id.clone(),

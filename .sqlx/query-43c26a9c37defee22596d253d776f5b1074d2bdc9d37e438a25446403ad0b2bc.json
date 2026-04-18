@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            tab_id as \"tab_id!\",\n            history_index as \"history_index!\",\n            url as \"url!\"\n        FROM browser_history_entries\n        ORDER BY tab_id, history_index\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "tab_id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "history_index!",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "url!",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "43c26a9c37defee22596d253d776f5b1074d2bdc9d37e438a25446403ad0b2bc"
+}

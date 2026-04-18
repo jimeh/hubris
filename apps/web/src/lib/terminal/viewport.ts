@@ -55,7 +55,13 @@ export function buildTerminalViewportMessage(
     };
   }
 
-  if (!viewport) {
+  const visibleViewport = state.measuredViewport
+    ? clampViewport(state.measuredViewport)
+    : state.localViewport
+      ? clampViewport(state.localViewport)
+      : null;
+
+  if (!visibleViewport) {
     return {
       localViewport,
       message: null,
@@ -66,8 +72,8 @@ export function buildTerminalViewportMessage(
     localViewport,
     message: {
       type: "resize",
-      cols: viewport.cols,
-      rows: viewport.rows,
+      cols: visibleViewport.cols,
+      rows: visibleViewport.rows,
       visible: true,
     },
   };

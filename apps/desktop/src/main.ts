@@ -2,6 +2,7 @@ import path from "node:path";
 import {
   app,
   BrowserWindow,
+  dialog,
   session,
   shell,
   type Cookies,
@@ -10,6 +11,7 @@ import {
 } from "electron";
 
 import {
+  DesktopRuntimeStartupError,
   createDesktopToken,
   resolvePackagedPaths,
   spawnPackagedRuntime,
@@ -264,6 +266,39 @@ async function initializeDesktop() {
   return desktopInitialization;
 }
 
+async function handleDesktopStartupError(error: unknown) {
+  if (error instanceof DesktopRuntimeStartupError && error.conflict) {
+    const buttons = error.conflict.listenUrl
+      ? ["Open Running Server", "Quit"]
+      : ["Quit"];
+    const { response } = await dialog.showMessageBox({
+      type: "error",
+      title: "Hubris Is Already Running",
+      message: error.conflict.listenUrl
+        ? "Hubris is already running for this data directory."
+        : "Another Hubris desktop instance already owns this data directory.",
+      detail: error.conflict.listenUrl
+        ? `PID: ${error.conflict.holderPid}\nURL: ${error.conflict.listenUrl}`
+        : `PID: ${error.conflict.holderPid}`,
+      buttons,
+      defaultId: 0,
+      cancelId: buttons.length - 1,
+      noLink: true,
+    });
+
+    if (error.conflict.listenUrl && response === 0) {
+      await shell.openExternal(error.conflict.listenUrl);
+    }
+
+    app.quit();
+    return;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  dialog.showErrorBox("Failed to Start Hubris", message);
+  app.quit();
+}
+
 /**
  * Create and load the main Hubris BrowserWindow.
  */
@@ -360,7 +395,10 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    void app.whenReady().then(() => showMainWindow());
+    void app
+      .whenReady()
+      .then(() => showMainWindow())
+      .catch(handleDesktopStartupError);
   });
 
   configureDesktopProfilePaths(app, profileMode);
@@ -374,11 +412,14 @@ if (!app.requestSingleInstanceLock()) {
     );
     configureSessionGuards(desktopSession);
     configureBrowserSessionGuards(browserSession);
-    await showMainWindow();
-
-    app.on("activate", () => {
-      void showMainWindow();
-    });
+    try {
+      await showMainWindow();
+      app.on("activate", () => {
+        void showMainWindow().catch(handleDesktopStartupError);
+      });
+    } catch (error) {
+      await handleDesktopStartupError(error);
+    }
   });
 }
 

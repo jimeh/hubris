@@ -25,6 +25,20 @@ const MIN_PTY_COLS: u16 = 8;
 const MIN_PTY_ROWS: u16 = 2;
 const PROCESS_CWD_CACHE_TTL: Duration = Duration::from_secs(2);
 const PROCESS_LABEL_CACHE_TTL: Duration = Duration::from_secs(5);
+const RESET_RESTORED_TERMINAL_STATE: &[u8] = concat!(
+    "\x1b[?1049l",
+    "\x1b[?9l",
+    "\x1b[?1000l",
+    "\x1b[?1001l",
+    "\x1b[?1002l",
+    "\x1b[?1003l",
+    "\x1b[?1005l",
+    "\x1b[?1006l",
+    "\x1b[?1015l",
+    "\x1b[?25h",
+    "\x1b[0m",
+)
+.as_bytes();
 #[cfg(target_os = "macos")]
 const MAXPATHLEN: usize = libc::PATH_MAX as usize;
 #[cfg(target_os = "macos")]
@@ -36,6 +50,14 @@ const PROC_PIDVNODEPATHINFO: libc::c_int = 9;
 pub struct TerminalSize {
     pub cols: u16,
     pub rows: u16,
+}
+
+/// Persisted terminal output used to rebuild a restored replay.
+#[derive(Debug, Clone)]
+pub struct RestoredTerminalBuffers {
+    pub total_bytes: u64,
+    pub scrollback: Vec<u8>,
+    pub snapshot: Vec<u8>,
 }
 
 impl TerminalSize {
@@ -315,6 +337,7 @@ pub struct LiveTab {
     next_attachment_id: AtomicU64,
     attachments: Mutex<AttachmentRegistry>,
     process_cwd_cache: Mutex<ProcessCwdCache>,
+    restored_attach_payload: Mutex<Option<Vec<u8>>>,
     process_label_cache: Mutex<ProcessLabelCache>,
     resize_update_lock: Mutex<()>,
     _reader_handle: JoinHandle<()>,
@@ -324,6 +347,7 @@ pub struct LiveTabAttachment {
     pub attachment_id: u64,
     pub initial_payload: Vec<u8>,
     pub snapshot: bool,
+    pub consumes_restored_payload: bool,
     pub current_size: TerminalSize,
     pub byte_offset: u64,
     pub data_lost: bool,
@@ -358,6 +382,28 @@ impl OutputState {
         }
     }
 
+    fn from_restored(
+        scrollback_size: usize,
+        initial_size: TerminalSize,
+        total_bytes: u64,
+        scrollback: &[u8],
+        snapshot: &[u8],
+    ) -> Self {
+        let mut state = Self::new(scrollback_size, initial_size);
+        if scrollback_size > 0 {
+            let retained = if scrollback.len() > scrollback_size {
+                &scrollback[scrollback.len() - scrollback_size..]
+            } else {
+                scrollback
+            };
+            state.scrollback.extend(retained.iter().copied());
+        }
+        state.total_bytes = total_bytes.max(scrollback.len() as u64);
+        state.process_parser_bytes(scrollback);
+        state.process_parser_bytes(snapshot);
+        state
+    }
+
     fn record_output(&mut self, data: &[u8], scrollback_size: usize) {
         if scrollback_size > 0 {
             let retained_data = if data.len() > scrollback_size {
@@ -376,6 +422,10 @@ impl OutputState {
             self.scrollback.extend(retained_data.iter().copied());
         }
         self.total_bytes += data.len() as u64;
+        self.process_parser_bytes(data);
+    }
+
+    fn process_parser_bytes(&mut self, data: &[u8]) {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.parser.process(data);
         }));
@@ -442,6 +492,15 @@ impl OutputState {
         snapshot.extend(self.parser.screen().state_formatted());
         snapshot
     }
+
+    fn restored_replay_payload(&self) -> Vec<u8> {
+        let mut replay = Vec::with_capacity(RESET_RESTORED_TERMINAL_STATE.len() + 1024);
+        replay.extend_from_slice(RESET_RESTORED_TERMINAL_STATE);
+        replay.extend_from_slice(b"\x1b[2J\x1b[H");
+        replay.extend(self.parser.screen().contents_formatted());
+        replay.extend_from_slice(b"\x1b[?25h");
+        replay
+    }
 }
 
 impl LiveTab {
@@ -457,10 +516,64 @@ impl LiveTab {
         scrollback_size: usize,
         initial_size: TerminalSize,
     ) -> Self {
+        Self::spawn_with_output_state(
+            info,
+            shell_process_name,
+            worktree_root,
+            master,
+            child,
+            scrollback_size,
+            initial_size,
+            OutputState::new(scrollback_size, initial_size),
+            None,
+        )
+    }
+
+    pub fn spawn_restored(
+        info: TabInfo,
+        shell_process_name: Option<String>,
+        worktree_root: PathBuf,
+        master: Box<dyn MasterPty + Send>,
+        child: Box<dyn Child + Send + Sync>,
+        scrollback_size: usize,
+        initial_size: TerminalSize,
+        restored: RestoredTerminalBuffers,
+    ) -> Self {
+        let restored_output_state = OutputState::from_restored(
+            scrollback_size,
+            initial_size,
+            restored.total_bytes,
+            &restored.scrollback,
+            &restored.snapshot,
+        );
+        Self::spawn_with_output_state(
+            info,
+            shell_process_name,
+            worktree_root,
+            master,
+            child,
+            scrollback_size,
+            TerminalSize::default_pty(),
+            OutputState::new(scrollback_size, TerminalSize::default_pty()),
+            Some(restored_output_state.restored_replay_payload()),
+        )
+    }
+
+    fn spawn_with_output_state(
+        info: TabInfo,
+        shell_process_name: Option<String>,
+        worktree_root: PathBuf,
+        master: Box<dyn MasterPty + Send>,
+        child: Box<dyn Child + Send + Sync>,
+        scrollback_size: usize,
+        initial_size: TerminalSize,
+        output_state: OutputState,
+        restored_attach_payload: Option<Vec<u8>>,
+    ) -> Self {
         let mut reader = master.try_clone_reader().unwrap();
         let writer = master.take_writer().unwrap();
 
-        let output_state = Arc::new(Mutex::new(OutputState::new(scrollback_size, initial_size)));
+        let output_state = Arc::new(Mutex::new(output_state));
         let (output_tx, _) = broadcast::channel(64);
         let (pty_size_tx, _) = broadcast::channel(16);
         let (close_tx, _) = broadcast::channel(1);
@@ -518,6 +631,7 @@ impl LiveTab {
             next_attachment_id: AtomicU64::new(1),
             attachments: Mutex::new(AttachmentRegistry::new(initial_size)),
             process_cwd_cache: Mutex::new(ProcessCwdCache::default()),
+            restored_attach_payload: Mutex::new(restored_attach_payload),
             process_label_cache: Mutex::new(ProcessLabelCache::default()),
             resize_update_lock: Mutex::new(()),
             _reader_handle: reader_handle,
@@ -570,7 +684,17 @@ impl LiveTab {
             attachments.shared_size()
         };
 
-        let (initial_payload, snapshot, data_lost) = output_state.build_attach_payload(resume_from);
+        let restored_attach_payload = self.restored_attach_payload.lock().unwrap().clone();
+        let (initial_payload, snapshot, data_lost, consumes_restored_payload) =
+            if let Some(mut restored_attach_payload) = restored_attach_payload {
+                let (live_payload, _, _) = output_state.build_attach_payload(None);
+                restored_attach_payload.extend(live_payload);
+                (restored_attach_payload, true, false, true)
+            } else {
+                let (initial_payload, snapshot, data_lost) =
+                    output_state.build_attach_payload(resume_from);
+                (initial_payload, snapshot, data_lost, false)
+            };
         let output_rx = self.output_tx.subscribe();
         let pty_size_rx = self.pty_size_tx.subscribe();
         let close_rx = self.close_tx.subscribe();
@@ -578,6 +702,7 @@ impl LiveTab {
             attachment_id,
             initial_payload,
             snapshot,
+            consumes_restored_payload,
             current_size,
             byte_offset: total,
             data_lost,
@@ -585,6 +710,10 @@ impl LiveTab {
             pty_size_rx,
             close_rx,
         }
+    }
+
+    pub fn consume_restored_attach_payload(&self) {
+        self.restored_attach_payload.lock().unwrap().take();
     }
 
     pub fn update_attachment_size(&self, attachment_id: u64, size: TerminalSize, visible: bool) {
@@ -671,6 +800,15 @@ impl LiveTab {
     /// closing. Called by `delete_tab` for explicit closure.
     pub fn notify_close(&self) {
         let _ = self.close_tx.send(());
+    }
+
+    pub fn persistence_state(&self) -> (TerminalSize, u64, Vec<u8>) {
+        let output_state = self.output_state.lock().unwrap();
+        (
+            output_state.size,
+            output_state.total_bytes,
+            output_state.snapshot_state(),
+        )
     }
 
     /// Kill the child process and wait for exit.
@@ -1114,7 +1252,7 @@ mod tests {
 
     use super::{
         AttachmentRegistry, DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS, DEFAULT_SCROLLBACK, LiveTab,
-        TabInfo, TerminalSignalScanner, TerminalSize,
+        RestoredTerminalBuffers, TabInfo, TerminalSignalScanner, TerminalSize,
     };
 
     #[test]
@@ -1501,6 +1639,55 @@ mod tests {
         ))
     }
 
+    fn spawn_test_restored_tab(
+        scrollback: Vec<u8>,
+        snapshot: Vec<u8>,
+        total_bytes: u64,
+    ) -> Arc<LiveTab> {
+        let pty_system = NativePtySystem::default();
+        let pair = pty_system
+            .openpty(TerminalSize::default_pty().to_pty_size())
+            .unwrap();
+
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.arg("-c");
+        cmd.arg("cat");
+        cmd.env("TERM", "xterm-256color");
+
+        let child = pair.slave.spawn_command(cmd).unwrap();
+        drop(pair.slave);
+
+        Arc::new(LiveTab::spawn_restored(
+            TabInfo::Terminal {
+                id: "tab".to_string(),
+                session_id: "default".to_string(),
+                worktree_id: "worktree".to_string(),
+                pane_id: "pane-1".to_string(),
+                label: "Terminal 1".to_string(),
+                position: 1.0,
+                created_at: 0,
+                preview: false,
+                has_notification: false,
+                labels: crate::tab::TerminalTabLabels {
+                    custom_label: None,
+                    smart_label: None,
+                    title_label: None,
+                },
+            },
+            Some("sh".to_string()),
+            PathBuf::from("/tmp/worktree"),
+            pair.master,
+            child,
+            DEFAULT_SCROLLBACK,
+            TerminalSize::default_pty(),
+            RestoredTerminalBuffers {
+                total_bytes,
+                scrollback,
+                snapshot,
+            },
+        ))
+    }
+
     #[test]
     fn attachment_registry_uses_smallest_visible_size() {
         let mut registry = AttachmentRegistry::new(TerminalSize::default_pty());
@@ -1683,6 +1870,7 @@ mod tests {
         assert!(attachment.snapshot);
         assert!(!attachment.data_lost);
         assert!(!attachment.initial_payload.is_empty());
+        assert!(!attachment.consumes_restored_payload);
         assert!(parser.screen().contents().contains("hello"));
     }
 
@@ -1694,6 +1882,7 @@ mod tests {
 
         assert!(!attachment.snapshot);
         assert!(!attachment.data_lost);
+        assert!(!attachment.consumes_restored_payload);
         assert!(attachment.initial_payload.is_empty());
     }
 
@@ -1707,6 +1896,7 @@ mod tests {
 
         assert!(!attachment.snapshot);
         assert!(!attachment.data_lost);
+        assert!(!attachment.consumes_restored_payload);
         assert_eq!(attachment.initial_payload, b"llo");
     }
 
@@ -1720,6 +1910,7 @@ mod tests {
 
         assert!(!attachment.snapshot);
         assert!(!attachment.data_lost);
+        assert!(!attachment.consumes_restored_payload);
         assert!(attachment.initial_payload.is_empty());
     }
 
@@ -1735,6 +1926,7 @@ mod tests {
 
         assert!(attachment.snapshot);
         assert!(attachment.data_lost);
+        assert!(!attachment.consumes_restored_payload);
         assert!(!attachment.initial_payload.is_empty());
         assert!(parser.screen().contents().contains("abcdef"));
     }
@@ -1765,6 +1957,35 @@ mod tests {
             parser.screen().mouse_protocol_encoding(),
             vt100::MouseProtocolEncoding::Sgr
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn restored_attach_replays_visual_contents_without_mouse_modes() {
+        let enable_mouse = b"\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1006h";
+        let body = b"htop";
+        let mut restored = Vec::new();
+        restored.extend_from_slice(enable_mouse);
+        restored.extend_from_slice(body);
+        let tab = spawn_test_restored_tab(restored.clone(), Vec::new(), restored.len() as u64);
+
+        let first_attachment = tab.attach(Some(0));
+        let mut parser = vt100::Parser::new(DEFAULT_PTY_ROWS, DEFAULT_PTY_COLS, 0);
+        parser.process(&first_attachment.initial_payload);
+
+        assert!(first_attachment.snapshot);
+        assert!(first_attachment.consumes_restored_payload);
+        assert!(!parser.screen().alternate_screen());
+        assert_eq!(
+            parser.screen().mouse_protocol_mode(),
+            vt100::MouseProtocolMode::None
+        );
+        assert!(!parser.screen().hide_cursor());
+        assert!(parser.screen().contents().contains("htop"));
+
+        tab.consume_restored_attach_payload();
+
+        let second_attachment = tab.attach(Some(0));
+        assert!(!second_attachment.consumes_restored_payload);
     }
 
     #[tokio::test(flavor = "current_thread")]

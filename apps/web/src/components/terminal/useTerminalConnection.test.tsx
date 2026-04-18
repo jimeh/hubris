@@ -375,6 +375,65 @@ describe("useTerminalConnection", () => {
     });
   });
 
+  it("keeps retrying visible resize until a real measurement is available", () => {
+    const queuedFrames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 1;
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      const frameId = nextFrameId;
+      nextFrameId += 1;
+      queuedFrames.set(frameId, callback);
+      return frameId;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = vi.fn((frameId: number) => {
+      queuedFrames.delete(frameId);
+    }) as typeof window.cancelAnimationFrame;
+    currentViewport = null;
+
+    renderTerminalConnection();
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.open();
+      ws.receive(
+        JSON.stringify({
+          type: "attached",
+          byte_offset: 12,
+          snapshot: true,
+          data_lost: false,
+          cols: 90,
+          rows: 25,
+        }),
+      );
+    });
+
+    expect(ws.sent).toHaveLength(0);
+    expect(mockTerminal.resize).toHaveBeenCalledWith(90, 25);
+
+    const firstRetry = queuedFrames.get(1);
+    expect(firstRetry).toBeDefined();
+    act(() => {
+      queuedFrames.delete(1);
+      firstRetry?.(0);
+    });
+
+    expect(ws.sent).toHaveLength(0);
+
+    currentViewport = { cols: 100, rows: 30 };
+    const secondRetry = queuedFrames.get(2);
+    expect(secondRetry).toBeDefined();
+    act(() => {
+      queuedFrames.delete(2);
+      secondRetry?.(0);
+    });
+
+    expect(parseControlMessage(ws.sent[0])).toEqual({
+      type: "resize",
+      cols: 100,
+      rows: 30,
+      visible: true,
+    });
+  });
+
   it("dedupes resize messages and applies pty_resized events", () => {
     const { result } = renderTerminalConnection();
 

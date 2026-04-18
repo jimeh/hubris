@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+"$(dirname "$0")/ensure-sqlx-cli"
+
+TMP_DIR="${HUBRIS_SQLX_TMP:-$(pwd)/tmp}"
+DB_PATH="$TMP_DIR/sqlx-prepare-check.db"
+mkdir -p "$TMP_DIR"
+rm -f "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"
+
+export DATABASE_URL="sqlite://$DB_PATH"
+cargo sqlx database create
+cargo sqlx migrate run --source apps/server/migrations
+SQLX_OFFLINE=false cargo sqlx prepare --check --workspace -- --all-targets

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM terminal_state WHERE project_id = ?1 AND worktree_id = ?2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "4cfc8066bed60bef17113d86335923eac8b456576fc51ac69884c4106f94f6fb"
+}

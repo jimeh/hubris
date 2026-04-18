@@ -4,7 +4,8 @@ use listenfd::ListenFd;
 use tracing_subscriber::EnvFilter;
 
 use hubris_server::{
-    DesktopAccess, ServerAccess, ServerOptions, resolve_data_dir, run_server_with_shutdown,
+    DesktopAccess, InstanceKind, InstanceLock, InstanceLockError, InstanceLockOptions,
+    ServerAccess, ServerOptions, resolve_server_data_dir, run_server_with_shutdown_and_lock,
     select_listener,
 };
 
@@ -21,8 +22,7 @@ async fn main() {
         .init();
 
     let is_dev = cfg!(debug_assertions);
-    let data_dir = resolve_data_dir(if is_dev { ".hubris-dev" } else { ".hubris" })
-        .expect("failed to resolve data dir");
+    let data_dir = resolve_server_data_dir(is_dev).expect("failed to resolve data dir");
 
     let host = std::env::var("HUBRIS_HOST").unwrap_or_else(|_| {
         if is_dev {
@@ -70,14 +70,33 @@ async fn main() {
             .expect("failed to write dev state file");
     }
 
-    tracing::info!("listening on http://{}", addr);
+    let listen_url = format!("http://{addr}");
+    let instance_lock = match InstanceLock::acquire(
+        &data_dir,
+        InstanceLockOptions {
+            instance_kind: InstanceKind::Server,
+            display_name: "Hubris Server".to_string(),
+            listen_url: Some(listen_url.clone()),
+        },
+    ) {
+        Ok(lock) => lock,
+        Err(InstanceLockError::Conflict(conflict)) => {
+            eprintln!("{}", conflict.message());
+            std::process::exit(1);
+        }
+        Err(InstanceLockError::Io(error)) => {
+            eprintln!("failed to acquire Hubris instance lock: {error}");
+            std::process::exit(1);
+        }
+    };
+    tracing::info!("listening on {listen_url}");
     let access = std::env::var("HUBRIS_DESKTOP_SESSION_TOKEN")
         .ok()
         .map(DesktopAccess::api_only)
         .map(ServerAccess::DesktopLocked)
         .unwrap_or(ServerAccess::Open);
 
-    run_server_with_shutdown(
+    run_server_with_shutdown_and_lock(
         listener,
         data_dir,
         ServerOptions {
@@ -85,6 +104,7 @@ async fn main() {
             ..ServerOptions::default()
         },
         shutdown_signal(),
+        Some(instance_lock),
     )
     .await
     .unwrap();

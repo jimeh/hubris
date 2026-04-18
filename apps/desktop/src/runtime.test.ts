@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  DesktopRuntimeStartupError,
   buildPackagedRuntimeEnv,
   parseDesktopStartupMessage,
   parseDevServerState,
@@ -76,6 +77,40 @@ describe("parseDesktopStartupMessage", () => {
 
   it("ignores malformed output", () => {
     expect(parseDesktopStartupMessage("desktop server started")).toBeNull();
+  });
+
+  it("maps startup conflict payloads into typed fields", () => {
+    expect(
+      parseDesktopStartupMessage(
+        '{"ready":false,"pid":99,"port":0,"error":"busy","conflict":{"holder_pid":321,"holder_kind":"server","listen_url":"http://127.0.0.1:3001"}}',
+      ),
+    ).toEqual({
+      ready: false,
+      pid: 99,
+      port: 0,
+      error: "busy",
+      conflict: {
+        holderPid: 321,
+        holderKind: "server",
+        listenUrl: "http://127.0.0.1:3001",
+      },
+    });
+  });
+});
+
+describe("DesktopRuntimeStartupError", () => {
+  it("retains conflict metadata", () => {
+    const error = new DesktopRuntimeStartupError("busy", {
+      conflict: {
+        holderPid: 123,
+        holderKind: "desktop_runtime",
+      },
+    });
+
+    expect(error.conflict).toEqual({
+      holderPid: 123,
+      holderKind: "desktop_runtime",
+    });
   });
 });
 

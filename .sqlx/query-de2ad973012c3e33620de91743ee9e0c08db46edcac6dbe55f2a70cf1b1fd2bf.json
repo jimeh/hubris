@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                        INSERT INTO layout_nodes (\n                            worktree_id,\n                            node_id,\n                            node_type,\n                            axis,\n                            ratio,\n                            first_id,\n                            second_id\n                        ) VALUES (?1, ?2, 'split', ?3, ?4, ?5, ?6)\n                        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "de2ad973012c3e33620de91743ee9e0c08db46edcac6dbe55f2a70cf1b1fd2bf"
+}

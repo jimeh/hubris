@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO tabs (\n                tab_id,\n                project_id,\n                worktree_id,\n                session_id,\n                tab_type,\n                pane_id,\n                label,\n                position,\n                created_at_ms,\n                preview,\n                custom_label,\n                process_label,\n                title_label,\n                path,\n                scope,\n                original_path,\n                commit_id,\n                url,\n                browser_history_index\n            ) VALUES (\n                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,\n                ?15, ?16, ?17, ?18, ?19\n            )\n            ON CONFLICT(tab_id) DO UPDATE SET\n                project_id = excluded.project_id,\n                worktree_id = excluded.worktree_id,\n                session_id = excluded.session_id,\n                tab_type = excluded.tab_type,\n                pane_id = excluded.pane_id,\n                label = excluded.label,\n                position = excluded.position,\n                created_at_ms = excluded.created_at_ms,\n                preview = excluded.preview,\n                custom_label = excluded.custom_label,\n                process_label = excluded.process_label,\n                title_label = excluded.title_label,\n                path = excluded.path,\n                scope = excluded.scope,\n                original_path = excluded.original_path,\n                commit_id = excluded.commit_id,\n                url = excluded.url,\n                browser_history_index = excluded.browser_history_index\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 19
+    },
+    "nullable": []
+  },
+  "hash": "b9df31a64ee8df01532232dc12fb1fc46848817924581a4a873c9327d6da9973"
+}

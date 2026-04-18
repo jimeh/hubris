@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM browser_history_entries WHERE tab_id IN (SELECT tab_id FROM tabs WHERE project_id = ?1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "c7639dc41efe1b582f725260c7765ce99bc990d879b6694056286dfcf6d2fc53"
+}

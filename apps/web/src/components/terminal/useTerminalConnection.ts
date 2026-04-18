@@ -191,6 +191,32 @@ export function useTerminalConnection({
     [buildViewportMessage, flushBufferedInput],
   );
 
+  const scheduleResizeRetry = useCallback(
+    (generation: number): void => {
+      if (connectFrameRef.current !== null) {
+        cancelAnimationFrame(connectFrameRef.current.frameId);
+      }
+
+      const frameId = requestAnimationFrame(() => {
+        if (connectFrameRef.current?.generation !== generation) {
+          return;
+        }
+
+        connectFrameRef.current = null;
+        if (!sendResize(true)) {
+          scheduleResizeRetry(generation);
+          return;
+        }
+
+        if (visibleRef.current) {
+          terminalRef.current?.focus();
+        }
+      });
+      connectFrameRef.current = { generation, frameId };
+    },
+    [sendResize, terminalRef],
+  );
+
   const scheduleReconnect = useCallback((): void => {
     if (
       localCleanupRef.current ||
@@ -256,21 +282,7 @@ export function useTerminalConnection({
       flushInputAfterResizeRef.current = inputBufferRef.current.length > 0;
 
       if (!sendResize(true)) {
-        const frameId = requestAnimationFrame(() => {
-          if (
-            connectFrameRef.current?.generation !== generation ||
-            !isCurrentConnection(ws, generation)
-          ) {
-            return;
-          }
-
-          connectFrameRef.current = null;
-          sendResize(true);
-          if (visibleRef.current) {
-            terminalRef.current?.focus();
-          }
-        });
-        connectFrameRef.current = { generation, frameId };
+        scheduleResizeRetry(generation);
       } else if (visibleRef.current) {
         connectFrameRef.current = null;
         terminalRef.current?.focus();
@@ -329,6 +341,7 @@ export function useTerminalConnection({
   }, [
     applyPtySize,
     isCurrentConnection,
+    scheduleResizeRetry,
     scheduleReconnect,
     sendResize,
     tabId,

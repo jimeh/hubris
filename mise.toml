@@ -100,6 +100,7 @@ description = "Desktop lint + type check"
 description = "Rust format check + clippy"
 run = [
   "cargo fmt --all --check",
+  ".mise/tasks/sqlx-prepare-check",
   "cargo check",
   "cargo clippy --all-targets -- -D warnings",
 ]
@@ -186,8 +187,19 @@ run = "bun install"
 description = "Install web dependencies"
 
 [tasks."setup:server"]
-run = "cargo fetch"
+run = [
+  "cargo fetch",
+  ".mise/tasks/ensure-sqlx-cli",
+]
 description = "Fetch backend dependencies"
+
+[tasks."sqlx:prepare"]
+run = ".mise/tasks/sqlx-prepare"
+description = "Refresh checked-in sqlx offline metadata"
+
+[tasks."sqlx:check"]
+run = ".mise/tasks/sqlx-prepare-check"
+description = "Check sqlx offline metadata is current"
 
 [tasks.setup]
 depends = ["setup:web", "setup:server"]

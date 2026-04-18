@@ -98,6 +98,18 @@ describe("terminal viewport logic", () => {
     });
   });
 
+  it("does not reuse the applied pty size for visible tabs without a local measurement", () => {
+    const result = buildTerminalViewportMessage({
+      visible: true,
+      measuredViewport: null,
+      localViewport: null,
+      appliedViewport: { cols: 90, rows: 30 },
+    });
+
+    expect(result.localViewport).toBeNull();
+    expect(result.message).toBeNull();
+  });
+
   it("clamps tiny viewport measurements to safe terminal dimensions", () => {
     const result = buildTerminalViewportMessage({
       visible: true,

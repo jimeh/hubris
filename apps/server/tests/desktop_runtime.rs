@@ -13,6 +13,14 @@ struct StartupMessage {
     pid: u32,
     port: u16,
     error: Option<String>,
+    conflict: Option<StartupConflict>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StartupConflict {
+    holder_pid: u32,
+    holder_kind: String,
+    listen_url: Option<String>,
 }
 
 fn cookie_pair(response: &reqwest::Response) -> String {
@@ -45,6 +53,17 @@ fn start_runtime() -> (std::process::Child, StartupMessage, TempDir, TempDir) {
     let startup: StartupMessage = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
 
     (child, startup, TempDir::new().unwrap(), data_tmp)
+}
+
+fn spawn_runtime_with_data_dir(data_dir: &std::path::Path) -> std::process::Child {
+    Command::new(env!("CARGO_BIN_EXE_hubris-desktop-runtime"))
+        .env("HUBRIS_DATA_DIR", data_dir)
+        .env("HUBRIS_DESKTOP_SESSION_TOKEN", "session-token")
+        .env("HUBRIS_DESKTOP_BOOTSTRAP_TOKEN", "bootstrap-token")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap()
 }
 
 #[tokio::test]
@@ -93,4 +112,33 @@ async fn desktop_runtime_emits_startup_contract_and_serves_backend_after_bootstr
 
     child.kill().unwrap();
     let _ = child.wait();
+}
+
+#[test]
+fn desktop_runtime_reports_conflict_when_data_dir_is_locked() {
+    let data_tmp = TempDir::new().unwrap();
+
+    let mut first = spawn_runtime_with_data_dir(data_tmp.path());
+    let first_stdout = first.stdout.take().unwrap();
+    let mut first_lines = BufReader::new(first_stdout).lines();
+    let first_startup: StartupMessage =
+        serde_json::from_str(&first_lines.next().unwrap().unwrap()).unwrap();
+    assert!(first_startup.ready);
+
+    let mut second = spawn_runtime_with_data_dir(data_tmp.path());
+    let second_stdout = second.stdout.take().unwrap();
+    let mut second_lines = BufReader::new(second_stdout).lines();
+    let second_startup: StartupMessage =
+        serde_json::from_str(&second_lines.next().unwrap().unwrap()).unwrap();
+
+    assert!(!second_startup.ready);
+    assert!(second_startup.error.is_some());
+    let conflict = second_startup.conflict.expect("expected conflict payload");
+    assert_eq!(conflict.holder_pid, first_startup.pid);
+    assert_eq!(conflict.holder_kind, "desktop_runtime");
+    assert_eq!(conflict.listen_url, None);
+
+    first.kill().unwrap();
+    let _ = first.wait();
+    let _ = second.wait();
 }

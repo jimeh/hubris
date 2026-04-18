@@ -1728,6 +1728,50 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/{worktree_id}/restore-state": {
+      "put": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "put_worktree_restore_state",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorktreeRestoreStateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Worktree restore state updated"
+          },
+          "404": {
+            "description": "Worktree not found"
+          }
+        }
+      }
+    },
     "/api/projects/{id}/worktrees/{worktree_id}/tab-layout": {
       "put": {
         "tags": ["crate::api::tabs"],
@@ -4020,6 +4064,17 @@
                 "$ref": "#/components/schemas/WorktreeUiMode"
               }
             ]
+          }
+        }
+      },
+      "UpdateWorktreeRestoreStateRequest": {
+        "type": "object",
+        "properties": {
+          "activeTabId": {
+            "type": ["string", "null"]
+          },
+          "focusedPaneId": {
+            "type": ["string", "null"]
           }
         }
       },

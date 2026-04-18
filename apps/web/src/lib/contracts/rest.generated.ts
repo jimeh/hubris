@@ -507,6 +507,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{id}/worktrees/{worktree_id}/restore-state": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["put_worktree_restore_state"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/projects/{id}/worktrees/{worktree_id}/tab-layout": {
     parameters: {
       query?: never;
@@ -1272,6 +1288,10 @@ export interface components {
       name?: string | null;
       source_ref?: string | null;
       ui_mode?: null | components["schemas"]["WorktreeUiMode"];
+    };
+    UpdateWorktreeRestoreStateRequest: {
+      activeTabId?: string | null;
+      focusedPaneId?: string | null;
     };
     UpdateWorktreeTabLayoutRequest: {
       nodes: components["schemas"]["WorktreePaneNode"][];
@@ -3078,6 +3098,40 @@ export interface operations {
       };
       /** @description Internal server error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  put_worktree_restore_state: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateWorktreeRestoreStateRequest"];
+      };
+    };
+    responses: {
+      /** @description Worktree restore state updated */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Worktree not found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if cargo sqlx --version >/dev/null 2>&1; then
+  exit 0
+fi
+
+cargo install sqlx-cli --locked --version 0.8.6 --no-default-features --features sqlite,rustls
