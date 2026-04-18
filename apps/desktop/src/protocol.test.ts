@@ -141,8 +141,8 @@ describe("createDesktopProtocolContext", () => {
       new Request(`${HUBRIS_VSCODE_CLI_ORIGIN}/?folder=%2Ftmp`),
     );
 
-    await expect(first.text()).resolves.toContain("code-server");
-    await expect(second.text()).resolves.toContain("serve-web");
+    await expect(first.text()).resolves.toBe("<html>code-server</html>");
+    await expect(second.text()).resolves.toBe("<html>serve-web</html>");
     expect(
       fetchMock.mock.calls.filter(
         ([input]) =>
@@ -190,7 +190,7 @@ describe("createDesktopProtocolContext", () => {
       ),
     );
 
-    await expect(response.text()).resolves.toContain("serve-web");
+    await expect(response.text()).resolves.toBe("<html>serve-web</html>");
     expect(fetchMock).toHaveBeenCalledWith(
       "http://backend.local/code/vscode-cli?folder=%2Ftmp%2Fworkspace",
       expect.anything(),

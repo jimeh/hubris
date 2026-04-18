@@ -211,6 +211,15 @@ async function loadMainModule({
     }),
   }));
 
+  vi.doMock("./vscodeViews", () => ({
+    disposeVscodeViewBridge: vi.fn(() => {
+      events.push("vscode-bridge-disposed");
+    }),
+    installVscodeViewBridge: vi.fn(() => {
+      events.push("vscode-bridge-installed");
+    }),
+  }));
+
   vi.doMock("./wsBridge", () => ({
     installWebSocketBridge: vi.fn(() => {
       events.push("ws-bridge-installed");
@@ -288,6 +297,7 @@ describe("desktop main process startup", () => {
     expect(state.events.indexOf("browser-bridge-installed")).toBeGreaterThan(
       -1,
     );
+    expect(state.events.indexOf("vscode-bridge-installed")).toBeGreaterThan(-1);
     expect(state.events.indexOf("activate-registered")).toBeGreaterThan(-1);
     expect(state.events.indexOf("guard-request")).toBeLessThan(
       state.events.indexOf("window-created"),
@@ -544,5 +554,6 @@ describe("desktop main process startup", () => {
     expect(state.waitForFrontendPort).toHaveBeenCalledTimes(1);
     expect(state.waitForBackendPort).toHaveBeenCalledTimes(1);
     expect(state.registerHubrisProtocol).toHaveBeenCalledTimes(1);
+    expect(state.events).toContain("vscode-bridge-disposed");
   });
 });

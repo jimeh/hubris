@@ -18,28 +18,19 @@ import {
   type BrowserViewState,
   type BrowserViewTabRequest,
 } from "./browserViewShared";
+import type { DesktopWebSocketBridge } from "./webSocketRendererBridge";
+import { createDesktopWebSocketBridge } from "./webSocketRendererBridge";
 import {
-  HUBRIS_WS_CLOSE_CHANNEL,
-  HUBRIS_WS_CONNECT_CHANNEL,
-  HUBRIS_WS_EVENT_CHANNEL,
-  HUBRIS_WS_SEND_CHANNEL,
-  type WebSocketBridgeCloseRequest,
-  type WebSocketBridgeConnectRequest,
-  type WebSocketBridgeConnectResponse,
-  type WebSocketBridgeEvent,
-  type WebSocketBridgeSendRequest,
-} from "./wsBridgeShared";
-
-type BridgeListener = (event: WebSocketBridgeEvent) => void;
-
-type DesktopWebSocketBridge = {
-  connect(
-    payload: WebSocketBridgeConnectRequest,
-  ): Promise<WebSocketBridgeConnectResponse>;
-  send(payload: WebSocketBridgeSendRequest): void;
-  close(payload: WebSocketBridgeCloseRequest): void;
-  subscribe(listener: BridgeListener): () => void;
-};
+  HUBRIS_VSCODE_CREATE_CHANNEL,
+  HUBRIS_VSCODE_DESTROY_CHANNEL,
+  HUBRIS_VSCODE_HIDE_CHANNEL,
+  HUBRIS_VSCODE_LOAD_CHANNEL,
+  HUBRIS_VSCODE_SET_BOUNDS_CHANNEL,
+  HUBRIS_VSCODE_SHOW_CHANNEL,
+  type VscodeViewLoadRequest,
+  type VscodeViewRequest,
+  type VscodeViewSetBoundsRequest,
+} from "./vscodeViewShared";
 
 type BrowserBridgeListener = (event: BrowserViewState) => void;
 
@@ -56,33 +47,25 @@ type DesktopBrowserBridge = {
   subscribe(listener: BrowserBridgeListener): () => void;
 };
 
+type DesktopVscodeBridge = {
+  create(payload: VscodeViewLoadRequest): Promise<void>;
+  load(payload: VscodeViewLoadRequest): void;
+  destroy(payload: VscodeViewRequest): void;
+  show(payload: VscodeViewRequest): void;
+  hide(payload: VscodeViewRequest): void;
+  setBounds(payload: VscodeViewSetBoundsRequest): void;
+};
+
 declare global {
   interface Window {
     __HUBRIS_ELECTRON_WS__?: DesktopWebSocketBridge;
     __HUBRIS_ELECTRON_BROWSER__?: DesktopBrowserBridge;
+    __HUBRIS_ELECTRON_VSCODE__?: DesktopVscodeBridge;
   }
 }
 
-const listeners = new Set<BridgeListener>();
 const browserListeners = new Set<BrowserBridgeListener>();
-
-const bridge: DesktopWebSocketBridge = {
-  connect(payload) {
-    return ipcRenderer.invoke(HUBRIS_WS_CONNECT_CHANNEL, payload);
-  },
-  send(payload) {
-    ipcRenderer.send(HUBRIS_WS_SEND_CHANNEL, payload);
-  },
-  close(payload) {
-    ipcRenderer.send(HUBRIS_WS_CLOSE_CHANNEL, payload);
-  },
-  subscribe(listener) {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  },
-};
+const webSocketBridge = createDesktopWebSocketBridge(ipcRenderer);
 
 const browserBridge: DesktopBrowserBridge = {
   create(payload) {
@@ -120,14 +103,26 @@ const browserBridge: DesktopBrowserBridge = {
   },
 };
 
-ipcRenderer.on(
-  HUBRIS_WS_EVENT_CHANNEL,
-  (_event, payload: WebSocketBridgeEvent) => {
-    for (const listener of listeners) {
-      listener(payload);
-    }
+const vscodeBridge: DesktopVscodeBridge = {
+  create(payload) {
+    return ipcRenderer.invoke(HUBRIS_VSCODE_CREATE_CHANNEL, payload);
   },
-);
+  load(payload) {
+    ipcRenderer.send(HUBRIS_VSCODE_LOAD_CHANNEL, payload);
+  },
+  destroy(payload) {
+    ipcRenderer.send(HUBRIS_VSCODE_DESTROY_CHANNEL, payload);
+  },
+  show(payload) {
+    ipcRenderer.send(HUBRIS_VSCODE_SHOW_CHANNEL, payload);
+  },
+  hide(payload) {
+    ipcRenderer.send(HUBRIS_VSCODE_HIDE_CHANNEL, payload);
+  },
+  setBounds(payload) {
+    ipcRenderer.send(HUBRIS_VSCODE_SET_BOUNDS_CHANNEL, payload);
+  },
+};
 
 ipcRenderer.on(
   HUBRIS_BROWSER_EVENT_CHANNEL,
@@ -138,5 +133,6 @@ ipcRenderer.on(
   },
 );
 
-contextBridge.exposeInMainWorld("__HUBRIS_ELECTRON_WS__", bridge);
+contextBridge.exposeInMainWorld("__HUBRIS_ELECTRON_WS__", webSocketBridge);
 contextBridge.exposeInMainWorld("__HUBRIS_ELECTRON_BROWSER__", browserBridge);
+contextBridge.exposeInMainWorld("__HUBRIS_ELECTRON_VSCODE__", vscodeBridge);

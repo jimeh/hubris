@@ -13,8 +13,8 @@
     "package": "bunx electron-forge package",
     "make": "bunx electron-forge make",
     "check": "tsc --noEmit",
-    "lint": "prettier --check package.json forge.config.js tsconfig.json vite.main.config.mjs vite.preload.config.mjs 'src/**/*.ts'",
-    "format": "prettier --write package.json forge.config.js tsconfig.json vite.main.config.mjs vite.preload.config.mjs 'src/**/*.ts'",
+    "lint": "prettier --check package.json forge.config.js tsconfig.json vite.main.config.mjs vite.preload.config.mjs vite.vscode-preload.config.mjs 'src/**/*.ts'",
+    "format": "prettier --write package.json forge.config.js tsconfig.json vite.main.config.mjs vite.preload.config.mjs vite.vscode-preload.config.mjs 'src/**/*.ts'",
     "test": "vitest run"
   },
   "devDependencies": {

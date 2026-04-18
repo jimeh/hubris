@@ -221,6 +221,10 @@ or `pnpm-lock.yaml`.
   `will-redirect`) must call `details.preventDefault()` on the original event
   object. Destructuring `preventDefault` and invoking it unbound can crash the
   desktop main process with `TypeError: Illegal invocation`.
+- Desktop VS Code worktrees now run in their own `WebContentsView` with a
+  dedicated preload that installs the WebSocket bridge in the page world. Keep
+  the VS Code proxy HTML pass-through; do not reintroduce VS Code-specific HTML
+  rewriting in `apps/desktop/src/protocol.ts`.
 - Task-backed VS Code install APIs snapshot status immediately after enqueueing
   work. In fast tests or CI, that snapshot can still be `Stopped` or already be
   terminal even though install progress events were emitted correctly; assert on

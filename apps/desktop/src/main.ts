@@ -42,6 +42,10 @@ import {
   disposeBrowserViewBridge,
   installBrowserViewBridge,
 } from "./browserViews";
+import {
+  disposeVscodeViewBridge,
+  installVscodeViewBridge,
+} from "./vscodeViews";
 import { installWebSocketBridge } from "./wsBridge";
 
 registerHubrisScheme();
@@ -265,6 +269,7 @@ async function initializeDesktop() {
  */
 async function createMainWindow() {
   const preloadPath = path.resolve(__dirname, "preload.js");
+  const vscodePreloadPath = path.resolve(__dirname, "vscodePreload.js");
 
   await initializeDesktop();
   const userDataPath = app.getPath("userData");
@@ -279,6 +284,12 @@ async function createMainWindow() {
 
   configureWebContentsGuards(window.webContents, allowedHubrisOrigins());
   installBrowserViewBridge(window, profileMode);
+  installVscodeViewBridge(
+    window,
+    profileMode,
+    vscodePreloadPath,
+    allowedHubrisOrigins(),
+  );
   window.once("ready-to-show", () => {
     if (savedWindowState?.isMaximized) {
       window.maximize();
@@ -289,6 +300,7 @@ async function createMainWindow() {
   });
   window.on("closed", () => {
     disposeBrowserViewBridge();
+    disposeVscodeViewBridge();
     mainWindow = null;
   });
 

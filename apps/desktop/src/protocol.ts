@@ -5,10 +5,10 @@ import path from "node:path";
 import type { Session } from "electron";
 
 import { readDevServerState } from "./runtime";
+import { desktopWebSocketPatchSource } from "./webSocketPatch";
 
 const require = createRequire(__filename);
 
-const DESKTOP_WS_BRIDGE_SCRIPT_PATH = "/_hubris/desktop/ws-bridge.js";
 const HUBRIS_PUBLIC_HOST_HEADER = "x-hubris-public-host";
 const HUBRIS_PUBLIC_ORIGIN_HEADER = "x-hubris-public-origin";
 const HOP_BY_HOP_HEADERS = new Set([
@@ -102,15 +102,10 @@ export function classifyHubrisRequest(url: string): HubrisRouteKind {
 
   const runtime = runtimeFromHubrisHost(parsed.host);
   if (runtime) {
-    return parsed.pathname === DESKTOP_WS_BRIDGE_SCRIPT_PATH
-      ? "frontend"
-      : "code";
+    return "code";
   }
 
   const pathname = parsed.pathname;
-  if (pathname === DESKTOP_WS_BRIDGE_SCRIPT_PATH) {
-    return "frontend";
-  }
   if (
     pathname === "/api" ||
     pathname.startsWith("/api/") ||
@@ -220,154 +215,8 @@ export function appHtmlInjection(): string {
   ].join("");
 }
 
-export function codeServerHtmlInjection(): string {
-  return `<script src="${DESKTOP_WS_BRIDGE_SCRIPT_PATH}"></script>`;
-}
-
 function webSocketBridgeInjection(): string {
-  return ["<script>", webSocketBridgeScript(), "</script>"].join("");
-}
-
-function webSocketBridgeScript(): string {
-  return [
-    "(function () {",
-    "  var bridge = window.__HUBRIS_ELECTRON_WS__;",
-    "  if (!bridge) {",
-    "    try {",
-    "      bridge = window.top && window.top !== window ? window.top.__HUBRIS_ELECTRON_WS__ : undefined;",
-    "    } catch (_error) {",
-    "      bridge = undefined;",
-    "    }",
-    "  }",
-    "  if (!bridge || typeof window.WebSocket !== 'function') return;",
-    "  var OriginalWebSocket = window.WebSocket;",
-    "  function toBase64(bytes) {",
-    "    var binary = '';",
-    "    for (var i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);",
-    "    return btoa(binary);",
-    "  }",
-    "  function fromBase64(base64) {",
-    "    var binary = atob(base64);",
-    "    var bytes = new Uint8Array(binary.length);",
-    "    for (var i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);",
-    "    return bytes;",
-    "  }",
-    "  function shouldBridge(url) {",
-    "    try {",
-    "      var parsed = new URL(String(url), window.location.href);",
-    `      return (parsed.protocol === 'ws:' || parsed.protocol === 'wss:') && ${JSON.stringify(Array.from(HUBRIS_INTERNAL_HOSTS))}.indexOf(parsed.host) !== -1;`,
-    "    } catch (_error) {",
-    "      return false;",
-    "    }",
-    "  }",
-    "  class BridgedWebSocket extends EventTarget {",
-    "    static CONNECTING = OriginalWebSocket.CONNECTING;",
-    "    static OPEN = OriginalWebSocket.OPEN;",
-    "    static CLOSING = OriginalWebSocket.CLOSING;",
-    "    static CLOSED = OriginalWebSocket.CLOSED;",
-    "    constructor(url, protocols) {",
-    "      super();",
-    "      this.url = new URL(String(url), window.location.href).toString();",
-    "      this.readyState = OriginalWebSocket.CONNECTING;",
-    "      this.bufferedAmount = 0;",
-    "      this.extensions = '';",
-    "      this.protocol = '';",
-    "      this.binaryType = 'blob';",
-    "      this.onopen = null;",
-    "      this.onmessage = null;",
-    "      this.onerror = null;",
-    "      this.onclose = null;",
-    "      this._socketId = null;",
-    "      this._unsubscribe = bridge.subscribe((event) => {",
-    "        if (!this._socketId || event.id !== this._socketId) return;",
-    "        if (event.type === 'open') {",
-    "          this.protocol = event.protocol || '';",
-    "          this.readyState = OriginalWebSocket.OPEN;",
-    "          var openEvent = new Event('open');",
-    "          this.dispatchEvent(openEvent);",
-    "          if (typeof this.onopen === 'function') this.onopen.call(this, openEvent);",
-    "          return;",
-    "        }",
-    "        if (event.type === 'message') {",
-    "          var data;",
-    "          if (event.binary) {",
-    "            var bytes = fromBase64(event.data);",
-    "            data = this.binaryType === 'arraybuffer' ? bytes.buffer : new Blob([bytes]);",
-    "          } else {",
-    "            data = event.data;",
-    "          }",
-    "          var messageEvent = new MessageEvent('message', { data: data });",
-    "          this.dispatchEvent(messageEvent);",
-    "          if (typeof this.onmessage === 'function') this.onmessage.call(this, messageEvent);",
-    "          return;",
-    "        }",
-    "        if (event.type === 'error') {",
-    "          var errorEvent = new Event('error');",
-    "          this.dispatchEvent(errorEvent);",
-    "          if (typeof this.onerror === 'function') this.onerror.call(this, errorEvent);",
-    "          return;",
-    "        }",
-    "        if (event.type === 'close') {",
-    "          this.readyState = OriginalWebSocket.CLOSED;",
-    "          if (this._unsubscribe) this._unsubscribe();",
-    "          this._unsubscribe = null;",
-    "          var closeEvent = new CloseEvent('close', { code: event.code, reason: event.reason, wasClean: true });",
-    "          this.dispatchEvent(closeEvent);",
-    "          if (typeof this.onclose === 'function') this.onclose.call(this, closeEvent);",
-    "        }",
-    "      });",
-    "      Promise.resolve(bridge.connect({",
-    "        url: this.url,",
-    "        protocols: protocols === undefined ? undefined : (Array.isArray(protocols) ? protocols : [protocols]),",
-    "      })).then((result) => {",
-    "        this._socketId = result.id;",
-    "      }).catch(() => {",
-    "        this.readyState = OriginalWebSocket.CLOSED;",
-    "        if (this._unsubscribe) this._unsubscribe();",
-    "        this._unsubscribe = null;",
-    "        var errorEvent = new Event('error');",
-    "        this.dispatchEvent(errorEvent);",
-    "        if (typeof this.onerror === 'function') this.onerror.call(this, errorEvent);",
-    "      });",
-    "    }",
-    "    send(data) {",
-    "      if (this.readyState !== OriginalWebSocket.OPEN || !this._socketId) {",
-    "        throw new DOMException(\"Failed to execute 'send' on 'WebSocket': The socket is not open.\", 'InvalidStateError');",
-    "      }",
-    "      if (typeof data === 'string') {",
-    "        bridge.send({ id: this._socketId, data: data, binary: false });",
-    "        return;",
-    "      }",
-    "      if (data instanceof Blob) {",
-    "        data.arrayBuffer().then((buffer) => {",
-    "          if (!this._socketId || this.readyState !== OriginalWebSocket.OPEN) return;",
-    "          bridge.send({ id: this._socketId, data: toBase64(new Uint8Array(buffer)), binary: true });",
-    "        });",
-    "        return;",
-    "      }",
-    "      var bytes = ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(data);",
-    "      bridge.send({ id: this._socketId, data: toBase64(bytes), binary: true });",
-    "    }",
-    "    close(code, reason) {",
-    "      if (this.readyState === OriginalWebSocket.CLOSED || this.readyState === OriginalWebSocket.CLOSING) return;",
-    "      this.readyState = OriginalWebSocket.CLOSING;",
-    "      if (this._socketId) bridge.close({ id: this._socketId, code: code, reason: reason });",
-    "    }",
-    "  }",
-    "  window.WebSocket = function WebSocket(url, protocols) {",
-    "    if (!shouldBridge(url)) {",
-    "      return protocols === undefined ? new OriginalWebSocket(url) : new OriginalWebSocket(url, protocols);",
-    "    }",
-    "    return new BridgedWebSocket(url, protocols);",
-    "  };",
-    "  window.WebSocket.prototype = OriginalWebSocket.prototype;",
-    "  Object.setPrototypeOf(window.WebSocket, OriginalWebSocket);",
-    "  window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING;",
-    "  window.WebSocket.OPEN = OriginalWebSocket.OPEN;",
-    "  window.WebSocket.CLOSING = OriginalWebSocket.CLOSING;",
-    "  window.WebSocket.CLOSED = OriginalWebSocket.CLOSED;",
-    "})();",
-  ].join("");
+  return ["<script>", desktopWebSocketPatchSource(), "</script>"].join("");
 }
 
 export function injectHtmlScript(html: string, script: string): string {
@@ -391,15 +240,6 @@ async function handleHubrisProtocolRequest(
   const currentTargets = resolveCurrentTargets(targets);
   const requestUrl = new URL(request.url);
   const pathname = requestUrl.pathname;
-  if (pathname === DESKTOP_WS_BRIDGE_SCRIPT_PATH) {
-    return new Response(webSocketBridgeScript(), {
-      headers: {
-        "content-type": "text/javascript; charset=utf-8",
-        "cache-control": "no-store",
-      },
-    });
-  }
-
   const route = classifyHubrisRequest(request.url);
   try {
     if (route === "backend") {
@@ -584,7 +424,7 @@ async function proxyToVscodeViaBackend(
     }),
   );
   await mirrorResponseCookies(cookies, [url.origin], upstream.headers);
-  return maybeInjectHtml(upstream, codeServerHtmlInjection(), true);
+  return stripSetCookieHeader(upstream);
 }
 
 async function retryProxyRequest(

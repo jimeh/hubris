@@ -33,7 +33,6 @@ export function createHubrisWindowOptions(
       preload: preloadPath,
       partition: desktopSessionPartition(mode),
       nodeIntegration: false,
-      nodeIntegrationInSubFrames: true,
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
