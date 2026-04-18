@@ -1460,6 +1460,11 @@ mod tests {
             .unwrap();
 
         let mut cmd = CommandBuilder::new(test_cat_path());
+        // PTY tests run inside the Linux docker:test container. portable-pty's
+        // controlling-tty setup can fail there even though the child command
+        // itself is fine, and these tests only need a simple echoing process.
+        cmd.set_controlling_tty(false);
+        cmd.cwd("/");
         cmd.env("TERM", "xterm-256color");
 
         let child = pair.slave.spawn_command(cmd).unwrap();
