@@ -20,8 +20,8 @@ use crate::api::projects::{
 use crate::api::settings::{
     AppearanceSettings, AppearanceSettingsPatch, ColorScheme, EditorSettings, EditorSettingsPatch,
     Settings, SettingsPatch, SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource,
-    TerminalSettings, TerminalSettingsPatch, TerminalTabLabelMode, WorktreeLocationMode,
-    WorktreeSettings, WorktreeSettingsPatch,
+    TerminalSettings, TerminalSettingsPatch, WorktreeLocationMode, WorktreeSettings,
+    WorktreeSettingsPatch,
 };
 use crate::api::system::SystemInfo;
 use crate::api::tabs::{
@@ -185,7 +185,6 @@ use crate::tab::{
             ServerControlMessage,
             ColorScheme,
             TerminalFontSource,
-            TerminalTabLabelMode,
             WorktreeLocationMode,
             AppearanceSettings,
             AppearanceSettingsPatch,

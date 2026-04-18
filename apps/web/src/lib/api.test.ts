@@ -812,7 +812,8 @@ describe("API client", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
-            tabLabelMode: "numbered",
+            smartTabNaming: true,
+            escapeSequenceTitles: true,
           },
           editor: {
             lightEditorTheme: "hubris-light",
@@ -865,7 +866,8 @@ describe("API client", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
-            tabLabelMode: "numbered",
+            smartTabNaming: true,
+            escapeSequenceTitles: true,
           },
           editor: {
             lightEditorTheme: "hubris-light",
@@ -945,7 +947,8 @@ describe("API client", () => {
           systemFontFamily: "",
           bundledFont: "hack-nf",
           fontSize: 16,
-          tabLabelMode: "numbered" as const,
+          smartTabNaming: true,
+          escapeSequenceTitles: true,
         },
         editor: {
           lightEditorTheme: "hubris-light",
@@ -1002,7 +1005,8 @@ describe("API client", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
-            tabLabelMode: "numbered",
+            smartTabNaming: true,
+            escapeSequenceTitles: true,
           },
           editor: {
             lightEditorTheme: "hubris-light",
@@ -1039,7 +1043,8 @@ describe("API client", () => {
             systemFontFamily: "",
             bundledFont: "jetbrainsmono-nf",
             fontSize: 14,
-            tabLabelMode: "numbered",
+            smartTabNaming: true,
+            escapeSequenceTitles: true,
           },
           editor: {
             lightEditorTheme: "hubris-light",

@@ -48,25 +48,6 @@ impl TerminalFontSource {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum TerminalTabLabelMode {
-    #[default]
-    Numbered,
-    Process,
-    Title,
-}
-
-impl TerminalTabLabelMode {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Numbered => "numbered",
-            Self::Process => "process",
-            Self::Title => "title",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 pub enum WorktreeLocationMode {
     #[default]
     #[serde(rename = "dataDir")]
@@ -139,19 +120,21 @@ fn default_dark_editor_theme() -> String {
     "hubris-dark".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalSettings {
-    #[serde(default)]
+    #[schema(required = true)]
     pub font_source: TerminalFontSource,
-    #[serde(default)]
+    #[schema(required = true)]
     pub system_font_family: String,
-    #[serde(default = "default_bundled_font")]
+    #[schema(required = true)]
     pub bundled_font: String,
-    #[serde(default = "default_font_size")]
+    #[schema(required = true)]
     pub font_size: u32,
-    #[serde(default)]
-    pub tab_label_mode: TerminalTabLabelMode,
+    #[schema(required = true)]
+    pub smart_tab_naming: bool,
+    #[schema(required = true)]
+    pub escape_sequence_titles: bool,
 }
 
 impl Default for TerminalSettings {
@@ -161,7 +144,8 @@ impl Default for TerminalSettings {
             system_font_family: String::new(),
             bundled_font: default_bundled_font(),
             font_size: default_font_size(),
-            tab_label_mode: TerminalTabLabelMode::Numbered,
+            smart_tab_naming: default_true(),
+            escape_sequence_titles: default_true(),
         }
     }
 }
@@ -172,6 +156,68 @@ fn default_bundled_font() -> String {
 
 fn default_font_size() -> u32 {
     14
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum LegacyTerminalTabLabelMode {
+    Numbered,
+    Process,
+    Title,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalSettingsCompat {
+    #[serde(default)]
+    font_source: TerminalFontSource,
+    #[serde(default)]
+    system_font_family: String,
+    #[serde(default = "default_bundled_font")]
+    bundled_font: String,
+    #[serde(default = "default_font_size")]
+    font_size: u32,
+    #[serde(default)]
+    smart_tab_naming: Option<bool>,
+    #[serde(default)]
+    escape_sequence_titles: Option<bool>,
+    #[serde(default)]
+    tab_label_mode: Option<LegacyTerminalTabLabelMode>,
+}
+
+impl<'de> Deserialize<'de> for TerminalSettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let compat = TerminalSettingsCompat::deserialize(deserializer)?;
+        let migrated_legacy_value = compat.tab_label_mode.is_some();
+
+        Ok(Self {
+            font_source: compat.font_source,
+            system_font_family: compat.system_font_family,
+            bundled_font: compat.bundled_font,
+            font_size: compat.font_size,
+            smart_tab_naming: compat.smart_tab_naming.unwrap_or_else(|| {
+                if migrated_legacy_value {
+                    true
+                } else {
+                    default_true()
+                }
+            }),
+            escape_sequence_titles: compat.escape_sequence_titles.unwrap_or_else(|| {
+                if migrated_legacy_value {
+                    true
+                } else {
+                    default_true()
+                }
+            }),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
@@ -251,7 +297,9 @@ pub struct TerminalSettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tab_label_mode: Option<TerminalTabLabelMode>,
+    pub smart_tab_naming: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub escape_sequence_titles: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]

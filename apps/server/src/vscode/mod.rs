@@ -3736,10 +3736,11 @@ mod tests {
 
     #[tokio::test]
     async fn vscode_cli_restart_waits_for_in_progress_install_before_starting() {
+        let tmp = tempfile::TempDir::new().unwrap();
         let events = Arc::new(EventBus::new());
         let process_service = Arc::new(ManagedProcessService::new(events.clone()));
         let manager = Arc::new(VscodeCliManager::new(
-            tempfile::TempDir::new().unwrap().path().join("vscode-cli"),
+            tmp.path().join("vscode-cli"),
             events,
             process_service,
         ));
@@ -3765,7 +3766,13 @@ mod tests {
         manager.notify.notify_waiters();
 
         let error = restart_task.await.unwrap().unwrap_err();
-        assert!(matches!(error, VscodeCliError::NotInstalled));
+        match detect_vscode_cli_platform() {
+            Ok(_) => assert!(matches!(error, VscodeCliError::NotInstalled)),
+            Err(VscodeCliError::UnsupportedPlatform(_)) => {
+                assert!(matches!(error, VscodeCliError::UnsupportedPlatform(_)))
+            }
+            Err(other) => panic!("unexpected platform detection result: {other:?}"),
+        }
     }
 
     #[tokio::test]

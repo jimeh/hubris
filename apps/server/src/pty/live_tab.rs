@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -23,9 +23,14 @@ pub const DEFAULT_PTY_COLS: u16 = 80;
 pub const DEFAULT_PTY_ROWS: u16 = 24;
 const MIN_PTY_COLS: u16 = 8;
 const MIN_PTY_ROWS: u16 = 2;
+const PROCESS_CWD_CACHE_TTL: Duration = Duration::from_secs(2);
 const PROCESS_LABEL_CACHE_TTL: Duration = Duration::from_secs(5);
 #[cfg(target_os = "macos")]
+const MAXPATHLEN: usize = libc::PATH_MAX as usize;
+#[cfg(target_os = "macos")]
 const PROC_PIDPATHINFO_MAXSIZE: usize = libc::PATH_MAX as usize * 4;
+#[cfg(target_os = "macos")]
+const PROC_PIDVNODEPATHINFO: libc::c_int = 9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalSize {
@@ -218,6 +223,18 @@ struct ProcessLabelCache {
     entry: Option<CachedProcessLabel>,
 }
 
+#[derive(Debug, Clone)]
+struct CachedProcessCwd {
+    pid: libc::pid_t,
+    cwd: Option<PathBuf>,
+    expires_at: Instant,
+}
+
+#[derive(Debug, Default)]
+struct ProcessCwdCache {
+    entry: Option<CachedProcessCwd>,
+}
+
 fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
@@ -251,11 +268,41 @@ where
     label
 }
 
+#[cfg(unix)]
+fn resolve_process_cwd_with_cache<F>(
+    cache: &Mutex<ProcessCwdCache>,
+    pid: libc::pid_t,
+    now: Instant,
+    ttl: Duration,
+    resolve: F,
+) -> Option<PathBuf>
+where
+    F: FnOnce(libc::pid_t) -> Option<PathBuf>,
+{
+    if let Some(cached) = lock_unpoisoned(cache).entry.as_ref()
+        && cached.pid == pid
+        && now < cached.expires_at
+    {
+        return cached.cwd.clone();
+    }
+
+    let cwd = resolve(pid);
+    lock_unpoisoned(cache).entry = Some(CachedProcessCwd {
+        pid,
+        cwd: cwd.clone(),
+        expires_at: now + ttl,
+    });
+    cwd
+}
+
 /// A live terminal tab with its PTY, scrollback buffer,
 /// and broadcast channels for output fan-out and close
 /// notification.
 pub struct LiveTab {
     info: Mutex<TabInfo>,
+    shell_process_name: Option<String>,
+    worktree_root: PathBuf,
+    home_dir: Option<PathBuf>,
     pub pty_master: Mutex<Box<dyn MasterPty + Send>>,
     pub pty_writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
@@ -267,6 +314,7 @@ pub struct LiveTab {
     pub title_tx: broadcast::Sender<Option<String>>,
     next_attachment_id: AtomicU64,
     attachments: Mutex<AttachmentRegistry>,
+    process_cwd_cache: Mutex<ProcessCwdCache>,
     process_label_cache: Mutex<ProcessLabelCache>,
     resize_update_lock: Mutex<()>,
     _reader_handle: JoinHandle<()>,
@@ -402,6 +450,8 @@ impl LiveTab {
     /// that feeds scrollback and broadcasts output.
     pub fn spawn(
         info: TabInfo,
+        shell_process_name: Option<String>,
+        worktree_root: PathBuf,
         master: Box<dyn MasterPty + Send>,
         child: Box<dyn Child + Send + Sync>,
         scrollback_size: usize,
@@ -453,6 +503,9 @@ impl LiveTab {
 
         Self {
             info: Mutex::new(info),
+            shell_process_name,
+            worktree_root,
+            home_dir: std::env::var_os("HOME").map(PathBuf::from),
             pty_master: Mutex::new(master),
             pty_writer: Mutex::new(writer),
             child: Mutex::new(child),
@@ -464,6 +517,7 @@ impl LiveTab {
             title_tx,
             next_attachment_id: AtomicU64::new(1),
             attachments: Mutex::new(AttachmentRegistry::new(initial_size)),
+            process_cwd_cache: Mutex::new(ProcessCwdCache::default()),
             process_label_cache: Mutex::new(ProcessLabelCache::default()),
             resize_update_lock: Mutex::new(()),
             _reader_handle: reader_handle,
@@ -482,8 +536,15 @@ impl LiveTab {
         f(&mut info)
     }
 
-    pub fn resolve_process_label(&self) -> Option<String> {
-        resolve_live_tab_process_label(&self.pty_master, &self.process_label_cache)
+    pub fn resolve_smart_label(&self) -> Option<String> {
+        resolve_live_tab_smart_label(
+            &self.pty_master,
+            &self.process_cwd_cache,
+            &self.process_label_cache,
+            self.shell_process_name.as_deref(),
+            &self.worktree_root,
+            self.home_dir.as_deref(),
+        )
     }
 
     /// Attach to this tab's output stream. Returns:
@@ -637,21 +698,39 @@ impl LiveTab {
 }
 
 #[cfg(unix)]
-fn resolve_live_tab_process_label(
+fn resolve_live_tab_smart_label(
     pty_master: &Mutex<Box<dyn MasterPty + Send>>,
+    process_cwd_cache: &Mutex<ProcessCwdCache>,
     process_label_cache: &Mutex<ProcessLabelCache>,
+    shell_process_name: Option<&str>,
+    worktree_root: &Path,
+    home_dir: Option<&Path>,
 ) -> Option<String> {
     let leader = {
         let pty_master = lock_unpoisoned(pty_master);
         pty_master.process_group_leader()?
     };
-    resolve_process_label_from_pid(leader, process_label_cache)
+
+    let process_label = resolve_process_label_from_pid(leader, process_label_cache)?;
+    if shell_process_name.is_some_and(|shell_process_name| {
+        process_name_matches_shell(&process_label, shell_process_name)
+    }) {
+        return resolve_process_cwd_from_pid(leader, process_cwd_cache)
+            .map(|cwd| format_smart_shell_path(&cwd, worktree_root, home_dir))
+            .or(Some(process_label));
+    }
+
+    Some(process_label)
 }
 
 #[cfg(not(unix))]
-fn resolve_live_tab_process_label(
+fn resolve_live_tab_smart_label(
     _pty_master: &Mutex<Box<dyn MasterPty + Send>>,
+    _process_cwd_cache: &Mutex<ProcessCwdCache>,
     _process_label_cache: &Mutex<ProcessLabelCache>,
+    _shell_process_name: Option<&str>,
+    _worktree_root: &Path,
+    _home_dir: Option<&Path>,
 ) -> Option<String> {
     None
 }
@@ -741,6 +820,124 @@ fn normalize_process_label(raw: &str) -> Option<String> {
     Some(normalized.to_string())
 }
 
+pub(crate) fn normalize_shell_process_name(raw: &str) -> Option<String> {
+    normalize_process_label(raw).map(|label| label.trim_start_matches('-').to_string())
+}
+
+fn process_name_matches_shell(process_label: &str, shell_process_name: &str) -> bool {
+    process_label.trim_start_matches('-') == shell_process_name.trim_start_matches('-')
+}
+
+fn format_smart_shell_path(path: &Path, worktree_root: &Path, home_dir: Option<&Path>) -> String {
+    if path == worktree_root {
+        return "./".to_string();
+    }
+
+    if let Ok(stripped) = path.strip_prefix(worktree_root)
+        && !stripped.as_os_str().is_empty()
+    {
+        return format!("./{}", stripped.display());
+    }
+
+    format_home_relative_path(path, home_dir)
+}
+
+fn format_home_relative_path(path: &Path, home_dir: Option<&Path>) -> String {
+    let Some(home) = home_dir else {
+        return path.display().to_string();
+    };
+
+    if path == home {
+        return "~".to_string();
+    }
+
+    if let Ok(stripped) = path.strip_prefix(home) {
+        if stripped.as_os_str().is_empty() {
+            return "~".to_string();
+        }
+        return format!("~/{}", stripped.display());
+    }
+
+    path.display().to_string()
+}
+
+#[cfg(unix)]
+fn resolve_process_cwd_from_pid(
+    pid: libc::pid_t,
+    process_cwd_cache: &Mutex<ProcessCwdCache>,
+) -> Option<PathBuf> {
+    if pid <= 0 {
+        return None;
+    }
+
+    resolve_process_cwd_with_cache(
+        process_cwd_cache,
+        pid,
+        Instant::now(),
+        PROCESS_CWD_CACHE_TTL,
+        |pid| {
+            resolve_process_cwd_from_procfs(pid)
+                .or_else(|| resolve_process_cwd_from_libproc(pid))
+                .or_else(|| resolve_process_cwd_from_lsof(pid))
+        },
+    )
+}
+
+#[cfg(not(unix))]
+fn resolve_process_cwd_from_pid(
+    _pid: libc::pid_t,
+    _process_cwd_cache: &Mutex<ProcessCwdCache>,
+) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(unix)]
+fn resolve_process_cwd_from_procfs(pid: libc::pid_t) -> Option<PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_process_cwd_from_libproc(pid: libc::pid_t) -> Option<PathBuf> {
+    let mut info = std::mem::MaybeUninit::<ProcVnodePathInfo>::zeroed();
+    let info_len = unsafe {
+        proc_pidinfo(
+            pid,
+            PROC_PIDVNODEPATHINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            std::mem::size_of::<ProcVnodePathInfo>() as libc::c_int,
+        )
+    };
+    if info_len != std::mem::size_of::<ProcVnodePathInfo>() as libc::c_int {
+        return None;
+    }
+
+    let info = unsafe { info.assume_init() };
+    let raw = unsafe { CStr::from_ptr(info.pvi_cdir.vip_path.as_ptr()) };
+    let path = raw.to_string_lossy();
+    (!path.is_empty()).then(|| PathBuf::from(path.into_owned()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn resolve_process_cwd_from_libproc(_pid: libc::pid_t) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(unix)]
+fn resolve_process_cwd_from_lsof(pid: libc::pid_t) -> Option<PathBuf> {
+    let output = std::process::Command::new("lsof")
+        .args(["-a", "-d", "cwd", "-p", &pid.to_string(), "-Fn"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix('n').map(PathBuf::from))
+}
+
 impl Drop for LiveTab {
     fn drop(&mut self) {
         self.kill();
@@ -752,6 +949,62 @@ impl Drop for LiveTab {
 unsafe extern "C" {
     fn proc_name(pid: libc::c_int, buffer: *mut libc::c_void, buffersize: u32) -> libc::c_int;
     fn proc_pidpath(pid: libc::c_int, buffer: *mut libc::c_void, buffersize: u32) -> libc::c_int;
+    fn proc_pidinfo(
+        pid: libc::c_int,
+        flavor: libc::c_int,
+        arg: u64,
+        buffer: *mut libc::c_void,
+        buffersize: libc::c_int,
+    ) -> libc::c_int;
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct VinfoStat {
+    vst_dev: u32,
+    vst_mode: u16,
+    vst_nlink: u16,
+    vst_ino: u64,
+    vst_uid: libc::uid_t,
+    vst_gid: libc::gid_t,
+    vst_atime: i64,
+    vst_atimensec: i64,
+    vst_mtime: i64,
+    vst_mtimensec: i64,
+    vst_ctime: i64,
+    vst_ctimensec: i64,
+    vst_birthtime: i64,
+    vst_birthtimensec: i64,
+    vst_size: libc::off_t,
+    vst_blocks: i64,
+    vst_blksize: i32,
+    vst_flags: u32,
+    vst_gen: u32,
+    vst_rdev: u32,
+    vst_qspare: [i64; 2],
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct VnodeInfo {
+    vi_stat: VinfoStat,
+    vi_type: libc::c_int,
+    vi_pad: libc::c_int,
+    vi_fsid: libc::fsid_t,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct VnodeInfoPath {
+    vip_vi: VnodeInfo,
+    vip_path: [libc::c_char; MAXPATHLEN],
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct ProcVnodePathInfo {
+    pvi_cdir: VnodeInfoPath,
+    pvi_rdir: VnodeInfoPath,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -848,6 +1101,7 @@ impl AttachmentRegistry {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::mpsc;
@@ -988,6 +1242,65 @@ mod tests {
         assert_eq!(super::normalize_process_label("  "), None);
     }
 
+    #[test]
+    fn normalize_shell_process_name_strips_login_prefix() {
+        assert_eq!(
+            super::normalize_shell_process_name("/bin/-zsh"),
+            Some("zsh".to_string())
+        );
+    }
+
+    #[test]
+    fn format_home_relative_path_uses_tilde_prefix() {
+        let home = Path::new("/Users/jimeh");
+        assert_eq!(
+            super::format_home_relative_path(Path::new("/Users/jimeh/projects/hubris"), Some(home)),
+            "~/projects/hubris"
+        );
+        assert_eq!(
+            super::format_home_relative_path(Path::new("/Users/jimeh"), Some(home)),
+            "~"
+        );
+        assert_eq!(
+            super::format_home_relative_path(Path::new("/tmp/hubris"), Some(home)),
+            "/tmp/hubris"
+        );
+    }
+
+    #[test]
+    fn format_smart_shell_path_uses_worktree_relative_prefix() {
+        let home = Path::new("/Users/jimeh");
+        let worktree_root = Path::new("/Users/jimeh/projects/hubris");
+
+        assert_eq!(
+            super::format_smart_shell_path(worktree_root, worktree_root, Some(home)),
+            "./"
+        );
+        assert_eq!(
+            super::format_smart_shell_path(
+                Path::new("/Users/jimeh/projects/hubris/apps/server"),
+                worktree_root,
+                Some(home)
+            ),
+            "./apps/server"
+        );
+        assert_eq!(
+            super::format_smart_shell_path(
+                Path::new("/Users/jimeh/projects/other"),
+                worktree_root,
+                Some(home)
+            ),
+            "~/projects/other"
+        );
+    }
+
+    #[test]
+    fn smart_label_prefers_shell_cwd_when_foreground_process_is_shell() {
+        assert!(super::process_name_matches_shell("zsh", "zsh"));
+        assert!(super::process_name_matches_shell("-zsh", "zsh"));
+        assert!(!super::process_name_matches_shell("cargo", "zsh"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn process_label_cache_reuses_fresh_entry_for_same_pid() {
@@ -1056,6 +1369,62 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn process_cwd_cache_reuses_fresh_entry_for_same_pid() {
+        let cache = Mutex::new(super::ProcessCwdCache::default());
+        let calls = Cell::new(0);
+        let now = Instant::now();
+
+        let first =
+            super::resolve_process_cwd_with_cache(&cache, 123, now, Duration::from_secs(2), |_| {
+                calls.set(calls.get() + 1);
+                Some(PathBuf::from("/tmp/first"))
+            });
+        let second = super::resolve_process_cwd_with_cache(
+            &cache,
+            123,
+            now + Duration::from_millis(500),
+            Duration::from_secs(2),
+            |_| {
+                calls.set(calls.get() + 1);
+                Some(PathBuf::from("/tmp/ignored"))
+            },
+        );
+
+        assert_eq!(first, Some(PathBuf::from("/tmp/first")));
+        assert_eq!(second, Some(PathBuf::from("/tmp/first")));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_cwd_cache_refreshes_when_entry_expires() {
+        let cache = Mutex::new(super::ProcessCwdCache::default());
+        let calls = Cell::new(0);
+        let now = Instant::now();
+
+        let first =
+            super::resolve_process_cwd_with_cache(&cache, 123, now, Duration::from_secs(2), |_| {
+                calls.set(calls.get() + 1);
+                Some(PathBuf::from("/tmp/first"))
+            });
+        let second = super::resolve_process_cwd_with_cache(
+            &cache,
+            123,
+            now + Duration::from_secs(3),
+            Duration::from_secs(2),
+            |_| {
+                calls.set(calls.get() + 1);
+                Some(PathBuf::from("/tmp/second"))
+            },
+        );
+
+        assert_eq!(first, Some(PathBuf::from("/tmp/first")));
+        assert_eq!(second, Some(PathBuf::from("/tmp/second")));
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn process_label_cache_recovers_after_mutex_poison() {
         let cache = Mutex::new(super::ProcessLabelCache::default());
         let now = Instant::now();
@@ -1082,15 +1451,25 @@ mod tests {
         assert_eq!(TerminalSize::new(1, 4).clamped(), TerminalSize::new(8, 4));
     }
 
+    fn test_cat_path() -> &'static str {
+        ["/bin/cat", "/usr/bin/cat"]
+            .into_iter()
+            .find(|path| std::path::Path::new(path).is_file())
+            .expect("expected cat at /bin/cat or /usr/bin/cat")
+    }
+
     fn spawn_test_live_tab() -> Arc<LiveTab> {
         let pty_system = NativePtySystem::default();
         let pair = pty_system
             .openpty(TerminalSize::default_pty().to_pty_size())
             .unwrap();
 
-        let mut cmd = CommandBuilder::new("/bin/sh");
-        cmd.arg("-c");
-        cmd.arg("cat");
+        let mut cmd = CommandBuilder::new(test_cat_path());
+        // PTY tests run inside the Linux docker:test container. portable-pty's
+        // controlling-tty setup can fail there even though the child command
+        // itself is fine, and these tests only need a simple echoing process.
+        cmd.set_controlling_tty(false);
+        cmd.cwd("/");
         cmd.env("TERM", "xterm-256color");
 
         let child = pair.slave.spawn_command(cmd).unwrap();
@@ -1109,10 +1488,12 @@ mod tests {
                 has_notification: false,
                 labels: crate::tab::TerminalTabLabels {
                     custom_label: None,
-                    process_label: None,
+                    smart_label: None,
                     title_label: None,
                 },
             },
+            Some("sh".to_string()),
+            PathBuf::from("/tmp/worktree"),
             pair.master,
             child,
             DEFAULT_SCROLLBACK,

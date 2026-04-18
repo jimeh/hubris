@@ -1232,26 +1232,26 @@ export interface components {
     /** @enum {string} */
     TerminalFontSource: "default" | "system" | "bundled";
     TerminalSettings: {
-      bundledFont?: string;
+      bundledFont: string;
+      escapeSequenceTitles: boolean;
       /** Format: int32 */
-      fontSize?: number;
-      fontSource?: components["schemas"]["TerminalFontSource"];
-      systemFontFamily?: string;
-      tabLabelMode?: components["schemas"]["TerminalTabLabelMode"];
+      fontSize: number;
+      fontSource: components["schemas"]["TerminalFontSource"];
+      smartTabNaming: boolean;
+      systemFontFamily: string;
     };
     TerminalSettingsPatch: {
       bundledFont?: string | null;
+      escapeSequenceTitles?: boolean | null;
       /** Format: int32 */
       fontSize?: number | null;
       fontSource?: null | components["schemas"]["TerminalFontSource"];
+      smartTabNaming?: boolean | null;
       systemFontFamily?: string | null;
-      tabLabelMode?: null | components["schemas"]["TerminalTabLabelMode"];
     };
-    /** @enum {string} */
-    TerminalTabLabelMode: "numbered" | "process" | "title";
     TerminalTabLabels: {
       customLabel?: string | null;
-      processLabel?: string | null;
+      smartLabel?: string | null;
       titleLabel?: string | null;
     };
     UpdateProjectRequest: {

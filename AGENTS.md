@@ -238,7 +238,7 @@ or `pnpm-lock.yaml`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (4086 symbols, 12110
+This project is indexed by GitNexus as **hubris** (4667 symbols, 13859
 relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 

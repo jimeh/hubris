@@ -210,7 +210,7 @@ mod tests {
             has_notification: false,
             labels: TerminalTabLabels {
                 custom_label: None,
-                process_label: None,
+                smart_label: None,
                 title_label: None,
             },
         }

@@ -36,37 +36,65 @@ export default function TerminalSettings() {
       </div>
       <div className={settingsRowClass}>
         <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
-          Tab Labels
+          Smart Tab Naming
         </Label>
-        <div className="flex flex-wrap gap-1">
-          <Button
-            variant={
-              settings.tabLabelMode === "numbered" ? "secondary" : "ghost"
-            }
-            size="sm"
-            disabled={writesBlocked}
-            onClick={() => void updateSettings({ tabLabelMode: "numbered" })}
-          >
-            Numbered
-          </Button>
-          <Button
-            variant={
-              settings.tabLabelMode === "process" ? "secondary" : "ghost"
-            }
-            size="sm"
-            disabled={writesBlocked}
-            onClick={() => void updateSettings({ tabLabelMode: "process" })}
-          >
-            Active Process
-          </Button>
-          <Button
-            variant={settings.tabLabelMode === "title" ? "secondary" : "ghost"}
-            size="sm"
-            disabled={writesBlocked}
-            onClick={() => void updateSettings({ tabLabelMode: "title" })}
-          >
-            Process Title
-          </Button>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Show the shell path, or the active process when a command is
+            running.
+          </p>
+          <div className="flex flex-wrap gap-1">
+            <Button
+              variant={settings.smartTabNaming ? "secondary" : "ghost"}
+              size="sm"
+              disabled={writesBlocked}
+              onClick={() => void updateSettings({ smartTabNaming: true })}
+            >
+              On
+            </Button>
+            <Button
+              variant={!settings.smartTabNaming ? "secondary" : "ghost"}
+              size="sm"
+              disabled={writesBlocked}
+              onClick={() => void updateSettings({ smartTabNaming: false })}
+            >
+              Off
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          Custom Terminal Titles
+        </Label>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Allow apps and shells to rename tabs with terminal title escape
+            sequences.
+          </p>
+          <div className="flex flex-wrap gap-1">
+            <Button
+              variant={settings.escapeSequenceTitles ? "secondary" : "ghost"}
+              size="sm"
+              disabled={writesBlocked}
+              onClick={() =>
+                void updateSettings({ escapeSequenceTitles: true })
+              }
+            >
+              On
+            </Button>
+            <Button
+              variant={!settings.escapeSequenceTitles ? "secondary" : "ghost"}
+              size="sm"
+              disabled={writesBlocked}
+              onClick={() =>
+                void updateSettings({ escapeSequenceTitles: false })
+              }
+            >
+              Off
+            </Button>
+          </div>
         </div>
       </div>
 

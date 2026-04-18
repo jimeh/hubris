@@ -122,6 +122,9 @@ function createSettingsState(
       systemFontFamily: string;
       bundledFont: string;
       fontSize: number;
+      smartTabNaming: boolean;
+      escapeSequenceTitles: boolean;
+      tabLabelMode: "numbered" | "process" | "title";
     }>;
     editor: Partial<{
       lightEditorTheme: string;
@@ -146,6 +149,8 @@ function createSettingsState(
         systemFontFamily: "",
         bundledFont: "jetbrainsmono-nf",
         fontSize: 14,
+        smartTabNaming: true,
+        escapeSequenceTitles: true,
         ...(overrides?.terminal ?? {}),
       },
       editor: {
@@ -402,6 +407,45 @@ describe("settings store", () => {
     });
     expect(renderSpy).toHaveBeenCalledTimes(2);
     expect(screen.getByText("16")).toBeInTheDocument();
+  });
+
+  it("migrates legacy tabLabelMode payloads to the new naming toggles", async () => {
+    mockGetSettings.mockResolvedValue({
+      settings: {
+        appearance: {
+          colorScheme: "light",
+          lightTheme: "hubris-light",
+          darkTheme: "hubris-dark",
+        },
+        terminal: {
+          fontSource: "default",
+          systemFontFamily: "",
+          bundledFont: "jetbrainsmono-nf",
+          fontSize: 14,
+          tabLabelMode: "title",
+        },
+        editor: {
+          lightEditorTheme: "hubris-light",
+          darkEditorTheme: "hubris-dark",
+        },
+        worktree: {
+          locationMode: "dataDir",
+        },
+      },
+      generation: "1",
+      status: okStatus,
+    });
+
+    const store = await getStore();
+    await act(async () => {
+      store.initializeSettingsStore();
+      await flushAsyncWork();
+    });
+
+    expect(store.useSettingsStore.getState().settings.terminal).toMatchObject({
+      smartTabNaming: true,
+      escapeSequenceTitles: true,
+    });
   });
 
   it("ignores older settings_updated events", async () => {

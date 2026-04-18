@@ -891,7 +891,7 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
             has_notification: false,
             labels: hubris_server::tab::TerminalTabLabels {
                 custom_label: None,
-                process_label: None,
+                smart_label: None,
                 title_label: None,
             },
         },
@@ -910,7 +910,7 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
             has_notification: false,
             labels: hubris_server::tab::TerminalTabLabels {
                 custom_label: None,
-                process_label: None,
+                smart_label: None,
                 title_label: None,
             },
         },

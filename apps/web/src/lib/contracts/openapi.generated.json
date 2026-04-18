@@ -3883,9 +3883,20 @@
       },
       "TerminalSettings": {
         "type": "object",
+        "required": [
+          "fontSource",
+          "systemFontFamily",
+          "bundledFont",
+          "fontSize",
+          "smartTabNaming",
+          "escapeSequenceTitles"
+        ],
         "properties": {
           "bundledFont": {
             "type": "string"
+          },
+          "escapeSequenceTitles": {
+            "type": "boolean"
           },
           "fontSize": {
             "type": "integer",
@@ -3895,11 +3906,11 @@
           "fontSource": {
             "$ref": "#/components/schemas/TerminalFontSource"
           },
+          "smartTabNaming": {
+            "type": "boolean"
+          },
           "systemFontFamily": {
             "type": "string"
-          },
-          "tabLabelMode": {
-            "$ref": "#/components/schemas/TerminalTabLabelMode"
           }
         }
       },
@@ -3908,6 +3919,9 @@
         "properties": {
           "bundledFont": {
             "type": ["string", "null"]
+          },
+          "escapeSequenceTitles": {
+            "type": ["boolean", "null"]
           },
           "fontSize": {
             "type": ["integer", "null"],
@@ -3924,24 +3938,13 @@
               }
             ]
           },
+          "smartTabNaming": {
+            "type": ["boolean", "null"]
+          },
           "systemFontFamily": {
             "type": ["string", "null"]
-          },
-          "tabLabelMode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/TerminalTabLabelMode"
-              }
-            ]
           }
         }
-      },
-      "TerminalTabLabelMode": {
-        "type": "string",
-        "enum": ["numbered", "process", "title"]
       },
       "TerminalTabLabels": {
         "type": "object",
@@ -3949,7 +3952,7 @@
           "customLabel": {
             "type": ["string", "null"]
           },
-          "processLabel": {
+          "smartLabel": {
             "type": ["string", "null"]
           },
           "titleLabel": {

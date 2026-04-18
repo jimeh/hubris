@@ -69,9 +69,7 @@ export default function SortableTabStrip({
   const dirtyTabIdSet = useMemo(() => new Set(dirtyTabIds), [dirtyTabIds]);
   const lockedTabIdSet = useMemo(() => new Set(lockedTabIds), [lockedTabIds]);
   const theme = useThemeSettings((state) => state.activeTheme);
-  const tabLabelMode = useTerminalSettings(
-    (state) => state.settings.tabLabelMode,
-  );
+  const terminalSettings = useTerminalSettings((state) => state.settings);
   const gitStatus = useWorktreeFileManagerStore(
     (state) => state.worktrees[worktreeId]?.gitStatus ?? null,
   );
@@ -106,10 +104,10 @@ export default function SortableTabStrip({
       Object.fromEntries(
         tabs.map((tab) => [
           tab.id,
-          presentTab(tab, theme, gitStatus, tabLabelMode),
+          presentTab(tab, theme, gitStatus, terminalSettings),
         ]),
       ),
-    [gitStatus, tabLabelMode, tabs, theme],
+    [gitStatus, tabs, terminalSettings, theme],
   );
   const renameTab = useMemo(
     () =>
@@ -230,7 +228,8 @@ export default function SortableTabStrip({
           <DialogHeader>
             <DialogTitle>Rename Terminal Tab</DialogTitle>
             <DialogDescription>
-              Custom names override active process and process title labels.
+              Custom names override smart names and terminal-provided titles
+              until reset.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
