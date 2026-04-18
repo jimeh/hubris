@@ -23,9 +23,14 @@ pub const DEFAULT_PTY_COLS: u16 = 80;
 pub const DEFAULT_PTY_ROWS: u16 = 24;
 const MIN_PTY_COLS: u16 = 8;
 const MIN_PTY_ROWS: u16 = 2;
+const PROCESS_CWD_CACHE_TTL: Duration = Duration::from_secs(2);
 const PROCESS_LABEL_CACHE_TTL: Duration = Duration::from_secs(5);
 #[cfg(target_os = "macos")]
+const MAXPATHLEN: usize = libc::PATH_MAX as usize;
+#[cfg(target_os = "macos")]
 const PROC_PIDPATHINFO_MAXSIZE: usize = libc::PATH_MAX as usize * 4;
+#[cfg(target_os = "macos")]
+const PROC_PIDVNODEPATHINFO: libc::c_int = 9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TerminalSize {
@@ -218,6 +223,18 @@ struct ProcessLabelCache {
     entry: Option<CachedProcessLabel>,
 }
 
+#[derive(Debug, Clone)]
+struct CachedProcessCwd {
+    pid: libc::pid_t,
+    cwd: Option<PathBuf>,
+    expires_at: Instant,
+}
+
+#[derive(Debug, Default)]
+struct ProcessCwdCache {
+    entry: Option<CachedProcessCwd>,
+}
+
 fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
@@ -251,6 +268,33 @@ where
     label
 }
 
+#[cfg(unix)]
+fn resolve_process_cwd_with_cache<F>(
+    cache: &Mutex<ProcessCwdCache>,
+    pid: libc::pid_t,
+    now: Instant,
+    ttl: Duration,
+    resolve: F,
+) -> Option<PathBuf>
+where
+    F: FnOnce(libc::pid_t) -> Option<PathBuf>,
+{
+    if let Some(cached) = lock_unpoisoned(cache).entry.as_ref()
+        && cached.pid == pid
+        && now < cached.expires_at
+    {
+        return cached.cwd.clone();
+    }
+
+    let cwd = resolve(pid);
+    lock_unpoisoned(cache).entry = Some(CachedProcessCwd {
+        pid,
+        cwd: cwd.clone(),
+        expires_at: now + ttl,
+    });
+    cwd
+}
+
 /// A live terminal tab with its PTY, scrollback buffer,
 /// and broadcast channels for output fan-out and close
 /// notification.
@@ -269,6 +313,7 @@ pub struct LiveTab {
     pub title_tx: broadcast::Sender<Option<String>>,
     next_attachment_id: AtomicU64,
     attachments: Mutex<AttachmentRegistry>,
+    process_cwd_cache: Mutex<ProcessCwdCache>,
     process_label_cache: Mutex<ProcessLabelCache>,
     resize_update_lock: Mutex<()>,
     _reader_handle: JoinHandle<()>,
@@ -470,6 +515,7 @@ impl LiveTab {
             title_tx,
             next_attachment_id: AtomicU64::new(1),
             attachments: Mutex::new(AttachmentRegistry::new(initial_size)),
+            process_cwd_cache: Mutex::new(ProcessCwdCache::default()),
             process_label_cache: Mutex::new(ProcessLabelCache::default()),
             resize_update_lock: Mutex::new(()),
             _reader_handle: reader_handle,
@@ -491,6 +537,7 @@ impl LiveTab {
     pub fn resolve_smart_label(&self) -> Option<String> {
         resolve_live_tab_smart_label(
             &self.pty_master,
+            &self.process_cwd_cache,
             &self.process_label_cache,
             self.shell_process_name.as_deref(),
             &self.worktree_root,
@@ -650,6 +697,7 @@ impl LiveTab {
 #[cfg(unix)]
 fn resolve_live_tab_smart_label(
     pty_master: &Mutex<Box<dyn MasterPty + Send>>,
+    process_cwd_cache: &Mutex<ProcessCwdCache>,
     process_label_cache: &Mutex<ProcessLabelCache>,
     shell_process_name: Option<&str>,
     worktree_root: &Path,
@@ -663,7 +711,7 @@ fn resolve_live_tab_smart_label(
     if shell_process_name.is_some_and(|shell_process_name| {
         process_name_matches_shell(&process_label, shell_process_name)
     }) {
-        return resolve_process_cwd_from_pid(leader)
+        return resolve_process_cwd_from_pid(leader, process_cwd_cache)
             .map(|cwd| format_smart_shell_path(&cwd, worktree_root))
             .or(Some(process_label));
     }
@@ -674,6 +722,7 @@ fn resolve_live_tab_smart_label(
 #[cfg(not(unix))]
 fn resolve_live_tab_smart_label(
     _pty_master: &Mutex<Box<dyn MasterPty + Send>>,
+    _process_cwd_cache: &Mutex<ProcessCwdCache>,
     _process_label_cache: &Mutex<ProcessLabelCache>,
     _shell_process_name: Option<&str>,
     _worktree_root: &Path,
@@ -808,22 +857,65 @@ fn format_home_relative_path(path: &Path) -> String {
 }
 
 #[cfg(unix)]
-fn resolve_process_cwd_from_pid(pid: libc::pid_t) -> Option<PathBuf> {
+fn resolve_process_cwd_from_pid(
+    pid: libc::pid_t,
+    process_cwd_cache: &Mutex<ProcessCwdCache>,
+) -> Option<PathBuf> {
     if pid <= 0 {
         return None;
     }
 
-    resolve_process_cwd_from_procfs(pid).or_else(|| resolve_process_cwd_from_lsof(pid))
+    resolve_process_cwd_with_cache(
+        process_cwd_cache,
+        pid,
+        Instant::now(),
+        PROCESS_CWD_CACHE_TTL,
+        |pid| {
+            resolve_process_cwd_from_procfs(pid)
+                .or_else(|| resolve_process_cwd_from_libproc(pid))
+                .or_else(|| resolve_process_cwd_from_lsof(pid))
+        },
+    )
 }
 
 #[cfg(not(unix))]
-fn resolve_process_cwd_from_pid(_pid: libc::pid_t) -> Option<PathBuf> {
+fn resolve_process_cwd_from_pid(
+    _pid: libc::pid_t,
+    _process_cwd_cache: &Mutex<ProcessCwdCache>,
+) -> Option<PathBuf> {
     None
 }
 
 #[cfg(unix)]
 fn resolve_process_cwd_from_procfs(pid: libc::pid_t) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_process_cwd_from_libproc(pid: libc::pid_t) -> Option<PathBuf> {
+    let mut info = std::mem::MaybeUninit::<ProcVnodePathInfo>::zeroed();
+    let info_len = unsafe {
+        proc_pidinfo(
+            pid,
+            PROC_PIDVNODEPATHINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            std::mem::size_of::<ProcVnodePathInfo>() as libc::c_int,
+        )
+    };
+    if info_len != std::mem::size_of::<ProcVnodePathInfo>() as libc::c_int {
+        return None;
+    }
+
+    let info = unsafe { info.assume_init() };
+    let raw = unsafe { CStr::from_ptr(info.pvi_cdir.vip_path.as_ptr()) };
+    let path = raw.to_string_lossy();
+    (!path.is_empty()).then(|| PathBuf::from(path.into_owned()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn resolve_process_cwd_from_libproc(_pid: libc::pid_t) -> Option<PathBuf> {
+    None
 }
 
 #[cfg(unix)]
@@ -852,6 +944,62 @@ impl Drop for LiveTab {
 unsafe extern "C" {
     fn proc_name(pid: libc::c_int, buffer: *mut libc::c_void, buffersize: u32) -> libc::c_int;
     fn proc_pidpath(pid: libc::c_int, buffer: *mut libc::c_void, buffersize: u32) -> libc::c_int;
+    fn proc_pidinfo(
+        pid: libc::c_int,
+        flavor: libc::c_int,
+        arg: u64,
+        buffer: *mut libc::c_void,
+        buffersize: libc::c_int,
+    ) -> libc::c_int;
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct VinfoStat {
+    vst_dev: u32,
+    vst_mode: u16,
+    vst_nlink: u16,
+    vst_ino: u64,
+    vst_uid: libc::uid_t,
+    vst_gid: libc::gid_t,
+    vst_atime: i64,
+    vst_atimensec: i64,
+    vst_mtime: i64,
+    vst_mtimensec: i64,
+    vst_ctime: i64,
+    vst_ctimensec: i64,
+    vst_birthtime: i64,
+    vst_birthtimensec: i64,
+    vst_size: libc::off_t,
+    vst_blocks: i64,
+    vst_blksize: i32,
+    vst_flags: u32,
+    vst_gen: u32,
+    vst_rdev: u32,
+    vst_qspare: [i64; 2],
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct VnodeInfo {
+    vi_stat: VinfoStat,
+    vi_type: libc::c_int,
+    vi_pad: libc::c_int,
+    vi_fsid: libc::fsid_t,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct VnodeInfoPath {
+    vip_vi: VnodeInfo,
+    vip_path: [libc::c_char; MAXPATHLEN],
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct ProcVnodePathInfo {
+    pvi_cdir: VnodeInfoPath,
+    pvi_rdir: VnodeInfoPath,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1211,6 +1359,62 @@ mod tests {
 
         assert_eq!(first, Some("cargo".to_string()));
         assert_eq!(second, Some("bun".to_string()));
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_cwd_cache_reuses_fresh_entry_for_same_pid() {
+        let cache = Mutex::new(super::ProcessCwdCache::default());
+        let calls = Cell::new(0);
+        let now = Instant::now();
+
+        let first =
+            super::resolve_process_cwd_with_cache(&cache, 123, now, Duration::from_secs(2), |_| {
+                calls.set(calls.get() + 1);
+                Some(PathBuf::from("/tmp/first"))
+            });
+        let second = super::resolve_process_cwd_with_cache(
+            &cache,
+            123,
+            now + Duration::from_millis(500),
+            Duration::from_secs(2),
+            |_| {
+                calls.set(calls.get() + 1);
+                Some(PathBuf::from("/tmp/ignored"))
+            },
+        );
+
+        assert_eq!(first, Some(PathBuf::from("/tmp/first")));
+        assert_eq!(second, Some(PathBuf::from("/tmp/first")));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_cwd_cache_refreshes_when_entry_expires() {
+        let cache = Mutex::new(super::ProcessCwdCache::default());
+        let calls = Cell::new(0);
+        let now = Instant::now();
+
+        let first =
+            super::resolve_process_cwd_with_cache(&cache, 123, now, Duration::from_secs(2), |_| {
+                calls.set(calls.get() + 1);
+                Some(PathBuf::from("/tmp/first"))
+            });
+        let second = super::resolve_process_cwd_with_cache(
+            &cache,
+            123,
+            now + Duration::from_secs(3),
+            Duration::from_secs(2),
+            |_| {
+                calls.set(calls.get() + 1);
+                Some(PathBuf::from("/tmp/second"))
+            },
+        );
+
+        assert_eq!(first, Some(PathBuf::from("/tmp/first")));
+        assert_eq!(second, Some(PathBuf::from("/tmp/second")));
         assert_eq!(calls.get(), 2);
     }
 
