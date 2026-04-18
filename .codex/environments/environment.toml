@@ -3,14 +3,29 @@ version = 1
 name = "hubris"
 
 [setup]
-script = "mise setup && gitnexus analyze && mise format:markdown"
+script = "mise setup && gitnexus analyze && git checkout CLAUDE.md && mise format:markdown"
 
 [[actions]]
-name = "Run"
+name = "Run Web"
 icon = "tool"
 command = "mise dev"
 
 [[actions]]
-name = "Run (local data)"
+name = "Run Desktop"
+icon = "tool"
+command = "mise dev:desktop"
+
+[[actions]]
+name = "Run Web (local data)"
 icon = "tool"
 command = "env HUBRIS_DATA_DIR=\"./data\" mise dev"
+
+[[actions]]
+name = "Build Web"
+icon = "tool"
+command = "mise build"
+
+[[actions]]
+name = "Build Desktop"
+icon = "tool"
+command = "mise build:desktop"
