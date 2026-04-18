@@ -338,13 +338,17 @@ describe("desktop main process startup", () => {
 
     expect(navigationHandler).toBeTypeOf("function");
 
-    const preventDefault = vi.fn();
-    navigationHandler?.({
-      preventDefault,
+    const navigationEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
       url: "https://example.com/docs",
-    });
+    };
 
-    expect(preventDefault).toHaveBeenCalledTimes(1);
+    navigationHandler?.(navigationEvent);
+
+    expect(navigationEvent.defaultPrevented).toBe(true);
   });
 
   it("blocks external will-frame-navigate requests", async () => {
@@ -364,13 +368,17 @@ describe("desktop main process startup", () => {
 
     expect(navigationHandler).toBeTypeOf("function");
 
-    const preventDefault = vi.fn();
-    navigationHandler?.({
-      preventDefault,
+    const navigationEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
       url: "https://example.com/embed",
-    });
+    };
 
-    expect(preventDefault).toHaveBeenCalledTimes(1);
+    navigationHandler?.(navigationEvent);
+
+    expect(navigationEvent.defaultPrevented).toBe(true);
   });
 
   it("seeds desktop session cookies for the main and runtime origins", async () => {

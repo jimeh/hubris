@@ -217,6 +217,10 @@ or `pnpm-lock.yaml`.
   TypeScript typings do not expose that event on `WebContents`. Keep subframe
   navigation guards behind a narrow typed cast instead of assuming the event is
   unavailable.
+- Electron navigation events (`will-navigate`, `will-frame-navigate`,
+  `will-redirect`) must call `details.preventDefault()` on the original event
+  object. Destructuring `preventDefault` and invoking it unbound can crash the
+  desktop main process with `TypeError: Illegal invocation`.
 - Task-backed VS Code install APIs snapshot status immediately after enqueueing
   work. In fast tests or CI, that snapshot can still be `Stopped` or already be
   terminal even though install progress events were emitted correctly; assert on
@@ -238,7 +242,7 @@ or `pnpm-lock.yaml`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (4667 symbols, 13859
+This project is indexed by GitNexus as **hubris** (4578 symbols, 13762
 relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 

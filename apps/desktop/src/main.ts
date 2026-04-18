@@ -160,6 +160,11 @@ function configureWebContentsGuards(
   webContents: WebContents,
   allowedOrigins: string[],
 ) {
+  type NavigationDetails = {
+    preventDefault(): void;
+    url: string;
+  };
+
   const openExternalUrl = (url: string) => {
     void shell.openExternal(url).catch((error: unknown) => {
       console.error("failed to open external URL", { url, error });
@@ -174,21 +179,15 @@ function configureWebContentsGuards(
     return { action: "deny" };
   });
 
-  const blockIfDisallowed = ({
-    preventDefault,
-    url,
-  }: {
-    preventDefault: () => void;
-    url: string;
-  }) => {
-    const target = classifyNavigationTarget(url, allowedOrigins);
+  const blockIfDisallowed = (details: NavigationDetails) => {
+    const target = classifyNavigationTarget(details.url, allowedOrigins);
     if (target === "internal") {
       return;
     }
 
-    preventDefault();
+    details.preventDefault();
     if (target === "external") {
-      openExternalUrl(url);
+      openExternalUrl(details.url);
     }
   };
 

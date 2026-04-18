@@ -306,6 +306,32 @@ describe("browser view bridge", () => {
     );
   });
 
+  it("blocks disallowed navigations without detaching preventDefault", async () => {
+    const state = await loadBrowserViewsModule();
+
+    state.installBrowserViewBridge(state.window as never, "dev");
+    await state.handles.get(HUBRIS_BROWSER_CREATE_CHANNEL)?.(undefined, {
+      tabId: "browser-8",
+      url: "https://example.com/docs",
+    });
+
+    const navigationHandler =
+      state.createdViews[0]?.webContents.listeners.get("will-navigate");
+    expect(navigationHandler).toBeTypeOf("function");
+
+    const navigationEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+      url: "javascript:alert(1)",
+    };
+
+    navigationHandler?.(navigationEvent);
+
+    expect(navigationEvent.defaultPrevented).toBe(true);
+  });
+
   it("emits navigation and title updates back to the renderer", async () => {
     const state = await loadBrowserViewsModule();
 
