@@ -302,6 +302,7 @@ pub struct LiveTab {
     info: Mutex<TabInfo>,
     shell_process_name: Option<String>,
     worktree_root: PathBuf,
+    home_dir: Option<PathBuf>,
     pub pty_master: Mutex<Box<dyn MasterPty + Send>>,
     pub pty_writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
@@ -504,6 +505,7 @@ impl LiveTab {
             info: Mutex::new(info),
             shell_process_name,
             worktree_root,
+            home_dir: std::env::var_os("HOME").map(PathBuf::from),
             pty_master: Mutex::new(master),
             pty_writer: Mutex::new(writer),
             child: Mutex::new(child),
@@ -541,6 +543,7 @@ impl LiveTab {
             &self.process_label_cache,
             self.shell_process_name.as_deref(),
             &self.worktree_root,
+            self.home_dir.as_deref(),
         )
     }
 
@@ -701,6 +704,7 @@ fn resolve_live_tab_smart_label(
     process_label_cache: &Mutex<ProcessLabelCache>,
     shell_process_name: Option<&str>,
     worktree_root: &Path,
+    home_dir: Option<&Path>,
 ) -> Option<String> {
     let leader = {
         let pty_master = lock_unpoisoned(pty_master);
@@ -712,7 +716,7 @@ fn resolve_live_tab_smart_label(
         process_name_matches_shell(&process_label, shell_process_name)
     }) {
         return resolve_process_cwd_from_pid(leader, process_cwd_cache)
-            .map(|cwd| format_smart_shell_path(&cwd, worktree_root))
+            .map(|cwd| format_smart_shell_path(&cwd, worktree_root, home_dir))
             .or(Some(process_label));
     }
 
@@ -726,6 +730,7 @@ fn resolve_live_tab_smart_label(
     _process_label_cache: &Mutex<ProcessLabelCache>,
     _shell_process_name: Option<&str>,
     _worktree_root: &Path,
+    _home_dir: Option<&Path>,
 ) -> Option<String> {
     None
 }
@@ -823,7 +828,7 @@ fn process_name_matches_shell(process_label: &str, shell_process_name: &str) -> 
     process_label.trim_start_matches('-') == shell_process_name.trim_start_matches('-')
 }
 
-fn format_smart_shell_path(path: &Path, worktree_root: &Path) -> String {
+fn format_smart_shell_path(path: &Path, worktree_root: &Path, home_dir: Option<&Path>) -> String {
     if path == worktree_root {
         return "./".to_string();
     }
@@ -834,11 +839,11 @@ fn format_smart_shell_path(path: &Path, worktree_root: &Path) -> String {
         return format!("./{}", stripped.display());
     }
 
-    format_home_relative_path(path)
+    format_home_relative_path(path, home_dir)
 }
 
-fn format_home_relative_path(path: &Path) -> String {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+fn format_home_relative_path(path: &Path, home_dir: Option<&Path>) -> String {
+    let Some(home) = home_dir else {
         return path.display().to_string();
     };
 
@@ -846,7 +851,7 @@ fn format_home_relative_path(path: &Path) -> String {
         return "~".to_string();
     }
 
-    if let Ok(stripped) = path.strip_prefix(&home) {
+    if let Ok(stripped) = path.strip_prefix(home) {
         if stripped.as_os_str().is_empty() {
             return "~".to_string();
         }
@@ -1247,44 +1252,44 @@ mod tests {
 
     #[test]
     fn format_home_relative_path_uses_tilde_prefix() {
-        unsafe {
-            std::env::set_var("HOME", "/Users/jimeh");
-        }
+        let home = Path::new("/Users/jimeh");
         assert_eq!(
-            super::format_home_relative_path(Path::new("/Users/jimeh/projects/hubris")),
+            super::format_home_relative_path(Path::new("/Users/jimeh/projects/hubris"), Some(home)),
             "~/projects/hubris"
         );
         assert_eq!(
-            super::format_home_relative_path(Path::new("/Users/jimeh")),
+            super::format_home_relative_path(Path::new("/Users/jimeh"), Some(home)),
             "~"
         );
         assert_eq!(
-            super::format_home_relative_path(Path::new("/tmp/hubris")),
+            super::format_home_relative_path(Path::new("/tmp/hubris"), Some(home)),
             "/tmp/hubris"
         );
     }
 
     #[test]
     fn format_smart_shell_path_uses_worktree_relative_prefix() {
-        unsafe {
-            std::env::set_var("HOME", "/Users/jimeh");
-        }
-
+        let home = Path::new("/Users/jimeh");
         let worktree_root = Path::new("/Users/jimeh/projects/hubris");
 
         assert_eq!(
-            super::format_smart_shell_path(worktree_root, worktree_root),
+            super::format_smart_shell_path(worktree_root, worktree_root, Some(home)),
             "./"
         );
         assert_eq!(
             super::format_smart_shell_path(
                 Path::new("/Users/jimeh/projects/hubris/apps/server"),
-                worktree_root
+                worktree_root,
+                Some(home)
             ),
             "./apps/server"
         );
         assert_eq!(
-            super::format_smart_shell_path(Path::new("/Users/jimeh/projects/other"), worktree_root),
+            super::format_smart_shell_path(
+                Path::new("/Users/jimeh/projects/other"),
+                worktree_root,
+                Some(home)
+            ),
             "~/projects/other"
         );
     }
