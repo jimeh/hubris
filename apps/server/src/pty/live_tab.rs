@@ -257,6 +257,7 @@ where
 pub struct LiveTab {
     info: Mutex<TabInfo>,
     shell_process_name: Option<String>,
+    worktree_root: PathBuf,
     pub pty_master: Mutex<Box<dyn MasterPty + Send>>,
     pub pty_writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
@@ -404,6 +405,7 @@ impl LiveTab {
     pub fn spawn(
         info: TabInfo,
         shell_process_name: Option<String>,
+        worktree_root: PathBuf,
         master: Box<dyn MasterPty + Send>,
         child: Box<dyn Child + Send + Sync>,
         scrollback_size: usize,
@@ -456,6 +458,7 @@ impl LiveTab {
         Self {
             info: Mutex::new(info),
             shell_process_name,
+            worktree_root,
             pty_master: Mutex::new(master),
             pty_writer: Mutex::new(writer),
             child: Mutex::new(child),
@@ -490,6 +493,7 @@ impl LiveTab {
             &self.pty_master,
             &self.process_label_cache,
             self.shell_process_name.as_deref(),
+            &self.worktree_root,
         )
     }
 
@@ -648,6 +652,7 @@ fn resolve_live_tab_smart_label(
     pty_master: &Mutex<Box<dyn MasterPty + Send>>,
     process_label_cache: &Mutex<ProcessLabelCache>,
     shell_process_name: Option<&str>,
+    worktree_root: &Path,
 ) -> Option<String> {
     let leader = {
         let pty_master = lock_unpoisoned(pty_master);
@@ -659,7 +664,7 @@ fn resolve_live_tab_smart_label(
         process_name_matches_shell(&process_label, shell_process_name)
     }) {
         return resolve_process_cwd_from_pid(leader)
-            .map(|cwd| format_home_relative_path(&cwd))
+            .map(|cwd| format_smart_shell_path(&cwd, worktree_root))
             .or(Some(process_label));
     }
 
@@ -671,6 +676,7 @@ fn resolve_live_tab_smart_label(
     _pty_master: &Mutex<Box<dyn MasterPty + Send>>,
     _process_label_cache: &Mutex<ProcessLabelCache>,
     _shell_process_name: Option<&str>,
+    _worktree_root: &Path,
 ) -> Option<String> {
     None
 }
@@ -766,6 +772,20 @@ pub(crate) fn normalize_shell_process_name(raw: &str) -> Option<String> {
 
 fn process_name_matches_shell(process_label: &str, shell_process_name: &str) -> bool {
     process_label.trim_start_matches('-') == shell_process_name.trim_start_matches('-')
+}
+
+fn format_smart_shell_path(path: &Path, worktree_root: &Path) -> String {
+    if path == worktree_root {
+        return "./".to_string();
+    }
+
+    if let Ok(stripped) = path.strip_prefix(worktree_root)
+        && !stripped.as_os_str().is_empty()
+    {
+        return format!("./{}", stripped.display());
+    }
+
+    format_home_relative_path(path)
 }
 
 fn format_home_relative_path(path: &Path) -> String {
@@ -928,7 +948,7 @@ impl AttachmentRegistry {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::mpsc;
@@ -1097,6 +1117,31 @@ mod tests {
     }
 
     #[test]
+    fn format_smart_shell_path_uses_worktree_relative_prefix() {
+        unsafe {
+            std::env::set_var("HOME", "/Users/jimeh");
+        }
+
+        let worktree_root = Path::new("/Users/jimeh/projects/hubris");
+
+        assert_eq!(
+            super::format_smart_shell_path(worktree_root, worktree_root),
+            "./"
+        );
+        assert_eq!(
+            super::format_smart_shell_path(
+                Path::new("/Users/jimeh/projects/hubris/apps/server"),
+                worktree_root
+            ),
+            "./apps/server"
+        );
+        assert_eq!(
+            super::format_smart_shell_path(Path::new("/Users/jimeh/projects/other"), worktree_root),
+            "~/projects/other"
+        );
+    }
+
+    #[test]
     fn smart_label_prefers_shell_cwd_when_foreground_process_is_shell() {
         assert!(super::process_name_matches_shell("zsh", "zsh"));
         assert!(super::process_name_matches_shell("-zsh", "zsh"));
@@ -1229,6 +1274,7 @@ mod tests {
                 },
             },
             Some("sh".to_string()),
+            PathBuf::from("/tmp/worktree"),
             pair.master,
             child,
             DEFAULT_SCROLLBACK,

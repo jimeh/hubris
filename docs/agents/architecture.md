@@ -26,7 +26,8 @@ reconciliation — drift corrects on reconnect.
 - Terminal tab naming keeps the stored `label` as the numbered fallback. Manual
   rename (`customLabel`) overrides everything, OSC titles (`titleLabel`) are a
   separate optional override, and server-computed smart labels (`smartLabel`)
-  cover shell cwd / foreground process naming when enabled.
+  cover shell cwd / foreground process naming when enabled, using `./` for the
+  active worktree root and `~` for the home directory.
 - WS protocol: binary (PTY output), JSON control (`type: "resize"`,
   `type: "attached"` with `byte_offset`/`data_lost`)
 - SSE events: snapshot, tab_created, tab_closed, tab_updated, project_added,

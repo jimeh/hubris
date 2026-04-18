@@ -850,6 +850,7 @@ fn spawn_terminal_runtime(
     let live_tab = LiveTab::spawn(
         info,
         shell_process_name,
+        PathBuf::from(worktree_path),
         pair.master,
         child,
         DEFAULT_SCROLLBACK,
