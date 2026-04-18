@@ -1446,15 +1446,20 @@ mod tests {
         assert_eq!(TerminalSize::new(1, 4).clamped(), TerminalSize::new(8, 4));
     }
 
+    fn test_cat_path() -> &'static str {
+        ["/bin/cat", "/usr/bin/cat"]
+            .into_iter()
+            .find(|path| std::path::Path::new(path).is_file())
+            .expect("expected cat at /bin/cat or /usr/bin/cat")
+    }
+
     fn spawn_test_live_tab() -> Arc<LiveTab> {
         let pty_system = NativePtySystem::default();
         let pair = pty_system
             .openpty(TerminalSize::default_pty().to_pty_size())
             .unwrap();
 
-        let mut cmd = CommandBuilder::new("/bin/sh");
-        cmd.arg("-c");
-        cmd.arg("cat");
+        let mut cmd = CommandBuilder::new(test_cat_path());
         cmd.env("TERM", "xterm-256color");
 
         let child = pair.slave.spawn_command(cmd).unwrap();
