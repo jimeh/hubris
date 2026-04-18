@@ -416,8 +416,11 @@ fn apply_terminal_patch(
     if let Some(font_size) = patch.font_size {
         settings.font_size = font_size;
     }
-    if let Some(tab_label_mode) = patch.tab_label_mode {
-        settings.tab_label_mode = tab_label_mode;
+    if let Some(smart_tab_naming) = patch.smart_tab_naming {
+        settings.smart_tab_naming = smart_tab_naming;
+    }
+    if let Some(escape_sequence_titles) = patch.escape_sequence_titles {
+        settings.escape_sequence_titles = escape_sequence_titles;
     }
 }
 
@@ -491,8 +494,12 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
         if let Some(font_size) = terminal.font_size {
             table.insert("fontSize", value(i64::from(font_size)));
         }
-        if let Some(tab_label_mode) = terminal.tab_label_mode {
-            table.insert("tabLabelMode", value(tab_label_mode.as_str()));
+        table.remove("tabLabelMode");
+        if let Some(smart_tab_naming) = terminal.smart_tab_naming {
+            table.insert("smartTabNaming", value(smart_tab_naming));
+        }
+        if let Some(escape_sequence_titles) = terminal.escape_sequence_titles {
+            table.insert("escapeSequenceTitles", value(escape_sequence_titles));
         }
     }
 
@@ -544,10 +551,12 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
         value(settings.terminal.bundled_font.as_str()),
     );
     terminal.insert("fontSize", value(i64::from(settings.terminal.font_size)));
+    terminal.insert("smartTabNaming", value(settings.terminal.smart_tab_naming));
     terminal.insert(
-        "tabLabelMode",
-        value(settings.terminal.tab_label_mode.as_str()),
+        "escapeSequenceTitles",
+        value(settings.terminal.escape_sequence_titles),
     );
+    terminal.remove("tabLabelMode");
 
     let editor = ensure_table(document, "editor");
     editor.insert(
@@ -845,5 +854,45 @@ darkTheme = "hubris-dark"
         let current = manager.get().await;
         assert_eq!(current.settings.appearance.color_scheme.as_str(), "dark");
         assert_eq!(current.status, SettingsStatus::ok());
+    }
+
+    #[test]
+    fn parse_settings_document_migrates_legacy_terminal_tab_label_mode() {
+        let (_, settings) = parse_settings_document(
+            r#"[terminal]
+fontSource = "default"
+systemFontFamily = ""
+bundledFont = "jetbrainsmono-nf"
+fontSize = 14
+tabLabelMode = "title"
+"#,
+        )
+        .unwrap();
+
+        assert!(settings.terminal.smart_tab_naming);
+        assert!(settings.terminal.escape_sequence_titles);
+    }
+
+    #[tokio::test]
+    async fn terminal_settings_writes_new_naming_keys_only() {
+        let tmp = TempDir::new().unwrap();
+        let manager = new_manager(&tmp).await;
+
+        manager
+            .patch(SettingsPatch {
+                terminal: Some(TerminalSettingsPatch {
+                    smart_tab_naming: Some(false),
+                    escape_sequence_titles: Some(false),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        let written = std::fs::read_to_string(tmp.path().join("settings.toml")).unwrap();
+        assert!(written.contains("smartTabNaming = false"));
+        assert!(written.contains("escapeSequenceTitles = false"));
+        assert!(!written.contains("tabLabelMode"));
     }
 }

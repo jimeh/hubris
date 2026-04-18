@@ -11,8 +11,19 @@ vi.mock("@/lib/stores/theme", () => ({
 
 vi.mock("@/lib/stores/terminal", () => ({
   useTerminalSettings: (
-    selector: (state: { settings: { tabLabelMode: "process" } }) => unknown,
-  ) => selector({ settings: { tabLabelMode: "process" } }),
+    selector: (state: {
+      settings: {
+        smartTabNaming: true;
+        escapeSequenceTitles: true;
+      };
+    }) => unknown,
+  ) =>
+    selector({
+      settings: {
+        smartTabNaming: true,
+        escapeSequenceTitles: true,
+      },
+    }),
 }));
 
 vi.mock("@/lib/stores/worktreeFileManager", () => ({

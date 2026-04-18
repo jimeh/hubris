@@ -22,15 +22,13 @@ export default function TabDragOverlay({
   paneFocused,
 }: Props) {
   const theme = useThemeSettings((state) => state.activeTheme);
-  const tabLabelMode = useTerminalSettings(
-    (state) => state.settings.tabLabelMode,
-  );
+  const terminalSettings = useTerminalSettings((state) => state.settings);
   const gitStatus = useWorktreeFileManagerStore(
     (state) => state.worktrees[worktreeId]?.gitStatus ?? null,
   );
   const presentation = useMemo(
-    () => presentTab(tab, theme, gitStatus, tabLabelMode),
-    [gitStatus, tab, tabLabelMode, theme],
+    () => presentTab(tab, theme, gitStatus, terminalSettings),
+    [gitStatus, tab, terminalSettings, theme],
   );
 
   return (

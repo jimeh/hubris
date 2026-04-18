@@ -60,7 +60,7 @@ pub struct TerminalTabLabels {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub process_label: Option<String>,
+    pub smart_label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_label: Option<String>,
 }
@@ -226,9 +226,9 @@ impl TabInfo {
         }
     }
 
-    pub fn process_label(&self) -> Option<&str> {
+    pub fn smart_label(&self) -> Option<&str> {
         match self {
-            Self::Terminal { labels, .. } => labels.process_label.as_deref(),
+            Self::Terminal { labels, .. } => labels.smart_label.as_deref(),
             _ => None,
         }
     }
@@ -312,9 +312,9 @@ impl TabInfo {
         }
     }
 
-    pub fn set_process_label(&mut self, next: Option<String>) {
+    pub fn set_smart_label(&mut self, next: Option<String>) {
         if let Self::Terminal { labels, .. } = self {
-            labels.process_label = next;
+            labels.smart_label = next;
         }
     }
 

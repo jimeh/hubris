@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -256,6 +256,7 @@ where
 /// notification.
 pub struct LiveTab {
     info: Mutex<TabInfo>,
+    shell_process_name: Option<String>,
     pub pty_master: Mutex<Box<dyn MasterPty + Send>>,
     pub pty_writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
@@ -402,6 +403,7 @@ impl LiveTab {
     /// that feeds scrollback and broadcasts output.
     pub fn spawn(
         info: TabInfo,
+        shell_process_name: Option<String>,
         master: Box<dyn MasterPty + Send>,
         child: Box<dyn Child + Send + Sync>,
         scrollback_size: usize,
@@ -453,6 +455,7 @@ impl LiveTab {
 
         Self {
             info: Mutex::new(info),
+            shell_process_name,
             pty_master: Mutex::new(master),
             pty_writer: Mutex::new(writer),
             child: Mutex::new(child),
@@ -482,8 +485,12 @@ impl LiveTab {
         f(&mut info)
     }
 
-    pub fn resolve_process_label(&self) -> Option<String> {
-        resolve_live_tab_process_label(&self.pty_master, &self.process_label_cache)
+    pub fn resolve_smart_label(&self) -> Option<String> {
+        resolve_live_tab_smart_label(
+            &self.pty_master,
+            &self.process_label_cache,
+            self.shell_process_name.as_deref(),
+        )
     }
 
     /// Attach to this tab's output stream. Returns:
@@ -637,21 +644,33 @@ impl LiveTab {
 }
 
 #[cfg(unix)]
-fn resolve_live_tab_process_label(
+fn resolve_live_tab_smart_label(
     pty_master: &Mutex<Box<dyn MasterPty + Send>>,
     process_label_cache: &Mutex<ProcessLabelCache>,
+    shell_process_name: Option<&str>,
 ) -> Option<String> {
     let leader = {
         let pty_master = lock_unpoisoned(pty_master);
         pty_master.process_group_leader()?
     };
-    resolve_process_label_from_pid(leader, process_label_cache)
+
+    let process_label = resolve_process_label_from_pid(leader, process_label_cache)?;
+    if shell_process_name.is_some_and(|shell_process_name| {
+        process_name_matches_shell(&process_label, shell_process_name)
+    }) {
+        return resolve_process_cwd_from_pid(leader)
+            .map(|cwd| format_home_relative_path(&cwd))
+            .or(Some(process_label));
+    }
+
+    Some(process_label)
 }
 
 #[cfg(not(unix))]
-fn resolve_live_tab_process_label(
+fn resolve_live_tab_smart_label(
     _pty_master: &Mutex<Box<dyn MasterPty + Send>>,
     _process_label_cache: &Mutex<ProcessLabelCache>,
+    _shell_process_name: Option<&str>,
 ) -> Option<String> {
     None
 }
@@ -739,6 +758,67 @@ fn normalize_process_label(raw: &str) -> Option<String> {
         .and_then(|value| value.to_str())
         .unwrap_or(trimmed);
     Some(normalized.to_string())
+}
+
+pub(crate) fn normalize_shell_process_name(raw: &str) -> Option<String> {
+    normalize_process_label(raw).map(|label| label.trim_start_matches('-').to_string())
+}
+
+fn process_name_matches_shell(process_label: &str, shell_process_name: &str) -> bool {
+    process_label.trim_start_matches('-') == shell_process_name.trim_start_matches('-')
+}
+
+fn format_home_relative_path(path: &Path) -> String {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return path.display().to_string();
+    };
+
+    if path == home {
+        return "~".to_string();
+    }
+
+    if let Ok(stripped) = path.strip_prefix(&home) {
+        if stripped.as_os_str().is_empty() {
+            return "~".to_string();
+        }
+        return format!("~/{}", stripped.display());
+    }
+
+    path.display().to_string()
+}
+
+#[cfg(unix)]
+fn resolve_process_cwd_from_pid(pid: libc::pid_t) -> Option<PathBuf> {
+    if pid <= 0 {
+        return None;
+    }
+
+    resolve_process_cwd_from_procfs(pid).or_else(|| resolve_process_cwd_from_lsof(pid))
+}
+
+#[cfg(not(unix))]
+fn resolve_process_cwd_from_pid(_pid: libc::pid_t) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(unix)]
+fn resolve_process_cwd_from_procfs(pid: libc::pid_t) -> Option<PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+}
+
+#[cfg(unix)]
+fn resolve_process_cwd_from_lsof(pid: libc::pid_t) -> Option<PathBuf> {
+    let output = std::process::Command::new("lsof")
+        .args(["-a", "-d", "cwd", "-p", &pid.to_string(), "-Fn"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix('n').map(PathBuf::from))
 }
 
 impl Drop for LiveTab {
@@ -848,6 +928,7 @@ impl AttachmentRegistry {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+    use std::path::Path;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::mpsc;
@@ -988,6 +1069,40 @@ mod tests {
         assert_eq!(super::normalize_process_label("  "), None);
     }
 
+    #[test]
+    fn normalize_shell_process_name_strips_login_prefix() {
+        assert_eq!(
+            super::normalize_shell_process_name("/bin/-zsh"),
+            Some("zsh".to_string())
+        );
+    }
+
+    #[test]
+    fn format_home_relative_path_uses_tilde_prefix() {
+        unsafe {
+            std::env::set_var("HOME", "/Users/jimeh");
+        }
+        assert_eq!(
+            super::format_home_relative_path(Path::new("/Users/jimeh/projects/hubris")),
+            "~/projects/hubris"
+        );
+        assert_eq!(
+            super::format_home_relative_path(Path::new("/Users/jimeh")),
+            "~"
+        );
+        assert_eq!(
+            super::format_home_relative_path(Path::new("/tmp/hubris")),
+            "/tmp/hubris"
+        );
+    }
+
+    #[test]
+    fn smart_label_prefers_shell_cwd_when_foreground_process_is_shell() {
+        assert!(super::process_name_matches_shell("zsh", "zsh"));
+        assert!(super::process_name_matches_shell("-zsh", "zsh"));
+        assert!(!super::process_name_matches_shell("cargo", "zsh"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn process_label_cache_reuses_fresh_entry_for_same_pid() {
@@ -1109,10 +1224,11 @@ mod tests {
                 has_notification: false,
                 labels: crate::tab::TerminalTabLabels {
                     custom_label: None,
-                    process_label: None,
+                    smart_label: None,
                     title_label: None,
                 },
             },
+            Some("sh".to_string()),
             pair.master,
             child,
             DEFAULT_SCROLLBACK,

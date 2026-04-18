@@ -236,7 +236,7 @@ function tabKey(tab: Tab): string {
         tab.id,
         tab.label,
         tab.customLabel ?? "",
-        tab.processLabel ?? "",
+        tab.smartLabel ?? "",
         tab.titleLabel ?? "",
         tab.position,
         tab.worktree_id,

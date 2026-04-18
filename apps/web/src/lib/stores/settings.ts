@@ -53,7 +53,8 @@ const DEFAULT_SETTINGS: Settings = {
     systemFontFamily: "",
     bundledFont: "jetbrainsmono-nf",
     fontSize: 14,
-    tabLabelMode: "numbered",
+    smartTabNaming: true,
+    escapeSequenceTitles: true,
   },
   editor: {
     lightEditorTheme: "hubris-light",
@@ -189,7 +190,9 @@ function normalizeTerminalSettings(candidate: unknown): {
   settings: TerminalSettings;
   changed: boolean;
 } {
-  const source = (candidate ?? {}) as Partial<TerminalSettings>;
+  const source = (candidate ?? {}) as Partial<TerminalSettings> & {
+    tabLabelMode?: "numbered" | "process" | "title";
+  };
   let changed = false;
 
   const fontSource =
@@ -227,13 +230,28 @@ function normalizeTerminalSettings(candidate: unknown): {
     changed = true;
   }
 
-  const tabLabelMode =
+  const hasLegacyTabLabelMode =
     source.tabLabelMode === "numbered" ||
     source.tabLabelMode === "process" ||
-    source.tabLabelMode === "title"
-      ? source.tabLabelMode
-      : DEFAULT_SETTINGS.terminal.tabLabelMode;
-  if (tabLabelMode !== source.tabLabelMode) {
+    source.tabLabelMode === "title";
+
+  const smartTabNaming =
+    typeof source.smartTabNaming === "boolean"
+      ? source.smartTabNaming
+      : hasLegacyTabLabelMode
+        ? true
+        : DEFAULT_SETTINGS.terminal.smartTabNaming;
+  if (smartTabNaming !== source.smartTabNaming) {
+    changed = true;
+  }
+
+  const escapeSequenceTitles =
+    typeof source.escapeSequenceTitles === "boolean"
+      ? source.escapeSequenceTitles
+      : hasLegacyTabLabelMode
+        ? true
+        : DEFAULT_SETTINGS.terminal.escapeSequenceTitles;
+  if (escapeSequenceTitles !== source.escapeSequenceTitles) {
     changed = true;
   }
 
@@ -243,7 +261,8 @@ function normalizeTerminalSettings(candidate: unknown): {
       systemFontFamily,
       bundledFont,
       fontSize,
-      tabLabelMode,
+      smartTabNaming,
+      escapeSequenceTitles,
     },
     changed,
   };
@@ -667,7 +686,8 @@ function equalTerminalSettings(
     left.systemFontFamily === right.systemFontFamily &&
     left.bundledFont === right.bundledFont &&
     left.fontSize === right.fontSize &&
-    left.tabLabelMode === right.tabLabelMode
+    left.smartTabNaming === right.smartTabNaming &&
+    left.escapeSequenceTitles === right.escapeSequenceTitles
   );
 }
 

@@ -80,7 +80,12 @@ function gitDiffTab(overrides: Partial<GitDiffTab> = {}): GitDiffTab {
 
 describe("tab presentation", () => {
   it("uses a terminal icon for terminal tabs", () => {
-    expect(presentTab(terminalTab(), darkTheme, null, "numbered")).toEqual({
+    expect(
+      presentTab(terminalTab(), darkTheme, null, {
+        smartTabNaming: true,
+        escapeSequenceTitles: true,
+      }),
+    ).toEqual({
       label: "Terminal 1",
       title: "Terminal 1",
       iconKind: "terminal",
@@ -92,12 +97,15 @@ describe("tab presentation", () => {
       presentTab(
         terminalTab({
           customLabel: "Deploy",
-          processLabel: "bun",
+          smartLabel: "bun",
           titleLabel: "watch dev",
         }),
         darkTheme,
         null,
-        "process",
+        {
+          smartTabNaming: true,
+          escapeSequenceTitles: true,
+        },
       ),
     ).toEqual({
       label: "Deploy",
@@ -106,16 +114,19 @@ describe("tab presentation", () => {
     });
   });
 
-  it("uses the active process label in process mode", () => {
+  it("uses the smart label when smart naming is enabled", () => {
     expect(
       presentTab(
         terminalTab({
-          processLabel: "cargo",
+          smartLabel: "cargo",
           titleLabel: "server logs",
         }),
         darkTheme,
         null,
-        "process",
+        {
+          smartTabNaming: true,
+          escapeSequenceTitles: false,
+        },
       ),
     ).toEqual({
       label: "cargo",
@@ -124,20 +135,44 @@ describe("tab presentation", () => {
     });
   });
 
-  it("uses the process title in title mode", () => {
+  it("uses the process title when escape-sequence titles are enabled", () => {
     expect(
       presentTab(
         terminalTab({
-          processLabel: "cargo",
+          smartLabel: "cargo",
           titleLabel: "server logs",
         }),
         darkTheme,
         null,
-        "title",
+        {
+          smartTabNaming: true,
+          escapeSequenceTitles: true,
+        },
       ),
     ).toEqual({
       label: "server logs",
       title: "server logs",
+      iconKind: "terminal",
+    });
+  });
+
+  it("falls back to the numbered label when smart naming is disabled", () => {
+    expect(
+      presentTab(
+        terminalTab({
+          smartLabel: "cargo",
+          titleLabel: "server logs",
+        }),
+        darkTheme,
+        null,
+        {
+          smartTabNaming: false,
+          escapeSequenceTitles: false,
+        },
+      ),
+    ).toEqual({
+      label: "Terminal 1",
+      title: "Terminal 1",
       iconKind: "terminal",
     });
   });
@@ -147,7 +182,10 @@ describe("tab presentation", () => {
       fileTab({ path: "src/lib.rs", label: "lib.rs" }),
       darkTheme,
       null,
-      "numbered",
+      {
+        smartTabNaming: true,
+        escapeSequenceTitles: true,
+      },
     );
 
     expect(presentation.iconKind).toBe("material");
@@ -159,7 +197,12 @@ describe("tab presentation", () => {
   });
 
   it("uses a browser icon and URL title for browser tabs", () => {
-    expect(presentTab(browserTab(), darkTheme, null, "numbered")).toEqual({
+    expect(
+      presentTab(browserTab(), darkTheme, null, {
+        smartTabNaming: true,
+        escapeSequenceTitles: true,
+      }),
+    ).toEqual({
       label: "localhost",
       title: "http://localhost:3000/",
       iconKind: "browser",
@@ -178,7 +221,10 @@ describe("tab presentation", () => {
         unstaged_files: [],
         staged_files: [{ path: "src/lib.rs", change_type: "modified" }],
       },
-      "numbered",
+      {
+        smartTabNaming: true,
+        escapeSequenceTitles: true,
+      },
     );
 
     expect(presentation.label).toBe("lib.rs");
@@ -211,7 +257,10 @@ describe("tab presentation", () => {
           },
         ],
       },
-      "numbered",
+      {
+        smartTabNaming: true,
+        escapeSequenceTitles: true,
+      },
     );
 
     expect(presentation.label).toBe("new-name.ts");
@@ -221,7 +270,10 @@ describe("tab presentation", () => {
   });
 
   it("falls back cleanly when git status is unavailable", () => {
-    const presentation = presentTab(gitDiffTab(), darkTheme, null, "numbered");
+    const presentation = presentTab(gitDiffTab(), darkTheme, null, {
+      smartTabNaming: true,
+      escapeSequenceTitles: true,
+    });
 
     expect(presentation.label).toBe("lib.rs");
     expect(presentation.labelSuffix).toBe("(Index)");
@@ -246,7 +298,10 @@ describe("tab presentation", () => {
         staged_files: [{ path: "src/lib.rs", change_type: "modified" }],
         unstaged_files: [],
       },
-      "numbered",
+      {
+        smartTabNaming: true,
+        escapeSequenceTitles: true,
+      },
     );
 
     expect(presentation.labelSuffix).toBe("(Commit abcdef1)");

@@ -23,6 +23,10 @@ reconciliation — drift corrects on reconnect.
   tabs all use the same REST + SSE lifecycle (`create`, `activate`, `reorder`,
   `close`, snapshot sync); only terminal byte I/O is special-cased onto
   WebSockets.
+- Terminal tab naming keeps the stored `label` as the numbered fallback. Manual
+  rename (`customLabel`) overrides everything, OSC titles (`titleLabel`) are a
+  separate optional override, and server-computed smart labels (`smartLabel`)
+  cover shell cwd / foreground process naming when enabled.
 - WS protocol: binary (PTY output), JSON control (`type: "resize"`,
   `type: "attached"` with `byte_offset`/`data_lost`)
 - SSE events: snapshot, tab_created, tab_closed, tab_updated, project_added,

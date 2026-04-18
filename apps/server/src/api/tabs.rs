@@ -16,7 +16,9 @@ use utoipa::{IntoParams, ToSchema};
 use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
-use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TerminalSize};
+use crate::pty::live_tab::{
+    DEFAULT_SCROLLBACK, LiveTab, TerminalSize, normalize_shell_process_name,
+};
 use crate::state::AppState;
 use crate::tab::{
     GitDiffScope, TabInfo, TerminalTabLabels, WorktreePaneNode, WorktreePaneTabs,
@@ -700,7 +702,7 @@ fn build_tab_info(
             has_notification: false,
             labels: TerminalTabLabels {
                 custom_label: None,
-                process_label: None,
+                smart_label: None,
                 title_label: None,
             },
         },
@@ -834,6 +836,7 @@ fn spawn_terminal_runtime(
         })?;
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let shell_process_name = normalize_shell_process_name(&shell);
     let mut cmd = CommandBuilder::new(&shell);
     cmd.cwd(PathBuf::from(worktree_path));
     cmd.env("TERM", "xterm-256color");
@@ -846,6 +849,7 @@ fn spawn_terminal_runtime(
 
     let live_tab = LiveTab::spawn(
         info,
+        shell_process_name,
         pair.master,
         child,
         DEFAULT_SCROLLBACK,
@@ -969,7 +973,7 @@ fn spawn_terminal_title_task(
     });
 }
 
-fn spawn_terminal_process_label_task(
+fn spawn_terminal_smart_label_task(
     state: &AppState,
     id: String,
     runtime: Arc<LiveTab>,
@@ -986,8 +990,8 @@ fn spawn_terminal_process_label_task(
             tokio::select! {
                 _ = interval.tick() => {
                     let runtime = runtime.clone();
-                    let Ok(next_process_label) = tokio::task::spawn_blocking(move || {
-                        runtime.resolve_process_label()
+                    let Ok(next_smart_label) = tokio::task::spawn_blocking(move || {
+                        runtime.resolve_smart_label()
                     }).await else {
                         continue;
                     };
@@ -995,10 +999,10 @@ fn spawn_terminal_process_label_task(
                         let Some(mut tab) = tabs.get_mut(&id) else {
                             break;
                         };
-                        if tab.process_label() == next_process_label.as_deref() {
+                        if tab.smart_label() == next_smart_label.as_deref() {
                             None
                         } else {
-                            tab.set_process_label(next_process_label.clone());
+                            tab.set_smart_label(next_smart_label.clone());
                             Some(tab.clone())
                         }
                     }) else {
@@ -1007,7 +1011,7 @@ fn spawn_terminal_process_label_task(
 
                     if let Some(live_tab) = terminal_tabs.get(&id) {
                         live_tab.update_info(|info| {
-                            info.set_process_label(next_process_label.clone());
+                            info.set_smart_label(next_smart_label.clone());
                             info.clone()
                         });
                     }
@@ -1217,7 +1221,7 @@ pub async fn create_tab(
             runtime.title_tx.subscribe(),
             runtime.close_tx.subscribe(),
         );
-        spawn_terminal_process_label_task(
+        spawn_terminal_smart_label_task(
             &state,
             tab_id.clone(),
             runtime.clone(),

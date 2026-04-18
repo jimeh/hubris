@@ -20,6 +20,11 @@ export type TabPresentation = {
   toneClass?: string;
 };
 
+type TerminalTabPresentationSettings = Pick<
+  TerminalSettings,
+  "smartTabNaming" | "escapeSequenceTitles"
+>;
+
 function baseName(path: string): string {
   return path.split("/").filter(Boolean).at(-1) ?? path;
 }
@@ -80,18 +85,18 @@ function gitDiffChange(
 
 function terminalTabLabel(
   tab: Extract<Tab, { type: "terminal" }>,
-  tabLabelMode: TerminalSettings["tabLabelMode"],
+  terminalSettings: TerminalTabPresentationSettings,
 ): string {
   if (tab.customLabel) {
     return tab.customLabel;
   }
 
-  if (tabLabelMode === "process" && tab.processLabel) {
-    return tab.processLabel;
+  if (terminalSettings.escapeSequenceTitles && tab.titleLabel) {
+    return tab.titleLabel;
   }
 
-  if (tabLabelMode === "title" && tab.titleLabel) {
-    return tab.titleLabel;
+  if (terminalSettings.smartTabNaming && tab.smartLabel) {
+    return tab.smartLabel;
   }
 
   return tab.label;
@@ -101,10 +106,10 @@ export function presentTab(
   tab: Tab,
   theme: HubrisTheme | null,
   gitStatus: WorktreeGitStatus | null,
-  tabLabelMode: TerminalSettings["tabLabelMode"],
+  terminalSettings: TerminalTabPresentationSettings,
 ): TabPresentation {
   if (tab.type === "terminal") {
-    const label = terminalTabLabel(tab, tabLabelMode);
+    const label = terminalTabLabel(tab, terminalSettings);
     return {
       label,
       title: label,
