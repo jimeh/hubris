@@ -60,6 +60,7 @@ function makeBrowserTab(
     label: overrides.label ?? "New Browser",
     position: overrides.position ?? 1,
     worktree_id: overrides.worktree_id ?? "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
     session_id: overrides.session_id ?? "default",
     type: "browser",
     created_at: overrides.created_at ?? 0,

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,7 +18,10 @@ use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
 use crate::pty::live_tab::{DEFAULT_SCROLLBACK, LiveTab, TerminalSize};
 use crate::state::AppState;
-use crate::tab::{GitDiffScope, TabInfo, TerminalTabLabels};
+use crate::tab::{
+    GitDiffScope, TabInfo, TerminalTabLabels, WorktreePaneNode, WorktreePaneTabs,
+    WorktreeTabLayout, WorktreeTabLayoutState,
+};
 
 type TerminalCloseReceiver = tokio::sync::broadcast::Receiver<()>;
 type TerminalNotificationReceiver = tokio::sync::broadcast::Receiver<()>;
@@ -31,6 +34,7 @@ const INVALID_BROWSER_URL_MESSAGE: &str =
 const INVALID_BROWSER_HISTORY_MESSAGE: &str = "history_index must point at an entry in history.";
 const BROWSER_FIELDS_REQUIRE_BROWSER_TAB_MESSAGE: &str =
     "Browser tab fields can only be updated on browser tabs.";
+const INVALID_LAYOUT_MESSAGE: &str = "Invalid tab layout.";
 const BLANK_BROWSER_URL: &str = "about:blank";
 
 #[derive(Debug)]
@@ -65,16 +69,22 @@ impl IntoResponse for TabsApiError {
 pub enum CreateTabRequest {
     Terminal {
         worktree_id: String,
+        #[serde(default)]
+        pane_id: Option<String>,
     },
     File {
         worktree_id: String,
         path: String,
+        #[serde(default)]
+        pane_id: Option<String>,
         #[serde(default)]
         preview: bool,
     },
     GitDiff {
         worktree_id: String,
         path: String,
+        #[serde(default)]
+        pane_id: Option<String>,
         scope: GitDiffScope,
         #[serde(default)]
         original_path: Option<String>,
@@ -85,6 +95,8 @@ pub enum CreateTabRequest {
     },
     Browser {
         worktree_id: String,
+        #[serde(default)]
+        pane_id: Option<String>,
         url: String,
     },
 }
@@ -109,7 +121,16 @@ pub struct UpdateTabRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ReorderTabsRequest {
     pub worktree_id: String,
+    pub pane_id: String,
     pub tab_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateWorktreeTabLayoutRequest {
+    pub root_id: String,
+    pub nodes: Vec<WorktreePaneNode>,
+    pub panes: Vec<WorktreePaneTabs>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -138,10 +159,19 @@ fn now_ms() -> u64 {
 
 fn worktree_id_for_create(req: &CreateTabRequest) -> &str {
     match req {
-        CreateTabRequest::Terminal { worktree_id }
+        CreateTabRequest::Terminal { worktree_id, .. }
         | CreateTabRequest::File { worktree_id, .. }
         | CreateTabRequest::GitDiff { worktree_id, .. }
         | CreateTabRequest::Browser { worktree_id, .. } => worktree_id,
+    }
+}
+
+fn pane_id_for_create(req: &CreateTabRequest) -> Option<&str> {
+    match req {
+        CreateTabRequest::Terminal { pane_id, .. }
+        | CreateTabRequest::File { pane_id, .. }
+        | CreateTabRequest::GitDiff { pane_id, .. }
+        | CreateTabRequest::Browser { pane_id, .. } => pane_id.as_deref(),
     }
 }
 
@@ -267,18 +297,402 @@ fn next_terminal_number(state: &AppState, worktree_id: &str) -> u32 {
     current
 }
 
+fn make_pane_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+fn make_layout_node_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+fn normalize_split_ratio(value: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(0.15, 0.85)
+    } else {
+        0.5
+    }
+}
+
+fn default_worktree_layout(pane_id: String) -> WorktreeTabLayout {
+    let root_id = make_layout_node_id();
+    WorktreeTabLayout {
+        root_id: root_id.clone(),
+        nodes: vec![WorktreePaneNode::Leaf {
+            id: root_id,
+            pane_id,
+        }],
+    }
+}
+
+fn layout_nodes_by_id(
+    layout: &WorktreeTabLayout,
+) -> Result<HashMap<String, WorktreePaneNode>, TabsApiError> {
+    if layout.root_id.trim().is_empty() || layout.nodes.is_empty() {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_LAYOUT_MESSAGE,
+        ));
+    }
+
+    layout
+        .nodes
+        .iter()
+        .try_fold(HashMap::new(), |mut nodes, node| {
+            let node_id = match node {
+                WorktreePaneNode::Leaf { id, .. } | WorktreePaneNode::Split { id, .. } => id,
+            };
+
+            if node_id.trim().is_empty() || nodes.insert(node_id.clone(), node.clone()).is_some() {
+                return Err(TabsApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    INVALID_LAYOUT_MESSAGE,
+                ));
+            }
+
+            Ok(nodes)
+        })
+}
+
+fn collect_layout_leaf_panes(layout: &WorktreeTabLayout) -> Result<Vec<String>, TabsApiError> {
+    let nodes = layout_nodes_by_id(layout)?;
+    let mut pane_ids = Vec::new();
+    let mut seen_panes = HashSet::new();
+    let mut visited = HashSet::new();
+    let mut stack = vec![layout.root_id.clone()];
+
+    while let Some(node_id) = stack.pop() {
+        if !visited.insert(node_id.clone()) {
+            return Err(TabsApiError::new(
+                StatusCode::BAD_REQUEST,
+                INVALID_LAYOUT_MESSAGE,
+            ));
+        }
+
+        match nodes.get(&node_id) {
+            Some(WorktreePaneNode::Leaf { pane_id, .. }) => {
+                if pane_id.trim().is_empty() || !seen_panes.insert(pane_id.clone()) {
+                    return Err(TabsApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        INVALID_LAYOUT_MESSAGE,
+                    ));
+                }
+                pane_ids.push(pane_id.clone());
+            }
+            Some(WorktreePaneNode::Split {
+                ratio,
+                first_id,
+                second_id,
+                ..
+            }) => {
+                if !ratio.is_finite()
+                    || !(0.0..=1.0).contains(ratio)
+                    || first_id.trim().is_empty()
+                    || second_id.trim().is_empty()
+                    || first_id == second_id
+                {
+                    return Err(TabsApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        INVALID_LAYOUT_MESSAGE,
+                    ));
+                }
+                stack.push(second_id.clone());
+                stack.push(first_id.clone());
+            }
+            None => {
+                return Err(TabsApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    INVALID_LAYOUT_MESSAGE,
+                ));
+            }
+        }
+    }
+
+    if pane_ids.is_empty() || visited.len() != nodes.len() {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_LAYOUT_MESSAGE,
+        ));
+    }
+
+    Ok(pane_ids)
+}
+
+fn first_layout_pane_id(layout: &WorktreeTabLayout) -> Option<String> {
+    let nodes = layout_nodes_by_id(layout).ok()?;
+    let mut next_id = layout.root_id.clone();
+
+    loop {
+        match nodes.get(&next_id) {
+            Some(WorktreePaneNode::Leaf { pane_id, .. }) => {
+                return Some(pane_id.clone());
+            }
+            Some(WorktreePaneNode::Split { first_id, .. }) => {
+                next_id = first_id.clone();
+            }
+            None => return None,
+        }
+    }
+}
+
+fn sort_worktree_tabs(tabs: &mut [TabInfo]) {
+    tabs.sort_by(|left, right| {
+        left.pane_id()
+            .cmp(right.pane_id())
+            .then_with(|| {
+                left.position()
+                    .partial_cmp(&right.position())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| left.created_at().cmp(&right.created_at()))
+            .then_with(|| left.id().cmp(right.id()))
+    });
+}
+
+fn worktree_tabs(state: &AppState, worktree_id: &str) -> Vec<TabInfo> {
+    let mut tabs: Vec<_> = state
+        .tabs
+        .iter()
+        .filter(|entry| entry.value().worktree_id() == worktree_id)
+        .map(|entry| entry.value().clone())
+        .collect();
+    sort_worktree_tabs(&mut tabs);
+    tabs
+}
+
+fn collapse_empty_panes(
+    layout: &WorktreeTabLayout,
+    pane_tab_ids: &HashMap<String, Vec<String>>,
+) -> Result<WorktreeTabLayout, TabsApiError> {
+    fn rebuild_node(
+        node_id: &str,
+        nodes: &HashMap<String, WorktreePaneNode>,
+        pane_tab_ids: &HashMap<String, Vec<String>>,
+        fallback_pane_id: &str,
+        is_root: bool,
+    ) -> Result<Option<(String, Vec<WorktreePaneNode>)>, TabsApiError> {
+        match nodes.get(node_id) {
+            Some(WorktreePaneNode::Leaf { pane_id, .. }) => {
+                let has_tabs = pane_tab_ids
+                    .get(pane_id)
+                    .is_some_and(|tab_ids| !tab_ids.is_empty());
+                if !is_root && !has_tabs {
+                    return Ok(None);
+                }
+
+                Ok(Some((
+                    node_id.to_string(),
+                    vec![WorktreePaneNode::Leaf {
+                        id: node_id.to_string(),
+                        pane_id: pane_id.clone(),
+                    }],
+                )))
+            }
+            Some(WorktreePaneNode::Split {
+                axis,
+                ratio,
+                first_id,
+                second_id,
+                ..
+            }) => {
+                let next_first =
+                    rebuild_node(first_id, nodes, pane_tab_ids, fallback_pane_id, false)?;
+                let next_second =
+                    rebuild_node(second_id, nodes, pane_tab_ids, fallback_pane_id, false)?;
+
+                match (next_first, next_second) {
+                    (
+                        Some((first_root_id, mut first_nodes)),
+                        Some((second_root_id, second_nodes)),
+                    ) => {
+                        first_nodes.extend(second_nodes);
+                        first_nodes.push(WorktreePaneNode::Split {
+                            id: node_id.to_string(),
+                            axis: *axis,
+                            ratio: normalize_split_ratio(*ratio),
+                            first_id: first_root_id,
+                            second_id: second_root_id,
+                        });
+                        Ok(Some((node_id.to_string(), first_nodes)))
+                    }
+                    (Some(child), None) | (None, Some(child)) => Ok(Some(child)),
+                    (None, None) if is_root => {
+                        let next_id = make_layout_node_id();
+                        Ok(Some((
+                            next_id.clone(),
+                            vec![WorktreePaneNode::Leaf {
+                                id: next_id,
+                                pane_id: fallback_pane_id.to_string(),
+                            }],
+                        )))
+                    }
+                    (None, None) => Ok(None),
+                }
+            }
+            None => Err(TabsApiError::new(
+                StatusCode::BAD_REQUEST,
+                INVALID_LAYOUT_MESSAGE,
+            )),
+        }
+    }
+
+    let pane_ids = collect_layout_leaf_panes(layout)?;
+    let nodes = layout_nodes_by_id(layout)?;
+    let fallback_pane_id = pane_ids.first().cloned().unwrap_or_else(make_pane_id);
+    let Some((root_id, nodes)) = rebuild_node(
+        &layout.root_id,
+        &nodes,
+        pane_tab_ids,
+        &fallback_pane_id,
+        true,
+    )?
+    else {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_LAYOUT_MESSAGE,
+        ));
+    };
+
+    Ok(WorktreeTabLayout { root_id, nodes })
+}
+
+fn emit_layout_updated(
+    state: &AppState,
+    worktree_id: &str,
+    layout: &WorktreeTabLayout,
+    tabs: Vec<TabInfo>,
+) {
+    state.events.emit(EventKind::WorktreeTabLayoutUpdated {
+        worktree_id: worktree_id.to_string(),
+        state: Box::new(WorktreeTabLayoutState {
+            layout: layout.clone(),
+            tabs,
+        }),
+    });
+}
+
+fn reconcile_worktree_layout(state: &AppState, worktree_id: &str) {
+    let Some(existing) = state
+        .tab_layouts
+        .get(worktree_id)
+        .map(|entry| entry.clone())
+    else {
+        return;
+    };
+
+    let tabs = worktree_tabs(state, worktree_id);
+    let pane_tab_ids = tabs
+        .iter()
+        .fold(HashMap::<String, Vec<String>>::new(), |mut map, tab| {
+            map.entry(tab.pane_id().to_string())
+                .or_default()
+                .push(tab.id().to_string());
+            map
+        });
+    let Ok(next_layout) = collapse_empty_panes(&existing, &pane_tab_ids) else {
+        tracing::warn!(
+            worktree_id,
+            "skipping tab layout reconciliation because the current layout is invalid"
+        );
+        return;
+    };
+
+    if next_layout != existing {
+        state
+            .tab_layouts
+            .insert(worktree_id.to_string(), next_layout.clone());
+        emit_layout_updated(state, worktree_id, &next_layout, tabs);
+    }
+}
+
+fn update_worktree_layout_state(
+    state: &AppState,
+    worktree_id: &str,
+    request: UpdateWorktreeTabLayoutRequest,
+) -> Result<WorktreeTabLayoutState, TabsApiError> {
+    let layout = WorktreeTabLayout {
+        root_id: request.root_id,
+        nodes: request.nodes,
+    };
+    let pane_ids = collect_layout_leaf_panes(&layout)?;
+    let current_tabs = worktree_tabs(state, worktree_id);
+    let current_tab_ids: HashSet<String> = current_tabs
+        .iter()
+        .map(|tab| tab.id().to_string())
+        .collect();
+
+    let pane_map = request.panes.into_iter().try_fold(
+        HashMap::<String, Vec<String>>::new(),
+        |mut map, pane| {
+            if !pane_ids.iter().any(|pane_id| pane_id == &pane.pane_id)
+                || map.contains_key(&pane.pane_id)
+            {
+                return Err(TabsApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    INVALID_LAYOUT_MESSAGE,
+                ));
+            }
+            map.insert(pane.pane_id, pane.tab_ids);
+            Ok(map)
+        },
+    )?;
+
+    if pane_map.len() != pane_ids.len() {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_LAYOUT_MESSAGE,
+        ));
+    }
+
+    let mut seen_tab_ids = HashSet::new();
+    for tab_ids in pane_map.values() {
+        for tab_id in tab_ids {
+            if !seen_tab_ids.insert(tab_id.clone()) {
+                return Err(TabsApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    INVALID_LAYOUT_MESSAGE,
+                ));
+            }
+        }
+    }
+    if seen_tab_ids != current_tab_ids {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_LAYOUT_MESSAGE,
+        ));
+    }
+
+    for pane_id in &pane_ids {
+        if let Some(tab_ids) = pane_map.get(pane_id) {
+            for (index, tab_id) in tab_ids.iter().enumerate() {
+                if let Some(mut tab) = state.tabs.get_mut(tab_id) {
+                    tab.set_pane_id(pane_id.clone());
+                    tab.set_position((index + 1) as f64);
+                }
+            }
+        }
+    }
+
+    state
+        .tab_layouts
+        .insert(worktree_id.to_string(), layout.clone());
+    let tabs = worktree_tabs(state, worktree_id);
+    Ok(WorktreeTabLayoutState { layout, tabs })
+}
+
 fn build_tab_info(
     req: CreateTabRequest,
     id: String,
+    pane_id: String,
     position: f64,
     created_at: u64,
     terminal_number: u32,
 ) -> TabInfo {
     match req {
-        CreateTabRequest::Terminal { worktree_id } => TabInfo::Terminal {
+        CreateTabRequest::Terminal { worktree_id, .. } => TabInfo::Terminal {
             id,
             session_id: "default".to_string(),
             worktree_id,
+            pane_id,
             label: format!("Terminal {}", terminal_number),
             position,
             created_at,
@@ -294,10 +708,12 @@ fn build_tab_info(
             worktree_id,
             path,
             preview,
+            ..
         } => TabInfo::File {
             id,
             session_id: "default".to_string(),
             worktree_id,
+            pane_id,
             label: tab_basename(&path),
             position,
             created_at,
@@ -311,10 +727,12 @@ fn build_tab_info(
             original_path,
             commit_id,
             preview,
+            ..
         } => TabInfo::GitDiff {
             id,
             session_id: "default".to_string(),
             worktree_id,
+            pane_id,
             label: tab_basename(&path),
             position,
             created_at,
@@ -324,10 +742,13 @@ fn build_tab_info(
             original_path,
             commit_id,
         },
-        CreateTabRequest::Browser { worktree_id, url } => TabInfo::Browser {
+        CreateTabRequest::Browser {
+            worktree_id, url, ..
+        } => TabInfo::Browser {
             id,
             session_id: "default".to_string(),
             worktree_id,
+            pane_id,
             label: browser_tab_label(&url),
             position,
             created_at,
@@ -605,6 +1026,7 @@ fn spawn_terminal_process_label_task(
 fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: TerminalCloseReceiver) {
     let tabs = state.tabs.clone();
     let terminal_tabs = state.terminal_tabs.clone();
+    let tab_layouts = state.tab_layouts.clone();
     let events = state.events.clone();
     tokio::spawn(async move {
         let _ = close_rx.recv().await;
@@ -614,6 +1036,45 @@ fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: Termi
                 session_id: tab.session_id().to_string(),
                 tab_id: id,
             });
+            let worktree_id = tab.worktree_id().to_string();
+            let layout = tab_layouts.get(&worktree_id).map(|entry| entry.clone());
+            if let Some(layout) = layout {
+                let remaining_tabs = {
+                    let mut next_tabs: Vec<_> = tabs
+                        .iter()
+                        .filter(|entry| entry.value().worktree_id() == worktree_id)
+                        .map(|entry| entry.value().clone())
+                        .collect();
+                    sort_worktree_tabs(&mut next_tabs);
+                    next_tabs
+                };
+                let pane_tab_ids = remaining_tabs.iter().fold(
+                    HashMap::<String, Vec<String>>::new(),
+                    |mut map, next_tab| {
+                        map.entry(next_tab.pane_id().to_string())
+                            .or_default()
+                            .push(next_tab.id().to_string());
+                        map
+                    },
+                );
+                let Ok(next_layout) = collapse_empty_panes(&layout, &pane_tab_ids) else {
+                    tracing::warn!(
+                        worktree_id,
+                        "skipping terminal cleanup layout update because the current layout is invalid"
+                    );
+                    return;
+                };
+                if next_layout != layout {
+                    tab_layouts.insert(worktree_id.clone(), next_layout.clone());
+                    events.emit(EventKind::WorktreeTabLayoutUpdated {
+                        worktree_id,
+                        state: Box::new(WorktreeTabLayoutState {
+                            layout: next_layout,
+                            tabs: remaining_tabs,
+                        }),
+                    });
+                }
+            }
         }
     });
 }
@@ -672,15 +1133,39 @@ pub async fn create_tab(
     } else {
         0
     };
+    let requested_pane_id = pane_id_for_create(&req).map(str::to_string);
+    let existing_layout = state
+        .tab_layouts
+        .get(&worktree_id)
+        .map(|entry| entry.clone());
+    let pane_id = if let Some(layout) = existing_layout.as_ref() {
+        let pane_ids = collect_layout_leaf_panes(layout)?;
+        requested_pane_id
+            .filter(|requested| pane_ids.iter().any(|pane_id| pane_id == requested))
+            .or_else(|| first_layout_pane_id(layout))
+            .unwrap_or_else(make_pane_id)
+    } else {
+        let pane_id = requested_pane_id.unwrap_or_else(make_pane_id);
+        state.tab_layouts.insert(
+            worktree_id.clone(),
+            default_worktree_layout(pane_id.clone()),
+        );
+        pane_id
+    };
 
     let max_pos = state
         .tabs
         .iter()
+        .filter(|entry| {
+            let tab = entry.value();
+            tab.worktree_id() == worktree_id && tab.pane_id() == pane_id
+        })
         .map(|entry| entry.value().position())
         .fold(0.0_f64, f64::max);
     let info = build_tab_info(
         req,
         uuid::Uuid::new_v4().to_string(),
+        pane_id,
         max_pos + 1.0,
         now_ms(),
         terminal_number,
@@ -705,6 +1190,19 @@ pub async fn create_tab(
         session_id: info.session_id().to_string(),
         tab: info.clone(),
     });
+    if existing_layout.is_none()
+        && let Some(layout) = state
+            .tab_layouts
+            .get(&worktree_id)
+            .map(|entry| entry.clone())
+    {
+        emit_layout_updated(
+            &state,
+            &worktree_id,
+            &layout,
+            worktree_tabs(&state, &worktree_id),
+        );
+    }
     if let Some((runtime, close_rx)) = terminal_runtime {
         let tab_id = info.id().to_string();
         spawn_terminal_notification_task(
@@ -756,6 +1254,7 @@ pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -
         session_id: removed_tab.session_id().to_string(),
         tab_id: id,
     });
+    reconcile_worktree_layout(&state, removed_tab.worktree_id());
     StatusCode::NO_CONTENT
 }
 
@@ -855,6 +1354,40 @@ pub async fn update_tab(
 
 #[utoipa::path(
     put,
+    path = "/api/projects/{id}/worktrees/{worktree_id}/tab-layout",
+    params(
+        ("id" = String, Path, description = "Project ID"),
+        ("worktree_id" = String, Path, description = "Worktree ID"),
+    ),
+    request_body = UpdateWorktreeTabLayoutRequest,
+    responses(
+        (status = 200, description = "Worktree tab layout updated", body = WorktreeTabLayoutState),
+        (status = 400, description = "Invalid tab layout", body = ApiErrorResponse),
+        (status = 404, description = "Worktree not found", body = ApiErrorResponse),
+    ),
+)]
+pub async fn update_worktree_tab_layout(
+    State(state): State<AppState>,
+    Path((_project_id, worktree_id)): Path<(String, String)>,
+    Json(request): Json<UpdateWorktreeTabLayoutRequest>,
+) -> Result<Json<WorktreeTabLayoutState>, TabsApiError> {
+    resolve_worktree(&state, &worktree_id)
+        .await
+        .map_err(map_status_to_tab_error)?
+        .ok_or_else(|| map_status_to_tab_error(StatusCode::NOT_FOUND))?;
+
+    let next_state = update_worktree_layout_state(&state, &worktree_id, request)?;
+    emit_layout_updated(
+        &state,
+        &worktree_id,
+        &next_state.layout,
+        next_state.tabs.clone(),
+    );
+    Ok(Json(next_state))
+}
+
+#[utoipa::path(
+    put,
     path = "/api/tabs/reorder",
     request_body = ReorderTabsRequest,
     responses(
@@ -865,36 +1398,46 @@ pub async fn update_tab(
 pub async fn reorder_tabs(
     State(state): State<AppState>,
     Json(req): Json<ReorderTabsRequest>,
-) -> Result<Json<Vec<TabInfo>>, StatusCode> {
-    let worktree_tabs: Vec<TabInfo> = state
+) -> Result<Json<Vec<TabInfo>>, TabsApiError> {
+    let tabs_in_worktree: Vec<TabInfo> = state
         .tabs
         .iter()
         .filter(|entry| entry.value().worktree_id() == req.worktree_id)
         .map(|entry| entry.value().clone())
         .collect();
-    let worktree_tab_ids: HashSet<String> = worktree_tabs
+    let pane_tab_ids: HashSet<String> = tabs_in_worktree
         .iter()
+        .filter(|tab| tab.pane_id() == req.pane_id)
         .map(|tab| tab.id().to_string())
         .collect();
 
-    if worktree_tab_ids.len() != req.tab_ids.len() {
-        return Err(StatusCode::BAD_REQUEST);
+    if pane_tab_ids.len() != req.tab_ids.len() {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_LAYOUT_MESSAGE,
+        ));
     }
 
     let received: HashSet<String> = req.tab_ids.iter().cloned().collect();
-    if worktree_tab_ids != received {
-        return Err(StatusCode::BAD_REQUEST);
+    if pane_tab_ids != received {
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_LAYOUT_MESSAGE,
+        ));
     }
 
-    let Some(first_tab) = worktree_tabs.first() else {
+    let Some(first_tab) = tabs_in_worktree.first() else {
         return Ok(Json(vec![]));
     };
     let session_id = first_tab.session_id().to_string();
-    if worktree_tabs
+    if tabs_in_worktree
         .iter()
         .any(|tab| tab.session_id() != session_id)
     {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(TabsApiError::new(
+            StatusCode::BAD_REQUEST,
+            INVALID_LAYOUT_MESSAGE,
+        ));
     }
 
     for (index, id) in req.tab_ids.iter().enumerate() {
@@ -903,17 +1446,7 @@ pub async fn reorder_tabs(
         }
     }
 
-    let mut reordered: Vec<TabInfo> = state
-        .tabs
-        .iter()
-        .filter(|entry| entry.value().worktree_id() == req.worktree_id)
-        .map(|entry| entry.value().clone())
-        .collect();
-    reordered.sort_by(|a, b| {
-        a.position()
-            .partial_cmp(&b.position())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let reordered = worktree_tabs(&state, &req.worktree_id);
 
     state.events.emit(EventKind::TabsReordered {
         session_id,

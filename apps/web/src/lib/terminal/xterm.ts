@@ -12,6 +12,8 @@ const LINK_TOOLTIP_DELAY_MS = 500;
 const LINK_TOOLTIP_HIDE_DELAY_MS = 120;
 const LINK_TOOLTIP_OFFSET_PX = 18;
 const LINK_TOOLTIP_MARGIN_PX = 8;
+const MIN_TERMINAL_COLS = 8;
+const MIN_TERMINAL_ROWS = 2;
 
 type NavigatorWithUserAgentData = Navigator & {
   userAgentData?: {
@@ -344,8 +346,8 @@ export function createXtermAdapter(opts?: {
       }
 
       return {
-        cols: viewport.cols,
-        rows: viewport.rows,
+        cols: Math.max(MIN_TERMINAL_COLS, Math.floor(viewport.cols)),
+        rows: Math.max(MIN_TERMINAL_ROWS, Math.floor(viewport.rows)),
       };
     },
     get rows() {

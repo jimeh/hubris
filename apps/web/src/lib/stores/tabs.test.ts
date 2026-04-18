@@ -10,17 +10,22 @@ import {
 } from "./tabs";
 
 const mockCreateTab = vi.fn();
+const mockCreateTerminalTab = vi.fn();
 const mockDeleteTab = vi.fn();
 const mockReorderTabs = vi.fn();
 const mockUpdateTab = vi.fn();
+const mockUpdateWorktreeTabLayout = vi.fn();
 const mockScheduleDisposeTabModels = vi.fn();
 const mockDesktopBrowserDestroy = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   createTab: (...args: unknown[]) => mockCreateTab(...args),
+  createTerminalTab: (...args: unknown[]) => mockCreateTerminalTab(...args),
   deleteTab: (...args: unknown[]) => mockDeleteTab(...args),
   reorderTabs: (...args: unknown[]) => mockReorderTabs(...args),
   updateTab: (...args: unknown[]) => mockUpdateTab(...args),
+  updateWorktreeTabLayout: (...args: unknown[]) =>
+    mockUpdateWorktreeTabLayout(...args),
 }));
 
 vi.mock("@/lib/monaco", () => ({
@@ -83,6 +88,7 @@ function makeTab(
     label: overrides.label ?? `Terminal ${overrides.id}`,
     position: overrides.position ?? 1,
     worktree_id: overrides.worktree_id ?? "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
     session_id: overrides.session_id ?? "default",
     type: overrides.type ?? "terminal",
     created_at: overrides.created_at ?? 0,
@@ -101,6 +107,7 @@ function makeFileTab(
       overrides.path,
     position: overrides.position ?? 1,
     worktree_id: overrides.worktree_id ?? "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
     session_id: overrides.session_id ?? "default",
     type: "file",
     created_at: overrides.created_at ?? 0,
@@ -120,6 +127,7 @@ function makeGitDiffTab(
       overrides.path,
     position: overrides.position ?? 1,
     worktree_id: overrides.worktree_id ?? "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
     session_id: overrides.session_id ?? "default",
     type: "git_diff",
     created_at: overrides.created_at ?? 0,
@@ -139,6 +147,7 @@ function makeBrowserTab(
     label: overrides.label ?? "localhost",
     position: overrides.position ?? 1,
     worktree_id: overrides.worktree_id ?? "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
     session_id: overrides.session_id ?? "default",
     type: "browser",
     created_at: overrides.created_at ?? 0,
@@ -166,10 +175,12 @@ describe("Tab store", () => {
     localStorage.clear();
     mockEvents = new MockEventClient();
     mockCreateTab.mockReset();
+    mockCreateTerminalTab.mockReset();
     mockDeleteTab.mockReset();
     mockReorderTabs.mockReset();
     mockScheduleDisposeTabModels.mockReset();
     mockUpdateTab.mockReset();
+    mockUpdateWorktreeTabLayout.mockReset();
     mockDesktopBrowserDestroy.mockReset();
   });
 
@@ -200,9 +211,13 @@ describe("Tab store", () => {
       ],
     });
 
-    await store.useTabStore.getState().reorder("w1", ["c", "a", "b"]);
+    await store.useTabStore.getState().reorder("w1", "pane-1", ["c", "a", "b"]);
 
-    expect(mockReorderTabs).toHaveBeenCalledWith("w1", ["c", "a", "b"]);
+    expect(mockReorderTabs).toHaveBeenCalledWith("w1", "pane-1", [
+      "c",
+      "a",
+      "b",
+    ]);
     expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
       "c",
       "a",
@@ -263,6 +278,267 @@ describe("Tab store", () => {
       "a",
     ]);
     expect(store.tabsForWorktree("w2").map((tab) => tab.id)).toEqual(["x"]);
+  });
+
+  it("persists updated split ratios through the layout API", async () => {
+    const store = await getStore();
+    mockUpdateWorktreeTabLayout.mockResolvedValue({
+      layout: {
+        rootId: "split-root",
+        nodes: [
+          { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
+          { type: "leaf", id: "leaf-b", pane_id: "pane-2" },
+          {
+            type: "split",
+            id: "split-root",
+            axis: "vertical",
+            ratio: 0.7,
+            first_id: "leaf-a",
+            second_id: "leaf-b",
+          },
+        ],
+      },
+      tabs: [
+        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" }),
+        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-2" }),
+      ],
+    });
+
+    mockEvents.emit("snapshot", {
+      tabs: [
+        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" }),
+        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-2" }),
+      ],
+      tab_layouts: {
+        w1: {
+          rootId: "split-root",
+          nodes: [
+            { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
+            { type: "leaf", id: "leaf-b", pane_id: "pane-2" },
+            {
+              type: "split",
+              id: "split-root",
+              axis: "vertical",
+              ratio: 0.5,
+              first_id: "leaf-a",
+              second_id: "leaf-b",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(
+      store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.7),
+    ).toBe(true);
+    await store.useTabStore.getState().persistLayout("p1", "w1");
+
+    expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledWith("p1", "w1", {
+      rootId: "split-root",
+      nodes: [
+        { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
+        { type: "leaf", id: "leaf-b", pane_id: "pane-2" },
+        {
+          type: "split",
+          id: "split-root",
+          axis: "vertical",
+          ratio: 0.7,
+          first_id: "leaf-a",
+          second_id: "leaf-b",
+        },
+      ],
+      panes: [
+        { paneId: "pane-1", tabIds: ["a"] },
+        { paneId: "pane-2", tabIds: ["b"] },
+      ],
+    });
+  });
+
+  it("splitPane creates the destination pane before creating the new tab", async () => {
+    const store = await getStore();
+    let nextId = 0;
+    vi.spyOn(globalThis.crypto, "randomUUID").mockImplementation(
+      () => `00000000-0000-4000-8000-00000000000${nextId++}`,
+    );
+    mockUpdateWorktreeTabLayout.mockResolvedValue({
+      layout: {
+        rootId: "split-root",
+        nodes: [
+          { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
+          {
+            type: "leaf",
+            id: "leaf-b",
+            pane_id: "00000000-0000-4000-8000-000000000000",
+          },
+          {
+            type: "split",
+            id: "split-root",
+            axis: "vertical",
+            ratio: 0.5,
+            first_id: "leaf-a",
+            second_id: "leaf-b",
+          },
+        ],
+      },
+      tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+    });
+    mockCreateTerminalTab.mockResolvedValue(
+      makeTab({
+        id: "b",
+        worktree_id: "w1",
+        pane_id: "00000000-0000-4000-8000-000000000000",
+      }),
+    );
+
+    mockEvents.emit("snapshot", {
+      tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+      tab_layouts: {
+        w1: {
+          rootId: "leaf-a",
+          nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+        },
+      },
+    });
+
+    await store.useTabStore.getState().splitPane("p1", "w1", "pane-1", "right");
+
+    const layoutRequest = mockUpdateWorktreeTabLayout.mock.calls[0]?.[2];
+    expect(layoutRequest).toEqual({
+      rootId: expect.any(String),
+      nodes: expect.arrayContaining([
+        expect.objectContaining({ type: "leaf", pane_id: "pane-1" }),
+        expect.objectContaining({ type: "leaf" }),
+        expect.objectContaining({ type: "split", axis: "vertical" }),
+      ]),
+      panes: expect.arrayContaining([
+        { paneId: "pane-1", tabIds: ["a"] },
+        expect.objectContaining({ tabIds: [] }),
+      ]),
+    });
+    const destinationPaneId = layoutRequest.panes.find(
+      (pane: { paneId: string; tabIds: string[] }) => pane.tabIds.length === 0,
+    )?.paneId;
+    expect(destinationPaneId).toBeTruthy();
+    expect(mockCreateTerminalTab).toHaveBeenCalledWith("w1", destinationPaneId);
+    expect(
+      mockUpdateWorktreeTabLayout.mock.invocationCallOrder[0],
+    ).toBeLessThan(mockCreateTerminalTab.mock.invocationCallOrder[0]);
+  });
+
+  it("splitPane rolls back the layout if creating the new terminal fails", async () => {
+    const store = await getStore();
+    let nextId = 0;
+    vi.spyOn(globalThis.crypto, "randomUUID").mockImplementation(
+      () => `00000000-0000-4000-8000-00000000000${nextId++}`,
+    );
+    mockUpdateWorktreeTabLayout
+      .mockResolvedValueOnce({
+        layout: {
+          rootId: "split-root",
+          nodes: [
+            { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
+            {
+              type: "leaf",
+              id: "leaf-b",
+              pane_id: "00000000-0000-4000-8000-000000000000",
+            },
+            {
+              type: "split",
+              id: "split-root",
+              axis: "vertical",
+              ratio: 0.5,
+              first_id: "leaf-a",
+              second_id: "leaf-b",
+            },
+          ],
+        },
+        tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+      })
+      .mockResolvedValueOnce({
+        layout: {
+          rootId: "leaf-a",
+          nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+        },
+        tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+      });
+    mockCreateTerminalTab.mockRejectedValue(new Error("boom"));
+
+    mockEvents.emit("snapshot", {
+      tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+      tab_layouts: {
+        w1: {
+          rootId: "leaf-a",
+          nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+        },
+      },
+    });
+
+    await expect(
+      store.useTabStore.getState().splitPane("p1", "w1", "pane-1", "right"),
+    ).rejects.toThrow("boom");
+
+    expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(2);
+    expect(mockUpdateWorktreeTabLayout.mock.calls[1]?.[2]).toEqual({
+      rootId: "leaf-a",
+      nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+      panes: [{ paneId: "pane-1", tabIds: ["a"] }],
+    });
+    expect(store.useTabStore.getState().layoutsByWorktree.w1).toEqual({
+      rootId: "leaf-a",
+      nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+    });
+  });
+
+  it("closing the focused pane falls back to the previously focused pane", async () => {
+    const store = await getStore();
+    mockDeleteTab.mockResolvedValue(undefined);
+
+    mockEvents.emit("snapshot", {
+      tabs: [
+        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" }),
+        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-2" }),
+        makeTab({ id: "c", worktree_id: "w1", pane_id: "pane-3" }),
+      ],
+      tab_layouts: {
+        w1: {
+          rootId: "split-root",
+          nodes: [
+            { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
+            { type: "leaf", id: "leaf-b", pane_id: "pane-2" },
+            { type: "leaf", id: "leaf-c", pane_id: "pane-3" },
+            {
+              type: "split",
+              id: "split-right",
+              axis: "horizontal",
+              ratio: 0.5,
+              first_id: "leaf-b",
+              second_id: "leaf-c",
+            },
+            {
+              type: "split",
+              id: "split-root",
+              axis: "vertical",
+              ratio: 0.5,
+              first_id: "leaf-a",
+              second_id: "split-right",
+            },
+          ],
+        },
+      },
+    });
+
+    store.useTabStore.getState().focusPane("w1", "pane-3");
+    store.useTabStore.getState().focusPane("w1", "pane-2");
+
+    await store.useTabStore.getState().close("b");
+
+    expect(store.useTabStore.getState().focusedPaneByWorktree.w1).toBe(
+      "pane-3",
+    );
+    expect(store.useTabStore.getState().activeTabId).toBe("c");
+    expect(
+      store.useTabStore.getState().focusedPaneHistoryByWorktree.w1,
+    ).toEqual(["pane-3", "pane-1"]);
   });
 
   it("snapshot prunes stale active-tab persistence", async () => {
@@ -425,6 +701,7 @@ describe("Tab store", () => {
     expect(mockCreateTab).toHaveBeenCalledWith({
       type: "git_diff",
       worktree_id: "w1",
+      pane_id: "pane-1",
       path: "src/main.ts",
       scope: "commit",
       original_path: undefined,
@@ -567,6 +844,7 @@ describe("Tab store", () => {
     expect(mockCreateTab).toHaveBeenCalledWith({
       type: "browser",
       worktree_id: "w1",
+      pane_id: "pane-1",
       url: "about:blank",
     });
     expect(created).toEqual(tab);

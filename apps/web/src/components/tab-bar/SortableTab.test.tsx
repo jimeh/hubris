@@ -4,6 +4,8 @@ import React, { type PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SortableTab from "./SortableTab";
 
+let mockIsDragging = false;
+
 vi.mock("@dnd-kit/sortable", () => ({
   useSortable: () => ({
     attributes: {},
@@ -11,7 +13,7 @@ vi.mock("@dnd-kit/sortable", () => ({
     setNodeRef: vi.fn(),
     transform: null,
     transition: null,
-    isDragging: false,
+    isDragging: mockIsDragging,
   }),
 }));
 
@@ -125,6 +127,7 @@ vi.mock("@/components/ui/context-menu", async () => {
 describe("SortableTab", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mockIsDragging = false;
   });
 
   it("opens the terminal context menu and starts rename", () => {
@@ -183,5 +186,29 @@ describe("SortableTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reset Name" }));
 
     expect(onResetTerminalName).toHaveBeenCalledWith("t1");
+  });
+
+  it("keeps the dragged tab visible and in place while dragging", () => {
+    mockIsDragging = true;
+
+    render(
+      <SortableTab
+        tabId="t1"
+        label="Terminal 1"
+        isActive={false}
+        preview={false}
+        dirty={false}
+        notification={false}
+        locked={false}
+        dragging={true}
+        onActivateTab={vi.fn()}
+        onPinTab={vi.fn()}
+        onCloseTab={vi.fn()}
+      />,
+    );
+
+    const draggedTab = screen.getByText("Terminal 1");
+    expect(draggedTab).not.toHaveStyle({ visibility: "hidden" });
+    expect(draggedTab).toHaveStyle({ pointerEvents: "none" });
   });
 });

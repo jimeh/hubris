@@ -22,12 +22,14 @@ const SortableTabView = memo(
       iconId,
       toneClass,
       isActive,
+      paneFocused = true,
       preview = false,
       dirty = false,
       notification = false,
       locked = false,
       dragging = false,
       isOverlay = false,
+      showCloseButton = false,
       width,
       style,
       onActivateTab,
@@ -41,6 +43,8 @@ const SortableTabView = memo(
     },
     ref,
   ) {
+    const mutedActiveBorderClass =
+      "shadow-[inset_0_-2px_0_color-mix(in_srgb,_var(--tab-active-border)_55%,_transparent)]";
     const mergedStyle =
       width == null
         ? style
@@ -80,13 +84,15 @@ const SortableTabView = memo(
         style={mergedStyle}
         title={title}
         className={cn(
-          "inline-flex min-w-0 max-w-72 cursor-default select-none items-center gap-1.5 overflow-hidden whitespace-nowrap py-2 pl-3 pr-2.5 text-sm transition-colors",
+          "inline-flex h-full min-h-9 min-w-0 shrink-0 max-w-72 cursor-default select-none items-center gap-1.5 overflow-hidden whitespace-nowrap pl-3 pr-2.5 text-sm transition-colors",
           isActive
-            ? "bg-tab-active text-tab-active-foreground shadow-[inset_0_-2px_0_var(--tab-active-border)]"
+            ? paneFocused
+              ? "bg-tab-active text-tab-active-foreground shadow-[inset_0_-2px_0_var(--tab-active-border)]"
+              : cn("text-tab-inactive-foreground", mutedActiveBorderClass)
             : dragging
               ? "text-tab-inactive-foreground"
               : "text-tab-inactive-foreground hover:text-foreground",
-          isOverlay && "pointer-events-none opacity-50",
+          isOverlay && "pointer-events-none",
           className,
         )}
         data-tab-drag-item="true"
@@ -161,7 +167,7 @@ const SortableTabView = memo(
             <span className="sr-only">read-only</span>
           </>
         ) : null}
-        {isOverlay || !onCloseTab ? null : (
+        {!onCloseTab || (isOverlay && !showCloseButton) ? null : (
           <button
             type="button"
             aria-label={`Close ${title ?? label}`}

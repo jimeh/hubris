@@ -6,6 +6,9 @@ import type {
   RenameWorktreeFileResponse,
   SystemInfo,
   Tab,
+  WorktreePaneNode,
+  WorktreePaneTabs,
+  WorktreeTabLayoutState,
   WorktreeFileContentResponse,
   WorktreeGitDiffResponse,
   Worktree,
@@ -57,6 +60,8 @@ type RenameWorktreeBranchRequest =
 type CreateTabRequest = components["schemas"]["CreateTabRequest"];
 type UpdateTabRequest = components["schemas"]["UpdateTabRequest"];
 type ReorderTabsRequest = components["schemas"]["ReorderTabsRequest"];
+type UpdateWorktreeTabLayoutRequest =
+  components["schemas"]["UpdateWorktreeTabLayoutRequest"];
 type ApiErrorResponse = components["schemas"]["ApiErrorResponse"];
 type WriteWorktreeFileContentRequest =
   components["schemas"]["WriteWorktreeFileContentRequest"];
@@ -558,8 +563,15 @@ export async function createTab(request: CreateTabRequest): Promise<Tab> {
   return res.json();
 }
 
-export async function createTerminalTab(worktreeId: string): Promise<Tab> {
-  return createTab({ type: "terminal", worktree_id: worktreeId });
+export async function createTerminalTab(
+  worktreeId: string,
+  paneId?: string,
+): Promise<Tab> {
+  return createTab({
+    type: "terminal",
+    worktree_id: worktreeId,
+    pane_id: paneId,
+  });
 }
 
 export async function deleteTab(id: string): Promise<void> {
@@ -584,10 +596,12 @@ export async function updateTab(
 
 export async function reorderTabs(
   worktreeId: string,
+  paneId: string,
   tabIds: string[],
 ): Promise<Tab[]> {
   const payload: ReorderTabsRequest = {
     worktree_id: worktreeId,
+    pane_id: paneId,
     tab_ids: tabIds,
   };
   const res = await fetch(`${BASE}/tabs/reorder`, {
@@ -596,6 +610,35 @@ export async function reorderTabs(
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function updateWorktreeTabLayout(
+  projectId: string,
+  worktreeId: string,
+  layout: {
+    rootId: string;
+    nodes: WorktreePaneNode[];
+    panes: WorktreePaneTabs[];
+  },
+): Promise<WorktreeTabLayoutState> {
+  const payload: UpdateWorktreeTabLayoutRequest = {
+    rootId: layout.rootId,
+    nodes: layout.nodes,
+    panes: layout.panes,
+  };
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/tab-layout`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
   return res.json();
 }
 

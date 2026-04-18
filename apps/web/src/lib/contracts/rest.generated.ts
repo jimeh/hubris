@@ -507,6 +507,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{id}/worktrees/{worktree_id}/tab-layout": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["update_worktree_tab_layout"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/settings": {
     parameters: {
       query?: never;
@@ -784,11 +800,13 @@ export interface components {
     ColorScheme: "auto" | "light" | "dark";
     CreateTabRequest:
       | {
+          pane_id?: string | null;
           /** @enum {string} */
           type: "terminal";
           worktree_id: string;
         }
       | {
+          pane_id?: string | null;
           path: string;
           preview?: boolean;
           /** @enum {string} */
@@ -798,6 +816,7 @@ export interface components {
       | {
           commit_id?: string | null;
           original_path?: string | null;
+          pane_id?: string | null;
           path: string;
           preview?: boolean;
           scope: components["schemas"]["GitDiffScope"];
@@ -806,6 +825,7 @@ export interface components {
           worktree_id: string;
         }
       | {
+          pane_id?: string | null;
           /** @enum {string} */
           type: "browser";
           url: string;
@@ -993,6 +1013,7 @@ export interface components {
       project_ids: string[];
     };
     ReorderTabsRequest: {
+      pane_id: string;
       tab_ids: string[];
       worktree_id: string;
     };
@@ -1072,6 +1093,7 @@ export interface components {
           has_notification?: boolean;
           id: string;
           label: string;
+          pane_id: string;
           /** Format: double */
           position: number;
           preview: boolean;
@@ -1086,6 +1108,7 @@ export interface components {
           created_at: number;
           id: string;
           label: string;
+          pane_id: string;
           path: string;
           /** Format: double */
           position: number;
@@ -1102,6 +1125,7 @@ export interface components {
           id: string;
           label: string;
           original_path?: string | null;
+          pane_id: string;
           path: string;
           /** Format: double */
           position: number;
@@ -1119,6 +1143,7 @@ export interface components {
           history_index: number;
           id: string;
           label: string;
+          pane_id: string;
           /** Format: double */
           position: number;
           preview: boolean;
@@ -1128,6 +1153,8 @@ export interface components {
           url: string;
           worktree_id: string;
         };
+    /** @enum {string} */
+    TabPaneSplitAxis: "horizontal" | "vertical";
     TaskDefinition: {
       broadcastUpdates: boolean;
       description?: string | null;
@@ -1245,6 +1272,11 @@ export interface components {
       name?: string | null;
       source_ref?: string | null;
       ui_mode?: null | components["schemas"]["WorktreeUiMode"];
+    };
+    UpdateWorktreeTabLayoutRequest: {
+      nodes: components["schemas"]["WorktreePaneNode"][];
+      panes: components["schemas"]["WorktreePaneTabs"][];
+      rootId: string;
     };
     Value: unknown;
     VscodeConnectionInfo: {
@@ -1400,11 +1432,40 @@ export interface components {
     };
     /** @enum {string} */
     WorktreeLocationMode: "dataDir" | "repoLocalDotHubris";
+    WorktreePaneNode:
+      | {
+          id: string;
+          pane_id: string;
+          /** @enum {string} */
+          type: "leaf";
+        }
+      | {
+          axis: components["schemas"]["TabPaneSplitAxis"];
+          first_id: string;
+          id: string;
+          /** Format: double */
+          ratio: number;
+          second_id: string;
+          /** @enum {string} */
+          type: "split";
+        };
+    WorktreePaneTabs: {
+      paneId: string;
+      tabIds: string[];
+    };
     WorktreeSettings: {
       locationMode?: components["schemas"]["WorktreeLocationMode"];
     };
     WorktreeSettingsPatch: {
       locationMode?: null | components["schemas"]["WorktreeLocationMode"];
+    };
+    WorktreeTabLayout: {
+      nodes: components["schemas"]["WorktreePaneNode"][];
+      rootId: string;
+    };
+    WorktreeTabLayoutState: {
+      layout: components["schemas"]["WorktreeTabLayout"];
+      tabs: components["schemas"]["TabInfo"][];
     };
     /** @enum {string} */
     WorktreeUiMode: "hubris" | "vscode";
@@ -3021,6 +3082,53 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  update_worktree_tab_layout: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateWorktreeTabLayoutRequest"];
+      };
+    };
+    responses: {
+      /** @description Worktree tab layout updated */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WorktreeTabLayoutState"];
+        };
+      };
+      /** @description Invalid tab layout */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Worktree not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
       };
     };
   };

@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 #[cfg(target_os = "macos")]
@@ -21,6 +21,8 @@ use crate::tab::TabInfo;
 pub const DEFAULT_SCROLLBACK: usize = 128 * 1024;
 pub const DEFAULT_PTY_COLS: u16 = 80;
 pub const DEFAULT_PTY_ROWS: u16 = 24;
+const MIN_PTY_COLS: u16 = 8;
+const MIN_PTY_ROWS: u16 = 2;
 const PROCESS_LABEL_CACHE_TTL: Duration = Duration::from_secs(5);
 #[cfg(target_os = "macos")]
 const PROC_PIDPATHINFO_MAXSIZE: usize = libc::PATH_MAX as usize * 4;
@@ -36,14 +38,30 @@ impl TerminalSize {
         Self { cols, rows }
     }
 
+    pub const fn clamped(self) -> Self {
+        Self {
+            cols: if self.cols < MIN_PTY_COLS {
+                MIN_PTY_COLS
+            } else {
+                self.cols
+            },
+            rows: if self.rows < MIN_PTY_ROWS {
+                MIN_PTY_ROWS
+            } else {
+                self.rows
+            },
+        }
+    }
+
     pub const fn default_pty() -> Self {
         Self::new(DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS)
     }
 
     pub const fn to_pty_size(self) -> PtySize {
+        let size = self.clamped();
         PtySize {
-            rows: self.rows,
-            cols: self.cols,
+            rows: size.rows,
+            cols: size.cols,
             pixel_width: 0,
             pixel_height: 0,
         }
@@ -200,6 +218,12 @@ struct ProcessLabelCache {
     entry: Option<CachedProcessLabel>,
 }
 
+fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(unix)]
 fn resolve_process_label_with_cache<F>(
     cache: &Mutex<ProcessLabelCache>,
@@ -211,7 +235,7 @@ fn resolve_process_label_with_cache<F>(
 where
     F: FnOnce(libc::pid_t) -> Option<String>,
 {
-    if let Some(cached) = cache.lock().unwrap().entry.as_ref()
+    if let Some(cached) = lock_unpoisoned(cache).entry.as_ref()
         && cached.pid == pid
         && now < cached.expires_at
     {
@@ -219,7 +243,7 @@ where
     }
 
     let label = resolve(pid as libc::pid_t);
-    cache.lock().unwrap().entry = Some(CachedProcessLabel {
+    lock_unpoisoned(cache).entry = Some(CachedProcessLabel {
         pid,
         label: label.clone(),
         expires_at: now + ttl,
@@ -270,14 +294,19 @@ struct OutputState {
     scrollback: VecDeque<u8>,
     total_bytes: u64,
     parser: vt100::Parser,
+    size: TerminalSize,
+    last_good_size: TerminalSize,
 }
 
 impl OutputState {
     fn new(scrollback_size: usize, initial_size: TerminalSize) -> Self {
+        let size = initial_size.clamped();
         Self {
             scrollback: VecDeque::with_capacity(scrollback_size),
             total_bytes: 0,
-            parser: vt100::Parser::new(initial_size.rows, initial_size.cols, 0),
+            parser: vt100::Parser::new(size.rows, size.cols, 0),
+            size,
+            last_good_size: size,
         }
     }
 
@@ -299,7 +328,23 @@ impl OutputState {
             self.scrollback.extend(retained_data.iter().copied());
         }
         self.total_bytes += data.len() as u64;
-        self.parser.process(data);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.parser.process(data);
+        }));
+        if result.is_err() {
+            tracing::warn!(
+                "vt100 parser panicked while processing PTY output; resetting terminal parser"
+            );
+            self.size = self.last_good_size;
+            self.parser = vt100::Parser::new(self.last_good_size.rows, self.last_good_size.cols, 0);
+        }
+    }
+
+    fn resize(&mut self, size: TerminalSize) {
+        let size = size.clamped();
+        self.size = size;
+        self.last_good_size = size;
+        self.parser.screen_mut().set_size(size.rows, size.cols);
     }
 
     fn build_attach_payload(&self, resume_from: Option<u64>) -> (Vec<u8>, bool, bool) {
@@ -482,7 +527,7 @@ impl LiveTab {
     }
 
     pub fn update_attachment_size(&self, attachment_id: u64, size: TerminalSize, visible: bool) {
-        self.apply_attachment_update(attachment_id, Some(size), visible);
+        self.apply_attachment_update(attachment_id, Some(size.clamped()), visible);
     }
 
     pub fn invalidate_attachment_size(&self, attachment_id: u64, visible: bool) {
@@ -543,6 +588,7 @@ impl LiveTab {
     }
 
     fn resize_pty(&self, size: TerminalSize) -> bool {
+        let size = size.clamped();
         let master = self.pty_master.lock().unwrap();
         if let Err(error) = master.resize(size.to_pty_size()) {
             tracing::warn!(
@@ -555,10 +601,7 @@ impl LiveTab {
         }
 
         let mut output_state = self.output_state.lock().unwrap();
-        output_state
-            .parser
-            .screen_mut()
-            .set_size(size.rows, size.cols);
+        output_state.resize(size);
         let _ = self.pty_size_tx.send(size);
         true
     }
@@ -599,7 +642,7 @@ fn resolve_live_tab_process_label(
     process_label_cache: &Mutex<ProcessLabelCache>,
 ) -> Option<String> {
     let leader = {
-        let pty_master = pty_master.lock().unwrap();
+        let pty_master = lock_unpoisoned(pty_master);
         pty_master.process_group_leader()?
     };
     resolve_process_label_from_pid(leader, process_label_cache)
@@ -1011,6 +1054,34 @@ mod tests {
         assert_eq!(calls.get(), 2);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn process_label_cache_recovers_after_mutex_poison() {
+        let cache = Mutex::new(super::ProcessLabelCache::default());
+        let now = Instant::now();
+
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = cache.lock().unwrap();
+            panic!("poison cache");
+        }));
+
+        let resolved = super::resolve_process_label_with_cache(
+            &cache,
+            123,
+            now,
+            Duration::from_secs(5),
+            |_| Some("cargo".to_string()),
+        );
+
+        assert_eq!(resolved, Some("cargo".to_string()));
+    }
+
+    #[test]
+    fn terminal_size_clamps_tiny_dimensions() {
+        assert_eq!(TerminalSize::new(0, 0).clamped(), TerminalSize::new(8, 2));
+        assert_eq!(TerminalSize::new(1, 4).clamped(), TerminalSize::new(8, 4));
+    }
+
     fn spawn_test_live_tab() -> Arc<LiveTab> {
         let pty_system = NativePtySystem::default();
         let pair = pty_system
@@ -1030,6 +1101,7 @@ mod tests {
                 id: "tab".to_string(),
                 session_id: "default".to_string(),
                 worktree_id: "worktree".to_string(),
+                pane_id: "pane-1".to_string(),
                 label: "Terminal 1".to_string(),
                 position: 1.0,
                 created_at: 0,

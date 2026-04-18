@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { useDroppable } from "@dnd-kit/core";
 import {
   ChevronsLeft,
   ChevronsRight,
+  Columns2,
   Globe,
+  Rows2,
   SquareTerminal,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Tab } from "@/lib/types";
@@ -13,9 +17,24 @@ export { default as SortableTabView } from "./tab-bar/SortableTabView";
 
 const SCROLL_AMOUNT = 200;
 
+/**
+ * Action contributed by the active tab for the pane header.
+ */
+export type TabBarAction = {
+  id: string;
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void | Promise<void>;
+  disabled?: boolean;
+};
+
 type Props = {
   worktreeId: string;
+  paneId?: string;
+  dropTargetId?: string;
   tabs: Tab[];
+  activeTabActions?: TabBarAction[];
+  paneFocused?: boolean;
   dirtyTabIds?: string[];
   lockedTabIds?: string[];
   activeTabId: string | null;
@@ -24,14 +43,23 @@ type Props = {
   onClose: (tabId: string) => void;
   onAddTerminal: () => void;
   onAddBrowser: () => Promise<void>;
-  onReorder: (orderedIds: string[]) => Promise<void>;
+  onReorder?: (orderedIds: string[]) => Promise<void>;
+  onSplitRight?: () => void;
+  onSplitDown?: () => void;
   onRenameTerminalTab?: (tabId: string, label: string) => Promise<void>;
   onResetTerminalTabName?: (tabId: string) => Promise<void>;
+  dragging?: boolean;
+  draggingTabId?: string | null;
+  dragOverId?: string | null;
 };
 
 export default function TabBar({
   worktreeId,
+  paneId = "pane-1",
+  dropTargetId,
   tabs,
+  activeTabActions = [],
+  paneFocused = true,
   dirtyTabIds = [],
   lockedTabIds = [],
   activeTabId,
@@ -40,10 +68,19 @@ export default function TabBar({
   onClose,
   onAddTerminal,
   onAddBrowser,
-  onReorder,
+  onReorder = async () => {},
+  onSplitRight,
+  onSplitDown,
   onRenameTerminalTab = async () => {},
   onResetTerminalTabName = async () => {},
+  dragging = false,
+  draggingTabId = null,
+  dragOverId = null,
 }: Props) {
+  const { setNodeRef } = useDroppable({
+    id: dropTargetId ?? `pane-tab-bar:${paneId}`,
+    disabled: !dragging,
+  });
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const tabListRef = useRef<HTMLDivElement | null>(null);
@@ -111,10 +148,12 @@ export default function TabBar({
 
   return (
     <div
-      className="flex min-h-9 items-center border-b border-tab-border bg-tab-bar px-1"
+      ref={setNodeRef}
+      className="flex min-h-9 items-stretch border-b border-tab-border bg-tab-bar px-1"
       data-worktree-id={worktreeId}
+      data-pane-id={paneId}
     >
-      <div className="relative min-w-0 flex-1">
+      <div className="relative min-w-0 flex-1 self-stretch">
         {canScrollLeft ? (
           <button
             type="button"
@@ -132,10 +171,13 @@ export default function TabBar({
 
         <SortableTabStrip
           worktreeId={worktreeId}
+          paneId={paneId}
+          tabBarDropTargetId={dropTargetId ?? `pane-tab-bar:${paneId}`}
           tabs={tabs}
           dirtyTabIds={dirtyTabIds}
           lockedTabIds={lockedTabIds}
           activeTabId={activeTabId}
+          paneFocused={paneFocused}
           tabListRef={tabListRef}
           onScroll={updateScrollState}
           onActivate={onActivate}
@@ -144,6 +186,9 @@ export default function TabBar({
           onReorder={onReorder}
           onRenameTerminalTab={onRenameTerminalTab}
           onResetTerminalTabName={onResetTerminalTabName}
+          dragging={dragging}
+          draggingTabId={draggingTabId}
+          dragOverId={dragOverId}
         />
 
         {canScrollRight ? (
@@ -161,16 +206,62 @@ export default function TabBar({
           </button>
         ) : null}
       </div>
-      <div className="ml-1 flex shrink-0 items-center gap-1">
+      <div
+        className="ml-1 flex shrink-0 items-center gap-0.5"
+        data-pane-tab-bar-actions
+        data-testid={`tab-bar-${paneId}-actions`}
+      >
+        {activeTabActions.map((action) => {
+          const Icon = action.icon;
+
+          return (
+            <Button
+              key={action.id}
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={action.label}
+              title={action.label}
+              className="h-6 w-6"
+              disabled={action.disabled}
+              onClick={() => {
+                void action.onClick();
+              }}
+            >
+              <Icon className="h-2.5 w-2.5" />
+            </Button>
+          );
+        })}
+        {activeTabActions.length > 0 ? (
+          <div
+            className="mx-1 h-3.5 w-px bg-border/80"
+            aria-hidden="true"
+            data-testid={`tab-bar-${paneId}-divider`}
+          />
+        ) : null}
         <Button
           type="button"
           variant="ghost"
           size="icon-sm"
-          aria-label="New Terminal"
-          title="New Terminal"
-          onClick={onAddTerminal}
+          aria-label="Split Vertically"
+          title="Split Vertically"
+          data-pane-id={paneId}
+          className="h-6 w-6"
+          onClick={onSplitRight}
         >
-          <SquareTerminal className="h-3.5 w-3.5" />
+          <Columns2 className="h-2.5 w-2.5" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Split Horizontally"
+          title="Split Horizontally"
+          data-pane-id={paneId}
+          className="h-6 w-6"
+          onClick={onSplitDown}
+        >
+          <Rows2 className="h-2.5 w-2.5" />
         </Button>
         <Button
           type="button"
@@ -178,11 +269,23 @@ export default function TabBar({
           size="icon-sm"
           aria-label="New Browser"
           title="New Browser"
+          className="h-6 w-6"
           onClick={() => {
             void onAddBrowser();
           }}
         >
-          <Globe className="h-3.5 w-3.5" />
+          <Globe className="h-2.5 w-2.5" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="New Terminal"
+          title="New Terminal"
+          className="h-6 w-6"
+          onClick={onAddTerminal}
+        >
+          <SquareTerminal className="h-2.5 w-2.5" />
         </Button>
       </div>
     </div>

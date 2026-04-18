@@ -1,6 +1,16 @@
 import type { ClientControlMessage } from "@/lib/contracts/ws.generated";
 import type { TerminalViewport } from "./adapter";
 
+const MIN_TERMINAL_COLS = 8;
+const MIN_TERMINAL_ROWS = 2;
+
+function clampViewport(viewport: TerminalViewport): TerminalViewport {
+  return {
+    cols: Math.max(MIN_TERMINAL_COLS, Math.floor(viewport.cols)),
+    rows: Math.max(MIN_TERMINAL_ROWS, Math.floor(viewport.rows)),
+  };
+}
+
 export interface TerminalViewportState {
   visible: boolean;
   measuredViewport: TerminalViewport | null;
@@ -16,12 +26,24 @@ export interface TerminalViewportUpdate {
 export function buildTerminalViewportMessage(
   state: TerminalViewportState,
 ): TerminalViewportUpdate {
-  const localViewport = state.measuredViewport ?? state.localViewport;
-  const viewport =
-    state.measuredViewport ?? state.localViewport ?? state.appliedViewport;
+  const localViewport = state.measuredViewport
+    ? clampViewport(state.measuredViewport)
+    : state.localViewport
+      ? clampViewport(state.localViewport)
+      : null;
+  const viewport = state.measuredViewport
+    ? clampViewport(state.measuredViewport)
+    : state.localViewport
+      ? clampViewport(state.localViewport)
+      : state.appliedViewport
+        ? clampViewport(state.appliedViewport)
+        : null;
 
   if (!state.visible) {
-    const hiddenViewport = viewport ?? { cols: 2, rows: 1 };
+    const hiddenViewport = viewport ?? {
+      cols: MIN_TERMINAL_COLS,
+      rows: MIN_TERMINAL_ROWS,
+    };
     return {
       localViewport,
       message: {

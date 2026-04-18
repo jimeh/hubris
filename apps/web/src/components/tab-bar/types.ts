@@ -11,12 +11,14 @@ export type TabViewProps = {
   iconId?: string;
   toneClass?: string;
   isActive: boolean;
+  paneFocused?: boolean;
   preview?: boolean;
   dirty?: boolean;
   notification?: boolean;
   locked?: boolean;
   dragging?: boolean;
   isOverlay?: boolean;
+  showCloseButton?: boolean;
   width?: number | null;
   onActivateTab?: (tabId: string) => void;
   onPinTab?: (tabId: string) => void;

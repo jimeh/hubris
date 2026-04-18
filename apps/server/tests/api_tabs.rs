@@ -109,6 +109,26 @@ async fn create_tab(client: &reqwest::Client, base: &str, worktree_id: &str) -> 
     res.json().await.unwrap()
 }
 
+async fn create_tab_in_pane(
+    client: &reqwest::Client,
+    base: &str,
+    worktree_id: &str,
+    pane_id: &str,
+) -> Value {
+    let res = client
+        .post(format!("{}/api/tabs", base))
+        .json(&serde_json::json!({
+            "type": "terminal",
+            "worktree_id": worktree_id,
+            "pane_id": pane_id,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    res.json().await.unwrap()
+}
+
 async fn create_browser_tab(
     client: &reqwest::Client,
     base: &str,
@@ -132,6 +152,26 @@ async fn create_browser_tab(
 async fn list_tabs(client: &reqwest::Client, base: &str) -> Vec<Value> {
     let res = client
         .get(format!("{}/api/tabs", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    res.json().await.unwrap()
+}
+
+async fn update_worktree_tab_layout(
+    client: &reqwest::Client,
+    base: &str,
+    project_id: &str,
+    worktree_id: &str,
+    payload: Value,
+) -> Value {
+    let res = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/tab-layout",
+            base, project_id, worktree_id
+        ))
+        .json(&payload)
         .send()
         .await
         .unwrap();
@@ -748,12 +788,14 @@ async fn test_reorder_tabs() {
     let id1 = t1["id"].as_str().unwrap();
     let id2 = t2["id"].as_str().unwrap();
     let id3 = t3["id"].as_str().unwrap();
+    let pane_id = t1["pane_id"].as_str().unwrap();
 
     // Reorder: 3, 1, 2
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
             "worktree_id": worktree_id,
+            "pane_id": pane_id,
             "tab_ids": [id3, id1, id2]
         }))
         .send()
@@ -787,12 +829,14 @@ async fn test_reorder_tabs_emits_session_scoped_event() {
     let t2 = create_tab(&client, &base, &worktree_id).await;
     let id1 = t1["id"].as_str().unwrap();
     let id2 = t2["id"].as_str().unwrap();
+    let pane_id = t1["pane_id"].as_str().unwrap();
     let mut rx = state.events.subscribe();
 
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
             "worktree_id": worktree_id,
+            "pane_id": pane_id,
             "tab_ids": [id2, id1]
         }))
         .send()
@@ -839,6 +883,7 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
             id: "tab-a".into(),
             session_id: "session-a".into(),
             worktree_id: "w1".into(),
+            pane_id: "pane-1".into(),
             label: "Terminal 1".into(),
             position: 1.0,
             created_at: 0,
@@ -857,6 +902,7 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
             id: "tab-b".into(),
             session_id: "session-b".into(),
             worktree_id: "w1".into(),
+            pane_id: "pane-1".into(),
             label: "Terminal 2".into(),
             position: 2.0,
             created_at: 0,
@@ -874,6 +920,7 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
             "worktree_id": "w1",
+            "pane_id": "pane-1",
             "tab_ids": ["tab-b", "tab-a"]
         }))
         .send()
@@ -893,14 +940,16 @@ async fn test_reorder_tabs_wrong_ids() {
     let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
     let worktree_id = first_worktree_id(&client, &base, &project_id).await;
 
+    let first = create_tab(&client, &base, &worktree_id).await;
     create_tab(&client, &base, &worktree_id).await;
-    create_tab(&client, &base, &worktree_id).await;
+    let pane_id = first["pane_id"].as_str().unwrap();
 
     // Missing one tab
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
             "worktree_id": worktree_id,
+            "pane_id": pane_id,
             "tab_ids": ["nonexistent"]
         }))
         .send()
@@ -913,12 +962,111 @@ async fn test_reorder_tabs_wrong_ids() {
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
             "worktree_id": worktree_id,
+            "pane_id": pane_id,
             "tab_ids": ["nonexistent", "also-nonexistent"]
         }))
         .send()
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_update_worktree_tab_layout_preserves_intentional_empty_split_pane() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let first = create_tab(&client, &base, &worktree_id).await;
+    let first_id = first["id"].as_str().unwrap();
+    let pane_id = first["pane_id"].as_str().unwrap();
+
+    let updated = update_worktree_tab_layout(
+        &client,
+        &base,
+        &project_id,
+        &worktree_id,
+        serde_json::json!({
+            "rootId": "split-root",
+            "nodes": [
+                { "type": "leaf", "id": "left-leaf", "pane_id": pane_id },
+                { "type": "leaf", "id": "right-leaf", "pane_id": "pane-2" },
+                {
+                    "type": "split",
+                    "id": "split-root",
+                    "axis": "vertical",
+                    "ratio": 0.5,
+                    "first_id": "left-leaf",
+                    "second_id": "right-leaf"
+                }
+            ],
+            "panes": [
+                { "paneId": pane_id, "tabIds": [first_id] },
+                { "paneId": "pane-2", "tabIds": [] }
+            ]
+        }),
+    )
+    .await;
+
+    assert_eq!(updated["layout"]["rootId"], "split-root");
+    assert_eq!(updated["tabs"].as_array().unwrap().len(), 1);
+
+    let created = create_tab_in_pane(&client, &base, &worktree_id, "pane-2").await;
+    assert_eq!(created["pane_id"], "pane-2");
+
+    let tabs = list_tabs(&client, &base).await;
+    assert_eq!(tabs.len(), 2);
+    assert!(tabs.iter().any(|tab| tab["pane_id"] == "pane-2"));
+}
+
+#[tokio::test]
+async fn test_closing_tab_without_empty_pane_does_not_emit_layout_update() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+
+    let first = create_tab(&client, &base, &worktree_id).await;
+    create_tab(&client, &base, &worktree_id).await;
+    let closed_id = first["id"].as_str().unwrap().to_string();
+
+    let mut rx = state.events.subscribe();
+    let res = client
+        .delete(format!("{}/api/tabs/{}", base, &closed_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match &rx.recv().await.unwrap().kind {
+                EventKind::TabClosed { tab_id, .. } if *tab_id == closed_id => break,
+                EventKind::WorktreeTabLayoutUpdated { .. } => {
+                    panic!("unexpected layout update event after closing tab");
+                }
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    let no_layout_update = tokio::time::timeout(Duration::from_millis(250), async {
+        loop {
+            if let EventKind::WorktreeTabLayoutUpdated { .. } = &rx.recv().await.unwrap().kind {
+                panic!("unexpected delayed layout update event after closing tab");
+            }
+        }
+    })
+    .await;
+    assert!(no_layout_update.is_err());
 }
 
 #[tokio::test]

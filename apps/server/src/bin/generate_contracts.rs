@@ -23,7 +23,10 @@ use hubris_server::api::vscode::{
 use hubris_server::api::worktrees::{Worktree, WorktreeUiMode};
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
-use hubris_server::tab::{GitDiffScope, TabInfo};
+use hubris_server::tab::{
+    GitDiffScope, TabInfo, TabPaneSplitAxis, WorktreePaneNode, WorktreeTabLayout,
+    WorktreeTabLayoutState,
+};
 use ts_rs::{Config, TS};
 
 fn workspace_root() -> PathBuf {
@@ -72,6 +75,10 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
 
     let mut sse = String::from("// Generated file. Do not edit.\n\n");
     push_ts_export::<GitDiffScope>(&mut sse, &cfg)?;
+    push_ts_export::<TabPaneSplitAxis>(&mut sse, &cfg)?;
+    push_ts_export::<WorktreePaneNode>(&mut sse, &cfg)?;
+    push_ts_export::<WorktreeTabLayout>(&mut sse, &cfg)?;
+    push_ts_export::<WorktreeTabLayoutState>(&mut sse, &cfg)?;
     push_ts_export::<TabInfo>(&mut sse, &cfg)?;
     push_ts_export::<Project>(&mut sse, &cfg)?;
     push_ts_export::<WorktreeUiMode>(&mut sse, &cfg)?;

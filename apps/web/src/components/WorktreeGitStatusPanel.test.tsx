@@ -891,6 +891,39 @@ describe("WorktreeGitStatusPanel", () => {
     expect(screen.getByText("!")).toBeInTheDocument();
   });
 
+  it("does not warn when a section includes repeated paths", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    mockGetProjectWorktreeGitStatus.mockResolvedValue({
+      source_ref: "main",
+      generation: 1,
+      unstaged_files: [],
+      staged_files: [
+        { path: "README copy.md", change_type: "modified" },
+        { path: "README copy.md", change_type: "modified" },
+      ],
+      ahead_count: 0,
+      ahead_commits: [],
+      comparison_available: true,
+      comparison_error: null,
+    });
+
+    renderPanel();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show list view" }),
+    );
+
+    expect(
+      (await screen.findAllByText("README copy.md")).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(consoleError).not.toHaveBeenCalledWith(
+      expect.stringContaining("same key"),
+      expect.anything(),
+    );
+  });
+
   it("shows a rich hover card for commits and lazy-loads details once", async () => {
     const user = userEvent.setup();
     renderPanel();

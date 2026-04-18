@@ -1,10 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { act, useCallback, useState } from "react";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabBar, { SortableTabView } from "@/components/TabBar";
 import type { TerminalTab } from "@/lib/types";
 
+const useDroppableMock = vi.fn();
 let resizeCallback: ResizeObserverCallback | null = null;
+
+vi.mock("@dnd-kit/core", () => ({
+  useDroppable: (...args: unknown[]) => useDroppableMock(...args),
+}));
 
 class ResizeObserverMock {
   constructor(callback: ResizeObserverCallback) {
@@ -24,6 +30,7 @@ function makeTab(id: string, position: number): TerminalTab {
     label: `Tab ${id.toUpperCase()}`,
     position,
     worktree_id: "w1",
+    pane_id: "pane-1",
     session_id: "default",
     type: "terminal",
     created_at: 0,
@@ -40,6 +47,8 @@ function baseProps() {
     onClose: vi.fn(),
     onAddTerminal: vi.fn(),
     onAddBrowser: vi.fn().mockResolvedValue(undefined),
+    onSplitRight: vi.fn(),
+    onSplitDown: vi.fn(),
     onReorder: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -105,6 +114,10 @@ describe("TabBar", () => {
   beforeEach(() => {
     resizeCallback = null;
     vi.restoreAllMocks();
+    useDroppableMock.mockReturnValue({
+      isOver: false,
+      setNodeRef: vi.fn(),
+    });
     window.ResizeObserver = ResizeObserverMock;
     window.requestAnimationFrame = (callback: FrameRequestCallback) => {
       callback(0);
@@ -203,6 +216,12 @@ describe("TabBar", () => {
 
     render(<TabBar {...props} tabs={[makeTab("a", 1)]} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Split Vertically" }));
+    expect(props.onSplitRight).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Split Horizontally" }));
+    expect(props.onSplitDown).toHaveBeenCalledTimes(1);
+
     fireEvent.click(screen.getByRole("button", { name: "New Terminal" }));
     expect(props.onAddTerminal).toHaveBeenCalledTimes(1);
 
@@ -211,6 +230,106 @@ describe("TabBar", () => {
     await waitFor(() => {
       expect(props.onAddBrowser).toHaveBeenCalledWith();
     });
+  });
+
+  it("renders contributed active-tab actions before pane controls", () => {
+    const props = baseProps();
+    const onPreviousChange = vi.fn();
+    const onNextChange = vi.fn();
+
+    render(
+      <TabBar
+        {...props}
+        tabs={[makeTab("a", 1)]}
+        activeTabActions={[
+          {
+            id: "previous-change",
+            icon: ChevronsLeft,
+            label: "Previous Change",
+            onClick: onPreviousChange,
+          },
+          {
+            id: "next-change",
+            icon: ChevronsRight,
+            label: "Next Change",
+            onClick: onNextChange,
+          },
+        ]}
+      />,
+    );
+
+    const actions = screen.getByTestId("tab-bar-pane-1-actions");
+    const buttons = actions.querySelectorAll("button");
+
+    expect(buttons[0]).toHaveAttribute("aria-label", "Previous Change");
+    expect(buttons[1]).toHaveAttribute("aria-label", "Next Change");
+    expect(buttons[2]).toHaveAttribute("aria-label", "Split Vertically");
+    expect(buttons[3]).toHaveAttribute("aria-label", "Split Horizontally");
+    expect(buttons[4]).toHaveAttribute("aria-label", "New Browser");
+    expect(buttons[5]).toHaveAttribute("aria-label", "New Terminal");
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous Change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next Change" }));
+
+    expect(onPreviousChange).toHaveBeenCalledTimes(1);
+    expect(onNextChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the extra divider only when active-tab actions exist", () => {
+    const props = baseProps();
+    const { rerender } = render(<TabBar {...props} tabs={[makeTab("a", 1)]} />);
+
+    expect(
+      screen.queryByTestId("tab-bar-pane-1-divider"),
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <TabBar
+        {...props}
+        tabs={[makeTab("a", 1)]}
+        activeTabActions={[
+          {
+            id: "previous-change",
+            icon: ChevronsLeft,
+            label: "Previous Change",
+            onClick: vi.fn(),
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByTestId("tab-bar-pane-1-divider")).toHaveLength(1);
+  });
+
+  it("registers the pane tab bar as a drop target during drag", () => {
+    useDroppableMock.mockReturnValue({
+      isOver: true,
+      setNodeRef: vi.fn(),
+    });
+
+    render(<TabBar {...baseProps()} tabs={[makeTab("a", 1)]} dragging />);
+
+    expect(useDroppableMock).toHaveBeenCalledWith({
+      id: "pane-tab-bar:pane-1",
+      disabled: false,
+    });
+  });
+
+  it("mutes the active tab styling in unfocused panes", () => {
+    render(
+      <TabBar
+        {...baseProps()}
+        tabs={[makeTab("a", 1), makeTab("b", 2)]}
+        paneFocused={false}
+      />,
+    );
+
+    const activeTab = screen.getByRole("tab", { selected: true });
+    expect(activeTab).not.toHaveClass("bg-tab-bar");
+    expect(activeTab).toHaveClass(
+      "shadow-[inset_0_-2px_0_color-mix(in_srgb,_var(--tab-active-border)_55%,_transparent)]",
+    );
+    expect(activeTab).not.toHaveClass("bg-tab-active");
   });
 
   it("does not rerender a tab view when its props stay stable", () => {

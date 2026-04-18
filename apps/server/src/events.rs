@@ -11,7 +11,7 @@ use crate::api::settings::{Settings, SettingsState, SettingsStatus};
 use crate::api::tasks::{TaskInvocationStatus, TaskRemoved, TaskUpdated};
 use crate::api::vscode::VscodeStatus;
 use crate::api::worktrees::Worktree;
-use crate::tab::TabInfo;
+use crate::tab::{TabInfo, WorktreeTabLayout, WorktreeTabLayoutState};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Event {
@@ -25,6 +25,7 @@ pub enum EventKind {
     #[serde(rename = "snapshot")]
     Snapshot {
         tabs: Vec<TabInfo>,
+        tab_layouts: HashMap<String, WorktreeTabLayout>,
         projects: Vec<Project>,
         worktrees: HashMap<String, Vec<Worktree>>,
         project_errors: HashMap<String, String>,
@@ -46,6 +47,11 @@ pub enum EventKind {
         session_id: String,
         worktree_id: String,
         tabs: Vec<TabInfo>,
+    },
+    #[serde(rename = "worktree_tab_layout_updated")]
+    WorktreeTabLayoutUpdated {
+        worktree_id: String,
+        state: Box<WorktreeTabLayoutState>,
     },
     #[serde(rename = "project_added")]
     ProjectAdded(Project),
@@ -107,6 +113,7 @@ impl EventKind {
             EventKind::TabClosed { .. } => "tab_closed",
             EventKind::TabUpdated { .. } => "tab_updated",
             EventKind::TabsReordered { .. } => "tabs_reordered",
+            EventKind::WorktreeTabLayoutUpdated { .. } => "worktree_tab_layout_updated",
             EventKind::ProjectAdded(_) => "project_added",
             EventKind::ProjectRemoved { .. } => "project_removed",
             EventKind::ProjectUpdated(_) => "project_updated",
@@ -166,6 +173,7 @@ mod tests {
             id: "t1".into(),
             session_id: "default".into(),
             worktree_id: "w1".into(),
+            pane_id: "pane-1".into(),
             label: "Terminal 1".into(),
             position: 1.0,
             created_at: 0,
@@ -209,6 +217,7 @@ mod tests {
         assert_eq!(
             EventKind::Snapshot {
                 tabs: vec![],
+                tab_layouts: HashMap::new(),
                 projects: vec![],
                 worktrees: HashMap::new(),
                 project_errors: HashMap::new(),

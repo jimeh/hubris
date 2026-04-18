@@ -97,4 +97,21 @@ describe("terminal viewport logic", () => {
       visible: false,
     });
   });
+
+  it("clamps tiny viewport measurements to safe terminal dimensions", () => {
+    const result = buildTerminalViewportMessage({
+      visible: true,
+      measuredViewport: { cols: 0, rows: 0 },
+      localViewport: null,
+      appliedViewport: null,
+    });
+
+    expect(result.localViewport).toEqual({ cols: 8, rows: 2 });
+    expect(result.message).toEqual({
+      type: "resize",
+      cols: 8,
+      rows: 2,
+      visible: true,
+    });
+  });
 });

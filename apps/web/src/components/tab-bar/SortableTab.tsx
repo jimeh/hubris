@@ -20,6 +20,7 @@ type SortableTabProps = {
   iconId?: string;
   toneClass?: string;
   isActive: boolean;
+  paneFocused?: boolean;
   preview: boolean;
   dirty: boolean;
   notification: boolean;
@@ -45,6 +46,7 @@ const SortableTab = memo(function SortableTab({
   iconId,
   toneClass,
   isActive,
+  paneFocused = true,
   preview,
   dirty,
   notification,
@@ -68,9 +70,8 @@ const SortableTab = memo(function SortableTab({
   } = useSortable({ id: tabId });
 
   const style: CSSProperties = {
-    transform: isDragging ? undefined : CSS.Transform.toString(transform),
-    transition: isDragging ? undefined : transition,
-    opacity: isDragging ? 0 : undefined,
+    transform: dragging ? undefined : CSS.Transform.toString(transform),
+    transition: dragging ? undefined : transition,
     pointerEvents: isDragging ? "none" : undefined,
   };
 
@@ -88,6 +89,7 @@ const SortableTab = memo(function SortableTab({
       iconId={iconId}
       toneClass={toneClass}
       isActive={isActive}
+      paneFocused={paneFocused}
       preview={preview}
       dirty={dirty}
       notification={notification}

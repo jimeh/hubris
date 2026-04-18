@@ -92,6 +92,7 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
             session_id: event_session_id,
             ..
         } => event_session_id == session_id,
+        EventKind::WorktreeTabLayoutUpdated { .. } => true,
         EventKind::ProjectAdded(_)
         | EventKind::ProjectRemoved { .. }
         | EventKind::ProjectUpdated(_)
@@ -122,6 +123,11 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
             .partial_cmp(&b.position())
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    let tab_layouts = state
+        .tab_layouts
+        .iter()
+        .map(|entry| (entry.key().clone(), entry.value().clone()))
+        .collect();
 
     let mut projects = state.load_projects().await.unwrap_or_default();
     projects.sort_by(|a, b| {
@@ -164,6 +170,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
 
     let snapshot = EventKind::Snapshot {
         tabs,
+        tab_layouts,
         projects,
         worktrees,
         project_errors,
@@ -195,6 +202,7 @@ mod tests {
             id: "tab-1".into(),
             session_id: session_id.into(),
             worktree_id: "worktree-1".into(),
+            pane_id: "pane-1".into(),
             label: "Terminal 1".into(),
             position: 1.0,
             created_at: 0,

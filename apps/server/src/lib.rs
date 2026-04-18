@@ -49,7 +49,9 @@ use api::processes::{
 use api::projects::{add_project, delete_project, list_projects, reorder_projects, update_project};
 use api::settings::{get_settings, patch_settings, put_settings};
 use api::system::get_system_info;
-use api::tabs::{create_tab, delete_tab, list_tabs, reorder_tabs, update_tab};
+use api::tabs::{
+    create_tab, delete_tab, list_tabs, reorder_tabs, update_tab, update_worktree_tab_layout,
+};
 use api::tasks::{get_task, list_task_definitions, list_tasks, start_task};
 use api::terminal::ws_handler;
 use api::vscode::{
@@ -245,6 +247,10 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route(
             "/projects/{id}/worktrees/{worktree_id}",
             delete(delete_project_worktree).patch(update_project_worktree),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/tab-layout",
+            put(update_worktree_tab_layout),
         )
         .route(
             "/projects/{id}/worktrees/{worktree_id}/git-status",
