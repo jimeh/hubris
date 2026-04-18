@@ -1232,13 +1232,13 @@ export interface components {
     /** @enum {string} */
     TerminalFontSource: "default" | "system" | "bundled";
     TerminalSettings: {
-      bundledFont?: string;
-      escapeSequenceTitles?: boolean;
+      bundledFont: string;
+      escapeSequenceTitles: boolean;
       /** Format: int32 */
-      fontSize?: number;
-      fontSource?: components["schemas"]["TerminalFontSource"];
-      smartTabNaming?: boolean;
-      systemFontFamily?: string;
+      fontSize: number;
+      fontSource: components["schemas"]["TerminalFontSource"];
+      smartTabNaming: boolean;
+      systemFontFamily: string;
     };
     TerminalSettingsPatch: {
       bundledFont?: string | null;

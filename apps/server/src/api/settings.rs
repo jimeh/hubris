@@ -123,17 +123,17 @@ fn default_dark_editor_theme() -> String {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalSettings {
-    #[serde(default)]
+    #[schema(required = true)]
     pub font_source: TerminalFontSource,
-    #[serde(default)]
+    #[schema(required = true)]
     pub system_font_family: String,
-    #[serde(default = "default_bundled_font")]
+    #[schema(required = true)]
     pub bundled_font: String,
-    #[serde(default = "default_font_size")]
+    #[schema(required = true)]
     pub font_size: u32,
-    #[serde(default = "default_true")]
+    #[schema(required = true)]
     pub smart_tab_naming: bool,
-    #[serde(default = "default_true")]
+    #[schema(required = true)]
     pub escape_sequence_titles: bool,
 }
 

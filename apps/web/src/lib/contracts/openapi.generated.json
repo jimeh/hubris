@@ -3883,6 +3883,14 @@
       },
       "TerminalSettings": {
         "type": "object",
+        "required": [
+          "fontSource",
+          "systemFontFamily",
+          "bundledFont",
+          "fontSize",
+          "smartTabNaming",
+          "escapeSequenceTitles"
+        ],
         "properties": {
           "bundledFont": {
             "type": "string"
