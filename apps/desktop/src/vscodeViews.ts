@@ -15,6 +15,7 @@ import {
   HUBRIS_VSCODE_CLI_ORIGIN,
 } from "./protocol";
 import { desktopSessionPartition, type DesktopProfileMode } from "./profile";
+import { classifyNavigationTarget } from "./security";
 import {
   HUBRIS_VSCODE_CREATE_CHANNEL,
   HUBRIS_VSCODE_DESTROY_CHANNEL,
@@ -76,26 +77,17 @@ function configureVscodeViewGuards(
   webContents: WebContents,
   allowedOrigins: string[],
 ): void {
-  const isAllowed = (url: string): boolean => {
-    try {
-      const target = new URL(url);
-      return allowedOrigins.some((origin) => {
-        const allowed = new URL(origin);
-        return (
-          target.protocol === allowed.protocol &&
-          target.host === allowed.host &&
-          target.username === allowed.username &&
-          target.password === allowed.password
-        );
-      });
-    } catch {
-      return false;
+  const maybeOpenExternalUrl = (url: string): void => {
+    if (classifyNavigationTarget(url, allowedOrigins) !== "external") {
+      return;
     }
+
+    openExternalUrl(url);
   };
 
   webContents.setWindowOpenHandler(({ url }) => {
-    if (!isAllowed(url)) {
-      openExternalUrl(url);
+    if (classifyNavigationTarget(url, allowedOrigins) !== "internal") {
+      maybeOpenExternalUrl(url);
     }
     return { action: "deny" };
   });
@@ -104,15 +96,24 @@ function configureVscodeViewGuards(
     preventDefault(): void;
     url: string;
   }) => {
-    if (isAllowed(details.url)) {
+    if (classifyNavigationTarget(details.url, allowedOrigins) === "internal") {
       return;
     }
 
     details.preventDefault();
-    openExternalUrl(details.url);
+    maybeOpenExternalUrl(details.url);
   };
 
   webContents.on("will-navigate", (details) => {
+    blockDisallowedNavigation(details);
+  });
+  // Electron emits this at runtime, but the current desktop typings omit it.
+  (
+    webContents.on as unknown as (
+      event: string,
+      listener: (details: { preventDefault: () => void; url: string }) => void,
+    ) => void
+  )("will-frame-navigate", (details) => {
     blockDisallowedNavigation(details);
   });
   webContents.on("will-redirect", (details) => {

@@ -25,6 +25,7 @@ async function loadVscodeViewsModule() {
 
   const handles = new Map<string, (...args: unknown[]) => unknown>();
   const listeners = new Map<string, (...args: unknown[]) => unknown>();
+  const shellOpenExternal = vi.fn(async () => {});
   const createdViews: Array<{
     options?: unknown;
     setBounds: ReturnType<typeof vi.fn>;
@@ -73,7 +74,7 @@ async function loadVscodeViewsModule() {
       ),
     },
     shell: {
-      openExternal: vi.fn(async () => {}),
+      openExternal: shellOpenExternal,
     },
   }));
 
@@ -98,6 +99,7 @@ async function loadVscodeViewsModule() {
     handles,
     installVscodeViewBridge: mod.installVscodeViewBridge,
     listenerMap: listeners,
+    shellOpenExternal,
     window,
   };
 }
@@ -242,6 +244,61 @@ describe("VS Code view bridge", () => {
 
     expect(nextWindow.contentView.addChildView).toHaveBeenCalledWith(
       state.createdViews[0],
+    );
+  });
+
+  it("blocks frame navigations and only opens external http urls", async () => {
+    const state = await loadVscodeViewsModule();
+
+    state.installVscodeViewBridge(
+      state.window as never,
+      "dev",
+      "/tmp/vscodePreload.js",
+      [
+        "https://desktop.internal.hubris.build",
+        "https://vscode-cli.desktop.internal.hubris.build",
+        "https://code-server.desktop.internal.hubris.build",
+      ],
+    );
+    await state.handles.get(HUBRIS_VSCODE_CREATE_CHANNEL)?.(undefined, {
+      worktreeId: "w-feature",
+      runtime: "vscodeCli",
+      worktreePath: "/tmp/feature-a",
+    });
+
+    const frameNavigationHandler =
+      state.createdViews[0]?.webContents.on.mock.calls.find(
+        ([event]) => event === "will-frame-navigate",
+      )?.[1];
+    expect(frameNavigationHandler).toBeTypeOf("function");
+
+    const blockedEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+      url: "javascript:alert('owned')",
+    };
+    frameNavigationHandler?.(blockedEvent);
+
+    expect(blockedEvent.defaultPrevented).toBe(true);
+    expect(state.shellOpenExternal).not.toHaveBeenCalled();
+
+    const popupHandler =
+      state.createdViews[0]?.webContents.setWindowOpenHandler.mock
+        .calls[0]?.[0];
+    expect(popupHandler).toBeTypeOf("function");
+
+    expect(popupHandler?.({ url: "file:///tmp/secret.txt" })).toEqual({
+      action: "deny",
+    });
+    expect(state.shellOpenExternal).not.toHaveBeenCalled();
+
+    expect(popupHandler?.({ url: "https://example.com/docs" })).toEqual({
+      action: "deny",
+    });
+    expect(state.shellOpenExternal).toHaveBeenCalledWith(
+      "https://example.com/docs",
     );
   });
 });

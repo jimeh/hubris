@@ -105,16 +105,15 @@ export function installDesktopWebSocketPatch(hosts: string[]): void {
         }
 
         if (event.type === "message") {
-          const binaryBuffer = (() => {
-            const bytes = fromBase64(event.data ?? "");
-            const buffer = new ArrayBuffer(bytes.byteLength);
-            new Uint8Array(buffer).set(bytes);
-            return buffer;
-          })();
           const data = event.binary
-            ? this.binaryType === "arraybuffer"
-              ? binaryBuffer
-              : new Blob([binaryBuffer])
+            ? (() => {
+                const bytes = fromBase64(event.data ?? "");
+                const buffer = new ArrayBuffer(bytes.byteLength);
+                new Uint8Array(buffer).set(bytes);
+                return this.binaryType === "arraybuffer"
+                  ? buffer
+                  : new Blob([buffer]);
+              })()
             : (event.data ?? "");
           const messageEvent = new MessageEvent("message", { data });
           this.dispatchEvent(messageEvent);
