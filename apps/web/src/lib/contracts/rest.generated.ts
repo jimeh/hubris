@@ -1292,6 +1292,10 @@ export interface components {
     UpdateWorktreeRestoreStateRequest: {
       activeTabId?: string | null;
       focusedPaneId?: string | null;
+      paneMru?: string[] | null;
+      tabMruByPane?: {
+        [key: string]: string[];
+      } | null;
     };
     UpdateWorktreeTabLayoutRequest: {
       nodes: components["schemas"]["WorktreePaneNode"][];

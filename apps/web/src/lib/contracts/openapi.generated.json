@@ -4075,6 +4075,24 @@
           },
           "focusedPaneId": {
             "type": ["string", "null"]
+          },
+          "paneMru": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            }
+          },
+          "tabMruByPane": {
+            "type": ["object", "null"],
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },

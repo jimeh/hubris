@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        INSERT INTO worktree_state (\n            project_id,\n            worktree_id,\n            active_tab_id,\n            focused_pane_id,\n            pane_mru_json,\n            tab_mru_by_pane_json,\n            layout_root_id,\n            next_terminal_number,\n            updated_at_ms\n        )\n        VALUES (\n            ?1,\n            ?2,\n            ?3,\n            ?4,\n            ?5,\n            ?6,\n            (SELECT layout_root_id FROM worktree_state WHERE worktree_id = ?2),\n            COALESCE((SELECT next_terminal_number FROM worktree_state WHERE worktree_id = ?2), 0),\n            ?7\n        )\n        ON CONFLICT(worktree_id) DO UPDATE SET\n            project_id = excluded.project_id,\n            active_tab_id = excluded.active_tab_id,\n            focused_pane_id = excluded.focused_pane_id,\n            pane_mru_json = excluded.pane_mru_json,\n            tab_mru_by_pane_json = excluded.tab_mru_by_pane_json,\n            updated_at_ms = excluded.updated_at_ms\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "48e4916ab7f353ac199ecad5fb943cc3dea4a71756601e56112110bd0ec3cc34"
+}

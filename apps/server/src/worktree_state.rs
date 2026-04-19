@@ -27,6 +27,108 @@ pub struct WorktreeRestoreState {
     pub active_tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused_pane_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pane_mru: Vec<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub tab_mru_by_pane: HashMap<String, Vec<String>>,
+}
+
+pub fn normalize_restore_state_for_snapshot(
+    restore_state: WorktreeRestoreState,
+    tabs: &[TabInfo],
+    layout: Option<&WorktreeTabLayout>,
+) -> WorktreeRestoreState {
+    let mut valid_pane_ids = layout
+        .map(|layout| {
+            layout
+                .nodes
+                .iter()
+                .filter_map(|node| match node {
+                    WorktreePaneNode::Leaf { pane_id, .. } => Some(pane_id.clone()),
+                    WorktreePaneNode::Split { .. } => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    for tab in tabs {
+        if !valid_pane_ids
+            .iter()
+            .any(|pane_id| pane_id == tab.pane_id())
+        {
+            valid_pane_ids.push(tab.pane_id().to_string());
+        }
+    }
+
+    let tabs_by_id: HashMap<String, &TabInfo> =
+        tabs.iter().map(|tab| (tab.id().to_string(), tab)).collect();
+    let mut seen_panes = std::collections::HashSet::new();
+    let mut pane_mru = restore_state
+        .pane_mru
+        .into_iter()
+        .filter(|pane_id| valid_pane_ids.iter().any(|candidate| candidate == pane_id))
+        .filter(|pane_id| seen_panes.insert(pane_id.clone()))
+        .collect::<Vec<_>>();
+
+    let active_tab_id = restore_state
+        .active_tab_id
+        .filter(|tab_id| tabs_by_id.contains_key(tab_id));
+    let active_tab_pane_id = active_tab_id
+        .as_ref()
+        .and_then(|tab_id| tabs_by_id.get(tab_id))
+        .map(|tab| tab.pane_id().to_string());
+
+    let mut focused_pane_id = restore_state
+        .focused_pane_id
+        .filter(|pane_id| valid_pane_ids.iter().any(|candidate| candidate == pane_id));
+    if focused_pane_id.is_none() {
+        focused_pane_id = pane_mru
+            .first()
+            .cloned()
+            .or(active_tab_pane_id.clone())
+            .or_else(|| valid_pane_ids.first().cloned());
+    }
+    if let Some(focused_pane_id) = focused_pane_id.clone() {
+        pane_mru.retain(|pane_id| pane_id != &focused_pane_id);
+        pane_mru.insert(0, focused_pane_id);
+    }
+
+    let mut tab_mru_by_pane = HashMap::new();
+    for (pane_id, tab_ids) in restore_state.tab_mru_by_pane {
+        if !valid_pane_ids.iter().any(|candidate| candidate == &pane_id) {
+            continue;
+        }
+
+        let mut seen_tab_ids = std::collections::HashSet::new();
+        let normalized = tab_ids
+            .into_iter()
+            .filter(|tab_id| {
+                tabs_by_id
+                    .get(tab_id)
+                    .is_some_and(|tab| tab.pane_id() == pane_id)
+            })
+            .filter(|tab_id| seen_tab_ids.insert(tab_id.clone()))
+            .collect::<Vec<_>>();
+
+        if !normalized.is_empty() {
+            tab_mru_by_pane.insert(pane_id, normalized);
+        }
+    }
+
+    if let (Some(active_tab_id), Some(active_tab_pane_id)) =
+        (active_tab_id.clone(), active_tab_pane_id)
+    {
+        let entry = tab_mru_by_pane.entry(active_tab_pane_id).or_default();
+        entry.retain(|tab_id| tab_id != &active_tab_id);
+        entry.insert(0, active_tab_id);
+    }
+
+    WorktreeRestoreState {
+        active_tab_id,
+        focused_pane_id,
+        pane_mru,
+        tab_mru_by_pane,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -464,33 +566,33 @@ async fn flush_pending_terminal_batches(
 
 async fn cleanup_orphaned_tab_rows(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
     let mut tx = conn.begin().await?;
-    sqlx::query(
+    sqlx::query!(
         "
         DELETE FROM terminal_chunks
         WHERE NOT EXISTS (
             SELECT 1 FROM tabs WHERE tabs.tab_id = terminal_chunks.tab_id
         )
-        ",
+        "
     )
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
+    sqlx::query!(
         "
         DELETE FROM terminal_state
         WHERE NOT EXISTS (
             SELECT 1 FROM tabs WHERE tabs.tab_id = terminal_state.tab_id
         )
-        ",
+        "
     )
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
+    sqlx::query!(
         "
         DELETE FROM browser_history_entries
         WHERE NOT EXISTS (
             SELECT 1 FROM tabs WHERE tabs.tab_id = browser_history_entries.tab_id
         )
-        ",
+        "
     )
     .execute(&mut *tx)
     .await?;
@@ -498,16 +600,45 @@ async fn cleanup_orphaned_tab_rows(conn: &mut SqliteConnection) -> Result<(), sq
     Ok(())
 }
 
+fn serialize_json_column<T: Serialize>(value: &T) -> Option<String> {
+    match serde_json::to_string(value) {
+        Ok(json) if json != "[]" && json != "{}" => Some(json),
+        Ok(_) => None,
+        Err(_) => None,
+    }
+}
+
+fn deserialize_vec_column(value: Option<String>) -> Vec<String> {
+    value
+        .as_deref()
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default()
+}
+
+fn deserialize_map_column(value: Option<String>) -> HashMap<String, Vec<String>> {
+    value
+        .as_deref()
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default()
+}
+
 async fn replace_worktree_state(
     conn: &mut SqliteConnection,
     snapshot: &WorktreeSnapshot,
 ) -> Result<(), sqlx::Error> {
     let now_ms = now_ms() as i64;
+    let restore_state = normalize_restore_state_for_snapshot(
+        snapshot.restore_state.clone(),
+        &snapshot.tabs,
+        snapshot.layout.as_ref(),
+    );
     let layout_root_id = snapshot
         .layout
         .as_ref()
         .map(|layout| layout.root_id.clone());
     let next_terminal_number = i64::from(snapshot.next_terminal_number);
+    let pane_mru_json = serialize_json_column(&restore_state.pane_mru);
+    let tab_mru_by_pane_json = serialize_json_column(&restore_state.tab_mru_by_pane);
     let mut tx = conn.begin().await?;
 
     sqlx::query!(
@@ -517,22 +648,28 @@ async fn replace_worktree_state(
             worktree_id,
             active_tab_id,
             focused_pane_id,
+            pane_mru_json,
+            tab_mru_by_pane_json,
             layout_root_id,
             next_terminal_number,
             updated_at_ms
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         ON CONFLICT(worktree_id) DO UPDATE SET
             project_id = excluded.project_id,
             active_tab_id = excluded.active_tab_id,
             focused_pane_id = excluded.focused_pane_id,
+            pane_mru_json = excluded.pane_mru_json,
+            tab_mru_by_pane_json = excluded.tab_mru_by_pane_json,
             layout_root_id = excluded.layout_root_id,
             next_terminal_number = excluded.next_terminal_number,
             updated_at_ms = excluded.updated_at_ms
         ",
         snapshot.project_id,
         snapshot.worktree_id,
-        snapshot.restore_state.active_tab_id,
-        snapshot.restore_state.focused_pane_id,
+        restore_state.active_tab_id,
+        restore_state.focused_pane_id,
+        pane_mru_json,
+        tab_mru_by_pane_json,
         layout_root_id,
         next_terminal_number,
         now_ms,
@@ -800,6 +937,8 @@ async fn update_restore_state(
     restore_state: &WorktreeRestoreState,
 ) -> Result<(), sqlx::Error> {
     let updated_at_ms = now_ms() as i64;
+    let pane_mru_json = serialize_json_column(&restore_state.pane_mru);
+    let tab_mru_by_pane_json = serialize_json_column(&restore_state.tab_mru_by_pane);
     sqlx::query!(
         "
         INSERT INTO worktree_state (
@@ -807,6 +946,8 @@ async fn update_restore_state(
             worktree_id,
             active_tab_id,
             focused_pane_id,
+            pane_mru_json,
+            tab_mru_by_pane_json,
             layout_root_id,
             next_terminal_number,
             updated_at_ms
@@ -816,20 +957,26 @@ async fn update_restore_state(
             ?2,
             ?3,
             ?4,
+            ?5,
+            ?6,
             (SELECT layout_root_id FROM worktree_state WHERE worktree_id = ?2),
             COALESCE((SELECT next_terminal_number FROM worktree_state WHERE worktree_id = ?2), 0),
-            ?5
+            ?7
         )
         ON CONFLICT(worktree_id) DO UPDATE SET
             project_id = excluded.project_id,
             active_tab_id = excluded.active_tab_id,
             focused_pane_id = excluded.focused_pane_id,
+            pane_mru_json = excluded.pane_mru_json,
+            tab_mru_by_pane_json = excluded.tab_mru_by_pane_json,
             updated_at_ms = excluded.updated_at_ms
         ",
         project_id,
         worktree_id,
         restore_state.active_tab_id,
         restore_state.focused_pane_id,
+        pane_mru_json,
+        tab_mru_by_pane_json,
         updated_at_ms,
     )
     .execute(&mut *conn)
@@ -979,6 +1126,8 @@ async fn load_existing_worktrees(
             worktree_id as \"worktree_id!\",
             active_tab_id,
             focused_pane_id,
+            pane_mru_json,
+            tab_mru_by_pane_json,
             layout_root_id,
             next_terminal_number as \"next_terminal_number!\"
         FROM worktree_state
@@ -1005,6 +1154,8 @@ async fn load_existing_worktrees(
                 restore_state: WorktreeRestoreState {
                     active_tab_id: row.active_tab_id,
                     focused_pane_id: row.focused_pane_id,
+                    pane_mru: deserialize_vec_column(row.pane_mru_json),
+                    tab_mru_by_pane: deserialize_map_column(row.tab_mru_by_pane_json),
                 },
                 next_terminal_number: row.next_terminal_number.max(0) as u32,
             },
@@ -1428,25 +1579,28 @@ async fn delete_all_worktree_tab_rows(
     tx: &mut Transaction<'_, Sqlite>,
     worktree_id: &str,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM terminal_chunks WHERE worktree_id = ?1")
-        .bind(worktree_id)
-        .execute(&mut **tx)
-        .await?;
-    sqlx::query("DELETE FROM terminal_state WHERE worktree_id = ?1")
-        .bind(worktree_id)
-        .execute(&mut **tx)
-        .await?;
-    sqlx::query(
+    sqlx::query!(
+        "DELETE FROM terminal_chunks WHERE worktree_id = ?1",
+        worktree_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM terminal_state WHERE worktree_id = ?1",
+        worktree_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
         "
         DELETE FROM browser_history_entries
         WHERE tab_id IN (SELECT tab_id FROM tabs WHERE worktree_id = ?1)
         ",
+        worktree_id
     )
-    .bind(worktree_id)
     .execute(&mut **tx)
     .await?;
-    sqlx::query("DELETE FROM tabs WHERE worktree_id = ?1")
-        .bind(worktree_id)
+    sqlx::query!("DELETE FROM tabs WHERE worktree_id = ?1", worktree_id)
         .execute(&mut **tx)
         .await?;
     Ok(())
@@ -1580,6 +1734,15 @@ mod tests {
             restore_state: WorktreeRestoreState {
                 active_tab_id: Some("terminal-1".to_string()),
                 focused_pane_id: Some("pane-1".to_string()),
+                pane_mru: vec!["pane-1".to_string()],
+                tab_mru_by_pane: HashMap::from([(
+                    "pane-1".to_string(),
+                    vec![
+                        "terminal-1".to_string(),
+                        "browser-1".to_string(),
+                        "diff-1".to_string(),
+                    ],
+                )]),
             },
             next_terminal_number: 4,
         }
@@ -1610,6 +1773,15 @@ mod tests {
             worktree.restore_state.active_tab_id.as_deref(),
             Some("terminal-1")
         );
+        assert_eq!(worktree.restore_state.pane_mru, vec!["pane-1".to_string()]);
+        assert_eq!(
+            worktree.restore_state.tab_mru_by_pane.get("pane-1"),
+            Some(&vec![
+                "terminal-1".to_string(),
+                "browser-1".to_string(),
+                "diff-1".to_string(),
+            ])
+        );
         assert_eq!(worktree.tabs.len(), 3);
         let terminal = worktree
             .tabs
@@ -1624,7 +1796,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(migration_count, 1);
+        assert_eq!(migration_count, 2);
     }
 
     #[tokio::test]
@@ -1637,7 +1809,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(migration_count, 1);
+        assert_eq!(migration_count, 2);
     }
 
     #[tokio::test]
@@ -1973,6 +2145,45 @@ mod tests {
         assert_eq!(live_history_count, 1);
     }
 
+    #[test]
+    fn normalize_restore_state_prunes_invalid_panes_and_tabs() {
+        let snapshot = make_snapshot();
+        let normalized = normalize_restore_state_for_snapshot(
+            WorktreeRestoreState {
+                active_tab_id: Some("missing-tab".to_string()),
+                focused_pane_id: Some("missing-pane".to_string()),
+                pane_mru: vec![
+                    "missing-pane".to_string(),
+                    "pane-1".to_string(),
+                    "pane-1".to_string(),
+                ],
+                tab_mru_by_pane: HashMap::from([
+                    (
+                        "pane-1".to_string(),
+                        vec![
+                            "browser-1".to_string(),
+                            "terminal-1".to_string(),
+                            "missing-tab".to_string(),
+                            "terminal-1".to_string(),
+                        ],
+                    ),
+                    ("missing-pane".to_string(), vec!["terminal-1".to_string()]),
+                ]),
+            },
+            &snapshot.tabs,
+            snapshot.layout.as_ref(),
+        );
+
+        assert_eq!(normalized.active_tab_id, None);
+        assert_eq!(normalized.focused_pane_id.as_deref(), Some("pane-1"));
+        assert_eq!(normalized.pane_mru, vec!["pane-1".to_string()]);
+        assert_eq!(
+            normalized.tab_mru_by_pane.get("pane-1"),
+            Some(&vec!["browser-1".to_string(), "terminal-1".to_string()])
+        );
+        assert!(!normalized.tab_mru_by_pane.contains_key("missing-pane"));
+    }
+
     #[tokio::test]
     async fn update_restore_state_touches_only_worktree_row() {
         let tmp = TempDir::new().unwrap();
@@ -1988,6 +2199,11 @@ mod tests {
             &WorktreeRestoreState {
                 active_tab_id: Some("browser-1".to_string()),
                 focused_pane_id: Some("pane-1".to_string()),
+                pane_mru: vec!["pane-1".to_string()],
+                tab_mru_by_pane: HashMap::from([(
+                    "pane-1".to_string(),
+                    vec!["browser-1".to_string(), "diff-1".to_string()],
+                )]),
             },
         )
         .await
@@ -2009,6 +2225,11 @@ mod tests {
         assert_eq!(
             worktree.restore_state.active_tab_id.as_deref(),
             Some("browser-1")
+        );
+        assert_eq!(worktree.restore_state.pane_mru, vec!["pane-1".to_string()]);
+        assert_eq!(
+            worktree.restore_state.tab_mru_by_pane.get("pane-1"),
+            Some(&vec!["browser-1".to_string(), "diff-1".to_string()])
         );
         assert_eq!(worktree.tabs.len(), 3);
     }

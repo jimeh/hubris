@@ -65,6 +65,8 @@ type UpdateWorktreeTabLayoutRequest =
 export type UpdateWorktreeRestoreStateRequest = {
   activeTabId?: string | null;
   focusedPaneId?: string | null;
+  paneMru?: string[] | null;
+  tabMruByPane?: Record<string, string[]> | null;
 };
 type ApiErrorResponse = components["schemas"]["ApiErrorResponse"];
 type WriteWorktreeFileContentRequest =
@@ -659,6 +661,8 @@ export async function updateWorktreeRestoreState(
       body: JSON.stringify({
         activeTabId: restoreState.activeTabId ?? null,
         focusedPaneId: restoreState.focusedPaneId ?? null,
+        paneMru: restoreState.paneMru ?? [],
+        tabMruByPane: restoreState.tabMruByPane ?? {},
       }),
     },
   );

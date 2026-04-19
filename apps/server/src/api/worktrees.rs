@@ -15,7 +15,6 @@ use crate::api::settings::{Settings, WorktreeLocationMode};
 use crate::events::EventKind;
 use crate::git;
 use crate::state::AppState;
-use crate::tab::WorktreePaneNode;
 use crate::worktree_state::WorktreeRestoreState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
@@ -119,6 +118,10 @@ pub struct UpdateWorktreeRestoreStateRequest {
     pub active_tab_id: Option<String>,
     #[serde(default)]
     pub focused_pane_id: Option<String>,
+    #[serde(default)]
+    pub pane_mru: Option<Vec<String>>,
+    #[serde(default)]
+    pub tab_mru_by_pane: Option<HashMap<String, Vec<String>>>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -486,53 +489,27 @@ fn normalize_restore_state(
     worktree_id: &str,
     request: UpdateWorktreeRestoreStateRequest,
 ) -> WorktreeRestoreState {
-    let mut restore_state = WorktreeRestoreState {
+    let restore_state = WorktreeRestoreState {
         active_tab_id: request.active_tab_id,
         focused_pane_id: request.focused_pane_id,
+        pane_mru: request.pane_mru.unwrap_or_default(),
+        tab_mru_by_pane: request.tab_mru_by_pane.unwrap_or_default(),
     };
-
-    if restore_state.active_tab_id.as_ref().is_some_and(|tab_id| {
-        state
-            .tabs
-            .get(tab_id)
-            .is_none_or(|tab| tab.worktree_id() != worktree_id)
-    }) {
-        restore_state.active_tab_id = None;
-    }
-
-    let valid_pane_ids: HashSet<String> = state
+    let tabs = state
+        .tabs
+        .iter()
+        .filter(|entry| entry.value().worktree_id() == worktree_id)
+        .map(|entry| entry.value().clone())
+        .collect::<Vec<_>>();
+    let layout = state
         .tab_layouts
         .get(worktree_id)
-        .map(|layout| {
-            layout
-                .nodes
-                .iter()
-                .filter_map(|node| match node {
-                    WorktreePaneNode::Leaf { pane_id, .. } => Some(pane_id.clone()),
-                    WorktreePaneNode::Split { .. } => None,
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    if restore_state
-        .focused_pane_id
-        .as_ref()
-        .is_some_and(|pane_id| !valid_pane_ids.contains(pane_id))
-    {
-        restore_state.focused_pane_id = None;
-    }
-
-    if restore_state.focused_pane_id.is_none()
-        && let Some(active_tab_id) = restore_state.active_tab_id.as_ref()
-    {
-        restore_state.focused_pane_id = state
-            .tabs
-            .get(active_tab_id)
-            .map(|tab| tab.pane_id().to_string());
-    }
-
-    restore_state
+        .map(|entry| entry.clone());
+    crate::worktree_state::normalize_restore_state_for_snapshot(
+        restore_state,
+        &tabs,
+        layout.as_ref(),
+    )
 }
 
 #[utoipa::path(
