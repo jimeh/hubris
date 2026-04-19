@@ -208,11 +208,11 @@ description = "Install all dependencies"
 
 [tasks."gitnexus:analyze"]
 run = [
-  "mise x -- gitnexus analyze --embeddings",
+  "mise x -- gitnexus analyze",
   "git checkout CLAUDE.md",
   "mise format:markdown",
 ]
-description = "Refresh the GitNexus index with embeddings"
+description = "Refresh the GitNexus index"
 
 [tasks.generate]
 description = "Run all code generators"
