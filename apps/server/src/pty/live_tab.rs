@@ -60,6 +60,20 @@ pub struct RestoredTerminalBuffers {
     pub snapshot: Vec<u8>,
 }
 
+pub struct RestoredTerminalState {
+    pub size: TerminalSize,
+    pub buffers: RestoredTerminalBuffers,
+}
+
+struct LiveTabSpawn {
+    info: TabInfo,
+    shell_process_name: Option<String>,
+    worktree_root: PathBuf,
+    master: Box<dyn MasterPty + Send>,
+    child: Box<dyn Child + Send + Sync>,
+    scrollback_size: usize,
+}
+
 impl TerminalSize {
     pub const fn new(cols: u16, rows: u16) -> Self {
         Self { cols, rows }
@@ -516,13 +530,16 @@ impl LiveTab {
         scrollback_size: usize,
         initial_size: TerminalSize,
     ) -> Self {
-        Self::spawn_with_output_state(
+        let spawn = LiveTabSpawn {
             info,
             shell_process_name,
             worktree_root,
             master,
             child,
             scrollback_size,
+        };
+        Self::spawn_with_output_state(
+            spawn,
             initial_size,
             OutputState::new(scrollback_size, initial_size),
             None,
@@ -536,23 +553,25 @@ impl LiveTab {
         master: Box<dyn MasterPty + Send>,
         child: Box<dyn Child + Send + Sync>,
         scrollback_size: usize,
-        initial_size: TerminalSize,
-        restored: RestoredTerminalBuffers,
+        restored: RestoredTerminalState,
     ) -> Self {
-        let restored_output_state = OutputState::from_restored(
-            scrollback_size,
-            initial_size,
-            restored.total_bytes,
-            &restored.scrollback,
-            &restored.snapshot,
-        );
-        Self::spawn_with_output_state(
+        let spawn = LiveTabSpawn {
             info,
             shell_process_name,
             worktree_root,
             master,
             child,
             scrollback_size,
+        };
+        let restored_output_state = OutputState::from_restored(
+            spawn.scrollback_size,
+            restored.size,
+            restored.buffers.total_bytes,
+            &restored.buffers.scrollback,
+            &restored.buffers.snapshot,
+        );
+        Self::spawn_with_output_state(
+            spawn,
             TerminalSize::default_pty(),
             OutputState::new(scrollback_size, TerminalSize::default_pty()),
             Some(restored_output_state.restored_replay_payload()),
@@ -560,16 +579,19 @@ impl LiveTab {
     }
 
     fn spawn_with_output_state(
-        info: TabInfo,
-        shell_process_name: Option<String>,
-        worktree_root: PathBuf,
-        master: Box<dyn MasterPty + Send>,
-        child: Box<dyn Child + Send + Sync>,
-        scrollback_size: usize,
+        spawn: LiveTabSpawn,
         initial_size: TerminalSize,
         output_state: OutputState,
         restored_attach_payload: Option<Vec<u8>>,
     ) -> Self {
+        let LiveTabSpawn {
+            info,
+            shell_process_name,
+            worktree_root,
+            master,
+            child,
+            scrollback_size,
+        } = spawn;
         let mut reader = master.try_clone_reader().unwrap();
         let writer = master.take_writer().unwrap();
 
@@ -1252,7 +1274,8 @@ mod tests {
 
     use super::{
         AttachmentRegistry, DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS, DEFAULT_SCROLLBACK, LiveTab,
-        RestoredTerminalBuffers, TabInfo, TerminalSignalScanner, TerminalSize,
+        RestoredTerminalBuffers, RestoredTerminalState, TabInfo, TerminalSignalScanner,
+        TerminalSize,
     };
 
     #[test]
@@ -1679,11 +1702,13 @@ mod tests {
             pair.master,
             child,
             DEFAULT_SCROLLBACK,
-            TerminalSize::default_pty(),
-            RestoredTerminalBuffers {
-                total_bytes,
-                scrollback,
-                snapshot,
+            RestoredTerminalState {
+                size: TerminalSize::default_pty(),
+                buffers: RestoredTerminalBuffers {
+                    total_bytes,
+                    scrollback,
+                    snapshot,
+                },
             },
         ))
     }

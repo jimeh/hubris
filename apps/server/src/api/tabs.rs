@@ -18,7 +18,7 @@ use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
 use crate::pty::live_tab::{
-    DEFAULT_SCROLLBACK, LiveTab, RestoredTerminalBuffers, TerminalSize,
+    DEFAULT_SCROLLBACK, LiveTab, RestoredTerminalBuffers, RestoredTerminalState, TerminalSize,
     normalize_shell_process_name,
 };
 use crate::state::AppState;
@@ -891,11 +891,13 @@ fn spawn_terminal_runtime(
             pair.master,
             child,
             DEFAULT_SCROLLBACK,
-            payload.size,
-            RestoredTerminalBuffers {
-                total_bytes: payload.total_bytes,
-                scrollback: payload.scrollback,
-                snapshot: payload.snapshot,
+            RestoredTerminalState {
+                size: payload.size,
+                buffers: RestoredTerminalBuffers {
+                    total_bytes: payload.total_bytes,
+                    scrollback: payload.scrollback,
+                    snapshot: payload.snapshot,
+                },
             },
         ),
         None => LiveTab::spawn(

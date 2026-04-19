@@ -193,26 +193,30 @@ export function useTerminalConnection({
 
   const scheduleResizeRetry = useCallback(
     (generation: number): void => {
-      if (connectFrameRef.current !== null) {
-        cancelAnimationFrame(connectFrameRef.current.frameId);
-      }
-
-      const frameId = requestAnimationFrame(() => {
-        if (connectFrameRef.current?.generation !== generation) {
-          return;
+      const runRetry = (): void => {
+        if (connectFrameRef.current !== null) {
+          cancelAnimationFrame(connectFrameRef.current.frameId);
         }
 
-        connectFrameRef.current = null;
-        if (!sendResize(true)) {
-          scheduleResizeRetry(generation);
-          return;
-        }
+        const frameId = requestAnimationFrame(() => {
+          if (connectFrameRef.current?.generation !== generation) {
+            return;
+          }
 
-        if (visibleRef.current) {
-          terminalRef.current?.focus();
-        }
-      });
-      connectFrameRef.current = { generation, frameId };
+          connectFrameRef.current = null;
+          if (!sendResize(true)) {
+            runRetry();
+            return;
+          }
+
+          if (visibleRef.current) {
+            terminalRef.current?.focus();
+          }
+        });
+        connectFrameRef.current = { generation, frameId };
+      };
+
+      runRetry();
     },
     [sendResize, terminalRef],
   );

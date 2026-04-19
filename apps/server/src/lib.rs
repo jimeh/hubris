@@ -271,6 +271,10 @@ pub async fn select_listener(
     }
 
     if is_dev {
+        if base_port == 0 {
+            return tokio::net::TcpListener::bind((host, 0)).await;
+        }
+
         let dev_port = base_port
             .checked_add(dev_backend_port_offset)
             .ok_or_else(|| {

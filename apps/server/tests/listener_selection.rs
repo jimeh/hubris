@@ -25,6 +25,15 @@ async fn test_dev_fallback_uses_offset_and_increments() {
 }
 
 #[tokio::test]
+async fn test_dev_ephemeral_port_does_not_apply_offset() {
+    let listener = select_listener(None, "127.0.0.1", 0, true, 100, 10)
+        .await
+        .unwrap();
+
+    assert_ne!(listener.local_addr().unwrap().port(), 100);
+}
+
+#[tokio::test]
 async fn test_non_dev_binds_exact_base_port() {
     let listener = select_listener(None, "127.0.0.1", 25200, false, 100, 10)
         .await

@@ -45,7 +45,10 @@ type RuntimeChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 export class DesktopRuntimeStartupError extends Error {
   readonly conflict?: DesktopStartupConflict;
 
-  constructor(message: string, options?: { conflict?: DesktopStartupConflict }) {
+  constructor(
+    message: string,
+    options?: { conflict?: DesktopStartupConflict },
+  ) {
     super(message);
     this.name = "DesktopRuntimeStartupError";
     this.conflict = options?.conflict;
@@ -118,11 +121,13 @@ export function parseDesktopStartupMessage(
 }
 
 function parseDesktopStartupConflict(
-  conflict: {
-    holder_pid?: unknown;
-    holder_kind?: unknown;
-    listen_url?: unknown;
-  } | undefined,
+  conflict:
+    | {
+        holder_pid?: unknown;
+        holder_kind?: unknown;
+        listen_url?: unknown;
+      }
+    | undefined,
 ): DesktopStartupConflict | null {
   if (!conflict) {
     return null;
