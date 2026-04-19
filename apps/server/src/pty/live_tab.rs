@@ -41,7 +41,6 @@ pub struct TerminalSize {
 /// Persisted terminal output used to rebuild a restored replay.
 #[derive(Debug, Clone)]
 pub struct RestoredTerminalBuffers {
-    pub total_bytes: u64,
     pub history: Vec<u8>,
 }
 
@@ -513,6 +512,7 @@ impl OutputState {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn build_replay_history_from_buffers(
     initial_size: TerminalSize,
     scrollback: &[u8],
@@ -524,6 +524,7 @@ pub(crate) fn build_replay_history_from_buffers(
     build_replay_history_from_stream(initial_size, &stream)
 }
 
+#[cfg(test)]
 fn build_replay_history_from_stream(initial_size: TerminalSize, stream: &[u8]) -> Vec<u8> {
     let size = initial_size.clamped();
     let scrollback_rows = estimated_replay_scrollback_rows(DEFAULT_SCROLLBACK, size);
@@ -1036,13 +1037,9 @@ impl LiveTab {
         let _ = self.close_tx.send(());
     }
 
-    pub fn persistence_state(&self) -> (TerminalSize, Vec<u8>, Vec<u8>) {
+    pub fn persistence_state(&self) -> (TerminalSize, Vec<u8>) {
         let output_state = self.output_state.lock().unwrap();
-        (
-            output_state.size,
-            output_state.snapshot_state(),
-            output_state.replay_history(),
-        )
+        (output_state.size, output_state.replay_history())
     }
 
     /// Kill the child process and wait for exit.
@@ -1874,11 +1871,7 @@ mod tests {
         ))
     }
 
-    fn spawn_test_restored_tab(
-        history: Vec<u8>,
-        total_bytes: u64,
-        size: TerminalSize,
-    ) -> Arc<LiveTab> {
+    fn spawn_test_restored_tab(history: Vec<u8>, size: TerminalSize) -> Arc<LiveTab> {
         let pty_system = NativePtySystem::default();
         let pair = pty_system.openpty(size.to_pty_size()).unwrap();
 
@@ -1916,10 +1909,7 @@ mod tests {
             DEFAULT_SCROLLBACK,
             RestoredTerminalState {
                 size,
-                buffers: RestoredTerminalBuffers {
-                    total_bytes,
-                    history,
-                },
+                buffers: RestoredTerminalBuffers { history },
             },
         ))
     }
@@ -2200,13 +2190,8 @@ mod tests {
         restored.extend_from_slice(enable_mouse);
         restored.extend_from_slice(body);
         let restored_size = TerminalSize::new(132, 47);
-        let replay_history =
-            build_replay_history_from_buffers(restored_size, &restored, &[]);
-        let tab = spawn_test_restored_tab(
-            replay_history.clone(),
-            replay_history.len() as u64,
-            restored_size,
-        );
+        let replay_history = build_replay_history_from_buffers(restored_size, &restored, &[]);
+        let tab = spawn_test_restored_tab(replay_history.clone(), restored_size);
 
         let first_attachment = tab.attach(Some(0));
         let first_payload = String::from_utf8_lossy(&first_attachment.initial_payload);
@@ -2232,11 +2217,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn restored_attach_replays_inert_history_for_every_fresh_attach() {
         let restored = b"\x1b[31mclaude\x1b[m".to_vec();
-        let tab = spawn_test_restored_tab(
-            restored.clone(),
-            restored.len() as u64,
-            TerminalSize::default_pty(),
-        );
+        let tab = spawn_test_restored_tab(restored.clone(), TerminalSize::default_pty());
 
         let first_attachment = tab.attach(Some(0));
         let first_payload = String::from_utf8_lossy(&first_attachment.initial_payload);
@@ -2252,11 +2233,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn restored_attach_byte_offset_includes_restored_history() {
         let restored = b"before restart\r\n".to_vec();
-        let tab = spawn_test_restored_tab(
-            restored.clone(),
-            restored.len() as u64,
-            TerminalSize::default_pty(),
-        );
+        let tab = spawn_test_restored_tab(restored.clone(), TerminalSize::default_pty());
 
         let attachment = tab.attach(Some(0));
 
@@ -2269,11 +2246,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn restored_resume_replays_missing_history_prefix() {
         let restored = b"before restart".to_vec();
-        let tab = spawn_test_restored_tab(
-            restored.clone(),
-            restored.len() as u64,
-            TerminalSize::default_pty(),
-        );
+        let tab = spawn_test_restored_tab(restored.clone(), TerminalSize::default_pty());
 
         let first_attachment = tab.attach(Some(0));
         let resume_from = first_attachment.byte_offset.saturating_sub(4);
@@ -2287,11 +2260,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn restored_attach_trims_blank_tail_rows() {
         let restored = b"~/Devbox\r\n\x1b[32m>\x1b[m ".to_vec();
-        let tab = spawn_test_restored_tab(
-            restored.clone(),
-            restored.len() as u64,
-            TerminalSize::new(132, 47),
-        );
+        let tab = spawn_test_restored_tab(restored.clone(), TerminalSize::new(132, 47));
 
         let attachment = tab.attach(Some(0));
         let payload = String::from_utf8_lossy(&attachment.initial_payload);
@@ -2303,11 +2272,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn restored_attach_resets_formatting_after_non_wrapped_rows() {
         let restored = b"\x1b[4mVagrantfile\x1b[m\r\nprompt".to_vec();
-        let tab = spawn_test_restored_tab(
-            restored.clone(),
-            restored.len() as u64,
-            TerminalSize::new(132, 47),
-        );
+        let tab = spawn_test_restored_tab(restored.clone(), TerminalSize::new(132, 47));
 
         let attachment = tab.attach(Some(0));
         let mut parser = vt100::Parser::new(DEFAULT_PTY_ROWS, DEFAULT_PTY_COLS, 0);

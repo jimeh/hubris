@@ -612,8 +612,6 @@ async fn test_delete_terminal_tab_removes_persisted_terminal_state() {
             tab_id: tab_id.clone(),
             metadata: hubris_server::worktree_state::TerminalPersistedState {
                 size: hubris_server::pty::live_tab::TerminalSize::default_pty(),
-                total_bytes: 5,
-                snapshot: vec![1],
                 replay_history: b"hello".to_vec(),
             },
             flushed_at_ms: 1,
@@ -651,14 +649,7 @@ async fn test_delete_terminal_tab_removes_persisted_terminal_state() {
             .fetch_one(&mut *conn)
             .await
             .unwrap();
-            let chunk_count = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM terminal_chunks WHERE tab_id = ?1",
-            )
-            .bind(&tab_id)
-            .fetch_one(&mut *conn)
-            .await
-            .unwrap();
-            state_count == 0 && chunk_count == 0
+            state_count == 0
         })
     })
     .await;

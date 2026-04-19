@@ -915,7 +915,6 @@ fn spawn_terminal_runtime(
             RestoredTerminalState {
                 size: payload.size,
                 buffers: RestoredTerminalBuffers {
-                    total_bytes: payload.total_bytes,
                     history: payload.history,
                 },
             },
@@ -943,11 +942,9 @@ fn initial_terminal_size(restore_payload: Option<&TerminalRestorePayload>) -> Te
 }
 
 fn terminal_persisted_state(runtime: &LiveTab) -> TerminalPersistedState {
-    let (size, snapshot, replay_history) = runtime.persistence_state();
+    let (size, replay_history) = runtime.persistence_state();
     TerminalPersistedState {
         size,
-        snapshot,
-        total_bytes: replay_history.len() as u64,
         replay_history,
     }
 }
@@ -1725,7 +1722,6 @@ mod tests {
     fn initial_terminal_size_uses_restore_payload_size() {
         let restore_payload = TerminalRestorePayload {
             size: TerminalSize::new(132, 47),
-            total_bytes: 0,
             history: Vec::new(),
         };
 
