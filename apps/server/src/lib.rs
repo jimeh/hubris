@@ -567,9 +567,6 @@ where
             if let Err(error) = state.processes.shutdown_all().await {
                 tracing::warn!("failed to shut down managed processes: {error}");
             }
-            if let Err(error) = persistence.clone().shutdown().await {
-                tracing::warn!("failed to flush persisted worktree state: {error}");
-            }
 
             let result = match tokio::time::timeout(
                 SERVER_SHUTDOWN_TIMEOUT,
@@ -587,6 +584,9 @@ where
                 }
             };
             signal_task.abort();
+            if let Err(error) = persistence.clone().shutdown().await {
+                tracing::warn!("failed to flush persisted worktree state: {error}");
+            }
             result
         }
     };

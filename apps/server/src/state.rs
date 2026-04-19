@@ -169,7 +169,56 @@ impl AppState {
         self.next_terminal_num_by_worktree.remove(worktree_id);
         self.restore_state_by_worktree.remove(worktree_id);
         self.project_id_by_worktree.remove(worktree_id);
+        let removed_tab_ids: Vec<String> = self
+            .restored_terminal_tabs
+            .iter()
+            .filter(|entry| entry.value().worktree_id == worktree_id)
+            .map(|entry| entry.key().clone())
+            .collect();
         self.restored_terminal_tabs
             .retain(|_, terminal| terminal.worktree_id != worktree_id);
+        for tab_id in removed_tab_ids {
+            self.terminal_restore_locks.remove(&tab_id);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn clear_worktree_runtime_state_removes_restore_locks_for_worktree() {
+        let tmp = TempDir::new().unwrap();
+        let state = AppState::new(tmp.path().to_path_buf()).await;
+        state.restored_terminal_tabs.insert(
+            "tab-1".to_string(),
+            RestoredTerminalTab {
+                project_id: "project-1".to_string(),
+                worktree_id: "worktree-1".to_string(),
+            },
+        );
+        state.restored_terminal_tabs.insert(
+            "tab-2".to_string(),
+            RestoredTerminalTab {
+                project_id: "project-1".to_string(),
+                worktree_id: "worktree-2".to_string(),
+            },
+        );
+        state
+            .terminal_restore_locks
+            .insert("tab-1".to_string(), Arc::new(Mutex::new(())));
+        state
+            .terminal_restore_locks
+            .insert("tab-2".to_string(), Arc::new(Mutex::new(())));
+
+        state.clear_worktree_runtime_state("worktree-1");
+
+        assert!(!state.restored_terminal_tabs.contains_key("tab-1"));
+        assert!(!state.terminal_restore_locks.contains_key("tab-1"));
+        assert!(state.restored_terminal_tabs.contains_key("tab-2"));
+        assert!(state.terminal_restore_locks.contains_key("tab-2"));
     }
 }

@@ -531,7 +531,11 @@ pub async fn put_worktree_restore_state(
     Json(request): Json<UpdateWorktreeRestoreStateRequest>,
 ) -> StatusCode {
     match resolve_worktree(&state, &worktree_id).await {
-        Ok(Some(_)) => {}
+        Ok(Some(resolved)) => {
+            if resolved.project_id != project_id {
+                return StatusCode::NOT_FOUND;
+            }
+        }
         Ok(None) => return StatusCode::NOT_FOUND,
         Err(status) => return status,
     }

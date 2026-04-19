@@ -246,15 +246,10 @@ const restoreStatePersistTimers = new Map<
   ReturnType<typeof setTimeout>
 >();
 
-function schedulePersistRestoreState(
-  worktreeId: string,
+function buildRestoreStatePayload(
   state: TabsState,
-): void {
-  const projectId = projectIdForWorktree(worktreeId);
-  if (!projectId) {
-    return;
-  }
-
+  worktreeId: string,
+): WorktreeRestoreSelection {
   const activeTabId = state.activeTabByWorktree[worktreeId] ?? null;
   const focusedPaneId = state.focusedPaneByWorktree[worktreeId] ?? null;
   const paneIds = paneIdsForWorktree(
@@ -283,6 +278,25 @@ function schedulePersistRestoreState(
       .filter(([, tabIds]) => tabIds.length > 0),
   );
 
+  return {
+    activeTabId,
+    focusedPaneId,
+    paneMru,
+    tabMruByPane,
+  };
+}
+
+function schedulePersistRestoreState(
+  worktreeId: string,
+  state: TabsState,
+): void {
+  const projectId = projectIdForWorktree(worktreeId);
+  if (!projectId) {
+    return;
+  }
+
+  const payload = buildRestoreStatePayload(state, worktreeId);
+
   const existingTimer = restoreStatePersistTimers.get(worktreeId);
   if (existingTimer) {
     clearTimeout(existingTimer);
@@ -292,14 +306,24 @@ function schedulePersistRestoreState(
     worktreeId,
     setTimeout(() => {
       restoreStatePersistTimers.delete(worktreeId);
-      void updateWorktreeRestoreState(projectId, worktreeId, {
-        activeTabId,
-        focusedPaneId,
-        paneMru,
-        tabMruByPane,
-      }).catch(() => {});
+      void updateWorktreeRestoreState(projectId, worktreeId, payload).catch(
+        () => {},
+      );
     }, 250),
   );
+}
+
+function restoreStateWorktreeIds(state: TabsState): string[] {
+  const worktreeIds = new Set([
+    ...Object.keys(state.layoutsByWorktree),
+    ...Object.keys(state.activeTabByWorktree),
+    ...Object.keys(state.focusedPaneByWorktree),
+    ...Object.keys(state.focusedPaneHistoryByWorktree),
+  ]);
+  for (const tab of state.tabs) {
+    worktreeIds.add(tab.worktree_id);
+  }
+  return [...worktreeIds];
 }
 
 function initialFocusedPaneHistory(
@@ -1462,8 +1486,6 @@ export const useTabStore = create<TabsState>((set, get) => {
       }
 
       set((state) => removeFromState(state, id));
-      const nextState = get();
-      schedulePersistRestoreState(closingTab.worktree_id, nextState);
 
       try {
         await deleteTab(id);
@@ -1488,13 +1510,9 @@ export const useTabStore = create<TabsState>((set, get) => {
       if (!tab) {
         return;
       }
-      const nextState = get();
-      schedulePersistRestoreState(tab.worktree_id, nextState);
     },
     focusPane(worktreeId, paneId) {
       set((state) => focusPaneLocal(state, worktreeId, paneId));
-      const nextState = get();
-      schedulePersistRestoreState(worktreeId, nextState);
     },
     setSplitRatio(worktreeId, nodeId, ratio) {
       let changed = false;
@@ -1785,8 +1803,6 @@ export const useTabStore = create<TabsState>((set, get) => {
         persistSelection(selection);
         return selection;
       });
-      const nextState = get();
-      schedulePersistRestoreState(worktreeId, nextState);
     },
   };
 });
@@ -1965,6 +1981,35 @@ export function initializeTabStore(): void {
     }, 1500);
   });
   eventUnsubscribers.push(unsubscribeNotification);
+
+  let previousRestoreStateByWorktree = new Map<string, string>();
+  const unsubscribeRestoreState = useTabStore.subscribe((state) => {
+    const nextRestoreStateByWorktree = new Map(
+      restoreStateWorktreeIds(state).map((worktreeId) => [
+        worktreeId,
+        JSON.stringify(buildRestoreStatePayload(state, worktreeId)),
+      ]),
+    );
+
+    if (hasHydratedBackendRestoreSelection) {
+      const changedWorktreeIds = new Set([
+        ...previousRestoreStateByWorktree.keys(),
+        ...nextRestoreStateByWorktree.keys(),
+      ]);
+
+      for (const worktreeId of changedWorktreeIds) {
+        if (
+          previousRestoreStateByWorktree.get(worktreeId) !==
+          nextRestoreStateByWorktree.get(worktreeId)
+        ) {
+          schedulePersistRestoreState(worktreeId, state);
+        }
+      }
+    }
+
+    previousRestoreStateByWorktree = nextRestoreStateByWorktree;
+  });
+  eventUnsubscribers.push(unsubscribeRestoreState);
 }
 
 export function resetTabStoreForTests(): void {

@@ -100,7 +100,6 @@ async fn handle_attach(
         attachment_id,
         initial_payload,
         snapshot,
-        consumes_restored_payload,
         current_size,
         byte_offset,
         data_lost,
@@ -139,10 +138,6 @@ async fn handle_attach(
         tab.detach(attachment_id);
         return;
     }
-    if consumes_restored_payload {
-        tab.consume_restored_attach_payload();
-    }
-
     // Relay: broadcast -> WS (with close detection
     // and adaptive batching)
     let relay_tab = tab.clone();

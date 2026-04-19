@@ -191,6 +191,7 @@ describe("Tab store", () => {
     mockUpdateTab.mockReset();
     mockUpdateWorktreeTabLayout.mockReset();
     mockUpdateWorktreeRestoreState.mockReset();
+    mockUpdateWorktreeRestoreState.mockResolvedValue(undefined);
     mockDesktopBrowserDestroy.mockReset();
   });
 
@@ -678,6 +679,75 @@ describe("Tab store", () => {
     resetTabStoreForTests();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(0);
+  });
+
+  it("persists restore state when selection changes outside explicit action hooks", async () => {
+    vi.useFakeTimers();
+    try {
+      useWorktreeStore.setState({
+        worktreesByProject: {
+          p1: [
+            {
+              id: "w1",
+              project_id: "p1",
+              name: "local",
+              branch: "main",
+              path: "/repo",
+              source_ref: null,
+              ui_mode: "hubris",
+              is_local: true,
+              position: 1,
+            },
+          ],
+        },
+        projectErrors: {},
+        selectedWorktreeId: "w1",
+      });
+      const store = await getStore();
+
+      mockEvents.emit("snapshot", {
+        tabs: [
+          makeTab({
+            id: "a",
+            worktree_id: "w1",
+            pane_id: "pane-1",
+            position: 1,
+          }),
+          makeTab({
+            id: "b",
+            worktree_id: "w1",
+            pane_id: "pane-1",
+            position: 2,
+          }),
+        ],
+        tab_layouts: {
+          w1: {
+            rootId: "root",
+            nodes: [{ type: "leaf", id: "root", pane_id: "pane-1" }],
+          },
+        },
+        worktree_restore_state: {
+          w1: {
+            activeTabId: "b",
+            focusedPaneId: "pane-1",
+            paneMru: ["pane-1"],
+            tabMruByPane: { "pane-1": ["b", "a"] },
+          },
+        },
+      });
+
+      store.useTabStore.getState().removeLocal("b");
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(mockUpdateWorktreeRestoreState).toHaveBeenCalledWith("p1", "w1", {
+        activeTabId: "a",
+        focusedPaneId: "pane-1",
+        paneMru: ["pane-1"],
+        tabMruByPane: { "pane-1": ["a"] },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("openFile dedupes a raced tab_created event", async () => {

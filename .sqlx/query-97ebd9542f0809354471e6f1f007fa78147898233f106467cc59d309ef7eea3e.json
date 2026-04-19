@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM terminal_chunks WHERE tab_id = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "97ebd9542f0809354471e6f1f007fa78147898233f106467cc59d309ef7eea3e"
+}

@@ -614,8 +614,8 @@ async fn test_delete_terminal_tab_removes_persisted_terminal_state() {
                 size: hubris_server::pty::live_tab::TerminalSize::default_pty(),
                 total_bytes: 5,
                 snapshot: vec![1],
+                replay_history: b"hello".to_vec(),
             },
-            output: b"hello".to_vec(),
             flushed_at_ms: 1,
         });
 
@@ -1165,6 +1165,46 @@ async fn test_update_worktree_tab_layout_preserves_intentional_empty_split_pane(
     let tabs = list_tabs(&client, &base).await;
     assert_eq!(tabs.len(), 2);
     assert!(tabs.iter().any(|tab| tab["pane_id"] == "pane-2"));
+}
+
+#[tokio::test]
+async fn test_update_worktree_tab_layout_rejects_project_worktree_mismatch() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo_a = init_git_repo();
+    let repo_b = init_git_repo();
+
+    let project_a = create_project(&client, &base, repo_a.path().to_str().unwrap()).await;
+    let project_b = create_project(&client, &base, repo_b.path().to_str().unwrap()).await;
+    let worktree_a = first_worktree_id(&client, &base, &project_a).await;
+    let first = create_tab(&client, &base, &worktree_a).await;
+    let pane_id = first["pane_id"].as_str().unwrap();
+    let tab_id = first["id"].as_str().unwrap();
+
+    let res = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/tab-layout",
+            base, project_b, worktree_a
+        ))
+        .json(&serde_json::json!({
+            "rootId": "root",
+            "nodes": [
+                { "type": "leaf", "id": "root", "pane_id": pane_id }
+            ],
+            "panes": [
+                { "paneId": pane_id, "tabIds": [tab_id] }
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        state.project_id_for_worktree(&worktree_a).as_deref(),
+        Some(project_a.as_str()),
+    );
 }
 
 #[tokio::test]

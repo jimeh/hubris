@@ -13,11 +13,10 @@ use tokio::time::MissedTickBehavior;
 use ts_rs::TS;
 use utoipa::ToSchema;
 
-use crate::pty::live_tab::TerminalSize;
+use crate::pty::live_tab::{TerminalSize, build_replay_history_from_buffers};
 use crate::tab::{TabInfo, TerminalTabLabels, WorktreePaneNode, WorktreeTabLayout};
 
 const WRITER_TICK: Duration = Duration::from_millis(250);
-const PERSISTED_SCROLLBACK_BYTES: usize = crate::pty::live_tab::DEFAULT_SCROLLBACK;
 static STATE_DB_MIGRATOR: Migrator = sqlx::migrate!();
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema, TS)]
@@ -150,8 +149,7 @@ pub struct LoadedStateSnapshot {
 pub struct TerminalRestorePayload {
     pub size: TerminalSize,
     pub total_bytes: u64,
-    pub snapshot: Vec<u8>,
-    pub scrollback: Vec<u8>,
+    pub history: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +157,7 @@ pub struct TerminalPersistedState {
     pub size: TerminalSize,
     pub total_bytes: u64,
     pub snapshot: Vec<u8>,
+    pub replay_history: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -167,7 +166,6 @@ pub struct TerminalFlush {
     pub worktree_id: String,
     pub tab_id: String,
     pub metadata: TerminalPersistedState,
-    pub output: Vec<u8>,
     pub flushed_at_ms: u64,
 }
 
@@ -453,16 +451,31 @@ async fn open_connection(path: &Path) -> io::Result<SqliteConnection> {
         )));
     }
 
-    STATE_DB_MIGRATOR.run(&mut conn).await.map_err(|error| {
-        io::Error::other(format!(
-            "failed to initialize state database schema at {}: {error}",
-            path.display()
-        ))
-    })?;
+    STATE_DB_MIGRATOR
+        .run(&mut conn)
+        .await
+        .map_err(|error| map_migration_error(path, error))?;
     cleanup_orphaned_tab_rows(&mut conn)
         .await
         .map_err(io::Error::other)?;
     Ok(conn)
+}
+
+fn map_migration_error(path: &Path, error: sqlx::migrate::MigrateError) -> io::Error {
+    let detail = error.to_string();
+    let hint = if detail.contains("previously applied but has been modified") {
+        " If this is a disposable dev database from an older local iteration, \
+         removing the state.sqlite3 file and restarting will recreate it."
+    } else {
+        ""
+    };
+
+    io::Error::other(format!(
+        "failed to initialize state database schema at {}: {}{}",
+        path.display(),
+        detail,
+        hint
+    ))
 }
 
 async fn existing_database_state(conn: &mut SqliteConnection) -> io::Result<ExistingDatabaseState> {
@@ -627,7 +640,6 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
 }
 
 fn merge_terminal_flush(existing: &mut TerminalFlush, next: &TerminalFlush) {
-    existing.output.extend_from_slice(&next.output);
     existing.metadata = next.metadata.clone();
     existing.flushed_at_ms = next.flushed_at_ms;
 }
@@ -1148,9 +1160,10 @@ async fn persist_terminal_flush(
             last_size_rows,
             total_bytes,
             last_snapshot,
+            replay_history,
             last_flush_at_ms,
             updated_at_ms
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
         ON CONFLICT(tab_id) DO UPDATE SET
             project_id = excluded.project_id,
             worktree_id = excluded.worktree_id,
@@ -1158,6 +1171,7 @@ async fn persist_terminal_flush(
             last_size_rows = excluded.last_size_rows,
             total_bytes = excluded.total_bytes,
             last_snapshot = excluded.last_snapshot,
+            replay_history = excluded.replay_history,
             last_flush_at_ms = excluded.last_flush_at_ms,
             updated_at_ms = excluded.updated_at_ms
         ",
@@ -1168,89 +1182,21 @@ async fn persist_terminal_flush(
         last_size_rows,
         total_bytes,
         flush.metadata.snapshot,
+        flush.metadata.replay_history,
         last_flush_at_ms,
         updated_at_ms,
     )
     .execute(&mut *tx)
     .await?;
 
-    if !flush.output.is_empty() {
-        let next_seq = sqlx::query_scalar!(
-            "SELECT COALESCE(MAX(seq) + 1, 0) FROM terminal_chunks WHERE tab_id = ?1",
-            flush.tab_id,
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-
-        let output = flush.output.as_slice();
-        let output_len = flush.output.len() as i64;
-        let created_at_ms = flush.flushed_at_ms as i64;
-
-        sqlx::query!(
-            "
-            INSERT INTO terminal_chunks (
-                tab_id,
-                project_id,
-                worktree_id,
-                seq,
-                data,
-                byte_len,
-                created_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-            ",
-            flush.tab_id,
-            flush.project_id,
-            flush.worktree_id,
-            next_seq,
-            output,
-            output_len,
-            created_at_ms,
-        )
-        .execute(&mut *tx)
-        .await?;
-        prune_terminal_chunks(&mut tx, &flush.tab_id, PERSISTED_SCROLLBACK_BYTES).await?;
-    }
-
-    tx.commit().await?;
-    Ok(())
-}
-
-async fn prune_terminal_chunks(
-    tx: &mut Transaction<'_, Sqlite>,
-    tab_id: &str,
-    budget_bytes: usize,
-) -> Result<(), sqlx::Error> {
-    let rows = sqlx::query!(
-        "
-        SELECT seq, byte_len
-        FROM terminal_chunks
-        WHERE tab_id = ?1
-        ORDER BY seq DESC
-        ",
-        tab_id,
+    sqlx::query!(
+        "DELETE FROM terminal_chunks WHERE tab_id = ?1",
+        flush.tab_id,
     )
-    .fetch_all(&mut **tx)
+    .execute(&mut *tx)
     .await?;
 
-    let mut retained = 0usize;
-    let mut min_seq_to_keep: Option<i64> = None;
-    for row in rows {
-        retained = retained.saturating_add(row.byte_len.max(0) as usize);
-        min_seq_to_keep = Some(row.seq);
-        if retained > budget_bytes {
-            break;
-        }
-    }
-
-    if let Some(min_seq) = min_seq_to_keep {
-        sqlx::query!(
-            "DELETE FROM terminal_chunks WHERE tab_id = ?1 AND seq < ?2",
-            tab_id,
-            min_seq,
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -1510,7 +1456,7 @@ async fn load_terminal_restore_payload(
 ) -> Result<TerminalRestorePayload, sqlx::Error> {
     let row = sqlx::query!(
         "
-        SELECT last_size_cols, last_size_rows, total_bytes, last_snapshot
+        SELECT last_size_cols, last_size_rows, total_bytes, last_snapshot, replay_history
         FROM terminal_state
         WHERE tab_id = ?1
         ",
@@ -1519,13 +1465,14 @@ async fn load_terminal_restore_payload(
     .fetch_optional(&mut *conn)
     .await?;
 
-    let (cols, rows, total_bytes, snapshot) = row
+    let (cols, rows, _legacy_total_bytes, snapshot, replay_history) = row
         .map(|row| {
             (
                 row.last_size_cols,
                 row.last_size_rows,
                 row.total_bytes,
                 row.last_snapshot,
+                row.replay_history,
             )
         })
         .unwrap_or((
@@ -1533,7 +1480,18 @@ async fn load_terminal_restore_payload(
             i64::from(TerminalSize::default_pty().rows),
             0,
             Vec::new(),
+            None,
         ));
+
+    let size = TerminalSize::new(cols.max(0) as u16, rows.max(0) as u16).clamped();
+    if let Some(history) = replay_history {
+        let history_len = history.len() as u64;
+        return Ok(TerminalRestorePayload {
+            size,
+            total_bytes: history_len,
+            history,
+        });
+    }
 
     let chunk_rows = sqlx::query!(
         "
@@ -1552,11 +1510,12 @@ async fn load_terminal_restore_payload(
         scrollback.extend(row.data);
     }
 
+    let history = build_replay_history_from_buffers(size, &scrollback, &snapshot);
+
     Ok(TerminalRestorePayload {
-        size: TerminalSize::new(cols.max(0) as u16, rows.max(0) as u16).clamped(),
-        total_bytes: total_bytes.max(0) as u64,
-        snapshot,
-        scrollback,
+        size,
+        total_bytes: history.len() as u64,
+        history,
     })
 }
 
@@ -1940,7 +1899,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, 4);
     }
 
     #[tokio::test]
@@ -1953,7 +1912,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, 4);
     }
 
     #[tokio::test]
@@ -2013,8 +1972,8 @@ mod tests {
                         size: TerminalSize::default_pty(),
                         total_bytes: ((index + 1) * 70_000) as u64,
                         snapshot: vec![index as u8],
+                        replay_history: vec![index as u8; 70_000],
                     },
-                    output: vec![index as u8; 70_000],
                     flushed_at_ms: index as u64,
                 },
             )
@@ -2025,8 +1984,8 @@ mod tests {
         let payload = load_terminal_restore_payload(&mut conn, "terminal-1")
             .await
             .unwrap();
-        assert!(payload.scrollback.len() <= PERSISTED_SCROLLBACK_BYTES + 70_000);
-        assert_eq!(payload.snapshot, vec![3]);
+        assert!(payload.history.len() <= crate::pty::live_tab::DEFAULT_SCROLLBACK);
+        assert_eq!(payload.total_bytes, payload.history.len() as u64);
     }
 
     #[tokio::test]
@@ -2045,8 +2004,8 @@ mod tests {
                 size: TerminalSize::default_pty(),
                 total_bytes: 5,
                 snapshot: vec![9],
+                replay_history: b"hello".to_vec(),
             },
-            output: b"hello".to_vec(),
             flushed_at_ms: 1,
         });
         service.delete_tab_state("terminal-1".to_string(), "worktree-1".to_string());
@@ -2224,8 +2183,8 @@ mod tests {
                     size: TerminalSize::default_pty(),
                     total_bytes: 5,
                     snapshot: vec![1],
+                    replay_history: b"hello".to_vec(),
                 },
-                output: b"hello".to_vec(),
                 flushed_at_ms: 1,
             },
         )

@@ -882,9 +882,10 @@ fn spawn_terminal_runtime(
     info: TabInfo,
     restore_payload: Option<TerminalRestorePayload>,
 ) -> Result<(Arc<LiveTab>, TerminalCloseReceiver), StatusCode> {
+    let initial_size = initial_terminal_size(restore_payload.as_ref());
     let pty_system = NativePtySystem::default();
     let pair = pty_system
-        .openpty(TerminalSize::default_pty().to_pty_size())
+        .openpty(initial_size.to_pty_size())
         .map_err(|error| {
             tracing::error!("failed to open pty: {}", error);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -915,8 +916,7 @@ fn spawn_terminal_runtime(
                 size: payload.size,
                 buffers: RestoredTerminalBuffers {
                     total_bytes: payload.total_bytes,
-                    scrollback: payload.scrollback,
-                    snapshot: payload.snapshot,
+                    history: payload.history,
                 },
             },
         ),
@@ -927,7 +927,7 @@ fn spawn_terminal_runtime(
             pair.master,
             child,
             DEFAULT_SCROLLBACK,
-            TerminalSize::default_pty(),
+            initial_size,
         ),
     };
 
@@ -936,12 +936,19 @@ fn spawn_terminal_runtime(
     Ok((tab, close_rx))
 }
 
+fn initial_terminal_size(restore_payload: Option<&TerminalRestorePayload>) -> TerminalSize {
+    restore_payload
+        .map(|payload| payload.size)
+        .unwrap_or_else(TerminalSize::default_pty)
+}
+
 fn terminal_persisted_state(runtime: &LiveTab) -> TerminalPersistedState {
-    let (size, total_bytes, snapshot) = runtime.persistence_state();
+    let (size, snapshot, replay_history) = runtime.persistence_state();
     TerminalPersistedState {
         size,
-        total_bytes,
         snapshot,
+        total_bytes: replay_history.len() as u64,
+        replay_history,
     }
 }
 
@@ -956,21 +963,25 @@ fn spawn_terminal_persistence_task(
     let mut output_rx = runtime.output_tx.subscribe();
     let mut close_rx = runtime.close_tx.subscribe();
     tokio::spawn(async move {
-        let mut buffered = Vec::new();
+        let mut dirty = true;
+        let mut pending_bytes = 0usize;
         let mut interval = time::interval(TERMINAL_PERSIST_INTERVAL);
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        let flush = |buffered: &mut Vec<u8>| {
+        let flush = |dirty: &mut bool, pending_bytes: &mut usize| {
+            if !*dirty {
+                return;
+            }
             let metadata = terminal_persisted_state(&runtime);
-            let output = std::mem::take(buffered);
             persistence.enqueue_terminal_flush(TerminalFlush {
                 project_id: project_id.clone(),
                 worktree_id: worktree_id.clone(),
                 tab_id: tab_id.clone(),
                 metadata,
-                output,
                 flushed_at_ms: now_ms(),
             });
+            *dirty = false;
+            *pending_bytes = 0;
         };
 
         loop {
@@ -978,31 +989,28 @@ fn spawn_terminal_persistence_task(
                 result = output_rx.recv() => {
                     match result {
                         Ok(data) => {
-                            buffered.extend_from_slice(&data);
-                            if buffered.len() >= TERMINAL_PERSIST_THRESHOLD_BYTES {
-                                flush(&mut buffered);
+                            dirty = true;
+                            pending_bytes = pending_bytes.saturating_add(data.len());
+                            if pending_bytes >= TERMINAL_PERSIST_THRESHOLD_BYTES {
+                                flush(&mut dirty, &mut pending_bytes);
                             }
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            flush(&mut buffered);
+                            dirty = true;
+                            flush(&mut dirty, &mut pending_bytes);
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            if !buffered.is_empty() {
-                                flush(&mut buffered);
-                            }
+                            flush(&mut dirty, &mut pending_bytes);
                             break;
                         }
                     }
                 }
                 _ = interval.tick() => {
-                    if !buffered.is_empty() {
-                        flush(&mut buffered);
-                    }
+                    flush(&mut dirty, &mut pending_bytes);
                 }
                 _ = close_rx.recv() => {
-                    if !buffered.is_empty() {
-                        flush(&mut buffered);
-                    }
+                    dirty = true;
+                    flush(&mut dirty, &mut pending_bytes);
                     break;
                 }
             }
@@ -1617,10 +1625,13 @@ pub async fn update_worktree_tab_layout(
     Path((project_id, worktree_id)): Path<(String, String)>,
     Json(request): Json<UpdateWorktreeTabLayoutRequest>,
 ) -> Result<Json<WorktreeTabLayoutState>, TabsApiError> {
-    resolve_worktree(&state, &worktree_id)
+    let resolved = resolve_worktree(&state, &worktree_id)
         .await
         .map_err(map_status_to_tab_error)?
         .ok_or_else(|| map_status_to_tab_error(StatusCode::NOT_FOUND))?;
+    if resolved.project_id != project_id {
+        return Err(map_status_to_tab_error(StatusCode::NOT_FOUND));
+    }
     state.remember_worktree_project(&worktree_id, &project_id);
 
     let next_state = update_worktree_layout_state(&state, &worktree_id, request)?;
@@ -1704,4 +1715,24 @@ pub async fn reorder_tabs(
     persist_worktree_snapshot(&state, &req.worktree_id);
 
     Ok(Json(reordered))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initial_terminal_size_uses_restore_payload_size() {
+        let restore_payload = TerminalRestorePayload {
+            size: TerminalSize::new(132, 47),
+            total_bytes: 0,
+            history: Vec::new(),
+        };
+
+        assert_eq!(
+            initial_terminal_size(Some(&restore_payload)),
+            TerminalSize::new(132, 47)
+        );
+        assert_eq!(initial_terminal_size(None), TerminalSize::default_pty());
+    }
 }

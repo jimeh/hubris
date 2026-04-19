@@ -15,6 +15,13 @@ const MAX_PORT_ATTEMPTS: u16 = 100;
 
 #[tokio::main]
 async fn main() {
+    if let Err(error) = run().await {
+        eprintln!("fatal: {error}");
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::from_default_env().add_directive("hubris_server=debug".parse().unwrap()),
@@ -22,7 +29,7 @@ async fn main() {
         .init();
 
     let is_dev = cfg!(debug_assertions);
-    let data_dir = resolve_server_data_dir(is_dev).expect("failed to resolve data dir");
+    let data_dir = resolve_server_data_dir(is_dev)?;
 
     let host = std::env::var("HUBRIS_HOST").unwrap_or_else(|_| {
         if is_dev {
@@ -38,7 +45,7 @@ async fn main() {
 
     let inherited_listener = ListenFd::from_env()
         .take_tcp_listener(0)
-        .expect("failed to take socket activation listener");
+        .map_err(std::io::Error::other)?;
     let listener = select_listener(
         inherited_listener,
         &host,
@@ -47,10 +54,9 @@ async fn main() {
         DEV_BACKEND_PORT_OFFSET,
         MAX_PORT_ATTEMPTS,
     )
-    .await
-    .expect("failed to bind server listener");
+    .await?;
 
-    let addr = listener.local_addr().unwrap();
+    let addr = listener.local_addr()?;
 
     // In dev mode, write state file for frontend
     // coordination (port discovery + debugging).
@@ -67,7 +73,12 @@ async fn main() {
         });
         tokio::fs::write(&state_file, state.to_string())
             .await
-            .expect("failed to write dev state file");
+            .map_err(|error| {
+                std::io::Error::other(format!(
+                    "failed to write dev state file {}: {error}",
+                    state_file.display()
+                ))
+            })?;
     }
 
     let listen_url = format!("http://{addr}");
@@ -106,8 +117,9 @@ async fn main() {
         shutdown_signal(),
         Some(instance_lock),
     )
-    .await
-    .unwrap();
+    .await?;
+
+    Ok(())
 }
 
 async fn shutdown_signal() {
