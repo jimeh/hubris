@@ -1,12 +1,7 @@
 import type { contextBridge as ElectronContextBridge } from "electron";
 
+import { HUBRIS_INTERNAL_HOSTS } from "./desktopOrigins";
 import type { DesktopWebSocketBridge } from "./webSocketRendererBridge";
-
-const HUBRIS_INTERNAL_HOSTS = [
-  "desktop.internal.hubris.build",
-  "vscode-cli.desktop.internal.hubris.build",
-  "code-server.desktop.internal.hubris.build",
-];
 
 type ContextBridgeLike = Pick<
   typeof ElectronContextBridge,
@@ -24,7 +19,7 @@ declare global {
  * Install the websocket patch in the page world so same-origin desktop
  * WebSockets flow through Electron instead of the native browser stack.
  */
-export function installDesktopWebSocketPatch(hosts: string[]): void {
+export function installDesktopWebSocketPatch(hosts: readonly string[]): void {
   const bridge = window.__HUBRIS_ELECTRON_WS__;
   if (!bridge || typeof window.WebSocket !== "function") {
     return;
@@ -267,11 +262,6 @@ export function installDesktopWebSocketPatch(hosts: string[]): void {
   ).CLOSED = OriginalWebSocket.CLOSED;
 
   window.WebSocket = PatchedWebSocket;
-}
-
-/** Serialize the main-world websocket patch for HTML/script injection. */
-export function desktopWebSocketPatchSource(): string {
-  return `(${installDesktopWebSocketPatch.toString()})(${JSON.stringify(HUBRIS_INTERNAL_HOSTS)});`;
 }
 
 /** Install the websocket patch into the main world from a preload script. */

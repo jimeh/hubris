@@ -301,4 +301,106 @@ describe("VS Code view bridge", () => {
       "https://example.com/docs",
     );
   });
+
+  it("keeps trusted VS Code webview bootstrap urls inside the view", async () => {
+    const state = await loadVscodeViewsModule();
+
+    state.installVscodeViewBridge(
+      state.window as never,
+      "dev",
+      "/tmp/vscodePreload.js",
+      [
+        "https://desktop.internal.hubris.build",
+        "https://vscode-cli.desktop.internal.hubris.build",
+        "https://code-server.desktop.internal.hubris.build",
+      ],
+    );
+    await state.handles.get(HUBRIS_VSCODE_CREATE_CHANNEL)?.(undefined, {
+      worktreeId: "w-feature",
+      runtime: "vscodeCli",
+      worktreePath: "/tmp/feature-a",
+    });
+
+    const frameNavigationHandler =
+      state.createdViews[0]?.webContents.on.mock.calls.find(
+        ([event]) => event === "will-frame-navigate",
+      )?.[1];
+    expect(frameNavigationHandler).toBeTypeOf("function");
+
+    const trustedWebviewUrl =
+      "https://02kmpqvunlvrq93tfs6n5q8n84bsmlgppb0lhik12jjv7p71170v.vscode-cdn.net/stable/560a9dba96f961efea7b1612916f89e5d5d4d679/out/vs/workbench/contrib/webview/browser/pre/index.html?id=044957d5-b37b-434f-9182-19d35ee5b6a2&parentId=1&origin=04f672ab-ba1e-4f25-9d98-00ab77d109f9&swVersion=4&extensionId=&platform=browser&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=https%3A%2F%2Fvscode-cli.desktop.internal.hubris.build&disableServiceWorker=true&remoteAuthority=vscode-cli.desktop.internal.hubris.build";
+
+    const navigationEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+      url: trustedWebviewUrl,
+    };
+    frameNavigationHandler?.(navigationEvent);
+
+    expect(navigationEvent.defaultPrevented).toBe(false);
+    expect(state.shellOpenExternal).not.toHaveBeenCalled();
+
+    const popupHandler =
+      state.createdViews[0]?.webContents.setWindowOpenHandler.mock
+        .calls[0]?.[0];
+    expect(popupHandler).toBeTypeOf("function");
+
+    expect(popupHandler?.({ url: trustedWebviewUrl })).toEqual({
+      action: "deny",
+    });
+    expect(state.shellOpenExternal).not.toHaveBeenCalled();
+  });
+
+  it("keeps trusted VS Code fake webview bootstrap urls inside the view", async () => {
+    const state = await loadVscodeViewsModule();
+
+    state.installVscodeViewBridge(
+      state.window as never,
+      "dev",
+      "/tmp/vscodePreload.js",
+      [
+        "https://desktop.internal.hubris.build",
+        "https://vscode-cli.desktop.internal.hubris.build",
+        "https://code-server.desktop.internal.hubris.build",
+      ],
+    );
+    await state.handles.get(HUBRIS_VSCODE_CREATE_CHANNEL)?.(undefined, {
+      worktreeId: "w-feature",
+      runtime: "vscodeCli",
+      worktreePath: "/tmp/feature-a",
+    });
+
+    const frameNavigationHandler =
+      state.createdViews[0]?.webContents.on.mock.calls.find(
+        ([event]) => event === "will-frame-navigate",
+      )?.[1];
+    expect(frameNavigationHandler).toBeTypeOf("function");
+
+    const trustedFakeWebviewUrl =
+      "https://1pcfbad8e6ro99bgouf42o8ovivd4fkiu0m5j4j708ro97hqa2v8.vscode-cdn.net/stable/560a9dba96f961efea7b1612916f89e5d5d4d679/out/vs/workbench/contrib/webview/browser/pre/fake.html?id=485b912c-9350-4b7d-9920-a34182edbb06";
+
+    const navigationEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+      url: trustedFakeWebviewUrl,
+    };
+    frameNavigationHandler?.(navigationEvent);
+
+    expect(navigationEvent.defaultPrevented).toBe(false);
+    expect(state.shellOpenExternal).not.toHaveBeenCalled();
+
+    const popupHandler =
+      state.createdViews[0]?.webContents.setWindowOpenHandler.mock
+        .calls[0]?.[0];
+    expect(popupHandler).toBeTypeOf("function");
+
+    expect(popupHandler?.({ url: trustedFakeWebviewUrl })).toEqual({
+      action: "deny",
+    });
+    expect(state.shellOpenExternal).not.toHaveBeenCalled();
+  });
 });

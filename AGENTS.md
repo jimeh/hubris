@@ -225,6 +225,10 @@ or `pnpm-lock.yaml`.
   dedicated preload that installs the WebSocket bridge in the page world. Keep
   the VS Code proxy HTML pass-through; do not reintroduce VS Code-specific HTML
   rewriting in `apps/desktop/src/protocol.ts`.
+- The main Hubris desktop window no longer relies on protocol HTML injection
+  either. Desktop runtime config and websocket patching now come from preload
+  `executeInMainWorld(...)` bootstrap, so frontend HTML should pass through
+  unchanged in both dev and packaged desktop modes.
 - Task-backed VS Code install APIs snapshot status immediately after enqueueing
   work. In fast tests or CI, that snapshot can still be `Stopped` or already be
   terminal even though install progress events were emitted correctly; assert on

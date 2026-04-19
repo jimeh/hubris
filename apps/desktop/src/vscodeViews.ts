@@ -73,12 +73,50 @@ function openExternalUrl(url: string): void {
   });
 }
 
+function classifyVscodeNavigationTarget(
+  url: string,
+  allowedOrigins: string[],
+): "internal" | "external" | "deny" {
+  const target = classifyNavigationTarget(url, allowedOrigins);
+  if (target === "internal") {
+    return target;
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol === "https:" &&
+      parsed.hostname.endsWith(".vscode-cdn.net") &&
+      /\/out\/vs\/workbench\/contrib\/webview\/browser\/pre\/(?:index|fake)\.html$/.test(
+        parsed.pathname,
+      )
+    ) {
+      const parentOrigin = parsed.searchParams.get("parentOrigin");
+      const remoteAuthority = parsed.searchParams.get("remoteAuthority");
+      const parentAllowed =
+        parentOrigin === null ||
+        classifyNavigationTarget(parentOrigin, allowedOrigins) === "internal";
+      const remoteAllowed =
+        remoteAuthority === null ||
+        allowedOrigins.some((origin) => new URL(origin).host === remoteAuthority);
+
+      if (parentAllowed && remoteAllowed) {
+        return "internal";
+      }
+    }
+  } catch {
+    return target;
+  }
+
+  return target;
+}
+
 function configureVscodeViewGuards(
   webContents: WebContents,
   allowedOrigins: string[],
 ): void {
   const maybeOpenExternalUrl = (url: string): void => {
-    if (classifyNavigationTarget(url, allowedOrigins) !== "external") {
+    if (classifyVscodeNavigationTarget(url, allowedOrigins) !== "external") {
       return;
     }
 
@@ -86,7 +124,7 @@ function configureVscodeViewGuards(
   };
 
   webContents.setWindowOpenHandler(({ url }) => {
-    if (classifyNavigationTarget(url, allowedOrigins) !== "internal") {
+    if (classifyVscodeNavigationTarget(url, allowedOrigins) !== "internal") {
       maybeOpenExternalUrl(url);
     }
     return { action: "deny" };
@@ -96,7 +134,7 @@ function configureVscodeViewGuards(
     preventDefault(): void;
     url: string;
   }) => {
-    if (classifyNavigationTarget(details.url, allowedOrigins) === "internal") {
+    if (classifyVscodeNavigationTarget(details.url, allowedOrigins) === "internal") {
       return;
     }
 

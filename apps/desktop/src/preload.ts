@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+import { installDesktopRuntimeConfigInMainWorld } from "./desktopRuntimeConfig";
 import {
   HUBRIS_BROWSER_BACK_CHANNEL,
   HUBRIS_BROWSER_CREATE_CHANNEL,
@@ -20,6 +21,7 @@ import {
 } from "./browserViewShared";
 import type { DesktopWebSocketBridge } from "./webSocketRendererBridge";
 import { createDesktopWebSocketBridge } from "./webSocketRendererBridge";
+import { installDesktopWebSocketPatchInMainWorld } from "./webSocketPatch";
 import {
   HUBRIS_VSCODE_CREATE_CHANNEL,
   HUBRIS_VSCODE_DESTROY_CHANNEL,
@@ -136,3 +138,5 @@ ipcRenderer.on(
 contextBridge.exposeInMainWorld("__HUBRIS_ELECTRON_WS__", webSocketBridge);
 contextBridge.exposeInMainWorld("__HUBRIS_ELECTRON_BROWSER__", browserBridge);
 contextBridge.exposeInMainWorld("__HUBRIS_ELECTRON_VSCODE__", vscodeBridge);
+installDesktopRuntimeConfigInMainWorld(contextBridge);
+installDesktopWebSocketPatchInMainWorld(contextBridge);

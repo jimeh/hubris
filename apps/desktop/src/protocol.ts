@@ -4,8 +4,18 @@ import path from "node:path";
 
 import type { Session } from "electron";
 
+import {
+  HUBRIS_CODE_SERVER_HOST,
+  HUBRIS_CODE_SERVER_ORIGIN,
+  HUBRIS_HOST,
+  HUBRIS_INTERNAL_HOSTS,
+  HUBRIS_ORIGIN,
+  HUBRIS_SCHEME,
+  HUBRIS_VSCODE_CLI_HOST,
+  HUBRIS_VSCODE_CLI_ORIGIN,
+  HUBRIS_WS_ORIGIN,
+} from "./desktopOrigins";
 import { readDevServerState } from "./runtime";
-import { desktopWebSocketPatchSource } from "./webSocketPatch";
 
 const require = createRequire(__filename);
 
@@ -22,20 +32,18 @@ const HOP_BY_HOP_HEADERS = new Set([
   "upgrade",
 ]);
 
-export const HUBRIS_SCHEME = "https";
-export const HUBRIS_HOST = "desktop.internal.hubris.build";
-export const HUBRIS_VSCODE_CLI_HOST = `vscode-cli.${HUBRIS_HOST}`;
-export const HUBRIS_CODE_SERVER_HOST = `code-server.${HUBRIS_HOST}`;
-export const HUBRIS_ORIGIN = `${HUBRIS_SCHEME}://${HUBRIS_HOST}`;
-export const HUBRIS_WS_ORIGIN = `wss://${HUBRIS_HOST}`;
-export const HUBRIS_VSCODE_CLI_ORIGIN = `${HUBRIS_SCHEME}://${HUBRIS_VSCODE_CLI_HOST}`;
-export const HUBRIS_CODE_SERVER_ORIGIN = `${HUBRIS_SCHEME}://${HUBRIS_CODE_SERVER_HOST}`;
-
-const HUBRIS_INTERNAL_HOSTS = new Set([
-  HUBRIS_HOST,
-  HUBRIS_VSCODE_CLI_HOST,
+export {
   HUBRIS_CODE_SERVER_HOST,
-]);
+  HUBRIS_CODE_SERVER_ORIGIN,
+  HUBRIS_HOST,
+  HUBRIS_ORIGIN,
+  HUBRIS_SCHEME,
+  HUBRIS_VSCODE_CLI_HOST,
+  HUBRIS_VSCODE_CLI_ORIGIN,
+  HUBRIS_WS_ORIGIN,
+};
+
+const HUBRIS_INTERNAL_HOST_SET = new Set<string>(HUBRIS_INTERNAL_HOSTS);
 
 type VscodeRuntime = "codeServer" | "vscodeCli";
 
@@ -125,7 +133,7 @@ export function classifyHubrisWebSocket(
   const parsed = new URL(url, HUBRIS_ORIGIN);
   if (
     (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") ||
-    !HUBRIS_INTERNAL_HOSTS.has(parsed.host)
+    !HUBRIS_INTERNAL_HOST_SET.has(parsed.host)
   ) {
     return null;
   }
@@ -192,43 +200,6 @@ export function createDesktopProtocolContext(
       return resolveHubrisWebSocketTarget(url, cookies, targets, state);
     },
   };
-}
-
-export function buildDesktopRuntimeConfig(): string {
-  return JSON.stringify({
-    apiBase: `${HUBRIS_ORIGIN}/api`,
-    eventsUrl: `${HUBRIS_ORIGIN}/api/events`,
-    terminalWsBase: `${HUBRIS_WS_ORIGIN}/api/terminal/ws`,
-    vscodeBases: {
-      codeServer: `${HUBRIS_CODE_SERVER_ORIGIN}/`,
-      vscodeCli: `${HUBRIS_VSCODE_CLI_ORIGIN}/`,
-    },
-  });
-}
-
-export function appHtmlInjection(): string {
-  return [
-    "<script>",
-    `window.__HUBRIS_DESKTOP_CONFIG__ = ${buildDesktopRuntimeConfig()};`,
-    "</script>",
-    webSocketBridgeInjection(),
-  ].join("");
-}
-
-function webSocketBridgeInjection(): string {
-  return ["<script>", desktopWebSocketPatchSource(), "</script>"].join("");
-}
-
-export function injectHtmlScript(html: string, script: string): string {
-  if (html.includes("</head>")) {
-    return html.replace("</head>", `${script}</head>`);
-  }
-
-  if (html.includes("<body")) {
-    return html.replace(/(<body[^>]*>)/i, `$1${script}`);
-  }
-
-  return `${script}${html}`;
 }
 
 async function handleHubrisProtocolRequest(
@@ -354,7 +325,7 @@ async function proxyFrontendHttp(
       stripOrigin: true,
     }),
   );
-  return maybeInjectHtml(upstream, appHtmlInjection(), false);
+  return upstream;
 }
 
 async function proxyToBackend(
@@ -615,8 +586,7 @@ async function servePackagedFrontend(
   const headers = new Headers({
     "content-type": contentTypeForPath(filePath),
   });
-  const response = new Response(body, { headers });
-  return maybeInjectHtml(response, appHtmlInjection(), false);
+  return new Response(body, { headers });
 }
 
 async function resolveFrontendAssetPath(
@@ -675,7 +645,7 @@ function contentTypeForPath(filePath: string): string {
 }
 
 function isHubrisHttpUrl(url: URL): boolean {
-  return url.protocol === "https:" && HUBRIS_INTERNAL_HOSTS.has(url.host);
+  return url.protocol === "https:" && HUBRIS_INTERNAL_HOST_SET.has(url.host);
 }
 
 function isSubPath(root: string, candidate: string): boolean {
@@ -697,27 +667,6 @@ async function delay(ms: number): Promise<void> {
 function protocolProxyErrorResponse(error: unknown): Response {
   const message = error instanceof Error ? error.message : String(error);
   return new Response(message, { status: 502 });
-}
-
-async function maybeInjectHtml(
-  response: Response,
-  script: string,
-  stripSetCookie: boolean,
-): Promise<Response> {
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!script || !contentType.startsWith("text/html")) {
-    return stripSetCookie ? stripSetCookieHeader(response) : response;
-  }
-
-  const html = await response.text();
-  const headers = sanitizeResponseHeaders(response.headers);
-  headers.delete("content-length");
-  headers.delete("set-cookie");
-  return new Response(injectHtmlScript(html, script), {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
 }
 
 function stripSetCookieHeader(response: Response): Response {
