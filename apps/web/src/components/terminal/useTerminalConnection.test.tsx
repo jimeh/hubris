@@ -88,9 +88,11 @@ function triggerResizeObserver(): void {
 
 function renderTerminalConnection({
   visible = true,
+  focused = true,
   onClosed = vi.fn(),
 }: {
   visible?: boolean;
+  focused?: boolean;
   onClosed?: (tabId: string) => void;
 } = {}) {
   const terminalRef = {
@@ -101,10 +103,15 @@ function renderTerminalConnection({
   } as RefObject<HTMLDivElement | null>;
 
   return renderHook(
-    ({ visible: currentVisible, onClosed: currentOnClosed }) =>
+    ({
+      visible: currentVisible,
+      focused: currentFocused,
+      onClosed: currentOnClosed,
+    }) =>
       useTerminalConnection({
         tabId: "tab-1",
         visible: currentVisible,
+        focused: currentFocused,
         terminalRef,
         containerRef,
         onClosed: currentOnClosed,
@@ -112,6 +119,7 @@ function renderTerminalConnection({
     {
       initialProps: {
         visible,
+        focused,
         onClosed,
       },
     },
@@ -175,7 +183,7 @@ describe("useTerminalConnection", () => {
     expect(queuedFrames.size).toBe(0);
 
     act(() => {
-      rerender({ visible: true, onClosed: vi.fn() });
+      rerender({ visible: true, focused: true, onClosed: vi.fn() });
     });
 
     expect(MockWebSocket.instances).toHaveLength(0);
@@ -244,7 +252,7 @@ describe("useTerminalConnection", () => {
       ws.open();
     });
 
-    rerender({ visible: false, onClosed: vi.fn() });
+    rerender({ visible: false, focused: true, onClosed: vi.fn() });
 
     act(() => {
       result.current.sendResize(true);
@@ -274,7 +282,7 @@ describe("useTerminalConnection", () => {
     const { result, rerender } = renderTerminalConnection({ visible: false });
 
     act(() => {
-      rerender({ visible: true, onClosed: vi.fn() });
+      rerender({ visible: true, focused: true, onClosed: vi.fn() });
     });
 
     act(() => {
@@ -291,7 +299,7 @@ describe("useTerminalConnection", () => {
       ws.open();
     });
 
-    rerender({ visible: false, onClosed: vi.fn() });
+    rerender({ visible: false, focused: true, onClosed: vi.fn() });
 
     act(() => {
       result.current.sendResize(true);
@@ -304,7 +312,7 @@ describe("useTerminalConnection", () => {
       visible: false,
     });
 
-    rerender({ visible: true, onClosed: vi.fn() });
+    rerender({ visible: true, focused: true, onClosed: vi.fn() });
 
     act(() => {
       result.current.sendResize(true);

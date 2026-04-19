@@ -30,6 +30,7 @@ function TerminalTab({ tabId, visible, focused = true, onClosed }: Props) {
   } = useTerminalConnection({
     tabId,
     visible,
+    focused,
     terminalRef,
     containerRef,
     onClosed,

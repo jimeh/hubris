@@ -24,6 +24,7 @@ const RECONNECT_DELAY_MULTIPLIER = 2;
 type UseTerminalConnectionArgs = {
   tabId: string;
   visible: boolean;
+  focused?: boolean;
   terminalRef: RefObject<TerminalAdapter | null>;
   containerRef: RefObject<HTMLDivElement | null>;
   onClosed?: (tabId: string) => void;
@@ -65,6 +66,7 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export function useTerminalConnection({
   tabId,
   visible,
+  focused = true,
   terminalRef,
   containerRef,
   onClosed,
@@ -80,6 +82,7 @@ export function useTerminalConnection({
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const connectWsRef = useRef<() => void>(() => {});
   const visibleRef = useRef(visible);
+  const focusedRef = useRef(focused);
   const onClosedRef = useRef(onClosed);
   const localViewportRef = useRef<TerminalViewport | null>(null);
   const appliedViewportRef = useRef<TerminalViewport | null>(null);
@@ -95,8 +98,9 @@ export function useTerminalConnection({
 
   useLayoutEffect(() => {
     visibleRef.current = visible;
+    focusedRef.current = focused;
     onClosedRef.current = onClosed;
-  }, [onClosed, visible]);
+  }, [focused, onClosed, visible]);
 
   const isCurrentConnection = useCallback(
     (ws: WebSocket, generation: number): boolean =>
@@ -209,7 +213,7 @@ export function useTerminalConnection({
             return;
           }
 
-          if (visibleRef.current) {
+          if (visibleRef.current && focusedRef.current) {
             terminalRef.current?.focus();
           }
         });
@@ -287,7 +291,7 @@ export function useTerminalConnection({
 
       if (!sendResize(true)) {
         scheduleResizeRetry(generation);
-      } else if (visibleRef.current) {
+      } else if (visibleRef.current && focusedRef.current) {
         connectFrameRef.current = null;
         terminalRef.current?.focus();
       }
@@ -434,7 +438,7 @@ export function useTerminalConnection({
     const isVisible = visible;
     const frameId = requestAnimationFrame(() => {
       sendResize(true);
-      if (isVisible) {
+      if (isVisible && focusedRef.current) {
         terminalRef.current?.focus();
       }
     });

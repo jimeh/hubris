@@ -356,11 +356,24 @@ describe("TerminalTab", () => {
       ws.open();
     });
 
-    expect(mockTerminal.focus).toHaveBeenCalledTimes(2);
+    expect(mockTerminal.focus).not.toHaveBeenCalled();
 
     rerender(<TerminalTab tabId="tab-1" visible focused onClosed={vi.fn()} />);
 
-    expect(mockTerminal.focus).toHaveBeenCalledTimes(3);
+    expect(mockTerminal.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an unfocused visible terminal steal focus on open", () => {
+    render(
+      <TerminalTab tabId="tab-1" visible focused={false} onClosed={vi.fn()} />,
+    );
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.open();
+    });
+
+    expect(mockTerminal.focus).not.toHaveBeenCalled();
   });
 
   it("cancels pending resize retry frames during cleanup", () => {
