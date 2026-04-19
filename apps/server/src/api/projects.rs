@@ -335,12 +335,13 @@ pub async fn delete_project(
     for worktree in worktrees {
         close_tabs_for_worktree(&state, &worktree.id);
     }
-    state.persistence.delete_project(id.clone());
 
     projects.retain(|p| p.id != id);
     if save_projects(&state, &projects).await.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR;
     }
+
+    state.persistence.delete_project(id.clone());
 
     let _ = tokio::fs::remove_file(state.project_meta_file(&id)).await;
 

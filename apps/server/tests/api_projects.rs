@@ -1,5 +1,9 @@
 use std::path::Path;
 use std::process::Command;
+use std::{fs, io};
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
@@ -41,6 +45,31 @@ fn run_git(repo_path: &Path, args: &[&str]) {
         .status()
         .unwrap();
     assert!(status.success(), "git failed: {:?}", args);
+}
+
+#[cfg(unix)]
+fn set_read_only(path: &Path) -> io::Result<()> {
+    let mut permissions = fs::metadata(path)?.permissions();
+    permissions.set_mode(0o400);
+    fs::set_permissions(path, permissions)
+}
+
+#[cfg(not(unix))]
+fn set_read_only(path: &Path) -> io::Result<()> {
+    let mut permissions = fs::metadata(path)?.permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(path, permissions)
+}
+
+#[cfg(unix)]
+fn restore_permissions(path: &Path, permissions: fs::Permissions) -> io::Result<()> {
+    fs::set_permissions(path, permissions)
+}
+
+#[cfg(not(unix))]
+fn restore_permissions(path: &Path, mut permissions: fs::Permissions) -> io::Result<()> {
+    permissions.set_readonly(false);
+    fs::set_permissions(path, permissions)
 }
 
 async fn create_project(client: &reqwest::Client, base: &str, path: &str) -> Value {
@@ -421,6 +450,40 @@ async fn test_delete_project() {
         .unwrap();
     let body: Vec<Value> = res.json().await.unwrap();
     assert!(body.is_empty());
+}
+
+#[tokio::test]
+async fn test_delete_project_keeps_project_when_save_fails() {
+    let (base, tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let id = project["id"].as_str().unwrap();
+
+    let projects_file = tmp.path().join("projects.json");
+    let original_permissions = fs::metadata(&projects_file).unwrap().permissions();
+    set_read_only(&projects_file).unwrap();
+
+    let res = client
+        .delete(format!("{}/api/projects/{}", base, id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    restore_permissions(&projects_file, original_permissions).unwrap();
+
+    let res = client
+        .get(format!("{}/api/projects", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body: Vec<Value> = res.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["id"], id);
 }
 
 #[tokio::test]
