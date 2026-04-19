@@ -4,6 +4,7 @@ bun = "latest"
 "github:mitsuhiko/systemfd" = "latest"
 zig = "latest"
 cargo-binstall = "latest"
+"npm:gitnexus" = "latest"
 
 [tasks.build]
 depends = ["build:web", "build:server"]
@@ -204,6 +205,14 @@ description = "Check sqlx offline metadata is current"
 [tasks.setup]
 depends = ["setup:web", "setup:server"]
 description = "Install all dependencies"
+
+[tasks."gitnexus:analyze"]
+run = [
+  "mise x -- gitnexus analyze --embeddings",
+  "git checkout CLAUDE.md",
+  "mise format:markdown",
+]
+description = "Refresh the GitNexus index with embeddings"
 
 [tasks.generate]
 description = "Run all code generators"

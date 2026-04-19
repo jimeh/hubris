@@ -3,7 +3,7 @@ version = 1
 name = "hubris"
 
 [setup]
-script = "mise setup && gitnexus analyze && git checkout CLAUDE.md && mise format:markdown"
+script = "mise setup && mise run gitnexus:analyze"
 
 [[actions]]
 name = "Run Web"

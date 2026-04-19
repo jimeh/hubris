@@ -255,7 +255,7 @@ checks enforce this through `mise run check:backend`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (4578 symbols, 13762
+This project is indexed by GitNexus as **hubris** (7422 symbols, 16951
 relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 
