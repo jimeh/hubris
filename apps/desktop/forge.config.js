@@ -44,6 +44,10 @@ module.exports = {
           entry: "src/preload.ts",
           config: "vite.preload.config.mjs",
         },
+        {
+          entry: "src/vscodePreload.ts",
+          config: "vite.vscode-preload.config.mjs",
+        },
       ],
       renderer: [],
       concurrent: false,

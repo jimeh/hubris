@@ -4,17 +4,15 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { buildDesktopRuntimeConfig } from "./desktopRuntimeConfig";
 import {
   HUBRIS_CODE_SERVER_ORIGIN,
   HUBRIS_ORIGIN,
   HUBRIS_VSCODE_CLI_ORIGIN,
   HUBRIS_WS_ORIGIN,
-  appHtmlInjection,
-  buildDesktopRuntimeConfig,
   classifyHubrisRequest,
   classifyHubrisWebSocket,
   createDesktopProtocolContext,
-  injectHtmlScript,
 } from "./protocol";
 
 afterEach(() => {
@@ -93,7 +91,7 @@ describe("classifyHubrisWebSocket", () => {
 
 describe("buildDesktopRuntimeConfig", () => {
   it("emits stable desktop URLs", () => {
-    expect(JSON.parse(buildDesktopRuntimeConfig())).toEqual({
+    expect(buildDesktopRuntimeConfig()).toEqual({
       apiBase: `${HUBRIS_ORIGIN}/api`,
       eventsUrl: `${HUBRIS_ORIGIN}/api/events`,
       terminalWsBase: `${HUBRIS_WS_ORIGIN}/api/terminal/ws`,
@@ -141,8 +139,8 @@ describe("createDesktopProtocolContext", () => {
       new Request(`${HUBRIS_VSCODE_CLI_ORIGIN}/?folder=%2Ftmp`),
     );
 
-    await expect(first.text()).resolves.toContain("code-server");
-    await expect(second.text()).resolves.toContain("serve-web");
+    await expect(first.text()).resolves.toBe("<html>code-server</html>");
+    await expect(second.text()).resolves.toBe("<html>serve-web</html>");
     expect(
       fetchMock.mock.calls.filter(
         ([input]) =>
@@ -190,7 +188,7 @@ describe("createDesktopProtocolContext", () => {
       ),
     );
 
-    await expect(response.text()).resolves.toContain("serve-web");
+    await expect(response.text()).resolves.toBe("<html>serve-web</html>");
     expect(fetchMock).toHaveBeenCalledWith(
       "http://backend.local/code/vscode-cli?folder=%2Ftmp%2Fworkspace",
       expect.anything(),
@@ -251,6 +249,32 @@ describe("createDesktopProtocolContext", () => {
     } finally {
       fs.rmSync(devTmp, { recursive: true, force: true });
     }
+  });
+
+  it("passes through proxied frontend html unchanged", async () => {
+    const cookies = {
+      get: vi.fn().mockResolvedValue([]),
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    const context = createDesktopProtocolContext(cookies as never, {
+      frontendHttpOrigin: "http://localhost:5173",
+      backendHttpOrigin: "http://backend.local",
+      backendWsOrigin: "ws://backend.local",
+      viteWsOrigin: "ws://localhost:5173",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("<html><head></head><body>frontend</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+
+    const response = await context.handleRequest(
+      new Request(`${HUBRIS_ORIGIN}/`),
+    );
+
+    await expect(response.text()).resolves.toBe(
+      "<html><head></head><body>frontend</body></html>",
+    );
   });
 
   it("preserves the public runtime host when proxying runtime HTTP", async () => {
@@ -439,21 +463,37 @@ describe("createDesktopProtocolContext", () => {
       fs.rmSync(devTmp, { recursive: true, force: true });
     }
   });
-});
 
-describe("injectHtmlScript", () => {
-  it("injects into the head when present", () => {
-    expect(
-      injectHtmlScript(
-        "<html><head><title>x</title></head><body></body></html>",
-        "<script>test()</script>",
-      ),
-    ).toContain("<script>test()</script></head>");
-  });
-});
+  it("passes through packaged frontend html unchanged", async () => {
+    const distDir = fs.mkdtempSync(path.join(os.tmpdir(), "hubris-frontend-"));
 
-describe("appHtmlInjection", () => {
-  it("includes desktop runtime config in app html", () => {
-    expect(appHtmlInjection()).toContain("__HUBRIS_DESKTOP_CONFIG__");
+    try {
+      fs.writeFileSync(
+        path.join(distDir, "index.html"),
+        "<html><head></head><body>packaged</body></html>",
+      );
+
+      const context = createDesktopProtocolContext(
+        {
+          get: vi.fn().mockResolvedValue([]),
+          set: vi.fn().mockResolvedValue(undefined),
+        } as never,
+        {
+          frontendDistDir: distDir,
+          backendHttpOrigin: "http://backend.local",
+          backendWsOrigin: "ws://backend.local",
+        },
+      );
+
+      const response = await context.handleRequest(
+        new Request(`${HUBRIS_ORIGIN}/`),
+      );
+
+      await expect(response.text()).resolves.toBe(
+        "<html><head></head><body>packaged</body></html>",
+      );
+    } finally {
+      fs.rmSync(distDir, { recursive: true, force: true });
+    }
   });
 });

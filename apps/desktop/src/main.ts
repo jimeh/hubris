@@ -42,6 +42,10 @@ import {
   disposeBrowserViewBridge,
   installBrowserViewBridge,
 } from "./browserViews";
+import {
+  disposeVscodeViewBridge,
+  installVscodeViewBridge,
+} from "./vscodeViews";
 import { installWebSocketBridge } from "./wsBridge";
 
 registerHubrisScheme();
@@ -160,6 +164,11 @@ function configureWebContentsGuards(
   webContents: WebContents,
   allowedOrigins: string[],
 ) {
+  type NavigationDetails = {
+    preventDefault(): void;
+    url: string;
+  };
+
   const openExternalUrl = (url: string) => {
     void shell.openExternal(url).catch((error: unknown) => {
       console.error("failed to open external URL", { url, error });
@@ -174,21 +183,15 @@ function configureWebContentsGuards(
     return { action: "deny" };
   });
 
-  const blockIfDisallowed = ({
-    preventDefault,
-    url,
-  }: {
-    preventDefault: () => void;
-    url: string;
-  }) => {
-    const target = classifyNavigationTarget(url, allowedOrigins);
+  const blockIfDisallowed = (details: NavigationDetails) => {
+    const target = classifyNavigationTarget(details.url, allowedOrigins);
     if (target === "internal") {
       return;
     }
 
-    preventDefault();
+    details.preventDefault();
     if (target === "external") {
-      openExternalUrl(url);
+      openExternalUrl(details.url);
     }
   };
 
@@ -266,6 +269,7 @@ async function initializeDesktop() {
  */
 async function createMainWindow() {
   const preloadPath = path.resolve(__dirname, "preload.js");
+  const vscodePreloadPath = path.resolve(__dirname, "vscodePreload.js");
 
   await initializeDesktop();
   const userDataPath = app.getPath("userData");
@@ -280,6 +284,12 @@ async function createMainWindow() {
 
   configureWebContentsGuards(window.webContents, allowedHubrisOrigins());
   installBrowserViewBridge(window, profileMode);
+  installVscodeViewBridge(
+    window,
+    profileMode,
+    vscodePreloadPath,
+    allowedHubrisOrigins(),
+  );
   window.once("ready-to-show", () => {
     if (savedWindowState?.isMaximized) {
       window.maximize();
@@ -290,6 +300,7 @@ async function createMainWindow() {
   });
   window.on("closed", () => {
     disposeBrowserViewBridge();
+    disposeVscodeViewBridge();
     mainWindow = null;
   });
 
@@ -337,6 +348,7 @@ async function showMainWindow(): Promise<BrowserWindow> {
 
 app.on("before-quit", () => {
   disposeBrowserViewBridge({ destroyRecords: true });
+  disposeVscodeViewBridge({ destroyRecords: true });
   stopRuntimeChild();
 });
 

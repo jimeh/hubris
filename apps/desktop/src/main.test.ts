@@ -151,6 +151,12 @@ async function loadMainModule({
   const classifyNavigationTarget = vi.fn(() => "internal");
   const loadDesktopWindowState = vi.fn(() => savedWindowState);
   const wireDesktopWindowStatePersistence = vi.fn();
+  const disposeBrowserViewBridge = vi.fn(() => {
+    events.push("browser-bridge-disposed");
+  });
+  const disposeVscodeViewBridge = vi.fn(() => {
+    events.push("vscode-bridge-disposed");
+  });
 
   vi.doMock("electron", () => ({
     app,
@@ -203,11 +209,16 @@ async function loadMainModule({
   }));
 
   vi.doMock("./browserViews", () => ({
-    disposeBrowserViewBridge: vi.fn(() => {
-      events.push("browser-bridge-disposed");
-    }),
+    disposeBrowserViewBridge,
     installBrowserViewBridge: vi.fn(() => {
       events.push("browser-bridge-installed");
+    }),
+  }));
+
+  vi.doMock("./vscodeViews", () => ({
+    disposeVscodeViewBridge,
+    installVscodeViewBridge: vi.fn(() => {
+      events.push("vscode-bridge-installed");
     }),
   }));
 
@@ -232,6 +243,8 @@ async function loadMainModule({
     createdWindows,
     browserSession,
     desktopSession,
+    disposeBrowserViewBridge,
+    disposeVscodeViewBridge,
     events,
     loadDesktopWindowState,
     ready,
@@ -288,6 +301,7 @@ describe("desktop main process startup", () => {
     expect(state.events.indexOf("browser-bridge-installed")).toBeGreaterThan(
       -1,
     );
+    expect(state.events.indexOf("vscode-bridge-installed")).toBeGreaterThan(-1);
     expect(state.events.indexOf("activate-registered")).toBeGreaterThan(-1);
     expect(state.events.indexOf("guard-request")).toBeLessThan(
       state.events.indexOf("window-created"),
@@ -338,13 +352,17 @@ describe("desktop main process startup", () => {
 
     expect(navigationHandler).toBeTypeOf("function");
 
-    const preventDefault = vi.fn();
-    navigationHandler?.({
-      preventDefault,
+    const navigationEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
       url: "https://example.com/docs",
-    });
+    };
 
-    expect(preventDefault).toHaveBeenCalledTimes(1);
+    navigationHandler?.(navigationEvent);
+
+    expect(navigationEvent.defaultPrevented).toBe(true);
   });
 
   it("blocks external will-frame-navigate requests", async () => {
@@ -364,13 +382,17 @@ describe("desktop main process startup", () => {
 
     expect(navigationHandler).toBeTypeOf("function");
 
-    const preventDefault = vi.fn();
-    navigationHandler?.({
-      preventDefault,
+    const navigationEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
       url: "https://example.com/embed",
-    });
+    };
 
-    expect(preventDefault).toHaveBeenCalledTimes(1);
+    navigationHandler?.(navigationEvent);
+
+    expect(navigationEvent.defaultPrevented).toBe(true);
   });
 
   it("seeds desktop session cookies for the main and runtime origins", async () => {
@@ -536,5 +558,19 @@ describe("desktop main process startup", () => {
     expect(state.waitForFrontendPort).toHaveBeenCalledTimes(1);
     expect(state.waitForBackendPort).toHaveBeenCalledTimes(1);
     expect(state.registerHubrisProtocol).toHaveBeenCalledTimes(1);
+    expect(state.events).toContain("vscode-bridge-disposed");
+  });
+
+  it("destroys retained browser and VS Code views on app quit", async () => {
+    const state = await loadMainModule();
+
+    state.appOnHandlers.get("before-quit")?.();
+
+    expect(state.disposeBrowserViewBridge).toHaveBeenCalledWith({
+      destroyRecords: true,
+    });
+    expect(state.disposeVscodeViewBridge).toHaveBeenCalledWith({
+      destroyRecords: true,
+    });
   });
 });

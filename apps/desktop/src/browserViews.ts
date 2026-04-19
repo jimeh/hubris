@@ -133,23 +133,22 @@ function syncHistory(record: BrowserViewRecord, url: string): void {
 }
 
 function configureBrowserViewGuards(webContents: WebContents): void {
+  type NavigationDetails = {
+    preventDefault(): void;
+    url: string;
+  };
+
   webContents.setWindowOpenHandler(({ url }) => {
     maybeOpenExternal(url);
     return { action: "deny" };
   });
 
-  const blockDisallowedNavigation = ({
-    preventDefault,
-    url,
-  }: {
-    preventDefault: () => void;
-    url: string;
-  }) => {
-    if (isAllowedBrowserUrl(url)) {
+  const blockDisallowedNavigation = (details: NavigationDetails) => {
+    if (isAllowedBrowserUrl(details.url)) {
       return;
     }
 
-    preventDefault();
+    details.preventDefault();
   };
 
   webContents.on("will-navigate", (details) => {
