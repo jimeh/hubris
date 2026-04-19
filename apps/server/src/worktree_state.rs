@@ -178,6 +178,10 @@ impl WorktreeStateService {
         reply_rx.await.map_err(channel_closed)?
     }
 
+    pub fn delete_tab_state(&self, tab_id: String) {
+        let _ = self.tx.send(Command::DeleteTabState { tab_id });
+    }
+
     pub fn delete_worktree(&self, project_id: String, worktree_id: String) {
         let _ = self.tx.send(Command::DeleteWorktree {
             project_id,
@@ -218,6 +222,9 @@ enum Command {
     LoadTerminalRestorePayload {
         tab_id: String,
         reply: oneshot::Sender<std::io::Result<TerminalRestorePayload>>,
+    },
+    DeleteTabState {
+        tab_id: String,
     },
     DeleteWorktree {
         project_id: String,
@@ -313,6 +320,9 @@ async fn open_connection(path: &Path) -> io::Result<SqliteConnection> {
             path.display()
         ))
     })?;
+    cleanup_orphaned_tab_rows(&mut conn)
+        .await
+        .map_err(io::Error::other)?;
     Ok(conn)
 }
 
@@ -406,6 +416,12 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
                     .map_err(std::io::Error::other),
             );
         }
+        Command::DeleteTabState { tab_id } => {
+            state.pending_terminal_flushes.remove(&tab_id);
+            if let Err(error) = delete_tab_rows(conn, &[tab_id]).await {
+                tracing::warn!("failed to delete tab rows: {error}");
+            }
+        }
         Command::DeleteWorktree {
             project_id,
             worktree_id,
@@ -443,6 +459,42 @@ async fn flush_pending_terminal_batches(
     for flush in pending.into_values() {
         persist_terminal_flush(conn, &flush).await?;
     }
+    Ok(())
+}
+
+async fn cleanup_orphaned_tab_rows(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
+    let mut tx = conn.begin().await?;
+    sqlx::query(
+        "
+        DELETE FROM terminal_chunks
+        WHERE NOT EXISTS (
+            SELECT 1 FROM tabs WHERE tabs.tab_id = terminal_chunks.tab_id
+        )
+        ",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "
+        DELETE FROM terminal_state
+        WHERE NOT EXISTS (
+            SELECT 1 FROM tabs WHERE tabs.tab_id = terminal_state.tab_id
+        )
+        ",
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "
+        DELETE FROM browser_history_entries
+        WHERE NOT EXISTS (
+            SELECT 1 FROM tabs WHERE tabs.tab_id = browser_history_entries.tab_id
+        )
+        ",
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -733,24 +785,11 @@ async fn delete_missing_worktree_rows(
     current_tab_ids: &[String],
 ) -> Result<(), sqlx::Error> {
     if current_tab_ids.is_empty() {
-        sqlx::query!(
-            "DELETE FROM tabs WHERE worktree_id = ?1",
-            snapshot.worktree_id
-        )
-        .execute(&mut **tx)
-        .await?;
+        delete_all_worktree_tab_rows(tx, &snapshot.worktree_id).await?;
         return Ok(());
     }
 
-    let mut query = QueryBuilder::<Sqlite>::new("DELETE FROM tabs WHERE worktree_id = ");
-    query.push_bind(&snapshot.worktree_id);
-    query.push(" AND tab_id NOT IN (");
-    let mut separated = query.separated(", ");
-    for id in current_tab_ids {
-        separated.push_bind(id);
-    }
-    separated.push_unseparated(")");
-    query.build().execute(&mut **tx).await?;
+    delete_missing_tab_owned_rows(tx, &snapshot.worktree_id, current_tab_ids).await?;
     Ok(())
 }
 
@@ -1326,6 +1365,145 @@ async fn checkpoint_database(conn: &mut SqliteConnection) -> Result<(), sqlx::Er
     Ok(())
 }
 
+async fn delete_tab_rows(
+    conn: &mut SqliteConnection,
+    tab_ids: &[String],
+) -> Result<(), sqlx::Error> {
+    if tab_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut tx = conn.begin().await?;
+    delete_tab_rows_tx(&mut tx, tab_ids).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn delete_tab_rows_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    tab_ids: &[String],
+) -> Result<(), sqlx::Error> {
+    if tab_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut terminal_chunks_query =
+        QueryBuilder::<Sqlite>::new("DELETE FROM terminal_chunks WHERE tab_id IN (");
+    let mut separated = terminal_chunks_query.separated(", ");
+    for tab_id in tab_ids {
+        separated.push_bind(tab_id);
+    }
+    separated.push_unseparated(")");
+    terminal_chunks_query.build().execute(&mut **tx).await?;
+
+    let mut terminal_state_query =
+        QueryBuilder::<Sqlite>::new("DELETE FROM terminal_state WHERE tab_id IN (");
+    let mut separated = terminal_state_query.separated(", ");
+    for tab_id in tab_ids {
+        separated.push_bind(tab_id);
+    }
+    separated.push_unseparated(")");
+    terminal_state_query.build().execute(&mut **tx).await?;
+
+    let mut history_query =
+        QueryBuilder::<Sqlite>::new("DELETE FROM browser_history_entries WHERE tab_id IN (");
+    let mut separated = history_query.separated(", ");
+    for tab_id in tab_ids {
+        separated.push_bind(tab_id);
+    }
+    separated.push_unseparated(")");
+    history_query.build().execute(&mut **tx).await?;
+
+    let mut tabs_query = QueryBuilder::<Sqlite>::new("DELETE FROM tabs WHERE tab_id IN (");
+    let mut separated = tabs_query.separated(", ");
+    for tab_id in tab_ids {
+        separated.push_bind(tab_id);
+    }
+    separated.push_unseparated(")");
+    tabs_query.build().execute(&mut **tx).await?;
+    Ok(())
+}
+
+async fn delete_all_worktree_tab_rows(
+    tx: &mut Transaction<'_, Sqlite>,
+    worktree_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM terminal_chunks WHERE worktree_id = ?1")
+        .bind(worktree_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM terminal_state WHERE worktree_id = ?1")
+        .bind(worktree_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(
+        "
+        DELETE FROM browser_history_entries
+        WHERE tab_id IN (SELECT tab_id FROM tabs WHERE worktree_id = ?1)
+        ",
+    )
+    .bind(worktree_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("DELETE FROM tabs WHERE worktree_id = ?1")
+        .bind(worktree_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn delete_missing_tab_owned_rows(
+    tx: &mut Transaction<'_, Sqlite>,
+    worktree_id: &str,
+    current_tab_ids: &[String],
+) -> Result<(), sqlx::Error> {
+    let mut terminal_chunks_query =
+        QueryBuilder::<Sqlite>::new("DELETE FROM terminal_chunks WHERE worktree_id = ");
+    terminal_chunks_query.push_bind(worktree_id.to_string());
+    terminal_chunks_query.push(" AND tab_id NOT IN (");
+    let mut separated = terminal_chunks_query.separated(", ");
+    for id in current_tab_ids {
+        separated.push_bind(id.clone());
+    }
+    separated.push_unseparated(")");
+    terminal_chunks_query.build().execute(&mut **tx).await?;
+
+    let mut terminal_state_query =
+        QueryBuilder::<Sqlite>::new("DELETE FROM terminal_state WHERE worktree_id = ");
+    terminal_state_query.push_bind(worktree_id.to_string());
+    terminal_state_query.push(" AND tab_id NOT IN (");
+    let mut separated = terminal_state_query.separated(", ");
+    for id in current_tab_ids {
+        separated.push_bind(id.clone());
+    }
+    separated.push_unseparated(")");
+    terminal_state_query.build().execute(&mut **tx).await?;
+
+    let mut history_query = QueryBuilder::<Sqlite>::new(
+        "DELETE FROM browser_history_entries WHERE tab_id IN (SELECT tab_id FROM tabs WHERE worktree_id = ",
+    );
+    history_query.push_bind(worktree_id.to_string());
+    history_query.push(" AND tab_id NOT IN (");
+    let mut separated = history_query.separated(", ");
+    for id in current_tab_ids {
+        separated.push_bind(id.clone());
+    }
+    separated.push_unseparated(")");
+    history_query.push(")");
+    history_query.build().execute(&mut **tx).await?;
+
+    let mut tabs_query = QueryBuilder::<Sqlite>::new("DELETE FROM tabs WHERE worktree_id = ");
+    tabs_query.push_bind(worktree_id.to_string());
+    tabs_query.push(" AND tab_id NOT IN (");
+    let mut separated = tabs_query.separated(", ");
+    for id in current_tab_ids {
+        separated.push_bind(id.clone());
+    }
+    separated.push_unseparated(")");
+    tabs_query.build().execute(&mut **tx).await?;
+    Ok(())
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1533,6 +1711,266 @@ mod tests {
             .unwrap();
         assert!(payload.scrollback.len() <= PERSISTED_SCROLLBACK_BYTES + 70_000);
         assert_eq!(payload.snapshot, vec![3]);
+    }
+
+    #[tokio::test]
+    async fn delete_tab_state_removes_owned_rows_and_pending_flushes() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("state.sqlite3");
+        let service =
+            std::sync::Arc::new(WorktreeStateService::new(db_path.clone()).await.unwrap());
+
+        service.replace_worktree_state(make_snapshot());
+        service.enqueue_terminal_flush(TerminalFlush {
+            project_id: "project-1".to_string(),
+            worktree_id: "worktree-1".to_string(),
+            tab_id: "terminal-1".to_string(),
+            metadata: TerminalPersistedState {
+                size: TerminalSize::default_pty(),
+                total_bytes: 5,
+                snapshot: vec![9],
+            },
+            output: b"hello".to_vec(),
+            flushed_at_ms: 1,
+        });
+        service.delete_tab_state("terminal-1".to_string());
+        service.shutdown().await.unwrap();
+
+        let mut conn = open_connection(&db_path).await.unwrap();
+        let tab_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tabs WHERE tab_id = 'terminal-1'")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+        assert_eq!(tab_count, 0);
+
+        let terminal_state_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM terminal_state WHERE tab_id = 'terminal-1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(terminal_state_count, 0);
+
+        let terminal_chunk_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM terminal_chunks WHERE tab_id = 'terminal-1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(terminal_chunk_count, 0);
+
+        let browser_history_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM browser_history_entries WHERE tab_id = 'browser-1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(browser_history_count, 2);
+    }
+
+    #[tokio::test]
+    async fn replace_worktree_state_removes_missing_tab_owned_rows() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("state.sqlite3");
+        let mut conn = open_connection(&path).await.unwrap();
+
+        replace_worktree_state(&mut conn, &make_snapshot())
+            .await
+            .unwrap();
+        persist_terminal_flush(
+            &mut conn,
+            &TerminalFlush {
+                project_id: "project-1".to_string(),
+                worktree_id: "worktree-1".to_string(),
+                tab_id: "terminal-1".to_string(),
+                metadata: TerminalPersistedState {
+                    size: TerminalSize::default_pty(),
+                    total_bytes: 5,
+                    snapshot: vec![1],
+                },
+                output: b"hello".to_vec(),
+                flushed_at_ms: 1,
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut next_snapshot = make_snapshot();
+        next_snapshot.tabs = vec![next_snapshot.tabs[2].clone()];
+        replace_worktree_state(&mut conn, &next_snapshot)
+            .await
+            .unwrap();
+
+        let terminal_tab_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tabs WHERE tab_id = 'terminal-1'")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+        assert_eq!(terminal_tab_count, 0);
+
+        let terminal_state_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM terminal_state WHERE tab_id = 'terminal-1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(terminal_state_count, 0);
+
+        let terminal_chunk_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM terminal_chunks WHERE tab_id = 'terminal-1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(terminal_chunk_count, 0);
+
+        let browser_tab_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tabs WHERE tab_id = 'browser-1'")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+        assert_eq!(browser_tab_count, 0);
+
+        let browser_history_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM browser_history_entries WHERE tab_id = 'browser-1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(browser_history_count, 0);
+    }
+
+    #[tokio::test]
+    async fn open_connection_cleans_orphaned_tab_rows() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("state.sqlite3");
+        let mut conn = open_connection(&path).await.unwrap();
+
+        sqlx::query(
+            "
+            INSERT INTO tabs (
+                tab_id, project_id, worktree_id, session_id, tab_type, pane_id, label,
+                position, created_at_ms, preview, browser_history_index
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ",
+        )
+        .bind("tab-live")
+        .bind("project-1")
+        .bind("worktree-1")
+        .bind("default")
+        .bind("browser")
+        .bind("pane-1")
+        .bind("Live")
+        .bind(1.0_f64)
+        .bind(1_i64)
+        .bind(false)
+        .bind(0_i64)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+        sqlx::query(
+            "
+            INSERT INTO browser_history_entries (tab_id, history_index, url)
+            VALUES (?, ?, ?), (?, ?, ?)
+            ",
+        )
+        .bind("tab-live")
+        .bind(0_i64)
+        .bind("https://example.com")
+        .bind("tab-orphan")
+        .bind(0_i64)
+        .bind("https://orphan.example.com")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+        sqlx::query(
+            "
+            INSERT INTO terminal_state (
+                tab_id, project_id, worktree_id, last_size_cols, last_size_rows,
+                total_bytes, last_snapshot, last_flush_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ",
+        )
+        .bind("tab-live")
+        .bind("project-1")
+        .bind("worktree-1")
+        .bind(80_i64)
+        .bind(24_i64)
+        .bind(1_i64)
+        .bind(vec![1_u8])
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind("tab-orphan")
+        .bind("project-1")
+        .bind("worktree-1")
+        .bind(80_i64)
+        .bind(24_i64)
+        .bind(1_i64)
+        .bind(vec![2_u8])
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+        sqlx::query(
+            "
+            INSERT INTO terminal_chunks (
+                tab_id, project_id, worktree_id, seq, data, byte_len, created_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)
+            ",
+        )
+        .bind("tab-live")
+        .bind("project-1")
+        .bind("worktree-1")
+        .bind(0_i64)
+        .bind(vec![1_u8])
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind("tab-orphan")
+        .bind("project-1")
+        .bind("worktree-1")
+        .bind(0_i64)
+        .bind(vec![2_u8])
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+        drop(conn);
+
+        let mut reopened = open_connection(&path).await.unwrap();
+        let orphan_history_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM browser_history_entries WHERE tab_id = 'tab-orphan'",
+        )
+        .fetch_one(&mut reopened)
+        .await
+        .unwrap();
+        assert_eq!(orphan_history_count, 0);
+
+        let orphan_terminal_state_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM terminal_state WHERE tab_id = 'tab-orphan'",
+        )
+        .fetch_one(&mut reopened)
+        .await
+        .unwrap();
+        assert_eq!(orphan_terminal_state_count, 0);
+
+        let orphan_terminal_chunk_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM terminal_chunks WHERE tab_id = 'tab-orphan'",
+        )
+        .fetch_one(&mut reopened)
+        .await
+        .unwrap();
+        assert_eq!(orphan_terminal_chunk_count, 0);
+
+        let live_history_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM browser_history_entries WHERE tab_id = 'tab-live'",
+        )
+        .fetch_one(&mut reopened)
+        .await
+        .unwrap();
+        assert_eq!(live_history_count, 1);
     }
 
     #[tokio::test]

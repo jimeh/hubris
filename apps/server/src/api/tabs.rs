@@ -1467,6 +1467,7 @@ pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -
     }
     state.restored_terminal_tabs.remove(&id);
     state.terminal_restore_locks.remove(&id);
+    state.persistence.delete_tab_state(id.clone());
 
     state.events.emit(EventKind::TabClosed {
         session_id: removed_tab.session_id().to_string(),
