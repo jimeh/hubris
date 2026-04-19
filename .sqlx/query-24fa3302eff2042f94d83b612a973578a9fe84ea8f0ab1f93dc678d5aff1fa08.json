@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT custom_label, process_label, title_label\n            FROM tabs\n            WHERE tab_id = 'terminal-1'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "custom_label",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "process_label",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "title_label",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "24fa3302eff2042f94d83b612a973578a9fe84ea8f0ab1f93dc678d5aff1fa08"
+}

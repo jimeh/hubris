@@ -172,6 +172,15 @@ pub struct TerminalFlush {
 }
 
 #[derive(Debug, Clone)]
+pub struct TerminalLabelsSnapshot {
+    pub project_id: String,
+    pub worktree_id: String,
+    pub tab_id: String,
+    pub custom_label: Option<String>,
+    pub process_label: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct WorktreeSnapshot {
     pub project_id: String,
     pub worktree_id: String,
@@ -266,6 +275,10 @@ impl WorktreeStateService {
         let _ = self.tx.send(Command::EnqueueTerminalFlush { flush });
     }
 
+    pub fn update_terminal_labels(&self, labels: TerminalLabelsSnapshot) {
+        let _ = self.tx.send(Command::UpdateTerminalLabels { labels });
+    }
+
     pub async fn load_terminal_restore_payload(
         self: std::sync::Arc<Self>,
         tab_id: String,
@@ -280,8 +293,11 @@ impl WorktreeStateService {
         reply_rx.await.map_err(channel_closed)?
     }
 
-    pub fn delete_tab_state(&self, tab_id: String) {
-        let _ = self.tx.send(Command::DeleteTabState { tab_id });
+    pub fn delete_tab_state(&self, tab_id: String, worktree_id: String) {
+        let _ = self.tx.send(Command::DeleteTabState {
+            tab_id,
+            worktree_id,
+        });
     }
 
     pub fn delete_worktree(&self, project_id: String, worktree_id: String) {
@@ -318,6 +334,9 @@ enum Command {
         worktree_id: String,
         restore_state: WorktreeRestoreState,
     },
+    UpdateTerminalLabels {
+        labels: TerminalLabelsSnapshot,
+    },
     EnqueueTerminalFlush {
         flush: TerminalFlush,
     },
@@ -327,6 +346,7 @@ enum Command {
     },
     DeleteTabState {
         tab_id: String,
+        worktree_id: String,
     },
     DeleteWorktree {
         project_id: String,
@@ -343,6 +363,7 @@ enum Command {
 #[derive(Debug, Default)]
 struct WriterState {
     pending_terminal_flushes: HashMap<String, TerminalFlush>,
+    pending_worktree_snapshots: HashMap<String, WorktreeSnapshot>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -369,12 +390,23 @@ async fn run_worker(mut conn: SqliteConnection, mut rx: mpsc::UnboundedReceiver<
             maybe_command = rx.recv() => {
                 match maybe_command {
                     Some(Command::Shutdown { reply }) => {
-                        let result = match flush_pending_terminal_batches(&mut conn, &mut state)
-                            .await
+                        let result = match flush_pending_worktree_snapshots(
+                            &mut conn,
+                            &mut state,
+                        )
+                        .await
                         {
-                            Ok(()) => checkpoint_database(&mut conn)
+                            Ok(()) => match flush_pending_terminal_batches(
+                                &mut conn,
+                                &mut state,
+                            )
+                            .await
+                            {
+                                Ok(()) => checkpoint_database(&mut conn)
                                 .await
                                 .map_err(std::io::Error::other),
+                                Err(error) => Err(std::io::Error::other(error)),
+                            },
                             Err(error) => Err(std::io::Error::other(error)),
                         };
                         let _ = reply.send(result);
@@ -382,6 +414,7 @@ async fn run_worker(mut conn: SqliteConnection, mut rx: mpsc::UnboundedReceiver<
                     }
                     Some(command) => handle_command(&mut conn, &mut state, command).await,
                     None => {
+                        let _ = flush_pending_worktree_snapshots(&mut conn, &mut state).await;
                         let _ = flush_pending_terminal_batches(&mut conn, &mut state).await;
                         let _ = checkpoint_database(&mut conn).await;
                         break;
@@ -389,6 +422,10 @@ async fn run_worker(mut conn: SqliteConnection, mut rx: mpsc::UnboundedReceiver<
                 }
             }
             _ = tick.tick() => {
+                if let Err(error) = flush_pending_worktree_snapshots(&mut conn, &mut state).await
+                {
+                    tracing::warn!("failed to flush pending worktree state: {error}");
+                }
                 if let Err(error) = flush_pending_terminal_batches(&mut conn, &mut state).await {
                     tracing::warn!("failed to flush pending terminal state: {error}");
                 }
@@ -477,6 +514,7 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
             existing_worktrees,
             reply,
         } => {
+            let _ = flush_pending_worktree_snapshots(conn, state).await;
             let _ = flush_pending_terminal_batches(conn, state).await;
             let _ = reply.send(
                 load_existing_worktrees(conn, existing_worktrees)
@@ -485,22 +523,41 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
             );
         }
         Command::ReplaceWorktreeState { snapshot } => {
-            if let Err(error) = replace_worktree_state(conn, &snapshot).await {
-                tracing::warn!(
-                    worktree_id = snapshot.worktree_id,
-                    "failed to persist worktree state: {error}"
-                );
-            }
+            state
+                .pending_worktree_snapshots
+                .insert(snapshot.worktree_id.clone(), snapshot);
         }
         Command::UpdateRestoreState {
             project_id,
             worktree_id,
             restore_state,
         } => {
+            if let Err(error) = flush_pending_worktree_snapshot(conn, state, &worktree_id).await {
+                tracing::warn!(
+                    worktree_id,
+                    "failed to flush pending worktree state before restore update: {error}"
+                );
+            }
             if let Err(error) =
                 update_restore_state(conn, &project_id, &worktree_id, &restore_state).await
             {
                 tracing::warn!(worktree_id, "failed to persist restore state: {error}");
+            }
+        }
+        Command::UpdateTerminalLabels { labels } => {
+            if let Err(error) =
+                flush_pending_worktree_snapshot(conn, state, &labels.worktree_id).await
+            {
+                tracing::warn!(
+                    worktree_id = labels.worktree_id,
+                    "failed to flush pending worktree state before label update: {error}"
+                );
+            }
+            if let Err(error) = update_terminal_labels(conn, &labels).await {
+                tracing::warn!(
+                    tab_id = labels.tab_id,
+                    "failed to persist terminal labels: {error}"
+                );
             }
         }
         Command::EnqueueTerminalFlush { flush } => {
@@ -511,6 +568,7 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
                 .or_insert(flush);
         }
         Command::LoadTerminalRestorePayload { tab_id, reply } => {
+            let _ = flush_pending_worktree_snapshots(conn, state).await;
             let _ = flush_pending_terminal_batches(conn, state).await;
             let _ = reply.send(
                 load_terminal_restore_payload(conn, &tab_id)
@@ -518,7 +576,16 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
                     .map_err(std::io::Error::other),
             );
         }
-        Command::DeleteTabState { tab_id } => {
+        Command::DeleteTabState {
+            tab_id,
+            worktree_id,
+        } => {
+            if let Err(error) = flush_pending_worktree_snapshot(conn, state, &worktree_id).await {
+                tracing::warn!(
+                    worktree_id,
+                    "failed to flush pending worktree state before tab delete: {error}"
+                );
+            }
             state.pending_terminal_flushes.remove(&tab_id);
             if let Err(error) = delete_tab_rows(conn, &[tab_id]).await {
                 tracing::warn!("failed to delete tab rows: {error}");
@@ -528,6 +595,12 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
             project_id,
             worktree_id,
         } => {
+            if let Err(error) = flush_pending_worktree_snapshot(conn, state, &worktree_id).await {
+                tracing::warn!(
+                    worktree_id,
+                    "failed to flush pending worktree state before worktree delete: {error}"
+                );
+            }
             state
                 .pending_terminal_flushes
                 .retain(|_, flush| flush.worktree_id != worktree_id);
@@ -536,6 +609,12 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
             }
         }
         Command::DeleteProject { project_id } => {
+            if let Err(error) = flush_pending_project_snapshots(conn, state, &project_id).await {
+                tracing::warn!(
+                    project_id,
+                    "failed to flush pending worktree state before project delete: {error}"
+                );
+            }
             state
                 .pending_terminal_flushes
                 .retain(|_, flush| flush.project_id != project_id);
@@ -560,6 +639,46 @@ async fn flush_pending_terminal_batches(
     let pending = std::mem::take(&mut state.pending_terminal_flushes);
     for flush in pending.into_values() {
         persist_terminal_flush(conn, &flush).await?;
+    }
+    Ok(())
+}
+
+async fn flush_pending_worktree_snapshots(
+    conn: &mut SqliteConnection,
+    state: &mut WriterState,
+) -> Result<(), sqlx::Error> {
+    let pending = std::mem::take(&mut state.pending_worktree_snapshots);
+    for snapshot in pending.into_values() {
+        replace_worktree_state(conn, &snapshot).await?;
+    }
+    Ok(())
+}
+
+async fn flush_pending_worktree_snapshot(
+    conn: &mut SqliteConnection,
+    state: &mut WriterState,
+    worktree_id: &str,
+) -> Result<(), sqlx::Error> {
+    let Some(snapshot) = state.pending_worktree_snapshots.remove(worktree_id) else {
+        return Ok(());
+    };
+    replace_worktree_state(conn, &snapshot).await
+}
+
+async fn flush_pending_project_snapshots(
+    conn: &mut SqliteConnection,
+    state: &mut WriterState,
+    project_id: &str,
+) -> Result<(), sqlx::Error> {
+    let worktree_ids: Vec<String> = state
+        .pending_worktree_snapshots
+        .iter()
+        .filter(|(_, snapshot)| snapshot.project_id == project_id)
+        .map(|(worktree_id, _)| worktree_id.clone())
+        .collect();
+
+    for worktree_id in worktree_ids {
+        flush_pending_worktree_snapshot(conn, state, &worktree_id).await?;
     }
     Ok(())
 }
@@ -773,7 +892,7 @@ async fn replace_worktree_state(
                 None,
                 labels.custom_label.as_deref(),
                 labels.smart_label.as_deref(),
-                labels.title_label.as_deref(),
+                None::<&str>,
             ),
             TabInfo::File { path, .. } => (
                 "file",
@@ -978,6 +1097,31 @@ async fn update_restore_state(
         pane_mru_json,
         tab_mru_by_pane_json,
         updated_at_ms,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+async fn update_terminal_labels(
+    conn: &mut SqliteConnection,
+    labels: &TerminalLabelsSnapshot,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "
+        UPDATE tabs
+        SET
+            project_id = ?2,
+            worktree_id = ?3,
+            custom_label = ?4,
+            process_label = ?5
+        WHERE tab_id = ?1
+        ",
+        labels.tab_id,
+        labels.project_id,
+        labels.worktree_id,
+        labels.custom_label,
+        labels.process_label,
     )
     .execute(&mut *conn)
     .await?;
@@ -1266,7 +1410,7 @@ async fn load_existing_worktrees(
                 labels: TerminalTabLabels {
                     custom_label: row.custom_label,
                     smart_label: row.process_label,
-                    title_label: row.title_label,
+                    title_label: None,
                 },
             },
             "file" => TabInfo::File {
@@ -1790,7 +1934,7 @@ mod tests {
             .unwrap();
         assert_eq!(terminal.custom_label(), Some("dev"));
         assert_eq!(terminal.smart_label(), Some("bash"));
-        assert_eq!(terminal.title_label(), Some("shell"));
+        assert_eq!(terminal.title_label(), None);
 
         let migration_count = sqlx::query_scalar!("SELECT COUNT(*) FROM _sqlx_migrations")
             .fetch_one(&mut conn)
@@ -1905,7 +2049,7 @@ mod tests {
             output: b"hello".to_vec(),
             flushed_at_ms: 1,
         });
-        service.delete_tab_state("terminal-1".to_string());
+        service.delete_tab_state("terminal-1".to_string(), "worktree-1".to_string());
         service.shutdown().await.unwrap();
 
         let mut conn = open_connection(&db_path).await.unwrap();
@@ -1939,6 +2083,126 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(browser_history_count, 2);
+    }
+
+    #[tokio::test]
+    async fn replace_worktree_state_is_coalesced_until_flushed() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("state.sqlite3");
+        let mut conn = open_connection(&path).await.unwrap();
+        let mut state = WriterState::default();
+
+        let first = make_snapshot();
+        let mut second = make_snapshot();
+        second.restore_state.active_tab_id = Some("browser-1".to_string());
+
+        handle_command(
+            &mut conn,
+            &mut state,
+            Command::ReplaceWorktreeState { snapshot: first },
+        )
+        .await;
+        handle_command(
+            &mut conn,
+            &mut state,
+            Command::ReplaceWorktreeState { snapshot: second },
+        )
+        .await;
+
+        assert_eq!(state.pending_worktree_snapshots.len(), 1);
+
+        let tab_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tabs")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(tab_count, 0);
+
+        flush_pending_worktree_snapshots(&mut conn, &mut state)
+            .await
+            .unwrap();
+
+        let active_tab_id = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT active_tab_id FROM worktree_state WHERE worktree_id = 'worktree-1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(active_tab_id.as_deref(), Some("browser-1"));
+    }
+
+    #[tokio::test]
+    async fn update_restore_state_flushes_pending_snapshot_first() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("state.sqlite3");
+        let service =
+            std::sync::Arc::new(WorktreeStateService::new(db_path.clone()).await.unwrap());
+
+        let mut snapshot = make_snapshot();
+        snapshot.restore_state.active_tab_id = Some("terminal-1".to_string());
+        service.replace_worktree_state(snapshot);
+        service.update_restore_state(
+            "project-1".to_string(),
+            "worktree-1".to_string(),
+            WorktreeRestoreState {
+                active_tab_id: Some("browser-1".to_string()),
+                focused_pane_id: Some("pane-1".to_string()),
+                pane_mru: vec!["pane-1".to_string()],
+                tab_mru_by_pane: HashMap::from([(
+                    "pane-1".to_string(),
+                    vec!["browser-1".to_string(), "terminal-1".to_string()],
+                )]),
+            },
+        );
+        service.shutdown().await.unwrap();
+
+        let mut conn = open_connection(&db_path).await.unwrap();
+        let active_tab_id = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT active_tab_id FROM worktree_state WHERE worktree_id = 'worktree-1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(active_tab_id.as_deref(), Some("browser-1"));
+    }
+
+    #[tokio::test]
+    async fn update_terminal_labels_flushes_pending_snapshot_and_drops_titles() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("state.sqlite3");
+        let service =
+            std::sync::Arc::new(WorktreeStateService::new(db_path.clone()).await.unwrap());
+
+        let mut snapshot = make_snapshot();
+        if let TabInfo::Terminal { labels, .. } = &mut snapshot.tabs[0] {
+            labels.custom_label = Some("old".to_string());
+            labels.smart_label = Some("old-smart".to_string());
+            labels.title_label = Some("old-title".to_string());
+        }
+        service.replace_worktree_state(snapshot);
+        service.update_terminal_labels(TerminalLabelsSnapshot {
+            project_id: "project-1".to_string(),
+            worktree_id: "worktree-1".to_string(),
+            tab_id: "terminal-1".to_string(),
+            custom_label: Some("new".to_string()),
+            process_label: Some("nu".to_string()),
+        });
+        service.shutdown().await.unwrap();
+
+        let mut conn = open_connection(&db_path).await.unwrap();
+        let row = sqlx::query!(
+            "
+            SELECT custom_label, process_label, title_label
+            FROM tabs
+            WHERE tab_id = 'terminal-1'
+            "
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+
+        assert_eq!(row.custom_label.as_deref(), Some("new"));
+        assert_eq!(row.process_label.as_deref(), Some("nu"));
+        assert_eq!(row.title_label, None);
     }
 
     #[tokio::test]

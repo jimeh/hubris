@@ -27,7 +27,8 @@ use crate::tab::{
     WorktreeTabLayout, WorktreeTabLayoutState,
 };
 use crate::worktree_state::{
-    TerminalFlush, TerminalPersistedState, TerminalRestorePayload, WorktreeSnapshot,
+    TerminalFlush, TerminalLabelsSnapshot, TerminalPersistedState, TerminalRestorePayload,
+    WorktreeSnapshot,
 };
 
 type TerminalCloseReceiver = tokio::sync::broadcast::Receiver<()>;
@@ -640,6 +641,25 @@ pub fn persist_worktree_snapshot(state: &AppState, worktree_id: &str) {
         .replace_worktree_state(worktree_snapshot(state, &project_id, worktree_id));
 }
 
+fn persist_terminal_labels(state: &AppState, tab: &TabInfo) {
+    let TabInfo::Terminal { worktree_id, .. } = tab else {
+        return;
+    };
+    let Some(project_id) = state.project_id_for_worktree(worktree_id) else {
+        return;
+    };
+
+    state
+        .persistence
+        .update_terminal_labels(TerminalLabelsSnapshot {
+            project_id,
+            worktree_id: worktree_id.to_string(),
+            tab_id: tab.id().to_string(),
+            custom_label: tab.custom_label().map(str::to_string),
+            process_label: tab.smart_label().map(str::to_string),
+        });
+}
+
 fn update_worktree_layout_state(
     state: &AppState,
     worktree_id: &str,
@@ -1092,7 +1112,6 @@ fn spawn_terminal_title_task(
     let tabs = state.tabs.clone();
     let terminal_tabs = state.terminal_tabs.clone();
     let events = state.events.clone();
-    let state_for_persist = state.clone();
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -1123,8 +1142,6 @@ fn spawn_terminal_title_task(
                             info.clone()
                         });
                     }
-
-                    persist_worktree_snapshot(&state_for_persist, updated.worktree_id());
 
                     events.emit(EventKind::TabUpdated {
                         session_id: updated.session_id().to_string(),
@@ -1181,7 +1198,7 @@ fn spawn_terminal_smart_label_task(
                         });
                     }
 
-                    persist_worktree_snapshot(&state_for_persist, updated.worktree_id());
+                    persist_terminal_labels(&state_for_persist, &updated);
 
                     events.emit(EventKind::TabUpdated {
                         session_id: updated.session_id().to_string(),
@@ -1467,7 +1484,9 @@ pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -
     }
     state.restored_terminal_tabs.remove(&id);
     state.terminal_restore_locks.remove(&id);
-    state.persistence.delete_tab_state(id.clone());
+    state
+        .persistence
+        .delete_tab_state(id.clone(), removed_tab.worktree_id().to_string());
 
     state.events.emit(EventKind::TabClosed {
         session_id: removed_tab.session_id().to_string(),
@@ -1565,7 +1584,13 @@ pub async fn update_tab(
         });
     }
 
-    persist_worktree_snapshot(&state, updated.worktree_id());
+    let requires_full_snapshot =
+        req.position.is_some() || req.preview.is_some() || has_browser_update_fields(&req);
+    if requires_full_snapshot {
+        persist_worktree_snapshot(&state, updated.worktree_id());
+    } else if req.custom_label.is_some() && updated.is_terminal() {
+        persist_terminal_labels(&state, &updated);
+    }
     state.events.emit(EventKind::TabUpdated {
         session_id: updated.session_id().to_string(),
         tab: updated.clone(),
