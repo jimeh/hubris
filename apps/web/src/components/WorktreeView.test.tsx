@@ -16,6 +16,7 @@ import type {
   TerminalTab,
   Worktree,
 } from "@/lib/types";
+import CommandDialogs from "@/components/commands/CommandDialogs";
 import WorktreeView from "./WorktreeView";
 import {
   resetFileEditorStoreForTests,
@@ -35,6 +36,10 @@ import {
   resetWorktreeRightSidebarWidthStoreForTests,
   useWorktreeRightSidebarWidthStore,
 } from "@/lib/stores/worktreeRightSidebarWidth";
+import {
+  resetCommandUiStoreForTests,
+  useCommandUiStore,
+} from "@/lib/stores/commandUi";
 
 const terminalRenderSpy = vi.fn<(tabId: string) => void>();
 
@@ -257,16 +262,6 @@ function makeBrowserTab(
   };
 }
 
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
 function makeSplitLayout() {
   return {
     rootId: "split-root",
@@ -309,6 +304,7 @@ describe("WorktreeView", () => {
     resetGitDiffStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     resetWorktreeRightSidebarWidthStoreForTests();
+    resetCommandUiStoreForTests();
     initializeWorktreeRightSidebarStore();
     useTabStore.setState({
       tabs: [],
@@ -329,7 +325,12 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: "a" },
     });
 
-    render(<WorktreeView worktree={worktree} active />);
+    render(
+      <>
+        <WorktreeView worktree={worktree} active />
+        <CommandDialogs />
+      </>,
+    );
 
     expect(getTerminalRenderCounts()).toEqual({ a: 2, b: 1 });
 
@@ -345,7 +346,12 @@ describe("WorktreeView", () => {
   it("shows empty-state copy for the separate terminal and browser buttons", () => {
     const worktree = makeWorktree();
 
-    render(<WorktreeView worktree={worktree} active />);
+    render(
+      <>
+        <WorktreeView worktree={worktree} active />
+        <CommandDialogs />
+      </>,
+    );
 
     expect(
       screen.getByText(
@@ -366,7 +372,12 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: "a", w2: "x" },
     });
 
-    render(<WorktreeView worktree={worktree} active />);
+    render(
+      <>
+        <WorktreeView worktree={worktree} active />
+        <CommandDialogs />
+      </>,
+    );
 
     expect(getTerminalRenderCounts()).toEqual({ a: 2 });
 
@@ -393,7 +404,12 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: "a" },
     });
 
-    render(<WorktreeView worktree={worktree} active />);
+    render(
+      <>
+        <WorktreeView worktree={worktree} active />
+        <CommandDialogs />
+      </>,
+    );
 
     expect(getTerminalRenderCounts()).toEqual({ a: 2, b: 1 });
 
@@ -466,7 +482,12 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: "a" },
     });
 
-    render(<WorktreeView worktree={worktree} active />);
+    render(
+      <>
+        <WorktreeView worktree={worktree} active />
+        <CommandDialogs />
+      </>,
+    );
     expect(getTerminalRenderCounts()).toEqual({ a: 2 });
     expect(screen.getByText("Files panel")).toBeInTheDocument();
 
@@ -614,7 +635,12 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: "a" },
     });
 
-    render(<WorktreeView worktree={worktree} active />);
+    render(
+      <>
+        <WorktreeView worktree={worktree} active />
+        <CommandDialogs />
+      </>,
+    );
     expect(getTerminalRenderCounts()).toEqual({ a: 2 });
 
     act(() => {
@@ -660,7 +686,12 @@ describe("WorktreeView", () => {
       activeTabByWorktree: { [worktree.id]: browserA.id },
     });
 
-    render(<WorktreeView worktree={worktree} active />);
+    render(
+      <>
+        <WorktreeView worktree={worktree} active />
+        <CommandDialogs />
+      </>,
+    );
 
     expect(screen.getByTestId("browser-browser-a")).toHaveAttribute(
       "data-visible",
@@ -709,7 +740,12 @@ describe("WorktreeView", () => {
       focusedPaneByWorktree: { [worktree.id]: "pane-1" },
     });
 
-    render(<WorktreeView worktree={worktree} active />);
+    render(
+      <>
+        <WorktreeView worktree={worktree} active />
+        <CommandDialogs />
+      </>,
+    );
 
     expect(screen.getByTestId("browser-browser-b")).toHaveAttribute(
       "data-visible",
@@ -866,10 +902,7 @@ describe("WorktreeView", () => {
     );
   });
 
-  it("keeps the save dialog open when saving a dirty file tab fails", async () => {
-    const closeSpy = vi.fn().mockResolvedValue(undefined);
-    const saveAttempt = deferred<void>();
-    const saveSpy = vi.fn().mockReturnValue(saveAttempt.promise);
+  it("opens the shared dirty-close dialog for dirty file tabs", async () => {
     const worktree = makeWorktree();
     const fileTab = makeFileTab("file-1", worktree.id);
 
@@ -878,7 +911,6 @@ describe("WorktreeView", () => {
       tabs: [fileTab],
       activeTabId: fileTab.id,
       activeTabByWorktree: { [worktree.id]: fileTab.id },
-      close: closeSpy,
     }));
     useFileEditorStore.setState((state) => ({
       ...state,
@@ -900,7 +932,6 @@ describe("WorktreeView", () => {
           error: null,
         },
       },
-      save: saveSpy,
     }));
 
     render(<WorktreeView worktree={worktree} active />);
@@ -908,57 +939,19 @@ describe("WorktreeView", () => {
     fireEvent.click(
       screen.getByRole("button", { name: `Close ${fileTab.id}` }),
     );
-    expect(
-      await screen.findByText(`Save changes to ${fileTab.label}?`),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(saveSpy).toHaveBeenCalledWith(
-        worktree.project_id,
-        worktree.id,
-        fileTab.id,
-      );
+      expect(useCommandUiStore.getState().dialog).toEqual({
+        tabId: fileTab.id,
+        type: "close-dirty-tab",
+      });
     });
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Don't Save" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-
-    await act(async () => {
-      saveAttempt.reject(new Error("save failed"));
-      await Promise.resolve();
-    });
-
-    expect(closeSpy).not.toHaveBeenCalled();
-    await waitFor(() => {
-      expect(
-        screen.getByText(`Save changes to ${fileTab.label}?`),
-      ).toBeInTheDocument();
-    });
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Don't Save" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
-  it("closes the dirty git diff tab after a successful save", async () => {
-    const closeSpy = vi.fn().mockResolvedValue(undefined);
-    const saveAttempt = deferred<void>();
+  it("opens the shared dirty-close dialog for dirty git diff tabs", async () => {
     const worktree = makeWorktree();
     const diffTab = makeGitDiffTab("diff-1", worktree.id, {
       path: "README.md",
-    });
-    const saveSpy = vi.fn().mockImplementation(async () => {
-      await saveAttempt.promise;
-      useGitDiffStore.setState((state) => ({
-        sessions: {
-          ...state.sessions,
-          [diffTab.id]: {
-            ...state.sessions[diffTab.id]!,
-            dirty: false,
-          },
-        },
-      }));
     });
 
     useTabStore.setState((state) => ({
@@ -966,7 +959,6 @@ describe("WorktreeView", () => {
       tabs: [diffTab],
       activeTabId: diffTab.id,
       activeTabByWorktree: { [worktree.id]: diffTab.id },
-      close: closeSpy,
     }));
     useGitDiffStore.setState((state) => ({
       ...state,
@@ -991,7 +983,6 @@ describe("WorktreeView", () => {
           error: null,
         },
       },
-      save: saveSpy,
     }));
 
     render(<WorktreeView worktree={worktree} active />);
@@ -999,199 +990,12 @@ describe("WorktreeView", () => {
     fireEvent.click(
       screen.getByRole("button", { name: `Close ${diffTab.id}` }),
     );
-    expect(
-      await screen.findByText(`Save changes to ${diffTab.label}?`),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(saveSpy).toHaveBeenCalledWith(
-        worktree.project_id,
-        worktree.id,
-        diffTab.id,
-      );
-    });
-
-    await act(async () => {
-      saveAttempt.resolve();
-      await Promise.resolve();
-    });
-
-    await waitFor(() => {
-      expect(closeSpy).toHaveBeenCalledWith(diffTab.id);
-    });
-  });
-
-  it("closes the dirty file tab after a successful save", async () => {
-    const closeSpy = vi.fn().mockResolvedValue(undefined);
-    const saveAttempt = deferred<void>();
-    const worktree = makeWorktree();
-    const fileTab = makeFileTab("file-1", worktree.id);
-    const saveSpy = vi.fn().mockImplementation(async () => {
-      await saveAttempt.promise;
-      useFileEditorStore.setState((state) => ({
-        sessions: {
-          ...state.sessions,
-          [fileTab.id]: {
-            ...state.sessions[fileTab.id]!,
-            dirty: false,
-          },
-        },
-      }));
-    });
-
-    useTabStore.setState((state) => ({
-      ...state,
-      tabs: [fileTab],
-      activeTabId: fileTab.id,
-      activeTabByWorktree: { [worktree.id]: fileTab.id },
-      close: closeSpy,
-    }));
-    useFileEditorStore.setState((state) => ({
-      ...state,
-      sessions: {
-        [fileTab.id]: {
-          tabId: fileTab.id,
-          path: fileTab.path,
-          draft: "draft",
-          savedContent: "saved",
-          versionToken: "v1",
-          language: "typescript",
-          readOnly: false,
-          unsupportedReason: null,
-          dirty: true,
-          externalChange: false,
-          loadStatus: "loaded",
-          saveStatus: "idle",
-          reloadGeneration: 0,
-          error: null,
-        },
-      },
-      save: saveSpy,
-    }));
-
-    render(<WorktreeView worktree={worktree} active />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: `Close ${fileTab.id}` }),
-    );
-    expect(
-      await screen.findByText(`Save changes to ${fileTab.label}?`),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => {
-      expect(saveSpy).toHaveBeenCalledWith(
-        worktree.project_id,
-        worktree.id,
-        fileTab.id,
-      );
-    });
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Don't Save" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-
-    await act(async () => {
-      saveAttempt.resolve();
-      await Promise.resolve();
-    });
-
-    await waitFor(() => {
-      expect(closeSpy).toHaveBeenCalledWith(fileTab.id);
-    });
-    await waitFor(() => {
-      expect(
-        screen.queryByText(`Save changes to ${fileTab.label}?`),
-      ).not.toBeInTheDocument();
-    });
-  });
-
-  it("does not allow cancel or discard to race a pending save", async () => {
-    const closeSpy = vi.fn().mockResolvedValue(undefined);
-    const saveAttempt = deferred<void>();
-    const worktree = makeWorktree();
-    const fileTab = makeFileTab("file-race", worktree.id);
-    const saveSpy = vi.fn().mockImplementation(async () => {
-      await saveAttempt.promise;
-      useFileEditorStore.setState((state) => ({
-        sessions: {
-          ...state.sessions,
-          [fileTab.id]: {
-            ...state.sessions[fileTab.id]!,
-            dirty: false,
-          },
-        },
-      }));
-    });
-
-    useTabStore.setState((state) => ({
-      ...state,
-      tabs: [fileTab],
-      activeTabId: fileTab.id,
-      activeTabByWorktree: { [worktree.id]: fileTab.id },
-      close: closeSpy,
-    }));
-    useFileEditorStore.setState((state) => ({
-      ...state,
-      sessions: {
-        [fileTab.id]: {
-          tabId: fileTab.id,
-          path: fileTab.path,
-          draft: "draft",
-          savedContent: "saved",
-          versionToken: "v1",
-          language: "typescript",
-          readOnly: false,
-          unsupportedReason: null,
-          dirty: true,
-          externalChange: false,
-          loadStatus: "loaded",
-          saveStatus: "idle",
-          reloadGeneration: 0,
-          error: null,
-        },
-      },
-      save: saveSpy,
-    }));
-
-    render(<WorktreeView worktree={worktree} active />);
-
-    fireEvent.click(
-      screen.getByRole("button", { name: `Close ${fileTab.id}` }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => {
-      expect(saveSpy).toHaveBeenCalledWith(
-        worktree.project_id,
-        worktree.id,
-        fileTab.id,
-      );
-    });
-
-    const cancelButton = screen.getByRole("button", { name: "Cancel" });
-    const discardButton = screen.getByRole("button", { name: "Don't Save" });
-
-    expect(cancelButton).toBeDisabled();
-    expect(discardButton).toBeDisabled();
-
-    fireEvent.click(cancelButton);
-    fireEvent.click(discardButton);
-    expect(closeSpy).not.toHaveBeenCalled();
-    expect(
-      screen.getByText(`Save changes to ${fileTab.label}?`),
-    ).toBeInTheDocument();
-
-    await act(async () => {
-      saveAttempt.resolve();
-      await Promise.resolve();
-    });
-
-    await waitFor(() => {
-      expect(closeSpy).toHaveBeenCalledTimes(1);
-      expect(closeSpy).toHaveBeenCalledWith(fileTab.id);
+      expect(useCommandUiStore.getState().dialog).toEqual({
+        tabId: diffTab.id,
+        type: "close-dirty-tab",
+      });
     });
   });
 

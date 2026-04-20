@@ -59,4 +59,19 @@ describe("SettingsDialogRoot", () => {
     expect(screen.getByText("VS Code section")).toBeInTheDocument();
     expect(screen.getByRole("combobox")).toHaveTextContent("VS Code");
   });
+
+  it("honors the initial section when opened from a command", () => {
+    render(
+      <SettingsDialogRoot
+        initialSection="VS Code"
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("VS Code section")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { current: "page", name: "VS Code" }),
+    ).toBeInTheDocument();
+  });
 });

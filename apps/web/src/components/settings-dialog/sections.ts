@@ -11,6 +11,7 @@ export const sections = [
 export type SectionName = (typeof sections)[number]["name"];
 
 export type SettingsDialogProps = {
+  initialSection?: SectionName;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };

@@ -2,18 +2,8 @@ import {
   SortableContext,
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { useMemo, useState, type RefObject, type UIEventHandler } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useMemo, type RefObject, type UIEventHandler } from "react";
+import { executeCommand } from "@/lib/commands";
 import { useThemeSettings } from "@/lib/stores/theme";
 import { useTerminalSettings } from "@/lib/stores/terminal";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
@@ -34,7 +24,6 @@ type SortableTabStripProps = {
   onPin: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onReorder?: (orderedIds: string[]) => Promise<void>;
-  onRenameTerminalTab?: (tabId: string, label: string) => Promise<void>;
   onResetTerminalTabName?: (tabId: string) => Promise<void>;
   dirtyTabIds?: string[];
   lockedTabIds?: string[];
@@ -56,7 +45,6 @@ export default function SortableTabStrip({
   onPin,
   onClose,
   onReorder: _onReorder,
-  onRenameTerminalTab = async () => {},
   onResetTerminalTabName = async () => {},
   dirtyTabIds = [],
   lockedTabIds = [],
@@ -64,8 +52,6 @@ export default function SortableTabStrip({
   draggingTabId = null,
   dragOverId = null,
 }: SortableTabStripProps) {
-  const [renameTabId, setRenameTabId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
   const dirtyTabIdSet = useMemo(() => new Set(dirtyTabIds), [dirtyTabIds]);
   const lockedTabIdSet = useMemo(() => new Set(lockedTabIds), [lockedTabIds]);
   const theme = useThemeSettings((state) => state.activeTheme);
@@ -109,39 +95,13 @@ export default function SortableTabStrip({
       ),
     [gitStatus, tabs, terminalSettings, theme],
   );
-  const renameTab = useMemo(
-    () =>
-      renameTabId
-        ? (tabs.find(
-            (tab): tab is Extract<Tab, { type: "terminal" }> =>
-              tab.id === renameTabId && tab.type === "terminal",
-          ) ?? null)
-        : null,
-    [renameTabId, tabs],
-  );
+
   function handleBeginRename(tabId: string): void {
-    const tab = tabs.find(
-      (candidate): candidate is Extract<Tab, { type: "terminal" }> =>
-        candidate.id === tabId && candidate.type === "terminal",
-    );
-    if (!tab) {
-      return;
-    }
-
-    setRenameTabId(tabId);
-    setRenameValue(
-      tab.customLabel ?? tabPresentations[tabId]?.label ?? tab.label,
-    );
-  }
-
-  async function handleSubmitRename(): Promise<void> {
-    if (!renameTabId) {
-      return;
-    }
-
-    await onRenameTerminalTab(renameTabId, renameValue);
-    setRenameTabId(null);
-    setRenameValue("");
+    void executeCommand({
+      args: { tabId },
+      id: "tab.renameTerminal",
+      source: "context-menu",
+    });
   }
 
   return (
@@ -214,57 +174,6 @@ export default function SortableTabStrip({
           ) : null}
         </div>
       </SortableContext>
-
-      <Dialog
-        open={renameTabId !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setRenameTabId(null);
-            setRenameValue("");
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Rename Terminal Tab</DialogTitle>
-            <DialogDescription>
-              Custom names override smart names and terminal-provided titles
-              until reset.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor="terminal-tab-name">Name</Label>
-            <Input
-              id="terminal-tab-name"
-              value={renameValue}
-              onChange={(event) => setRenameValue(event.currentTarget.value)}
-              placeholder={renameTab?.label ?? "Terminal"}
-              autoFocus
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void handleSubmitRename();
-                }
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setRenameTabId(null);
-                setRenameValue("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="button" onClick={() => void handleSubmitRename()}>
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

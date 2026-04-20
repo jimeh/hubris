@@ -44,6 +44,7 @@ import {
   initializeSystemStore,
   resetSystemStoreForTests,
 } from "@/lib/stores/system";
+import { resetCommandUiStoreForTests } from "@/lib/stores/commandUi";
 
 let bootstrapped = false;
 
@@ -69,6 +70,7 @@ export function bootstrapApp(): void {
 
 export function resetBootstrapForTests(): void {
   bootstrapped = false;
+  resetCommandUiStoreForTests();
   resetProjectStoreForTests();
   resetWorktreeStoreForTests();
   resetTabStoreForTests();

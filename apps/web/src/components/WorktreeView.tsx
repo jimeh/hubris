@@ -20,7 +20,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type MouseEvent,
   type ReactNode,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -32,20 +31,11 @@ import TerminalTab from "@/components/TerminalTab";
 import WorktreeRightSidebar from "@/components/WorktreeRightSidebar";
 import TabDragOverlay from "@/components/tab-bar/TabDragOverlay";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { executeCommand } from "@/lib/commands";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
 import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useTabStore } from "@/lib/stores/tabs";
@@ -87,7 +77,6 @@ type PaneLeafProps = {
   onAddBrowser: () => Promise<void>;
   onSplitRight: () => void;
   onSplitDown: () => void;
-  onRenameTerminalTab: (tabId: string, label: string) => Promise<void>;
   onResetTerminalTabName: (tabId: string) => Promise<void>;
   onFocusPane: () => void;
   registerViewport: (paneId: string, element: HTMLDivElement | null) => void;
@@ -345,7 +334,6 @@ function PaneLeaf({
   onAddBrowser,
   onSplitRight,
   onSplitDown,
-  onRenameTerminalTab,
   onResetTerminalTabName,
   onFocusPane,
   registerViewport,
@@ -374,7 +362,6 @@ function PaneLeaf({
         onAddBrowser={onAddBrowser}
         onSplitRight={onSplitRight}
         onSplitDown={onSplitDown}
-        onRenameTerminalTab={onRenameTerminalTab}
         onResetTerminalTabName={onResetTerminalTabName}
         dragging={dragging}
         draggingTabId={draggingTabId}
@@ -462,10 +449,6 @@ function PaneTreeView({
 }
 
 export default function WorktreeView({ worktree, active }: Props) {
-  const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(
-    null,
-  );
-  const [isPendingCloseSaving, setIsPendingCloseSaving] = useState(false);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [draggingTabWidth, setDraggingTabWidth] = useState<number | null>(null);
@@ -501,19 +484,12 @@ export default function WorktreeView({ worktree, active }: Props) {
     activeTabByPane,
     focusedPaneByWorktree,
     layoutsByWorktree,
-    addTerminal,
     reorder,
     activate,
-    close,
-    pin,
     moveTab,
-    splitPane,
     focusPane,
     setSplitRatio,
     persistLayout,
-    setTerminalCustomLabel,
-    resetTerminalCustomLabel,
-    openBrowser,
     removeLocal,
   } = useTabStore(
     useShallow((state) => ({
@@ -521,24 +497,15 @@ export default function WorktreeView({ worktree, active }: Props) {
       activeTabByPane: state.activeTabByPane,
       focusedPaneByWorktree: state.focusedPaneByWorktree,
       layoutsByWorktree: state.layoutsByWorktree,
-      addTerminal: state.addTerminal,
       reorder: state.reorder,
       activate: state.activate,
-      close: state.close,
-      pin: state.pin,
       moveTab: state.moveTab,
-      splitPane: state.splitPane,
       focusPane: state.focusPane,
       setSplitRatio: state.setSplitRatio,
       persistLayout: state.persistLayout,
-      setTerminalCustomLabel: state.setTerminalCustomLabel,
-      resetTerminalCustomLabel: state.resetTerminalCustomLabel,
-      openBrowser: state.openBrowser,
       removeLocal: state.removeLocal,
     })),
   );
-  const saveFile = useFileEditorStore((state) => state.save);
-  const saveDiff = useGitDiffStore((state) => state.save);
   const dirtyFileTabIds = useFileEditorStore(
     useShallow((state) =>
       Object.values(state.sessions)
@@ -640,10 +607,6 @@ export default function WorktreeView({ worktree, active }: Props) {
   const focusedPaneId =
     focusedPaneByWorktree[worktree.id] ??
     (paneTree?.type === "leaf" ? paneTree.paneId : worktreeTabs[0]?.pane_id);
-  const pendingCloseTab = useMemo(
-    () => worktreeTabs.find((tab) => tab.id === pendingCloseTabId) ?? null,
-    [pendingCloseTabId, worktreeTabs],
-  );
   const emptyState = useMemo(
     () => (
       <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -684,16 +647,6 @@ export default function WorktreeView({ worktree, active }: Props) {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [dirtyTabIds]);
-
-  useEffect(() => {
-    if (
-      pendingCloseTabId !== null &&
-      !worktreeTabs.some((tab) => tab.id === pendingCloseTabId)
-    ) {
-      setPendingCloseTabId(null);
-      setIsPendingCloseSaving(false);
-    }
-  }, [pendingCloseTabId, worktreeTabs]);
 
   useLayoutEffect(() => {
     const viewRoot = viewRef.current;
@@ -855,41 +808,27 @@ export default function WorktreeView({ worktree, active }: Props) {
     },
     [activate],
   );
-  const handlePinTab = useCallback(
-    (tabId: string) => {
-      void pin(tabId);
-    },
-    [pin],
-  );
-  const handleCloseTab = useCallback(
-    (tabId: string) => {
-      const tab = useTabStore
-        .getState()
-        .tabs.find((candidate) => candidate.id === tabId);
-      const isDirty =
-        useFileEditorStore.getState().sessions[tabId]?.dirty ||
-        useGitDiffStore.getState().sessions[tabId]?.dirty;
-      if ((tab?.type === "file" || tab?.type === "git_diff") && isDirty) {
-        setPendingCloseTabId(tabId);
-        return;
-      }
-
-      void close(tabId);
-    },
-    [close],
-  );
-  const handleRenameTerminalTab = useCallback(
-    async (tabId: string, label: string) => {
-      await setTerminalCustomLabel(tabId, label);
-    },
-    [setTerminalCustomLabel],
-  );
-  const handleResetTerminalTabName = useCallback(
-    async (tabId: string) => {
-      await resetTerminalCustomLabel(tabId);
-    },
-    [resetTerminalCustomLabel],
-  );
+  const handlePinTab = useCallback((tabId: string) => {
+    void executeCommand({
+      args: { tabId },
+      id: "tab.pin",
+      source: "tab-bar",
+    });
+  }, []);
+  const handleCloseTab = useCallback((tabId: string) => {
+    void executeCommand({
+      args: { tabId },
+      id: "tab.close",
+      source: "tab-bar",
+    });
+  }, []);
+  const handleResetTerminalTabName = useCallback(async (tabId: string) => {
+    await executeCommand({
+      args: { tabId },
+      id: "tab.resetTerminalName",
+      source: "context-menu",
+    });
+  }, []);
   const handleResizeSplit = useCallback(
     (nodeId: string, ratio: number) => {
       const changed = setSplitRatio(worktree.id, nodeId, ratio);
@@ -1038,18 +977,41 @@ export default function WorktreeView({ worktree, active }: Props) {
           onPinTab={handlePinTab}
           onCloseTab={handleCloseTab}
           onAddTerminal={() => {
-            void addTerminal(worktree.id, paneId);
+            void executeCommand({
+              args: { paneId, worktreeId: worktree.id },
+              id: "tab.newTerminal",
+              source: "button",
+            });
           }}
           onAddBrowser={async () => {
-            await openBrowser({ worktreeId: worktree.id, paneId });
+            await executeCommand({
+              args: { paneId, worktreeId: worktree.id },
+              id: "tab.newBrowser",
+              source: "button",
+            });
           }}
           onSplitRight={() => {
-            void splitPane(worktree.project_id, worktree.id, paneId, "right");
+            void executeCommand({
+              args: {
+                paneId,
+                projectId: worktree.project_id,
+                worktreeId: worktree.id,
+              },
+              id: "pane.splitRight",
+              source: "button",
+            });
           }}
           onSplitDown={() => {
-            void splitPane(worktree.project_id, worktree.id, paneId, "down");
+            void executeCommand({
+              args: {
+                paneId,
+                projectId: worktree.project_id,
+                worktreeId: worktree.id,
+              },
+              id: "pane.splitDown",
+              source: "button",
+            });
           }}
-          onRenameTerminalTab={handleRenameTerminalTab}
           onResetTerminalTabName={handleResetTerminalTabName}
           onFocusPane={() => focusPane(worktree.id, paneId)}
           registerViewport={registerViewport}
@@ -1059,7 +1021,6 @@ export default function WorktreeView({ worktree, active }: Props) {
     },
     [
       activePaneTabIds,
-      addTerminal,
       dirtyTabIds,
       dragOverId,
       draggingTabId,
@@ -1069,13 +1030,10 @@ export default function WorktreeView({ worktree, active }: Props) {
       handleActivateTab,
       handleCloseTab,
       handlePinTab,
-      handleRenameTerminalTab,
       handleResetTerminalTabName,
       lockedTabIds,
-      openBrowser,
       paneTabsById,
       registerViewport,
-      splitPane,
       tabBarActionsByTabId,
       worktree,
     ],
@@ -1225,115 +1183,6 @@ export default function WorktreeView({ worktree, active }: Props) {
       </div>
 
       <WorktreeRightSidebar worktree={worktree} active={active} />
-      <AlertDialog
-        open={active && pendingCloseTabId !== null}
-        onOpenChange={(open: boolean) => {
-          if (!open && isPendingCloseSaving) {
-            return;
-          }
-          if (!open) {
-            setPendingCloseTabId(null);
-            setIsPendingCloseSaving(false);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Save changes to {tabTitle(pendingCloseTab)}?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Your edits will be lost if you close this tab without saving.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isPendingCloseSaving}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isPendingCloseSaving}
-              className="bg-muted text-foreground hover:bg-muted/80"
-              onClick={() => {
-                if (!pendingCloseTabId || isPendingCloseSaving) {
-                  return;
-                }
-
-                const tabId = pendingCloseTabId;
-                setIsPendingCloseSaving(false);
-                setPendingCloseTabId(null);
-                void close(tabId);
-              }}
-            >
-              Don&apos;t Save
-            </AlertDialogAction>
-            <AlertDialogAction
-              disabled={isPendingCloseSaving}
-              onClick={(event: MouseEvent<HTMLButtonElement>) => {
-                if (
-                  !pendingCloseTabId ||
-                  (pendingCloseTab?.type !== "file" &&
-                    pendingCloseTab?.type !== "git_diff") ||
-                  isPendingCloseSaving
-                ) {
-                  return;
-                }
-                event.preventDefault();
-                setIsPendingCloseSaving(true);
-
-                void (async () => {
-                  try {
-                    if (pendingCloseTab.type === "file") {
-                      await saveFile(
-                        worktree.project_id,
-                        worktree.id,
-                        pendingCloseTab.id,
-                      );
-                    } else {
-                      await saveDiff(
-                        worktree.project_id,
-                        worktree.id,
-                        pendingCloseTab.id,
-                      );
-                    }
-                    const stillDirty =
-                      pendingCloseTab.type === "file"
-                        ? useFileEditorStore.getState().sessions[
-                            pendingCloseTab.id
-                          ]?.dirty
-                        : useGitDiffStore.getState().sessions[
-                            pendingCloseTab.id
-                          ]?.dirty;
-                    if (stillDirty) {
-                      setIsPendingCloseSaving(false);
-                      return;
-                    }
-                    setIsPendingCloseSaving(false);
-                    setPendingCloseTabId(null);
-                    await close(pendingCloseTab.id);
-                  } catch {
-                    // Leave dialog open so the user can retry or discard.
-                    setIsPendingCloseSaving(false);
-                  }
-                })();
-              }}
-            >
-              Save
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
-}
-
-function tabTitle(tab: Tab | null): string {
-  if (!tab || tab.type === "terminal") {
-    return tab?.label ?? "this file";
-  }
-
-  if (tab.type === "browser") {
-    return tab.label || tab.url;
-  }
-
-  return tab.path.split("/").filter(Boolean).at(-1) ?? tab.path;
 }

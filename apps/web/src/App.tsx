@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Check, Copy, Folder, PanelRight } from "lucide-react";
+import { Check, Copy, Folder, PanelRight, Search } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
@@ -21,16 +21,20 @@ import {
 } from "@/components/ui/tooltip";
 import AppSidebar from "@/components/AppSidebar";
 import BranchInfo from "@/components/BranchInfo";
+import CommandDialogs from "@/components/commands/CommandDialogs";
+import CommandPalette from "@/components/commands/CommandPalette";
 import SettingsStatusNotice from "@/components/SettingsStatusNotice";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import ToastViewport from "@/components/ToastViewport";
 import VscodeWorkbenchPane from "@/components/VscodeWorkbenchPane";
 import WorktreeView from "@/components/WorktreeView";
 import { Button } from "@/components/ui/button";
+import { executeCommand } from "@/lib/commands";
 import { applyMonacoTheme } from "@/lib/monaco";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useSystemStore } from "@/lib/stores/system";
+import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useHubrisWorkbenchStore } from "@/lib/stores/hubrisWorkbench";
@@ -60,7 +64,6 @@ function AppHeader({
   );
   const openTab = useWorktreeRightSidebarStore((state) => state.openTab);
   const activeTab = useWorktreeRightSidebarStore((state) => state.activeTab);
-  const updateUiMode = useWorktreeStore((state) => state.updateUiMode);
   const fileManagerVisible = isMobile ? mobileOpen : desktopOpen;
   const fileManagerLabel = fileManagerVisible
     ? "Hide file manager"
@@ -120,11 +123,15 @@ function AppHeader({
               className="h-7 px-3"
               aria-pressed={!isVscodeMode}
               onClick={() => {
-                void updateUiMode(
-                  selectedWorktree.project_id,
-                  selectedWorktree.id,
-                  "hubris",
-                );
+                void executeCommand({
+                  args: {
+                    projectId: selectedWorktree.project_id,
+                    uiMode: "hubris",
+                    worktreeId: selectedWorktree.id,
+                  },
+                  id: "worktree.setUiMode",
+                  source: "button",
+                });
               }}
             >
               Hubris
@@ -135,11 +142,15 @@ function AppHeader({
               className="h-7 px-3"
               aria-pressed={isVscodeMode}
               onClick={() => {
-                void updateUiMode(
-                  selectedWorktree.project_id,
-                  selectedWorktree.id,
-                  "vscode",
-                );
+                void executeCommand({
+                  args: {
+                    projectId: selectedWorktree.project_id,
+                    uiMode: "vscode",
+                    worktreeId: selectedWorktree.id,
+                  },
+                  id: "worktree.setUiMode",
+                  source: "button",
+                });
               }}
             >
               VS Code
@@ -181,6 +192,22 @@ function AppHeader({
           </button>
         </div>
       ) : null}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="inline-flex"
+            onClick={() => {
+              useCommandUiStore.getState().openPalette();
+            }}
+          >
+            <Search className="h-4 w-4" />
+            Commands
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Open command palette</TooltipContent>
+      </Tooltip>
       {selectedWorktree ? (
         !isVscodeMode ? (
           <Tooltip>
@@ -418,6 +445,8 @@ export default function App() {
               </div>
             )}
           </div>
+          <CommandPalette />
+          <CommandDialogs />
           <ToastViewport />
         </SidebarInset>
       </SidebarProvider>

@@ -46,7 +46,6 @@ type Props = {
   onReorder?: (orderedIds: string[]) => Promise<void>;
   onSplitRight?: () => void;
   onSplitDown?: () => void;
-  onRenameTerminalTab?: (tabId: string, label: string) => Promise<void>;
   onResetTerminalTabName?: (tabId: string) => Promise<void>;
   dragging?: boolean;
   draggingTabId?: string | null;
@@ -71,7 +70,6 @@ export default function TabBar({
   onReorder = async () => {},
   onSplitRight,
   onSplitDown,
-  onRenameTerminalTab = async () => {},
   onResetTerminalTabName = async () => {},
   dragging = false,
   draggingTabId = null,
@@ -184,7 +182,6 @@ export default function TabBar({
           onPin={onPin}
           onClose={onClose}
           onReorder={onReorder}
-          onRenameTerminalTab={onRenameTerminalTab}
           onResetTerminalTabName={onResetTerminalTabName}
           dragging={dragging}
           draggingTabId={draggingTabId}
