@@ -3,7 +3,12 @@ version = 1
 name = "hubris"
 
 [setup]
-script = "mise setup && gitnexus analyze && git checkout CLAUDE.md && mise format:markdown"
+script = '''
+cd "$CODEX_WORKTREE_PATH"
+cp -av "$CODEX_SOURCE_TREE_PATH/.gitnexus" .
+mise setup
+mise run gitnexus:analyze
+'''
 
 [[actions]]
 name = "Run Web"
