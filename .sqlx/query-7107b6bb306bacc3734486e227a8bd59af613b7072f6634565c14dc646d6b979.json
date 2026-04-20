@@ -1,0 +1,128 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            tab_id as \"tab_id!\",\n            project_id as \"project_id!\",\n            worktree_id as \"worktree_id!\",\n            session_id as \"session_id!\",\n            tab_type as \"tab_type!\",\n            pane_id as \"pane_id!\",\n            label as \"label!\",\n            position as \"position!\",\n            created_at_ms as \"created_at_ms!\",\n            preview as \"preview!\",\n            custom_label,\n            process_label,\n            title_label,\n            path,\n            scope,\n            original_path,\n            commit_id,\n            url,\n            browser_history_index\n        FROM tabs\n        ORDER BY worktree_id, pane_id, position, created_at_ms, tab_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "tab_id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "project_id!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "worktree_id!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "session_id!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "tab_type!",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "pane_id!",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "label!",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "position!",
+        "ordinal": 7,
+        "type_info": "Float"
+      },
+      {
+        "name": "created_at_ms!",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "preview!",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "custom_label",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "process_label",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "title_label",
+        "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "path",
+        "ordinal": 13,
+        "type_info": "Text"
+      },
+      {
+        "name": "scope",
+        "ordinal": 14,
+        "type_info": "Text"
+      },
+      {
+        "name": "original_path",
+        "ordinal": 15,
+        "type_info": "Text"
+      },
+      {
+        "name": "commit_id",
+        "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "url",
+        "ordinal": 17,
+        "type_info": "Text"
+      },
+      {
+        "name": "browser_history_index",
+        "ordinal": 18,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "7107b6bb306bacc3734486e227a8bd59af613b7072f6634565c14dc646d6b979"
+}

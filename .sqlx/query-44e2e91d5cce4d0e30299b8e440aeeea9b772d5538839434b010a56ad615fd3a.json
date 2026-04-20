@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        INSERT INTO terminal_state (\n            tab_id,\n            project_id,\n            worktree_id,\n            last_size_cols,\n            last_size_rows,\n            replay_total_bytes,\n            source_bytes_end,\n            replay_epoch,\n            last_flush_at_ms,\n            updated_at_ms\n        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)\n        ON CONFLICT(tab_id) DO UPDATE SET\n            project_id = excluded.project_id,\n            worktree_id = excluded.worktree_id,\n            last_size_cols = excluded.last_size_cols,\n            last_size_rows = excluded.last_size_rows,\n            replay_total_bytes = excluded.replay_total_bytes,\n            source_bytes_end = excluded.source_bytes_end,\n            replay_epoch = excluded.replay_epoch,\n            last_flush_at_ms = excluded.last_flush_at_ms,\n            updated_at_ms = excluded.updated_at_ms\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "44e2e91d5cce4d0e30299b8e440aeeea9b772d5538839434b010a56ad615fd3a"
+}

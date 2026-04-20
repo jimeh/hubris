@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                        INSERT INTO layout_nodes (\n                            worktree_id, node_id, node_type, pane_id\n                        ) VALUES (?1, ?2, 'leaf', ?3)\n                        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "65dc2d178697d20fbca2a5045a43acf9704aeee54cd01e46fc9bd84926ffd692"
+}

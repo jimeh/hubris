@@ -16,11 +16,15 @@ function TerminalTab({ tabId, visible, focused = true, onClosed }: Props) {
   const terminalVersion = useTerminalSettings((state) => state.version);
   const fontFamily = useTerminalSettings((state) => state.fontFamily);
   const fontSize = useTerminalSettings((state) => state.settings.fontSize);
+  const clientScrollbackRows = useTerminalSettings(
+    (state) => state.settings.clientScrollbackRows,
+  );
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<TerminalAdapter | null>(null);
   const fontFamilyRef = useRef(fontFamily);
   const fontSizeRef = useRef(fontSize);
+  const clientScrollbackRowsRef = useRef(clientScrollbackRows);
   const {
     connected,
     everConnected,
@@ -30,6 +34,7 @@ function TerminalTab({ tabId, visible, focused = true, onClosed }: Props) {
   } = useTerminalConnection({
     tabId,
     visible,
+    focused,
     terminalRef,
     containerRef,
     onClosed,
@@ -38,7 +43,8 @@ function TerminalTab({ tabId, visible, focused = true, onClosed }: Props) {
   useEffect(() => {
     fontFamilyRef.current = fontFamily;
     fontSizeRef.current = fontSize;
-  }, [fontFamily, fontSize]);
+    clientScrollbackRowsRef.current = clientScrollbackRows;
+  }, [clientScrollbackRows, fontFamily, fontSize]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -49,6 +55,7 @@ function TerminalTab({ tabId, visible, focused = true, onClosed }: Props) {
     const terminal = createXtermAdapter({
       fontFamily: fontFamilyRef.current,
       fontSize: fontSizeRef.current,
+      scrollbackRows: clientScrollbackRowsRef.current,
     });
     terminalRef.current = terminal;
     terminal.open(container);
@@ -78,8 +85,9 @@ function TerminalTab({ tabId, visible, focused = true, onClosed }: Props) {
     }
 
     terminalRef.current.updateFont(fontFamily, fontSize);
+    terminalRef.current.updateScrollback(clientScrollbackRows);
     sendResize(true);
-  }, [fontFamily, fontSize, sendResize, terminalVersion]);
+  }, [clientScrollbackRows, fontFamily, fontSize, sendResize, terminalVersion]);
 
   useEffect(() => {
     if (!visible || !focused || !terminalRef.current) {

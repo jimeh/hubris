@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
 import type { BrowserTab, FileTab, GitDiffTab, TerminalTab } from "@/lib/types";
+import { useWorktreeStore } from "@/lib/stores/worktrees";
 import {
   initializeTabStore,
   resetTabStoreForTests,
@@ -15,6 +16,7 @@ const mockDeleteTab = vi.fn();
 const mockReorderTabs = vi.fn();
 const mockUpdateTab = vi.fn();
 const mockUpdateWorktreeTabLayout = vi.fn();
+const mockUpdateWorktreeRestoreState = vi.fn();
 const mockScheduleDisposeTabModels = vi.fn();
 const mockDesktopBrowserDestroy = vi.fn();
 
@@ -26,6 +28,8 @@ vi.mock("@/lib/api", () => ({
   updateTab: (...args: unknown[]) => mockUpdateTab(...args),
   updateWorktreeTabLayout: (...args: unknown[]) =>
     mockUpdateWorktreeTabLayout(...args),
+  updateWorktreeRestoreState: (...args: unknown[]) =>
+    mockUpdateWorktreeRestoreState(...args),
 }));
 
 vi.mock("@/lib/monaco", () => ({
@@ -174,6 +178,11 @@ describe("Tab store", () => {
     vi.restoreAllMocks();
     localStorage.clear();
     mockEvents = new MockEventClient();
+    useWorktreeStore.setState({
+      worktreesByProject: {},
+      projectErrors: {},
+      selectedWorktreeId: null,
+    });
     mockCreateTab.mockReset();
     mockCreateTerminalTab.mockReset();
     mockDeleteTab.mockReset();
@@ -181,6 +190,8 @@ describe("Tab store", () => {
     mockScheduleDisposeTabModels.mockReset();
     mockUpdateTab.mockReset();
     mockUpdateWorktreeTabLayout.mockReset();
+    mockUpdateWorktreeRestoreState.mockReset();
+    mockUpdateWorktreeRestoreState.mockResolvedValue(undefined);
     mockDesktopBrowserDestroy.mockReset();
   });
 
@@ -564,6 +575,101 @@ describe("Tab store", () => {
     );
   });
 
+  it("closing the active tab in a pane picks the next pane-local MRU tab", async () => {
+    const store = await getStore();
+    mockDeleteTab.mockResolvedValue(undefined);
+
+    mockEvents.emit("snapshot", {
+      tabs: [
+        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1", position: 1 }),
+        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-1", position: 2 }),
+        makeTab({ id: "c", worktree_id: "w1", pane_id: "pane-1", position: 3 }),
+      ],
+    });
+
+    store.useTabStore.getState().activate("b");
+    store.useTabStore.getState().activate("a");
+
+    await store.useTabStore.getState().close("a");
+
+    expect(store.useTabStore.getState().activeTabId).toBe("b");
+    expect(store.useTabStore.getState().activeTabByPane["pane-1"]).toBe("b");
+  });
+
+  it("closing a non-active tab leaves the current pane selection alone", async () => {
+    const store = await getStore();
+    mockDeleteTab.mockResolvedValue(undefined);
+
+    mockEvents.emit("snapshot", {
+      tabs: [
+        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1", position: 1 }),
+        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-1", position: 2 }),
+        makeTab({ id: "c", worktree_id: "w1", pane_id: "pane-1", position: 3 }),
+      ],
+    });
+
+    store.useTabStore.getState().activate("b");
+    await store.useTabStore.getState().close("c");
+
+    expect(store.useTabStore.getState().activeTabId).toBe("b");
+    expect(store.useTabStore.getState().activeTabByPane["pane-1"]).toBe("b");
+  });
+
+  it("snapshot hydrate prefers backend pane and tab MRU over stale local fallback", async () => {
+    localStorage.setItem(
+      "hubris-pane-mru-by-worktree",
+      JSON.stringify({ w1: ["pane-2", "pane-1"] }),
+    );
+    localStorage.setItem(
+      "hubris-tab-mru-by-pane",
+      JSON.stringify({ "pane-1": ["c", "a"] }),
+    );
+    useWorktreeStore.setState({ selectedWorktreeId: "w1" });
+
+    const store = await getStore();
+
+    mockEvents.emit("snapshot", {
+      tabs: [
+        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1", position: 1 }),
+        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-1", position: 2 }),
+        makeTab({ id: "c", worktree_id: "w1", pane_id: "pane-2", position: 1 }),
+      ],
+      tab_layouts: {
+        w1: {
+          rootId: "split-root",
+          nodes: [
+            { type: "leaf", id: "leaf-1", pane_id: "pane-1" },
+            { type: "leaf", id: "leaf-2", pane_id: "pane-2" },
+            {
+              type: "split",
+              id: "split-root",
+              axis: "vertical",
+              ratio: 0.5,
+              first_id: "leaf-1",
+              second_id: "leaf-2",
+            },
+          ],
+        },
+      },
+      worktree_restore_state: {
+        w1: {
+          focusedPaneId: "pane-1",
+          paneMru: ["pane-1", "pane-2"],
+          tabMruByPane: { "pane-1": ["b", "a"] },
+        },
+      },
+    });
+
+    expect(
+      store.useTabStore.getState().focusedPaneHistoryByWorktree.w1,
+    ).toEqual(["pane-1", "pane-2"]);
+    expect(store.useTabStore.getState().tabMruByPane["pane-1"]).toEqual([
+      "b",
+      "a",
+    ]);
+    expect(store.useTabStore.getState().activeTabByPane["pane-1"]).toBe("b");
+  });
+
   it("resetTabStoreForTests unsubscribes SSE handlers", () => {
     resetTabStoreForTests();
     initializeTabStore();
@@ -573,6 +679,75 @@ describe("Tab store", () => {
     resetTabStoreForTests();
 
     expect(mockEvents.handlerCount("snapshot")).toBe(0);
+  });
+
+  it("persists restore state when selection changes outside explicit action hooks", async () => {
+    vi.useFakeTimers();
+    try {
+      useWorktreeStore.setState({
+        worktreesByProject: {
+          p1: [
+            {
+              id: "w1",
+              project_id: "p1",
+              name: "local",
+              branch: "main",
+              path: "/repo",
+              source_ref: null,
+              ui_mode: "hubris",
+              is_local: true,
+              position: 1,
+            },
+          ],
+        },
+        projectErrors: {},
+        selectedWorktreeId: "w1",
+      });
+      const store = await getStore();
+
+      mockEvents.emit("snapshot", {
+        tabs: [
+          makeTab({
+            id: "a",
+            worktree_id: "w1",
+            pane_id: "pane-1",
+            position: 1,
+          }),
+          makeTab({
+            id: "b",
+            worktree_id: "w1",
+            pane_id: "pane-1",
+            position: 2,
+          }),
+        ],
+        tab_layouts: {
+          w1: {
+            rootId: "root",
+            nodes: [{ type: "leaf", id: "root", pane_id: "pane-1" }],
+          },
+        },
+        worktree_restore_state: {
+          w1: {
+            activeTabId: "b",
+            focusedPaneId: "pane-1",
+            paneMru: ["pane-1"],
+            tabMruByPane: { "pane-1": ["b", "a"] },
+          },
+        },
+      });
+
+      store.useTabStore.getState().removeLocal("b");
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(mockUpdateWorktreeRestoreState).toHaveBeenCalledWith("p1", "w1", {
+        activeTabId: "a",
+        focusedPaneId: "pane-1",
+        paneMru: ["pane-1"],
+        tabMruByPane: { "pane-1": ["a"] },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("openFile dedupes a raced tab_created event", async () => {

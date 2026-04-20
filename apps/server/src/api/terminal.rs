@@ -13,6 +13,7 @@ use tokio::time::{self, Instant, MissedTickBehavior};
 use ts_rs::TS;
 use utoipa::{IntoParams, ToSchema};
 
+use crate::api::tabs::ensure_terminal_runtime;
 use crate::pty::live_tab::{LiveTabAttachment, TerminalSize};
 use crate::state::AppState;
 
@@ -69,7 +70,10 @@ pub async fn ws_handler(
     Query(params): Query<TerminalParams>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, StatusCode> {
-    if !state.terminal_tabs.contains_key(&params.tab_id) {
+    if ensure_terminal_runtime(&state, &params.tab_id)
+        .await?
+        .is_none()
+    {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -134,7 +138,6 @@ async fn handle_attach(
         tab.detach(attachment_id);
         return;
     }
-
     // Relay: broadcast -> WS (with close detection
     // and adaptive batching)
     let relay_tab = tab.clone();

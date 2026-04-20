@@ -4,7 +4,8 @@ use listenfd::ListenFd;
 use tracing_subscriber::EnvFilter;
 
 use hubris_server::{
-    DesktopAccess, ServerAccess, ServerOptions, resolve_data_dir, run_server_with_shutdown,
+    DesktopAccess, InstanceKind, InstanceLock, InstanceLockError, InstanceLockOptions,
+    ServerAccess, ServerOptions, resolve_server_data_dir, run_server_with_shutdown_and_lock,
     select_listener,
 };
 
@@ -14,6 +15,13 @@ const MAX_PORT_ATTEMPTS: u16 = 100;
 
 #[tokio::main]
 async fn main() {
+    if let Err(error) = run().await {
+        eprintln!("fatal: {error}");
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> std::io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::from_default_env().add_directive("hubris_server=debug".parse().unwrap()),
@@ -21,8 +29,7 @@ async fn main() {
         .init();
 
     let is_dev = cfg!(debug_assertions);
-    let data_dir = resolve_data_dir(if is_dev { ".hubris-dev" } else { ".hubris" })
-        .expect("failed to resolve data dir");
+    let data_dir = resolve_server_data_dir(is_dev)?;
 
     let host = std::env::var("HUBRIS_HOST").unwrap_or_else(|_| {
         if is_dev {
@@ -38,7 +45,7 @@ async fn main() {
 
     let inherited_listener = ListenFd::from_env()
         .take_tcp_listener(0)
-        .expect("failed to take socket activation listener");
+        .map_err(std::io::Error::other)?;
     let listener = select_listener(
         inherited_listener,
         &host,
@@ -47,10 +54,9 @@ async fn main() {
         DEV_BACKEND_PORT_OFFSET,
         MAX_PORT_ATTEMPTS,
     )
-    .await
-    .expect("failed to bind server listener");
+    .await?;
 
-    let addr = listener.local_addr().unwrap();
+    let addr = listener.local_addr()?;
 
     // In dev mode, write state file for frontend
     // coordination (port discovery + debugging).
@@ -67,17 +73,41 @@ async fn main() {
         });
         tokio::fs::write(&state_file, state.to_string())
             .await
-            .expect("failed to write dev state file");
+            .map_err(|error| {
+                std::io::Error::other(format!(
+                    "failed to write dev state file {}: {error}",
+                    state_file.display()
+                ))
+            })?;
     }
 
-    tracing::info!("listening on http://{}", addr);
+    let listen_url = format!("http://{addr}");
+    let instance_lock = match InstanceLock::acquire(
+        &data_dir,
+        InstanceLockOptions {
+            instance_kind: InstanceKind::Server,
+            display_name: "Hubris Server".to_string(),
+            listen_url: Some(listen_url.clone()),
+        },
+    ) {
+        Ok(lock) => lock,
+        Err(InstanceLockError::Conflict(conflict)) => {
+            eprintln!("{}", conflict.message());
+            std::process::exit(1);
+        }
+        Err(InstanceLockError::Io(error)) => {
+            eprintln!("failed to acquire Hubris instance lock: {error}");
+            std::process::exit(1);
+        }
+    };
+    tracing::info!("listening on {listen_url}");
     let access = std::env::var("HUBRIS_DESKTOP_SESSION_TOKEN")
         .ok()
         .map(DesktopAccess::api_only)
         .map(ServerAccess::DesktopLocked)
         .unwrap_or(ServerAccess::Open);
 
-    run_server_with_shutdown(
+    run_server_with_shutdown_and_lock(
         listener,
         data_dir,
         ServerOptions {
@@ -85,9 +115,11 @@ async fn main() {
             ..ServerOptions::default()
         },
         shutdown_signal(),
+        Some(instance_lock),
     )
-    .await
-    .unwrap();
+    .await?;
+
+    Ok(())
 }
 
 async fn shutdown_signal() {

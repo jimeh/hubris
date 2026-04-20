@@ -98,7 +98,9 @@ function classifyVscodeNavigationTarget(
         classifyNavigationTarget(parentOrigin, allowedOrigins) === "internal";
       const remoteAllowed =
         remoteAuthority === null ||
-        allowedOrigins.some((origin) => new URL(origin).host === remoteAuthority);
+        allowedOrigins.some(
+          (origin) => new URL(origin).host === remoteAuthority,
+        );
 
       if (parentAllowed && remoteAllowed) {
         return "internal";
@@ -134,7 +136,9 @@ function configureVscodeViewGuards(
     preventDefault(): void;
     url: string;
   }) => {
-    if (classifyVscodeNavigationTarget(details.url, allowedOrigins) === "internal") {
+    if (
+      classifyVscodeNavigationTarget(details.url, allowedOrigins) === "internal"
+    ) {
       return;
     }
 

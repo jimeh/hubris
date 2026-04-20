@@ -351,8 +351,8 @@ impl CodeServerManager {
         &self.client
     }
 
-    pub async fn register_process_callback(self: &Arc<Self>) {
-        let weak = Arc::downgrade(self);
+    pub async fn register_process_callback(self: Arc<Self>) {
+        let weak = Arc::downgrade(&self);
         self.process_handle
             .set_on_change(Arc::new(move |snapshot| {
                 let weak = weak.clone();

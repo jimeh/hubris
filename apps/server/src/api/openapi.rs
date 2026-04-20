@@ -81,6 +81,7 @@ use crate::tab::{
         crate::api::worktrees::list_project_worktrees,
         crate::api::worktrees::update_project_worktree,
         crate::api::tabs::update_worktree_tab_layout,
+        crate::api::worktrees::put_worktree_restore_state,
         crate::api::worktrees::create_project_worktree,
         crate::api::worktrees::list_project_worktree_start_points,
         crate::api::worktrees::reorder_project_worktrees,

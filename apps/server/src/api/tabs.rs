@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::Json;
@@ -10,6 +11,7 @@ use axum::response::{IntoResponse, Response};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySystem};
 use reqwest::Url;
 use serde::Deserialize;
+use tokio::task::JoinHandle;
 use tokio::time::{self, MissedTickBehavior};
 use utoipa::{IntoParams, ToSchema};
 
@@ -17,12 +19,18 @@ use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::events::EventKind;
 use crate::pty::live_tab::{
-    DEFAULT_SCROLLBACK, LiveTab, TerminalSize, normalize_shell_process_name,
+    LiveTab, ReplayFilter, RestoredTerminalBuffers, RestoredTerminalState,
+    TerminalFullRebuildCapture, TerminalPersistenceCapture, TerminalPersistenceSeed, TerminalSize,
+    filter_replay_bytes, normalize_shell_process_name, render_replay_screen_history,
 };
 use crate::state::AppState;
 use crate::tab::{
     GitDiffScope, TabInfo, TerminalTabLabels, WorktreePaneNode, WorktreePaneTabs,
     WorktreeTabLayout, WorktreeTabLayoutState,
+};
+use crate::worktree_state::{
+    TerminalFlush, TerminalLabelsSnapshot, TerminalPersistedState, TerminalPersistedStateKind,
+    TerminalRestorePayload, WorktreeSnapshot,
 };
 
 type TerminalCloseReceiver = tokio::sync::broadcast::Receiver<()>;
@@ -38,6 +46,24 @@ const BROWSER_FIELDS_REQUIRE_BROWSER_TAB_MESSAGE: &str =
     "Browser tab fields can only be updated on browser tabs.";
 const INVALID_LAYOUT_MESSAGE: &str = "Invalid tab layout.";
 const BLANK_BROWSER_URL: &str = "about:blank";
+const TERMINAL_PERSIST_INTERVAL: Duration = Duration::from_secs(1);
+const TERMINAL_PERSIST_THRESHOLD_BYTES: usize = 32 * 1024;
+
+#[derive(Debug, Clone, Default)]
+struct TerminalPersistenceWorkerState {
+    source_bytes_end: u64,
+    replay_total_bytes: u64,
+    replay_epoch: u64,
+    replay_filter: ReplayFilter,
+}
+
+#[derive(Debug)]
+enum TerminalPersistenceCompletion {
+    Persisted {
+        metadata: TerminalPersistedState,
+        worker_state: TerminalPersistenceWorkerState,
+    },
+}
 
 #[derive(Debug)]
 pub struct TabsApiError {
@@ -606,6 +632,52 @@ fn reconcile_worktree_layout(state: &AppState, worktree_id: &str) {
     }
 }
 
+fn worktree_snapshot(state: &AppState, project_id: &str, worktree_id: &str) -> WorktreeSnapshot {
+    WorktreeSnapshot {
+        project_id: project_id.to_string(),
+        worktree_id: worktree_id.to_string(),
+        layout: state
+            .tab_layouts
+            .get(worktree_id)
+            .map(|entry| entry.value().clone()),
+        tabs: worktree_tabs(state, worktree_id),
+        restore_state: state.restore_state_for_worktree(worktree_id),
+        next_terminal_number: state
+            .next_terminal_num_by_worktree
+            .get(worktree_id)
+            .map(|entry| *entry.value())
+            .unwrap_or(1),
+    }
+}
+
+pub fn persist_worktree_snapshot(state: &AppState, worktree_id: &str) {
+    let Some(project_id) = state.project_id_for_worktree(worktree_id) else {
+        return;
+    };
+    state
+        .persistence
+        .replace_worktree_state(worktree_snapshot(state, &project_id, worktree_id));
+}
+
+fn persist_terminal_labels(state: &AppState, tab: &TabInfo) {
+    let TabInfo::Terminal { worktree_id, .. } = tab else {
+        return;
+    };
+    let Some(project_id) = state.project_id_for_worktree(worktree_id) else {
+        return;
+    };
+
+    state
+        .persistence
+        .update_terminal_labels(TerminalLabelsSnapshot {
+            project_id,
+            worktree_id: worktree_id.to_string(),
+            tab_id: tab.id().to_string(),
+            custom_label: tab.custom_label().map(str::to_string),
+            process_label: tab.smart_label().map(str::to_string),
+        });
+}
+
 fn update_worktree_layout_state(
     state: &AppState,
     worktree_id: &str,
@@ -826,10 +898,21 @@ fn validate_browser_update(
 fn spawn_terminal_runtime(
     worktree_path: &str,
     info: TabInfo,
-) -> Result<(Arc<LiveTab>, TerminalCloseReceiver), StatusCode> {
+    restore_payload: Option<TerminalRestorePayload>,
+    server_scrollback_bytes: usize,
+) -> Result<
+    (
+        Arc<LiveTab>,
+        TerminalCloseReceiver,
+        TerminalPersistenceWorkerState,
+    ),
+    StatusCode,
+> {
+    let has_restore_payload = restore_payload.is_some();
+    let initial_size = initial_terminal_size(restore_payload.as_ref());
     let pty_system = NativePtySystem::default();
     let pair = pty_system
-        .openpty(TerminalSize::default_pty().to_pty_size())
+        .openpty(initial_size.to_pty_size())
         .map_err(|error| {
             tracing::error!("failed to open pty: {}", error);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -847,19 +930,314 @@ fn spawn_terminal_runtime(
     })?;
     drop(pair.slave);
 
-    let live_tab = LiveTab::spawn(
-        info,
-        shell_process_name,
-        PathBuf::from(worktree_path),
-        pair.master,
-        child,
-        DEFAULT_SCROLLBACK,
-        TerminalSize::default_pty(),
-    );
+    let worktree_root = PathBuf::from(worktree_path);
+    let live_tab = match restore_payload {
+        Some(payload) => LiveTab::spawn_restored(
+            info,
+            shell_process_name,
+            worktree_root,
+            pair.master,
+            child,
+            server_scrollback_bytes,
+            RestoredTerminalState {
+                size: payload.size,
+                buffers: RestoredTerminalBuffers {
+                    history: payload.history,
+                },
+            },
+        ),
+        None => LiveTab::spawn(
+            info,
+            shell_process_name,
+            worktree_root,
+            pair.master,
+            child,
+            server_scrollback_bytes,
+            initial_size,
+        ),
+    };
 
     let close_rx = live_tab.close_tx.subscribe();
     let tab = Arc::new(live_tab);
-    Ok((tab, close_rx))
+    let worker_state = initial_terminal_persistence_worker_state(
+        has_restore_payload.then_some(()),
+        tab.capture_persistence_seed(),
+    );
+    Ok((tab, close_rx, worker_state))
+}
+
+fn initial_terminal_size(restore_payload: Option<&TerminalRestorePayload>) -> TerminalSize {
+    restore_payload
+        .map(|payload| payload.size)
+        .unwrap_or_else(TerminalSize::default_pty)
+}
+
+fn initial_terminal_persistence_worker_state(
+    restore_payload: Option<()>,
+    seed: TerminalPersistenceSeed,
+) -> TerminalPersistenceWorkerState {
+    if restore_payload.is_none() {
+        return TerminalPersistenceWorkerState::default();
+    }
+
+    TerminalPersistenceWorkerState {
+        source_bytes_end: seed.total_bytes,
+        replay_total_bytes: seed.total_bytes,
+        replay_epoch: seed.replay_epoch,
+        replay_filter: seed.replay_filter,
+    }
+}
+
+fn start_terminal_persistence_job(
+    runtime: Arc<LiveTab>,
+    worker_state: TerminalPersistenceWorkerState,
+) -> Option<JoinHandle<TerminalPersistenceCompletion>> {
+    let capture = runtime
+        .capture_persistence_snapshot(worker_state.source_bytes_end, worker_state.replay_epoch);
+    match &capture {
+        TerminalPersistenceCapture::Incremental(incremental)
+            if incremental.source_bytes_end == worker_state.source_bytes_end
+                && incremental.replay_epoch == worker_state.replay_epoch =>
+        {
+            return None;
+        }
+        _ => {}
+    }
+
+    Some(tokio::spawn(async move {
+        match capture {
+            TerminalPersistenceCapture::Incremental(incremental) => {
+                let mut replay_filter = worker_state.replay_filter.clone();
+                let replay_append =
+                    filter_replay_bytes(&mut replay_filter, &incremental.source_bytes);
+                let replay_total_bytes = worker_state
+                    .replay_total_bytes
+                    .saturating_add(replay_append.len() as u64);
+                TerminalPersistenceCompletion::Persisted {
+                    metadata: TerminalPersistedState {
+                        kind: TerminalPersistedStateKind::Append {
+                            size: incremental.size,
+                            replay_budget_bytes: incremental.replay_budget_bytes,
+                            replay_epoch: incremental.replay_epoch,
+                            source_bytes_end: incremental.source_bytes_end,
+                            replay_append,
+                            replay_total_bytes,
+                        },
+                    },
+                    worker_state: TerminalPersistenceWorkerState {
+                        source_bytes_end: incremental.source_bytes_end,
+                        replay_total_bytes,
+                        replay_epoch: incremental.replay_epoch,
+                        replay_filter,
+                    },
+                }
+            }
+            TerminalPersistenceCapture::FullRebuild(rebuild) => {
+                let rebuild = *rebuild;
+                let TerminalFullRebuildCapture {
+                    size,
+                    replay_budget_bytes,
+                    source_bytes_end,
+                    replay_epoch,
+                    replay_screen,
+                    replay_filter,
+                } = rebuild;
+                let replay_history = tokio::task::spawn_blocking(move || {
+                    render_replay_screen_history(replay_screen, replay_budget_bytes)
+                })
+                .await
+                .unwrap_or_default();
+                let replay_total_bytes = replay_history.len() as u64;
+                TerminalPersistenceCompletion::Persisted {
+                    metadata: TerminalPersistedState {
+                        kind: TerminalPersistedStateKind::Rebuild {
+                            size,
+                            replay_budget_bytes,
+                            replay_epoch,
+                            source_bytes_end,
+                            replay_history,
+                            replay_total_bytes,
+                        },
+                    },
+                    worker_state: TerminalPersistenceWorkerState {
+                        source_bytes_end,
+                        replay_total_bytes,
+                        replay_epoch,
+                        replay_filter,
+                    },
+                }
+            }
+        }
+    }))
+}
+
+fn queue_terminal_persistence_flush(
+    runtime: &Arc<LiveTab>,
+    dirty: &mut bool,
+    pending_bytes: &mut usize,
+    in_flight: &mut Option<JoinHandle<TerminalPersistenceCompletion>>,
+    worker_state: &TerminalPersistenceWorkerState,
+) {
+    if !*dirty || in_flight.is_some() {
+        return;
+    }
+    if let Some(job) = start_terminal_persistence_job(runtime.clone(), worker_state.clone()) {
+        *dirty = false;
+        *pending_bytes = 0;
+        *in_flight = Some(job);
+    } else {
+        *dirty = false;
+        *pending_bytes = 0;
+    }
+}
+
+fn spawn_terminal_persistence_task(
+    state: &AppState,
+    project_id: String,
+    worktree_id: String,
+    tab_id: String,
+    runtime: Arc<LiveTab>,
+    initial_worker_state: TerminalPersistenceWorkerState,
+) {
+    let persistence = state.persistence.clone();
+    let mut output_rx = runtime.output_tx.subscribe();
+    let mut close_rx = runtime.close_tx.subscribe();
+    tokio::spawn(async move {
+        let mut dirty = initial_worker_state.source_bytes_end == 0
+            && initial_worker_state.replay_total_bytes == 0;
+        let mut pending_bytes = 0usize;
+        let mut closing = false;
+        let mut worker_state = initial_worker_state;
+        let mut in_flight: Option<JoinHandle<TerminalPersistenceCompletion>> = None;
+        let mut interval = time::interval(TERMINAL_PERSIST_INTERVAL);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                result = async {
+                    match &mut in_flight {
+                        Some(handle) => Some(handle.await),
+                        None => None,
+                    }
+                }, if in_flight.is_some() => {
+                    in_flight = None;
+                    match result {
+                        Some(Ok(TerminalPersistenceCompletion::Persisted { metadata, worker_state: next_worker_state })) => {
+                            worker_state = next_worker_state;
+                            persistence.enqueue_terminal_flush(TerminalFlush {
+                                project_id: project_id.clone(),
+                                worktree_id: worktree_id.clone(),
+                                tab_id: tab_id.clone(),
+                                metadata,
+                                flushed_at_ms: now_ms(),
+                            });
+                        }
+                        Some(Err(error)) => {
+                            tracing::warn!(tab_id, "terminal persistence worker failed: {error}");
+                            dirty = true;
+                        }
+                        None => {}
+                    }
+                }
+                result = output_rx.recv() => {
+                    match result {
+                        Ok(data) => {
+                            dirty = true;
+                            pending_bytes = pending_bytes.saturating_add(data.len());
+                            if pending_bytes >= TERMINAL_PERSIST_THRESHOLD_BYTES {
+                                queue_terminal_persistence_flush(
+                                    &runtime,
+                                    &mut dirty,
+                                    &mut pending_bytes,
+                                    &mut in_flight,
+                                    &worker_state,
+                                );
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            dirty = true;
+                            queue_terminal_persistence_flush(
+                                &runtime,
+                                &mut dirty,
+                                &mut pending_bytes,
+                                &mut in_flight,
+                                &worker_state,
+                            );
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            closing = true;
+                        }
+                    }
+                }
+                _ = interval.tick() => {
+                    queue_terminal_persistence_flush(
+                        &runtime,
+                        &mut dirty,
+                        &mut pending_bytes,
+                        &mut in_flight,
+                        &worker_state,
+                    );
+                }
+                _ = close_rx.recv() => {
+                    dirty = true;
+                    closing = true;
+                }
+            }
+
+            if closing {
+                queue_terminal_persistence_flush(
+                    &runtime,
+                    &mut dirty,
+                    &mut pending_bytes,
+                    &mut in_flight,
+                    &worker_state,
+                );
+                if !dirty && in_flight.is_none() {
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn register_terminal_runtime(
+    state: &AppState,
+    project_id: String,
+    worktree_id: String,
+    tab_id: String,
+    runtime: Arc<LiveTab>,
+    initial_worker_state: TerminalPersistenceWorkerState,
+    close_rx: TerminalCloseReceiver,
+) {
+    state.terminal_tabs.insert(tab_id.clone(), runtime.clone());
+    state.restored_terminal_tabs.remove(&tab_id);
+    spawn_terminal_notification_task(
+        state,
+        tab_id.clone(),
+        runtime.notification_tx.subscribe(),
+        runtime.close_tx.subscribe(),
+    );
+    spawn_terminal_title_task(
+        state,
+        tab_id.clone(),
+        runtime.title_tx.subscribe(),
+        runtime.close_tx.subscribe(),
+    );
+    spawn_terminal_smart_label_task(
+        state,
+        tab_id.clone(),
+        runtime.clone(),
+        runtime.close_tx.subscribe(),
+    );
+    spawn_terminal_persistence_task(
+        state,
+        project_id,
+        worktree_id,
+        tab_id.clone(),
+        runtime,
+        initial_worker_state,
+    );
+    spawn_terminal_cleanup_task(state.clone(), tab_id, close_rx);
 }
 
 fn spawn_terminal_notification_task(
@@ -983,6 +1361,7 @@ fn spawn_terminal_smart_label_task(
     let tabs = state.tabs.clone();
     let terminal_tabs = state.terminal_tabs.clone();
     let events = state.events.clone();
+    let state_for_persist = state.clone();
     tokio::spawn(async move {
         let mut interval = time::interval(std::time::Duration::from_millis(750));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -1017,6 +1396,8 @@ fn spawn_terminal_smart_label_task(
                         });
                     }
 
+                    persist_terminal_labels(&state_for_persist, &updated);
+
                     events.emit(EventKind::TabUpdated {
                         session_id: updated.session_id().to_string(),
                         tab: updated,
@@ -1028,14 +1409,18 @@ fn spawn_terminal_smart_label_task(
     });
 }
 
-fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: TerminalCloseReceiver) {
+fn spawn_terminal_cleanup_task(state: AppState, id: String, mut close_rx: TerminalCloseReceiver) {
     let tabs = state.tabs.clone();
     let terminal_tabs = state.terminal_tabs.clone();
     let tab_layouts = state.tab_layouts.clone();
+    let restored_terminal_tabs = state.restored_terminal_tabs.clone();
+    let terminal_restore_locks = state.terminal_restore_locks.clone();
     let events = state.events.clone();
     tokio::spawn(async move {
         let _ = close_rx.recv().await;
         terminal_tabs.remove(&id);
+        restored_terminal_tabs.remove(&id);
+        terminal_restore_locks.remove(&id);
         if let Some((_, tab)) = tabs.remove(&id) {
             events.emit(EventKind::TabClosed {
                 session_id: tab.session_id().to_string(),
@@ -1072,7 +1457,7 @@ fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: Termi
                 if next_layout != layout {
                     tab_layouts.insert(worktree_id.clone(), next_layout.clone());
                     events.emit(EventKind::WorktreeTabLayoutUpdated {
-                        worktree_id,
+                        worktree_id: worktree_id.clone(),
                         state: Box::new(WorktreeTabLayoutState {
                             layout: next_layout,
                             tabs: remaining_tabs,
@@ -1080,8 +1465,85 @@ fn spawn_terminal_cleanup_task(state: &AppState, id: String, mut close_rx: Termi
                     });
                 }
             }
+            persist_worktree_snapshot(&state, &worktree_id);
         }
     });
+}
+
+pub async fn ensure_terminal_runtime(
+    state: &AppState,
+    tab_id: &str,
+) -> Result<Option<Arc<LiveTab>>, StatusCode> {
+    if let Some(runtime) = state.terminal_tabs.get(tab_id) {
+        return Ok(Some(runtime.value().clone()));
+    }
+
+    let restore_lock = state.terminal_restore_lock(tab_id);
+    let _guard = restore_lock.lock().await;
+
+    if let Some(runtime) = state.terminal_tabs.get(tab_id) {
+        return Ok(Some(runtime.value().clone()));
+    }
+
+    let Some(restored) = state
+        .restored_terminal_tabs
+        .get(tab_id)
+        .map(|entry| entry.value().clone())
+    else {
+        return Ok(None);
+    };
+
+    let info = state
+        .tabs
+        .get(tab_id)
+        .map(|entry| entry.value().clone())
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let resolved = resolve_worktree(state, info.worktree_id())
+        .await?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let payload = state
+        .persistence
+        .clone()
+        .load_terminal_restore_payload(
+            tab_id.to_string(),
+            state
+                .settings
+                .get()
+                .await
+                .settings
+                .terminal
+                .server_scrollback_bytes as usize,
+        )
+        .await
+        .map_err(|error| {
+            tracing::error!(tab_id, "failed to load terminal restore payload: {error}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let (runtime, close_rx, initial_worker_state) = spawn_terminal_runtime(
+        &resolved.worktree.path,
+        info.clone(),
+        Some(payload),
+        state
+            .settings
+            .get()
+            .await
+            .settings
+            .terminal
+            .server_scrollback_bytes as usize,
+    )?;
+
+    state.remember_worktree_project(info.worktree_id(), &restored.project_id);
+    register_terminal_runtime(
+        state,
+        restored.project_id,
+        restored.worktree_id,
+        tab_id.to_string(),
+        runtime.clone(),
+        initial_worker_state,
+        close_rx,
+    );
+
+    Ok(Some(runtime))
 }
 
 #[utoipa::path(
@@ -1132,6 +1594,14 @@ pub async fn create_tab(
         .await
         .map_err(map_status_to_tab_error)?
         .ok_or_else(|| map_status_to_tab_error(StatusCode::NOT_FOUND))?;
+    state.remember_worktree_project(&worktree_id, &resolved.project_id);
+    let server_scrollback_bytes = state
+        .settings
+        .get()
+        .await
+        .settings
+        .terminal
+        .server_scrollback_bytes as usize;
 
     let terminal_number = if matches!(req, CreateTabRequest::Terminal { .. }) {
         next_terminal_number(&state, &worktree_id)
@@ -1178,19 +1648,19 @@ pub async fn create_tab(
 
     let terminal_runtime = if info.is_terminal() {
         Some(
-            spawn_terminal_runtime(&resolved.worktree.path, info.clone())
-                .map_err(map_status_to_tab_error)?,
+            spawn_terminal_runtime(
+                &resolved.worktree.path,
+                info.clone(),
+                None,
+                server_scrollback_bytes,
+            )
+            .map_err(map_status_to_tab_error)?,
         )
     } else {
         None
     };
-
-    if let Some((runtime, _)) = &terminal_runtime {
-        state
-            .terminal_tabs
-            .insert(info.id().to_string(), runtime.clone());
-    }
     state.tabs.insert(info.id().to_string(), info.clone());
+    persist_worktree_snapshot(&state, &worktree_id);
     state.events.emit(EventKind::TabCreated {
         session_id: info.session_id().to_string(),
         tab: info.clone(),
@@ -1208,27 +1678,16 @@ pub async fn create_tab(
             worktree_tabs(&state, &worktree_id),
         );
     }
-    if let Some((runtime, close_rx)) = terminal_runtime {
-        let tab_id = info.id().to_string();
-        spawn_terminal_notification_task(
+    if let Some((runtime, close_rx, initial_worker_state)) = terminal_runtime {
+        register_terminal_runtime(
             &state,
-            tab_id.clone(),
-            runtime.notification_tx.subscribe(),
-            runtime.close_tx.subscribe(),
+            resolved.project_id,
+            worktree_id,
+            info.id().to_string(),
+            runtime,
+            initial_worker_state,
+            close_rx,
         );
-        spawn_terminal_title_task(
-            &state,
-            tab_id.clone(),
-            runtime.title_tx.subscribe(),
-            runtime.close_tx.subscribe(),
-        );
-        spawn_terminal_smart_label_task(
-            &state,
-            tab_id.clone(),
-            runtime.clone(),
-            runtime.close_tx.subscribe(),
-        );
-        spawn_terminal_cleanup_task(&state, tab_id, close_rx);
     }
 
     Ok((StatusCode::CREATED, Json(info)))
@@ -1254,12 +1713,18 @@ pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -
     if let Some((_, runtime)) = state.terminal_tabs.remove(&id) {
         runtime.notify_close();
     }
+    state.restored_terminal_tabs.remove(&id);
+    state.terminal_restore_locks.remove(&id);
+    state
+        .persistence
+        .delete_tab_state(id.clone(), removed_tab.worktree_id().to_string());
 
     state.events.emit(EventKind::TabClosed {
         session_id: removed_tab.session_id().to_string(),
         tab_id: id,
     });
     reconcile_worktree_layout(&state, removed_tab.worktree_id());
+    persist_worktree_snapshot(&state, removed_tab.worktree_id());
     StatusCode::NO_CONTENT
 }
 
@@ -1350,6 +1815,13 @@ pub async fn update_tab(
         });
     }
 
+    let requires_full_snapshot =
+        req.position.is_some() || req.preview.is_some() || has_browser_update_fields(&req);
+    if requires_full_snapshot {
+        persist_worktree_snapshot(&state, updated.worktree_id());
+    } else if req.custom_label.is_some() && updated.is_terminal() {
+        persist_terminal_labels(&state, &updated);
+    }
     state.events.emit(EventKind::TabUpdated {
         session_id: updated.session_id().to_string(),
         tab: updated.clone(),
@@ -1373,15 +1845,20 @@ pub async fn update_tab(
 )]
 pub async fn update_worktree_tab_layout(
     State(state): State<AppState>,
-    Path((_project_id, worktree_id)): Path<(String, String)>,
+    Path((project_id, worktree_id)): Path<(String, String)>,
     Json(request): Json<UpdateWorktreeTabLayoutRequest>,
 ) -> Result<Json<WorktreeTabLayoutState>, TabsApiError> {
-    resolve_worktree(&state, &worktree_id)
+    let resolved = resolve_worktree(&state, &worktree_id)
         .await
         .map_err(map_status_to_tab_error)?
         .ok_or_else(|| map_status_to_tab_error(StatusCode::NOT_FOUND))?;
+    if resolved.project_id != project_id {
+        return Err(map_status_to_tab_error(StatusCode::NOT_FOUND));
+    }
+    state.remember_worktree_project(&worktree_id, &project_id);
 
     let next_state = update_worktree_layout_state(&state, &worktree_id, request)?;
+    persist_worktree_snapshot(&state, &worktree_id);
     emit_layout_updated(
         &state,
         &worktree_id,
@@ -1455,9 +1932,119 @@ pub async fn reorder_tabs(
 
     state.events.emit(EventKind::TabsReordered {
         session_id,
-        worktree_id: req.worktree_id,
+        worktree_id: req.worktree_id.clone(),
         tabs: reordered.clone(),
     });
+    persist_worktree_snapshot(&state, &req.worktree_id);
 
     Ok(Json(reordered))
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+    use crate::tab::TerminalTabLabels;
+
+    #[test]
+    fn initial_terminal_size_uses_restore_payload_size() {
+        let restore_payload = TerminalRestorePayload {
+            size: TerminalSize::new(132, 47),
+            history: Vec::new(),
+        };
+
+        assert_eq!(
+            initial_terminal_size(Some(&restore_payload)),
+            TerminalSize::new(132, 47)
+        );
+        assert_eq!(initial_terminal_size(None), TerminalSize::default_pty());
+    }
+
+    #[test]
+    fn restored_terminal_worker_state_starts_from_restored_history() {
+        let restore_payload = TerminalRestorePayload {
+            size: TerminalSize::new(132, 47),
+            history: b"restored output".to_vec(),
+        };
+        let state = initial_terminal_persistence_worker_state(
+            Some(()),
+            TerminalPersistenceSeed {
+                total_bytes: restore_payload.history.len() as u64,
+                replay_epoch: 3,
+                replay_filter: ReplayFilter::default(),
+            },
+        );
+
+        assert_eq!(state.source_bytes_end, restore_payload.history.len() as u64);
+        assert_eq!(
+            state.replay_total_bytes,
+            restore_payload.history.len() as u64
+        );
+        assert_eq!(state.replay_epoch, 3);
+    }
+
+    #[test]
+    fn fresh_terminal_worker_state_starts_empty() {
+        let state = initial_terminal_persistence_worker_state(
+            None,
+            TerminalPersistenceSeed {
+                total_bytes: 128,
+                replay_epoch: 7,
+                replay_filter: ReplayFilter::default(),
+            },
+        );
+
+        assert_eq!(state.source_bytes_end, 0);
+        assert_eq!(state.replay_total_bytes, 0);
+        assert_eq!(state.replay_epoch, 0);
+    }
+
+    #[tokio::test]
+    async fn no_op_flush_marks_restored_tab_clean() {
+        let tmp = TempDir::new().unwrap();
+        let info = TabInfo::Terminal {
+            id: "terminal-1".to_string(),
+            session_id: "default".to_string(),
+            worktree_id: "worktree-1".to_string(),
+            pane_id: "pane-1".to_string(),
+            label: "Terminal 1".to_string(),
+            position: 1.0,
+            created_at: 1,
+            preview: false,
+            has_notification: false,
+            labels: TerminalTabLabels {
+                custom_label: None,
+                smart_label: None,
+                title_label: None,
+            },
+        };
+        let restore_payload = TerminalRestorePayload {
+            size: TerminalSize::default_pty(),
+            history: b"restored output".to_vec(),
+        };
+        let (runtime, _close_rx, worker_state) = spawn_terminal_runtime(
+            tmp.path().to_str().unwrap(),
+            info,
+            Some(restore_payload),
+            4096,
+        )
+        .unwrap();
+
+        let mut dirty = true;
+        let mut pending_bytes = 128;
+        let mut in_flight = None;
+        queue_terminal_persistence_flush(
+            &runtime,
+            &mut dirty,
+            &mut pending_bytes,
+            &mut in_flight,
+            &worker_state,
+        );
+
+        assert!(!dirty);
+        assert_eq!(pending_bytes, 0);
+        assert!(in_flight.is_none());
+        runtime.kill();
+    }
 }

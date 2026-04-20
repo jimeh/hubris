@@ -24,6 +24,7 @@ const RECONNECT_DELAY_MULTIPLIER = 2;
 type UseTerminalConnectionArgs = {
   tabId: string;
   visible: boolean;
+  focused?: boolean;
   terminalRef: RefObject<TerminalAdapter | null>;
   containerRef: RefObject<HTMLDivElement | null>;
   onClosed?: (tabId: string) => void;
@@ -65,6 +66,7 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export function useTerminalConnection({
   tabId,
   visible,
+  focused = true,
   terminalRef,
   containerRef,
   onClosed,
@@ -80,6 +82,7 @@ export function useTerminalConnection({
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const connectWsRef = useRef<() => void>(() => {});
   const visibleRef = useRef(visible);
+  const focusedRef = useRef(focused);
   const onClosedRef = useRef(onClosed);
   const localViewportRef = useRef<TerminalViewport | null>(null);
   const appliedViewportRef = useRef<TerminalViewport | null>(null);
@@ -95,8 +98,9 @@ export function useTerminalConnection({
 
   useLayoutEffect(() => {
     visibleRef.current = visible;
+    focusedRef.current = focused;
     onClosedRef.current = onClosed;
-  }, [onClosed, visible]);
+  }, [focused, onClosed, visible]);
 
   const isCurrentConnection = useCallback(
     (ws: WebSocket, generation: number): boolean =>
@@ -191,6 +195,36 @@ export function useTerminalConnection({
     [buildViewportMessage, flushBufferedInput],
   );
 
+  const scheduleResizeRetry = useCallback(
+    (generation: number): void => {
+      const runRetry = (): void => {
+        if (connectFrameRef.current !== null) {
+          cancelAnimationFrame(connectFrameRef.current.frameId);
+        }
+
+        const frameId = requestAnimationFrame(() => {
+          if (connectFrameRef.current?.generation !== generation) {
+            return;
+          }
+
+          connectFrameRef.current = null;
+          if (!sendResize(true)) {
+            runRetry();
+            return;
+          }
+
+          if (visibleRef.current && focusedRef.current) {
+            terminalRef.current?.focus();
+          }
+        });
+        connectFrameRef.current = { generation, frameId };
+      };
+
+      runRetry();
+    },
+    [sendResize, terminalRef],
+  );
+
   const scheduleReconnect = useCallback((): void => {
     if (
       localCleanupRef.current ||
@@ -256,22 +290,8 @@ export function useTerminalConnection({
       flushInputAfterResizeRef.current = inputBufferRef.current.length > 0;
 
       if (!sendResize(true)) {
-        const frameId = requestAnimationFrame(() => {
-          if (
-            connectFrameRef.current?.generation !== generation ||
-            !isCurrentConnection(ws, generation)
-          ) {
-            return;
-          }
-
-          connectFrameRef.current = null;
-          sendResize(true);
-          if (visibleRef.current) {
-            terminalRef.current?.focus();
-          }
-        });
-        connectFrameRef.current = { generation, frameId };
-      } else if (visibleRef.current) {
+        scheduleResizeRetry(generation);
+      } else if (visibleRef.current && focusedRef.current) {
         connectFrameRef.current = null;
         terminalRef.current?.focus();
       }
@@ -329,6 +349,7 @@ export function useTerminalConnection({
   }, [
     applyPtySize,
     isCurrentConnection,
+    scheduleResizeRetry,
     scheduleReconnect,
     sendResize,
     tabId,
@@ -417,7 +438,7 @@ export function useTerminalConnection({
     const isVisible = visible;
     const frameId = requestAnimationFrame(() => {
       sendResize(true);
-      if (isVisible) {
+      if (isVisible && focusedRef.current) {
         terminalRef.current?.focus();
       }
     });

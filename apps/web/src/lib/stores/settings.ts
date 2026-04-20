@@ -55,6 +55,8 @@ const DEFAULT_SETTINGS: Settings = {
     fontSize: 14,
     smartTabNaming: true,
     escapeSequenceTitles: true,
+    clientScrollbackRows: 10000,
+    serverScrollbackBytes: 256 * 1024,
   },
   editor: {
     lightEditorTheme: "hubris-light",
@@ -186,6 +188,20 @@ function clampFontSize(size: number): number {
   return Math.max(8, Math.min(32, size));
 }
 
+function clampClientScrollbackRows(rows: number): number {
+  if (!Number.isFinite(rows)) {
+    return DEFAULT_SETTINGS.terminal.clientScrollbackRows;
+  }
+  return Math.max(500, Math.min(1_000_000, Math.trunc(rows)));
+}
+
+function clampServerScrollbackBytes(bytes: number): number {
+  if (!Number.isFinite(bytes)) {
+    return DEFAULT_SETTINGS.terminal.serverScrollbackBytes;
+  }
+  return Math.max(10 * 1024, Math.min(16 * 1024 * 1024, Math.trunc(bytes)));
+}
+
 function normalizeTerminalSettings(candidate: unknown): {
   settings: TerminalSettings;
   changed: boolean;
@@ -255,6 +271,24 @@ function normalizeTerminalSettings(candidate: unknown): {
     changed = true;
   }
 
+  const clientScrollbackRows = clampClientScrollbackRows(
+    typeof source.clientScrollbackRows === "number"
+      ? source.clientScrollbackRows
+      : DEFAULT_SETTINGS.terminal.clientScrollbackRows,
+  );
+  if (clientScrollbackRows !== source.clientScrollbackRows) {
+    changed = true;
+  }
+
+  const serverScrollbackBytes = clampServerScrollbackBytes(
+    typeof source.serverScrollbackBytes === "number"
+      ? source.serverScrollbackBytes
+      : DEFAULT_SETTINGS.terminal.serverScrollbackBytes,
+  );
+  if (serverScrollbackBytes !== source.serverScrollbackBytes) {
+    changed = true;
+  }
+
   return {
     settings: {
       fontSource,
@@ -263,6 +297,8 @@ function normalizeTerminalSettings(candidate: unknown): {
       fontSize,
       smartTabNaming,
       escapeSequenceTitles,
+      clientScrollbackRows,
+      serverScrollbackBytes,
     },
     changed,
   };
@@ -687,7 +723,9 @@ function equalTerminalSettings(
     left.bundledFont === right.bundledFont &&
     left.fontSize === right.fontSize &&
     left.smartTabNaming === right.smartTabNaming &&
-    left.escapeSequenceTitles === right.escapeSequenceTitles
+    left.escapeSequenceTitles === right.escapeSequenceTitles &&
+    left.clientScrollbackRows === right.clientScrollbackRows &&
+    left.serverScrollbackBytes === right.serverScrollbackBytes
   );
 }
 

@@ -8,6 +8,9 @@ use hubris_server::events::EventKind;
 use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
+use sqlx::Connection as _;
+use sqlx::SqliteConnection;
+use sqlx::sqlite::SqliteConnectOptions;
 use tokio::sync::Mutex;
 
 static TERMINAL_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -33,6 +36,24 @@ async fn start_test_server_with_state() -> (String, tempfile::TempDir, AppState)
     });
 
     (format!("http://{}", addr), tmp, state)
+}
+
+async fn wait_for_db_condition(
+    db_path: &Path,
+    check: impl Fn(
+        &mut SqliteConnection,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + '_>>,
+) {
+    let options = SqliteConnectOptions::new().filename(db_path);
+    for _ in 0..40 {
+        let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
+        if check(&mut conn).await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    panic!("database condition was not met");
 }
 
 fn init_git_repo() -> tempfile::TempDir {
@@ -571,6 +592,127 @@ async fn test_delete_tab() {
 }
 
 #[tokio::test]
+async fn test_delete_terminal_tab_removes_persisted_terminal_state() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_tab(&client, &base, &worktree_id).await;
+    let tab_id = tab["id"].as_str().unwrap().to_string();
+    let db_path = state.persistence.db_path().to_path_buf();
+
+    state
+        .persistence
+        .enqueue_terminal_flush(hubris_server::worktree_state::TerminalFlush {
+            project_id,
+            worktree_id,
+            tab_id: tab_id.clone(),
+            metadata: hubris_server::worktree_state::TerminalPersistedState {
+                kind: hubris_server::worktree_state::TerminalPersistedStateKind::Rebuild {
+                    size: hubris_server::pty::live_tab::TerminalSize::default_pty(),
+                    replay_epoch: 0,
+                    source_bytes_end: 5,
+                    replay_total_bytes: 5,
+                    replay_budget_bytes: hubris_server::pty::live_tab::DEFAULT_SCROLLBACK,
+                    replay_history: b"hello".to_vec(),
+                },
+            },
+            flushed_at_ms: 1,
+        });
+
+    wait_for_db_condition(&db_path, |conn| {
+        let tab_id = tab_id.clone();
+        Box::pin(async move {
+            let count = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM terminal_state WHERE tab_id = ?1",
+            )
+            .bind(&tab_id)
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+            count > 0
+        })
+    })
+    .await;
+
+    let res = client
+        .delete(format!("{}/api/tabs/{}", base, tab_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    wait_for_db_condition(&db_path, |conn| {
+        let tab_id = tab_id.clone();
+        Box::pin(async move {
+            let state_count = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM terminal_state WHERE tab_id = ?1",
+            )
+            .bind(&tab_id)
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+            state_count == 0
+        })
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_delete_browser_tab_removes_persisted_history() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+
+    let project_id = create_project(&client, &base, repo.path().to_str().unwrap()).await;
+    let worktree_id = first_worktree_id(&client, &base, &project_id).await;
+    let tab = create_browser_tab(&client, &base, &worktree_id, "https://example.com").await;
+    let tab_id = tab["id"].as_str().unwrap().to_string();
+    let db_path = state.persistence.db_path().to_path_buf();
+
+    wait_for_db_condition(&db_path, |conn| {
+        let tab_id = tab_id.clone();
+        Box::pin(async move {
+            let count = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM browser_history_entries WHERE tab_id = ?1",
+            )
+            .bind(&tab_id)
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+            count > 0
+        })
+    })
+    .await;
+
+    let res = client
+        .delete(format!("{}/api/tabs/{}", base, tab_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    wait_for_db_condition(&db_path, |conn| {
+        let tab_id = tab_id.clone();
+        Box::pin(async move {
+            let count = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM browser_history_entries WHERE tab_id = ?1",
+            )
+            .bind(&tab_id)
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+            count == 0
+        })
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn test_update_tab() {
     let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;
@@ -1020,6 +1162,46 @@ async fn test_update_worktree_tab_layout_preserves_intentional_empty_split_pane(
     let tabs = list_tabs(&client, &base).await;
     assert_eq!(tabs.len(), 2);
     assert!(tabs.iter().any(|tab| tab["pane_id"] == "pane-2"));
+}
+
+#[tokio::test]
+async fn test_update_worktree_tab_layout_rejects_project_worktree_mismatch() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo_a = init_git_repo();
+    let repo_b = init_git_repo();
+
+    let project_a = create_project(&client, &base, repo_a.path().to_str().unwrap()).await;
+    let project_b = create_project(&client, &base, repo_b.path().to_str().unwrap()).await;
+    let worktree_a = first_worktree_id(&client, &base, &project_a).await;
+    let first = create_tab(&client, &base, &worktree_a).await;
+    let pane_id = first["pane_id"].as_str().unwrap();
+    let tab_id = first["id"].as_str().unwrap();
+
+    let res = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/tab-layout",
+            base, project_b, worktree_a
+        ))
+        .json(&serde_json::json!({
+            "rootId": "root",
+            "nodes": [
+                { "type": "leaf", "id": "root", "pane_id": pane_id }
+            ],
+            "panes": [
+                { "paneId": pane_id, "tabIds": [tab_id] }
+            ]
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        state.project_id_for_worktree(&worktree_a).as_deref(),
+        Some(project_a.as_str()),
+    );
 }
 
 #[tokio::test]

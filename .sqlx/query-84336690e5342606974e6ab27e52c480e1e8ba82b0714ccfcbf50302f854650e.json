@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM layout_nodes WHERE worktree_id IN (SELECT worktree_id FROM worktree_state WHERE project_id = ?1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "84336690e5342606974e6ab27e52c480e1e8ba82b0714ccfcbf50302f854650e"
+}

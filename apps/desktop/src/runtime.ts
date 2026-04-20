@@ -7,11 +7,18 @@ import type { Readable } from "node:stream";
 
 const DESKTOP_BOOTSTRAP_PATH = "/_hubris/desktop/bootstrap";
 
+export type DesktopStartupConflict = {
+  holderPid: number;
+  holderKind: "server" | "desktop_runtime";
+  listenUrl?: string;
+};
+
 export type DesktopStartupMessage = {
   ready: boolean;
   pid: number;
   port: number;
   error?: string;
+  conflict?: DesktopStartupConflict;
 };
 
 export type DevServerState = {
@@ -31,6 +38,22 @@ export type PackagedRuntimeOptions = {
 };
 
 type RuntimeChildProcess = ChildProcessByStdio<null, Readable, Readable>;
+
+/**
+ * Error returned when the packaged runtime fails before becoming ready.
+ */
+export class DesktopRuntimeStartupError extends Error {
+  readonly conflict?: DesktopStartupConflict;
+
+  constructor(
+    message: string,
+    options?: { conflict?: DesktopStartupConflict },
+  ) {
+    super(message);
+    this.name = "DesktopRuntimeStartupError";
+    this.conflict = options?.conflict;
+  }
+}
 
 /**
  * Parse a Vite dev-state file and return its frontend port.
@@ -65,7 +88,17 @@ export function parseDesktopStartupMessage(
   raw: string,
 ): DesktopStartupMessage | null {
   try {
-    const parsed = JSON.parse(raw) as Partial<DesktopStartupMessage>;
+    const parsed = JSON.parse(raw) as {
+      ready?: unknown;
+      pid?: unknown;
+      port?: unknown;
+      error?: unknown;
+      conflict?: {
+        holder_pid?: unknown;
+        holder_kind?: unknown;
+        listen_url?: unknown;
+      };
+    };
     if (
       typeof parsed.ready !== "boolean" ||
       typeof parsed.pid !== "number" ||
@@ -73,16 +106,47 @@ export function parseDesktopStartupMessage(
     ) {
       return null;
     }
+    const conflict = parseDesktopStartupConflict(parsed.conflict);
 
     return {
       ready: parsed.ready,
       pid: parsed.pid,
       port: parsed.port,
       ...(typeof parsed.error === "string" ? { error: parsed.error } : {}),
+      ...(conflict ? { conflict } : {}),
     };
   } catch {
     return null;
   }
+}
+
+function parseDesktopStartupConflict(
+  conflict:
+    | {
+        holder_pid?: unknown;
+        holder_kind?: unknown;
+        listen_url?: unknown;
+      }
+    | undefined,
+): DesktopStartupConflict | null {
+  if (!conflict) {
+    return null;
+  }
+  if (
+    typeof conflict.holder_pid !== "number" ||
+    (conflict.holder_kind !== "server" &&
+      conflict.holder_kind !== "desktop_runtime")
+  ) {
+    return null;
+  }
+
+  return {
+    holderPid: conflict.holder_pid,
+    holderKind: conflict.holder_kind,
+    ...(typeof conflict.listen_url === "string"
+      ? { listenUrl: conflict.listen_url }
+      : {}),
+  };
 }
 
 /**
@@ -266,7 +330,12 @@ export function waitForRuntimeStartup(
       lines.close();
 
       if (!startup.ready) {
-        reject(new Error(startup.error ?? "desktop runtime failed to start"));
+        reject(
+          new DesktopRuntimeStartupError(
+            startup.error ?? "desktop runtime failed to start",
+            { conflict: startup.conflict },
+          ),
+        );
         return;
       }
 

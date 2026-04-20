@@ -26,6 +26,13 @@ async fn start_test_server_with_state() -> (String, tempfile::TempDir, AppState)
     (format!("http://{}", addr), tmp, state)
 }
 
+async fn first_worktree_id(client: &reqwest::Client, base: &str, project_id: &str) -> String {
+    list_worktrees(client, base, project_id).await["worktrees"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 fn run_git(repo_path: &Path, args: &[&str]) {
     let status = Command::new("git")
         .arg("-C")
@@ -99,6 +106,40 @@ async fn create_project(client: &reqwest::Client, base: &str, path: &str) -> Str
     assert_eq!(res.status(), StatusCode::CREATED);
     let body: Value = res.json().await.unwrap();
     body["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn test_put_worktree_restore_state_rejects_project_worktree_mismatch() {
+    let (base, _tmp, state) = start_test_server_with_state().await;
+    let client = reqwest::Client::new();
+    let repo_a = init_git_repo();
+    let repo_b = init_git_repo();
+
+    let project_a = create_project(&client, &base, repo_a.path().to_str().unwrap()).await;
+    let project_b = create_project(&client, &base, repo_b.path().to_str().unwrap()).await;
+    let worktree_a = first_worktree_id(&client, &base, &project_a).await;
+
+    let res = client
+        .put(format!(
+            "{}/api/projects/{}/worktrees/{}/restore-state",
+            base, project_b, worktree_a
+        ))
+        .json(&serde_json::json!({
+            "activeTabId": "tab-1",
+            "focusedPaneId": "pane-1",
+            "paneMru": ["pane-1"],
+            "tabMruByPane": { "pane-1": ["tab-1"] }
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        state.project_id_for_worktree(&worktree_a).as_deref(),
+        Some(project_a.as_str()),
+    );
+    assert!(!state.restore_state_by_worktree.contains_key(&worktree_a));
 }
 
 async fn list_worktrees(client: &reqwest::Client, base: &str, project_id: &str) -> Value {

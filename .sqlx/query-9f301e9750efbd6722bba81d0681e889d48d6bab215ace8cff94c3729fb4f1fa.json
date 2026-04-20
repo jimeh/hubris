@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT name\n        FROM sqlite_master\n        WHERE type = 'table'\n          AND name NOT LIKE 'sqlite_%'\n        ORDER BY name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "9f301e9750efbd6722bba81d0681e889d48d6bab215ace8cff94c3729fb4f1fa"
+}

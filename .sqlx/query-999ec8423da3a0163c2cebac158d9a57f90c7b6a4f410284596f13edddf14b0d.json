@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        DELETE FROM browser_history_entries\n        WHERE NOT EXISTS (\n            SELECT 1 FROM tabs WHERE tabs.tab_id = browser_history_entries.tab_id\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "999ec8423da3a0163c2cebac158d9a57f90c7b6a4f410284596f13edddf14b0d"
+}

@@ -251,13 +251,14 @@ class TerminalLinkTooltipController {
 export function createXtermAdapter(opts?: {
   fontSize?: number;
   fontFamily?: string;
+  scrollbackRows?: number;
 }): TerminalAdapter {
   const term = new Terminal({
     fontSize: opts?.fontSize ?? 14,
     fontFamily: opts?.fontFamily ?? DEFAULT_FONT_FAMILY,
     theme: getTerminalTheme(),
     cursorBlink: true,
-    scrollback: 10000,
+    scrollback: opts?.scrollbackRows ?? 10000,
   });
 
   const fitAddon = new FitAddon();
@@ -368,6 +369,9 @@ export function createXtermAdapter(opts?: {
     updateFont(family: string, size: number) {
       term.options.fontFamily = family;
       term.options.fontSize = size;
+    },
+    updateScrollback(rows: number) {
+      term.options.scrollback = rows;
     },
     dispose() {
       contextLossSubscription?.dispose();

@@ -33,6 +33,11 @@ run web scripts with `bun run --filter hubris-web ...`. The Bun workspace
 manifest and `bun.lock` live at the repo root; there is no `package-lock.json`
 or `pnpm-lock.yaml`.
 
+**IMPORTANT: The backend SQLite state DB uses `sqlx` offline metadata.** After
+changing backend SQL queries or `apps/server/migrations/`, run
+`mise run sqlx:prepare` and commit the resulting `.sqlx/` metadata. Backend
+checks enforce this through `mise run check:backend`.
+
 ## Domain Concepts
 
 - **Project** — user-registered git repository; path canonicalized to git local

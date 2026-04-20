@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT replay_start_offset, data\n        FROM terminal_replay_chunks\n        WHERE tab_id = ?1\n        ORDER BY replay_start_offset\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "replay_start_offset",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "data",
+        "ordinal": 1,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0bbe3482a8658b624271ab3bf14e4079138ec98274e63848c1f5370b9e254eda"
+}

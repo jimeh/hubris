@@ -88,9 +88,11 @@ function triggerResizeObserver(): void {
 
 function renderTerminalConnection({
   visible = true,
+  focused = true,
   onClosed = vi.fn(),
 }: {
   visible?: boolean;
+  focused?: boolean;
   onClosed?: (tabId: string) => void;
 } = {}) {
   const terminalRef = {
@@ -101,10 +103,15 @@ function renderTerminalConnection({
   } as RefObject<HTMLDivElement | null>;
 
   return renderHook(
-    ({ visible: currentVisible, onClosed: currentOnClosed }) =>
+    ({
+      visible: currentVisible,
+      focused: currentFocused,
+      onClosed: currentOnClosed,
+    }) =>
       useTerminalConnection({
         tabId: "tab-1",
         visible: currentVisible,
+        focused: currentFocused,
         terminalRef,
         containerRef,
         onClosed: currentOnClosed,
@@ -112,6 +119,7 @@ function renderTerminalConnection({
     {
       initialProps: {
         visible,
+        focused,
         onClosed,
       },
     },
@@ -142,6 +150,7 @@ describe("useTerminalConnection", () => {
       clear: vi.fn(),
       refreshTheme: vi.fn(),
       updateFont: vi.fn(),
+      updateScrollback: vi.fn(),
       dispose: vi.fn(),
     };
 
@@ -175,7 +184,7 @@ describe("useTerminalConnection", () => {
     expect(queuedFrames.size).toBe(0);
 
     act(() => {
-      rerender({ visible: true, onClosed: vi.fn() });
+      rerender({ visible: true, focused: true, onClosed: vi.fn() });
     });
 
     expect(MockWebSocket.instances).toHaveLength(0);
@@ -244,7 +253,7 @@ describe("useTerminalConnection", () => {
       ws.open();
     });
 
-    rerender({ visible: false, onClosed: vi.fn() });
+    rerender({ visible: false, focused: true, onClosed: vi.fn() });
 
     act(() => {
       result.current.sendResize(true);
@@ -274,7 +283,7 @@ describe("useTerminalConnection", () => {
     const { result, rerender } = renderTerminalConnection({ visible: false });
 
     act(() => {
-      rerender({ visible: true, onClosed: vi.fn() });
+      rerender({ visible: true, focused: true, onClosed: vi.fn() });
     });
 
     act(() => {
@@ -291,7 +300,7 @@ describe("useTerminalConnection", () => {
       ws.open();
     });
 
-    rerender({ visible: false, onClosed: vi.fn() });
+    rerender({ visible: false, focused: true, onClosed: vi.fn() });
 
     act(() => {
       result.current.sendResize(true);
@@ -304,7 +313,7 @@ describe("useTerminalConnection", () => {
       visible: false,
     });
 
-    rerender({ visible: true, onClosed: vi.fn() });
+    rerender({ visible: true, focused: true, onClosed: vi.fn() });
 
     act(() => {
       result.current.sendResize(true);
@@ -365,6 +374,65 @@ describe("useTerminalConnection", () => {
     currentViewport = { cols: 100, rows: 30 };
     act(() => {
       queuedFrame?.(0);
+    });
+
+    expect(parseControlMessage(ws.sent[0])).toEqual({
+      type: "resize",
+      cols: 100,
+      rows: 30,
+      visible: true,
+    });
+  });
+
+  it("keeps retrying visible resize until a real measurement is available", () => {
+    const queuedFrames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 1;
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      const frameId = nextFrameId;
+      nextFrameId += 1;
+      queuedFrames.set(frameId, callback);
+      return frameId;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = vi.fn((frameId: number) => {
+      queuedFrames.delete(frameId);
+    }) as typeof window.cancelAnimationFrame;
+    currentViewport = null;
+
+    renderTerminalConnection();
+
+    const ws = MockWebSocket.instances[0];
+    act(() => {
+      ws.open();
+      ws.receive(
+        JSON.stringify({
+          type: "attached",
+          byte_offset: 12,
+          snapshot: true,
+          data_lost: false,
+          cols: 90,
+          rows: 25,
+        }),
+      );
+    });
+
+    expect(ws.sent).toHaveLength(0);
+    expect(mockTerminal.resize).toHaveBeenCalledWith(90, 25);
+
+    const firstRetry = queuedFrames.get(1);
+    expect(firstRetry).toBeDefined();
+    act(() => {
+      queuedFrames.delete(1);
+      firstRetry?.(0);
+    });
+
+    expect(ws.sent).toHaveLength(0);
+
+    currentViewport = { cols: 100, rows: 30 };
+    const secondRetry = queuedFrames.get(2);
+    expect(secondRetry).toBeDefined();
+    act(() => {
+      queuedFrames.delete(2);
+      secondRetry?.(0);
     });
 
     expect(parseControlMessage(ws.sent[0])).toEqual({

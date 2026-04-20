@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO terminal_replay_chunks (\n                tab_id,\n                replay_start_offset,\n                data,\n                created_at_ms\n            ) VALUES (?1, ?2, ?3, ?4)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "17533d0c3cc63a6eafdb69589863d94c42828b0aa240b80c74a1f67da80c0038"
+}

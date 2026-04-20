@@ -15,6 +15,7 @@ use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 use crate::api::settings::{
     AppearanceSettingsPatch, EditorSettingsPatch, Settings, SettingsPatch, SettingsState,
     SettingsStatus, TerminalSettingsPatch, VscodeSettingsPatch, WorktreeSettingsPatch,
+    clamp_client_scrollback_rows, clamp_server_scrollback_bytes,
 };
 use crate::events::{EventBus, EventKind};
 use crate::fs_sync::sync_parent_directory;
@@ -422,6 +423,12 @@ fn apply_terminal_patch(
     if let Some(escape_sequence_titles) = patch.escape_sequence_titles {
         settings.escape_sequence_titles = escape_sequence_titles;
     }
+    if let Some(client_scrollback_rows) = patch.client_scrollback_rows {
+        settings.client_scrollback_rows = clamp_client_scrollback_rows(client_scrollback_rows);
+    }
+    if let Some(server_scrollback_bytes) = patch.server_scrollback_bytes {
+        settings.server_scrollback_bytes = clamp_server_scrollback_bytes(server_scrollback_bytes);
+    }
 }
 
 fn apply_editor_patch(
@@ -501,6 +508,18 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
         if let Some(escape_sequence_titles) = terminal.escape_sequence_titles {
             table.insert("escapeSequenceTitles", value(escape_sequence_titles));
         }
+        if let Some(client_scrollback_rows) = terminal.client_scrollback_rows {
+            table.insert(
+                "clientScrollbackRows",
+                value(i64::from(client_scrollback_rows)),
+            );
+        }
+        if let Some(server_scrollback_bytes) = terminal.server_scrollback_bytes {
+            table.insert(
+                "serverScrollbackBytes",
+                value(i64::from(server_scrollback_bytes)),
+            );
+        }
     }
 
     if let Some(editor) = &patch.editor {
@@ -555,6 +574,14 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
     terminal.insert(
         "escapeSequenceTitles",
         value(settings.terminal.escape_sequence_titles),
+    );
+    terminal.insert(
+        "clientScrollbackRows",
+        value(i64::from(settings.terminal.client_scrollback_rows)),
+    );
+    terminal.insert(
+        "serverScrollbackBytes",
+        value(i64::from(settings.terminal.server_scrollback_bytes)),
     );
     terminal.remove("tabLabelMode");
 
@@ -874,13 +901,15 @@ tabLabelMode = "title"
     }
 
     #[tokio::test]
-    async fn terminal_settings_writes_new_naming_keys_only() {
+    async fn terminal_settings_writes_scrollback_and_naming_keys() {
         let tmp = TempDir::new().unwrap();
         let manager = new_manager(&tmp).await;
 
         manager
             .patch(SettingsPatch {
                 terminal: Some(TerminalSettingsPatch {
+                    client_scrollback_rows: Some(20_000),
+                    server_scrollback_bytes: Some(512 * 1024),
                     smart_tab_naming: Some(false),
                     escape_sequence_titles: Some(false),
                     ..Default::default()
@@ -891,8 +920,32 @@ tabLabelMode = "title"
             .unwrap();
 
         let written = std::fs::read_to_string(tmp.path().join("settings.toml")).unwrap();
+        assert!(written.contains("clientScrollbackRows = 20000"));
+        assert!(written.contains("serverScrollbackBytes = 524288"));
         assert!(written.contains("smartTabNaming = false"));
         assert!(written.contains("escapeSequenceTitles = false"));
         assert!(!written.contains("tabLabelMode"));
+    }
+
+    #[tokio::test]
+    async fn terminal_settings_clamp_scrollback_minimums() {
+        let tmp = TempDir::new().unwrap();
+        let manager = new_manager(&tmp).await;
+
+        manager
+            .patch(SettingsPatch {
+                terminal: Some(TerminalSettingsPatch {
+                    client_scrollback_rows: Some(12),
+                    server_scrollback_bytes: Some(2048),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        let current = manager.get().await;
+        assert_eq!(current.settings.terminal.client_scrollback_rows, 500);
+        assert_eq!(current.settings.terminal.server_scrollback_bytes, 10 * 1024);
     }
 }

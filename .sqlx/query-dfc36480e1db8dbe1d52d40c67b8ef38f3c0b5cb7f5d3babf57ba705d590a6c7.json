@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        DELETE FROM terminal_state\n        WHERE NOT EXISTS (\n            SELECT 1 FROM tabs WHERE tabs.tab_id = terminal_state.tab_id\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "dfc36480e1db8dbe1d52d40c67b8ef38f3c0b5cb7f5d3babf57ba705d590a6c7"
+}

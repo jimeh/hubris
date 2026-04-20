@@ -27,6 +27,7 @@ use hubris_server::tab::{
     GitDiffScope, TabInfo, TabPaneSplitAxis, WorktreePaneNode, WorktreeTabLayout,
     WorktreeTabLayoutState,
 };
+use hubris_server::worktree_state::WorktreeRestoreState;
 use ts_rs::{Config, TS};
 
 fn workspace_root() -> PathBuf {
@@ -79,6 +80,7 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<WorktreePaneNode>(&mut sse, &cfg)?;
     push_ts_export::<WorktreeTabLayout>(&mut sse, &cfg)?;
     push_ts_export::<WorktreeTabLayoutState>(&mut sse, &cfg)?;
+    push_ts_export::<WorktreeRestoreState>(&mut sse, &cfg)?;
     push_ts_export::<TabInfo>(&mut sse, &cfg)?;
     push_ts_export::<Project>(&mut sse, &cfg)?;
     push_ts_export::<WorktreeUiMode>(&mut sse, &cfg)?;

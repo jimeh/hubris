@@ -128,6 +128,11 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         .iter()
         .map(|entry| (entry.key().clone(), entry.value().clone()))
         .collect();
+    let worktree_restore_state = state
+        .restore_state_by_worktree
+        .iter()
+        .map(|entry| (entry.key().clone(), entry.value().clone()))
+        .collect();
 
     let mut projects = state.load_projects().await.unwrap_or_default();
     projects.sort_by(|a, b| {
@@ -171,6 +176,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
     let snapshot = EventKind::Snapshot {
         tabs,
         tab_layouts,
+        worktree_restore_state,
         projects,
         worktrees,
         project_errors,

@@ -4,6 +4,7 @@ pub mod events;
 mod frontend;
 mod fs_sync;
 pub mod git;
+pub mod instance_lock;
 pub mod process_manager;
 pub mod pty;
 mod settings_manager;
@@ -13,6 +14,7 @@ pub mod task_manager;
 mod vscode;
 pub mod worktree_files;
 pub mod worktree_path_policy;
+pub mod worktree_state;
 
 use std::future::Future;
 use std::sync::Arc;
@@ -62,13 +64,19 @@ use api::worktrees::{
     create_project_worktree, delete_project_worktree, discard_project_worktree_path,
     get_project_worktree_commit_details, get_project_worktree_git_status, import_project_worktree,
     list_importable_worktrees, list_project_worktree_start_points, list_project_worktrees,
-    rename_worktree_branch, reorder_project_worktrees, stage_project_worktree_path,
-    unstage_project_worktree_path, update_project_worktree,
+    put_worktree_restore_state, rename_worktree_branch, reorder_project_worktrees,
+    stage_project_worktree_path, unstage_project_worktree_path, update_project_worktree,
 };
 pub use frontend::FrontendAssets;
 use frontend::apply_frontend_fallback;
+pub use instance_lock::{
+    InstanceConflictInfo, InstanceKind, InstanceLock, InstanceLockError, InstanceLockMetadata,
+    InstanceLockOptions,
+};
 pub use state::AppState;
+use state::RestoredTerminalTab;
 use vscode::proxy_code_request;
+use worktree_state::ExistingWorktree;
 
 /// Runtime options for the Hubris server.
 #[derive(Clone, Debug)]
@@ -110,11 +118,98 @@ pub fn resolve_data_dir(default_dir_name: &str) -> std::io::Result<std::path::Pa
     Ok(home.join(default_dir_name))
 }
 
+/// Resolve the default server data directory for the current runtime mode.
+pub fn resolve_server_data_dir(is_dev: bool) -> std::io::Result<std::path::PathBuf> {
+    if let Ok(path) = std::env::var("HUBRIS_DATA_DIR") {
+        return Ok(std::path::PathBuf::from(path));
+    }
+
+    if is_dev {
+        let workspace_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()?;
+        return Ok(workspace_root.join("tmp/data"));
+    }
+
+    resolve_data_dir(".hubris")
+}
+
 /// Create the app state for a given data directory,
 /// ensuring the directory exists first.
 pub async fn create_app_state(data_dir: std::path::PathBuf) -> std::io::Result<AppState> {
     tokio::fs::create_dir_all(&data_dir).await?;
-    Ok(AppState::new(data_dir).await)
+    let state = AppState::try_new(data_dir).await?;
+    hydrate_persisted_worktree_state(&state).await?;
+    Ok(state)
+}
+
+async fn hydrate_persisted_worktree_state(state: &AppState) -> std::io::Result<()> {
+    let mut existing_worktrees = Vec::new();
+    for project in state.load_projects().await? {
+        match list_project_worktrees_for_hydration(state, &project).await {
+            Ok(worktrees) => {
+                for worktree in worktrees {
+                    state.remember_worktree_project(&worktree.id, &project.id);
+                    existing_worktrees.push(ExistingWorktree {
+                        project_id: project.id.clone(),
+                        worktree_id: worktree.id,
+                    });
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    project_id = project.id,
+                    "failed to list worktrees during state hydration: {error}"
+                );
+            }
+        }
+    }
+
+    let loaded = state
+        .persistence
+        .clone()
+        .load_existing(existing_worktrees)
+        .await?;
+    for worktree in loaded.worktrees {
+        state.remember_worktree_project(&worktree.worktree_id, &worktree.project_id);
+        state
+            .restore_state_by_worktree
+            .insert(worktree.worktree_id.clone(), worktree.restore_state.clone());
+        state.next_terminal_num_by_worktree.insert(
+            worktree.worktree_id.clone(),
+            worktree.next_terminal_number.max(1),
+        );
+
+        if let Some(layout) = worktree.layout {
+            state
+                .tab_layouts
+                .insert(worktree.worktree_id.clone(), layout);
+        }
+
+        for tab in worktree.tabs {
+            if tab.is_terminal() {
+                let tab_id = tab.id().to_string();
+                state.restored_terminal_tabs.insert(
+                    tab_id.clone(),
+                    RestoredTerminalTab {
+                        project_id: worktree.project_id.clone(),
+                        worktree_id: worktree.worktree_id.clone(),
+                    },
+                );
+                state.terminal_restore_lock(&tab_id);
+            }
+            state.tabs.insert(tab.id().to_string(), tab);
+        }
+    }
+
+    Ok(())
+}
+
+async fn list_project_worktrees_for_hydration(
+    state: &AppState,
+    project: &api::projects::Project,
+) -> Result<Vec<api::worktrees::Worktree>, String> {
+    api::worktrees::list_worktrees_for_project(state, project).await
 }
 
 /// Try binding to `host:start_port`, incrementing port up
@@ -176,6 +271,10 @@ pub async fn select_listener(
     }
 
     if is_dev {
+        if base_port == 0 {
+            return tokio::net::TcpListener::bind((host, 0)).await;
+        }
+
         let dev_port = base_port
             .checked_add(dev_backend_port_offset)
             .ok_or_else(|| {
@@ -251,6 +350,10 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route(
             "/projects/{id}/worktrees/{worktree_id}/tab-layout",
             put(update_worktree_tab_layout),
+        )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/restore-state",
+            put(put_worktree_restore_state),
         )
         .route(
             "/projects/{id}/worktrees/{worktree_id}/git-status",
@@ -421,7 +524,24 @@ pub async fn run_server_with_shutdown<F>(
 where
     F: Future<Output = ()> + Send + 'static,
 {
+    run_server_with_shutdown_and_lock(listener, data_dir, options, shutdown, None).await
+}
+
+/// Run the Hubris server on an existing listener while holding an optional
+/// data-directory instance lock for the server lifetime.
+pub async fn run_server_with_shutdown_and_lock<F>(
+    listener: tokio::net::TcpListener,
+    data_dir: std::path::PathBuf,
+    options: ServerOptions,
+    shutdown: F,
+    instance_lock: Option<InstanceLock>,
+) -> std::io::Result<()>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let _instance_lock = instance_lock;
     let state = create_app_state(data_dir).await?;
+    let persistence = state.persistence.clone();
     let app = build_router_with_options(state.clone(), options);
     let shutdown_signal = Arc::new(ShutdownSignal::default());
     let signal_task = {
@@ -443,7 +563,7 @@ where
             signal_task.abort();
             result.map_err(std::io::Error::other)?
         }
-        _ = shutdown_signal.wait() => {
+        _ = shutdown_signal.clone().wait() => {
             if let Err(error) = state.processes.shutdown_all().await {
                 tracing::warn!("failed to shut down managed processes: {error}");
             }
@@ -464,6 +584,9 @@ where
                 }
             };
             signal_task.abort();
+            if let Err(error) = persistence.clone().shutdown().await {
+                tracing::warn!("failed to flush persisted worktree state: {error}");
+            }
             result
         }
     };
@@ -472,6 +595,11 @@ where
         && let Err(error) = state.processes.shutdown_all().await
     {
         tracing::warn!("failed to shut down managed processes: {error}");
+    }
+    if !shutdown_signal.is_triggered()
+        && let Err(error) = persistence.clone().shutdown().await
+    {
+        tracing::warn!("failed to flush persisted worktree state: {error}");
     }
 
     result
@@ -493,7 +621,7 @@ impl ShutdownSignal {
         self.triggered.load(Ordering::SeqCst)
     }
 
-    async fn wait(&self) {
+    async fn wait(self: Arc<Self>) {
         loop {
             let notified = self.notify.notified();
             if self.is_triggered() {

@@ -513,8 +513,8 @@ impl VscodeManager {
         }
     }
 
-    pub async fn register_status_callbacks(self: &Arc<Self>) {
-        let weak = Arc::downgrade(self);
+    pub async fn register_status_callbacks(self: Arc<Self>) {
+        let weak = Arc::downgrade(&self);
         self.code_server
             .set_status_callback(Arc::new(move || {
                 let weak = weak.clone();
@@ -526,7 +526,7 @@ impl VscodeManager {
             }))
             .await;
 
-        let weak = Arc::downgrade(self);
+        let weak = Arc::downgrade(&self);
         self.vscode_cli
             .set_status_callback(Arc::new(move || {
                 let weak = weak.clone();
@@ -538,7 +538,7 @@ impl VscodeManager {
             }))
             .await;
 
-        let weak = Arc::downgrade(self);
+        let weak = Arc::downgrade(&self);
         let mut rx = self.events.subscribe();
         tokio::spawn(async move {
             loop {
@@ -2362,7 +2362,7 @@ mod tests {
         code_server: Arc<CodeServerManager>,
     ) {
         state.processes.register_controller(code_server.clone());
-        code_server.register_process_callback().await;
+        code_server.clone().register_process_callback().await;
 
         let tasks = Arc::new(TaskService::new(state.events.clone()));
         let vscode_cli = state.vscode.vscode_cli.clone();
@@ -2374,7 +2374,7 @@ mod tests {
             code_server,
             vscode_cli,
         ));
-        vscode.register_status_callbacks().await;
+        vscode.clone().register_status_callbacks().await;
         state.tasks = tasks;
         state.vscode = vscode;
         select_code_server_runtime(state).await;
@@ -3549,7 +3549,7 @@ mod tests {
             root_dir: tmp.path().join("code-server"),
             process_handle: process_service.register_process("code_server", "code-server"),
         });
-        code_server.register_process_callback().await;
+        code_server.clone().register_process_callback().await;
 
         let settings = Arc::new(
             SettingsManager::new(tmp.path().join("settings.toml"))
@@ -3573,7 +3573,7 @@ mod tests {
             events.clone(),
             process_service.clone(),
         ));
-        vscode_cli.register_process_callback().await;
+        vscode_cli.clone().register_process_callback().await;
         let tasks = Arc::new(TaskService::new(events.clone()));
         register_vscode_tasks(&tasks, code_server.clone(), vscode_cli.clone());
         let manager = Arc::new(VscodeManager::new(
@@ -3583,7 +3583,7 @@ mod tests {
             code_server,
             vscode_cli,
         ));
-        manager.register_status_callbacks().await;
+        manager.clone().register_status_callbacks().await;
 
         let initial = manager
             .install(Some("4.114.1".to_string()), false)
@@ -3803,7 +3803,7 @@ mod tests {
             code_server,
             vscode_cli,
         ));
-        manager.register_status_callbacks().await;
+        manager.clone().register_status_callbacks().await;
 
         let mut rx = events.subscribe();
         events.emit(EventKind::TaskRemoved(Box::new(

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        UPDATE tabs\n        SET\n            project_id = ?2,\n            worktree_id = ?3,\n            custom_label = ?4,\n            process_label = ?5\n        WHERE tab_id = ?1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "49f3da37d46f5401aab3e60011e994ac838cc1e168c367ccb8b4607751a40da1"
+}

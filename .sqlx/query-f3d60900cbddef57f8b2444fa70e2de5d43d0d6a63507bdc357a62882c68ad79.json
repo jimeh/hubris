@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM tabs WHERE project_id = ?1 AND worktree_id = ?2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "f3d60900cbddef57f8b2444fa70e2de5d43d0d6a63507bdc357a62882c68ad79"
+}

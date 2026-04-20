@@ -1728,6 +1728,50 @@
         }
       }
     },
+    "/api/projects/{id}/worktrees/{worktree_id}/restore-state": {
+      "put": {
+        "tags": ["crate::api::worktrees"],
+        "operationId": "put_worktree_restore_state",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorktreeRestoreStateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Worktree restore state updated"
+          },
+          "404": {
+            "description": "Worktree not found"
+          }
+        }
+      }
+    },
     "/api/projects/{id}/worktrees/{worktree_id}/tab-layout": {
       "put": {
         "tags": ["crate::api::tabs"],
@@ -3889,11 +3933,18 @@
           "bundledFont",
           "fontSize",
           "smartTabNaming",
-          "escapeSequenceTitles"
+          "escapeSequenceTitles",
+          "clientScrollbackRows",
+          "serverScrollbackBytes"
         ],
         "properties": {
           "bundledFont": {
             "type": "string"
+          },
+          "clientScrollbackRows": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "escapeSequenceTitles": {
             "type": "boolean"
@@ -3905,6 +3956,11 @@
           },
           "fontSource": {
             "$ref": "#/components/schemas/TerminalFontSource"
+          },
+          "serverScrollbackBytes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "smartTabNaming": {
             "type": "boolean"
@@ -3919,6 +3975,11 @@
         "properties": {
           "bundledFont": {
             "type": ["string", "null"]
+          },
+          "clientScrollbackRows": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
           },
           "escapeSequenceTitles": {
             "type": ["boolean", "null"]
@@ -3937,6 +3998,11 @@
                 "$ref": "#/components/schemas/TerminalFontSource"
               }
             ]
+          },
+          "serverScrollbackBytes": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
           },
           "smartTabNaming": {
             "type": ["boolean", "null"]
@@ -4020,6 +4086,35 @@
                 "$ref": "#/components/schemas/WorktreeUiMode"
               }
             ]
+          }
+        }
+      },
+      "UpdateWorktreeRestoreStateRequest": {
+        "type": "object",
+        "properties": {
+          "activeTabId": {
+            "type": ["string", "null"]
+          },
+          "focusedPaneId": {
+            "type": ["string", "null"]
+          },
+          "paneMru": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            }
+          },
+          "tabMruByPane": {
+            "type": ["object", "null"],
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },

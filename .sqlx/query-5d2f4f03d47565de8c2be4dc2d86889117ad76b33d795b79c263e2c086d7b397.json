@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        DELETE FROM browser_history_entries\n        WHERE tab_id IN (\n            SELECT tab_id FROM tabs WHERE worktree_id = ?1\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "5d2f4f03d47565de8c2be4dc2d86889117ad76b33d795b79c263e2c086d7b397"
+}

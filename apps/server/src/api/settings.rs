@@ -135,6 +135,10 @@ pub struct TerminalSettings {
     pub smart_tab_naming: bool,
     #[schema(required = true)]
     pub escape_sequence_titles: bool,
+    #[schema(required = true)]
+    pub client_scrollback_rows: u32,
+    #[schema(required = true)]
+    pub server_scrollback_bytes: u32,
 }
 
 impl Default for TerminalSettings {
@@ -146,6 +150,8 @@ impl Default for TerminalSettings {
             font_size: default_font_size(),
             smart_tab_naming: default_true(),
             escape_sequence_titles: default_true(),
+            client_scrollback_rows: default_client_scrollback_rows(),
+            server_scrollback_bytes: default_server_scrollback_bytes(),
         }
     }
 }
@@ -156,6 +162,33 @@ fn default_bundled_font() -> String {
 
 fn default_font_size() -> u32 {
     14
+}
+
+pub const MIN_CLIENT_SCROLLBACK_ROWS: u32 = 500;
+pub const MIN_SERVER_SCROLLBACK_BYTES: u32 = 10 * 1024;
+
+fn default_client_scrollback_rows() -> u32 {
+    10_000
+}
+
+fn default_server_scrollback_bytes() -> u32 {
+    256 * 1024
+}
+
+pub const fn clamp_client_scrollback_rows(rows: u32) -> u32 {
+    if rows < MIN_CLIENT_SCROLLBACK_ROWS {
+        MIN_CLIENT_SCROLLBACK_ROWS
+    } else {
+        rows
+    }
+}
+
+pub const fn clamp_server_scrollback_bytes(bytes: u32) -> u32 {
+    if bytes < MIN_SERVER_SCROLLBACK_BYTES {
+        MIN_SERVER_SCROLLBACK_BYTES
+    } else {
+        bytes
+    }
 }
 
 const fn default_true() -> bool {
@@ -185,6 +218,10 @@ struct TerminalSettingsCompat {
     smart_tab_naming: Option<bool>,
     #[serde(default)]
     escape_sequence_titles: Option<bool>,
+    #[serde(default = "default_client_scrollback_rows")]
+    client_scrollback_rows: u32,
+    #[serde(default = "default_server_scrollback_bytes")]
+    server_scrollback_bytes: u32,
     #[serde(default)]
     tab_label_mode: Option<LegacyTerminalTabLabelMode>,
 }
@@ -216,6 +253,8 @@ impl<'de> Deserialize<'de> for TerminalSettings {
                     default_true()
                 }
             }),
+            client_scrollback_rows: clamp_client_scrollback_rows(compat.client_scrollback_rows),
+            server_scrollback_bytes: clamp_server_scrollback_bytes(compat.server_scrollback_bytes),
         })
     }
 }
@@ -300,6 +339,10 @@ pub struct TerminalSettingsPatch {
     pub smart_tab_naming: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub escape_sequence_titles: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_scrollback_rows: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_scrollback_bytes: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]

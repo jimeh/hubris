@@ -341,6 +341,8 @@ pub async fn delete_project(
         return StatusCode::INTERNAL_SERVER_ERROR;
     }
 
+    state.persistence.delete_project(id.clone());
+
     let _ = tokio::fs::remove_file(state.project_meta_file(&id)).await;
 
     state.events.emit(EventKind::ProjectRemoved {

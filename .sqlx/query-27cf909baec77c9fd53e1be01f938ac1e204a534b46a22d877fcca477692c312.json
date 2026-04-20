@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            worktree_id as \"worktree_id!\",\n            node_id as \"node_id!\",\n            node_type as \"node_type!\",\n            pane_id,\n            axis,\n            ratio,\n            first_id,\n            second_id\n        FROM layout_nodes\n        ORDER BY worktree_id, node_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "worktree_id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "node_id!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "node_type!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "pane_id",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "axis",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "ratio",
+        "ordinal": 5,
+        "type_info": "Float"
+      },
+      {
+        "name": "first_id",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "second_id",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "27cf909baec77c9fd53e1be01f938ac1e204a534b46a22d877fcca477692c312"
+}

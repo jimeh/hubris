@@ -507,6 +507,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{id}/worktrees/{worktree_id}/restore-state": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations["put_worktree_restore_state"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/projects/{id}/worktrees/{worktree_id}/tab-layout": {
     parameters: {
       query?: never;
@@ -1233,19 +1249,27 @@ export interface components {
     TerminalFontSource: "default" | "system" | "bundled";
     TerminalSettings: {
       bundledFont: string;
+      /** Format: int32 */
+      clientScrollbackRows: number;
       escapeSequenceTitles: boolean;
       /** Format: int32 */
       fontSize: number;
       fontSource: components["schemas"]["TerminalFontSource"];
+      /** Format: int32 */
+      serverScrollbackBytes: number;
       smartTabNaming: boolean;
       systemFontFamily: string;
     };
     TerminalSettingsPatch: {
       bundledFont?: string | null;
+      /** Format: int32 */
+      clientScrollbackRows?: number | null;
       escapeSequenceTitles?: boolean | null;
       /** Format: int32 */
       fontSize?: number | null;
       fontSource?: null | components["schemas"]["TerminalFontSource"];
+      /** Format: int32 */
+      serverScrollbackBytes?: number | null;
       smartTabNaming?: boolean | null;
       systemFontFamily?: string | null;
     };
@@ -1272,6 +1296,14 @@ export interface components {
       name?: string | null;
       source_ref?: string | null;
       ui_mode?: null | components["schemas"]["WorktreeUiMode"];
+    };
+    UpdateWorktreeRestoreStateRequest: {
+      activeTabId?: string | null;
+      focusedPaneId?: string | null;
+      paneMru?: string[] | null;
+      tabMruByPane?: {
+        [key: string]: string[];
+      } | null;
     };
     UpdateWorktreeTabLayoutRequest: {
       nodes: components["schemas"]["WorktreePaneNode"][];
@@ -3078,6 +3110,40 @@ export interface operations {
       };
       /** @description Internal server error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  put_worktree_restore_state: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project ID */
+        id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateWorktreeRestoreStateRequest"];
+      };
+    };
+    responses: {
+      /** @description Worktree restore state updated */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Worktree not found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

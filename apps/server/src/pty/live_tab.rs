@@ -15,10 +15,10 @@ use tokio::time::Instant;
 
 use crate::tab::TabInfo;
 
-/// Default scrollback buffer size in bytes (~128KB).
+/// Default scrollback buffer size in bytes (~256KB).
 /// Passed to `LiveTab::spawn()` so it can be overridden
 /// per-tab in the future (e.g., from user settings).
-pub const DEFAULT_SCROLLBACK: usize = 128 * 1024;
+pub const DEFAULT_SCROLLBACK: usize = 256 * 1024;
 pub const DEFAULT_PTY_COLS: u16 = 80;
 pub const DEFAULT_PTY_ROWS: u16 = 24;
 const MIN_PTY_COLS: u16 = 8;
@@ -36,6 +36,58 @@ const PROC_PIDVNODEPATHINFO: libc::c_int = 9;
 pub struct TerminalSize {
     pub cols: u16,
     pub rows: u16,
+}
+
+/// Persisted terminal output used to rebuild a restored replay.
+#[derive(Debug, Clone)]
+pub struct RestoredTerminalBuffers {
+    pub history: Vec<u8>,
+}
+
+pub struct RestoredTerminalState {
+    pub size: TerminalSize,
+    pub buffers: RestoredTerminalBuffers,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum TerminalPersistenceCapture {
+    Incremental(TerminalIncrementalCapture),
+    FullRebuild(Box<TerminalFullRebuildCapture>),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TerminalIncrementalCapture {
+    pub size: TerminalSize,
+    pub replay_budget_bytes: usize,
+    pub source_bytes_end: u64,
+    pub replay_epoch: u64,
+    pub source_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TerminalFullRebuildCapture {
+    pub size: TerminalSize,
+    pub replay_budget_bytes: usize,
+    pub source_bytes_end: u64,
+    pub replay_epoch: u64,
+    pub replay_screen: vt100::Screen,
+    pub replay_filter: ReplayFilter,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TerminalPersistenceSeed {
+    pub total_bytes: u64,
+    pub replay_epoch: u64,
+    pub replay_filter: ReplayFilter,
+}
+
+struct LiveTabSpawn {
+    info: TabInfo,
+    shell_process_name: Option<String>,
+    worktree_root: PathBuf,
+    master: Box<dyn MasterPty + Send>,
+    child: Box<dyn Child + Send + Sync>,
+    scrollback_size: usize,
 }
 
 impl TerminalSize {
@@ -342,6 +394,10 @@ struct OutputState {
     scrollback: VecDeque<u8>,
     total_bytes: u64,
     parser: vt100::Parser,
+    replay_parser: vt100::Parser,
+    replay_filter: ReplayFilter,
+    replay_epoch: u64,
+    replay_budget_bytes: usize,
     size: TerminalSize,
     last_good_size: TerminalSize,
 }
@@ -349,10 +405,15 @@ struct OutputState {
 impl OutputState {
     fn new(scrollback_size: usize, initial_size: TerminalSize) -> Self {
         let size = initial_size.clamped();
+        let replay_scrollback_rows = estimated_replay_scrollback_rows(scrollback_size, size);
         Self {
             scrollback: VecDeque::with_capacity(scrollback_size),
             total_bytes: 0,
             parser: vt100::Parser::new(size.rows, size.cols, 0),
+            replay_parser: vt100::Parser::new(size.rows, size.cols, replay_scrollback_rows),
+            replay_filter: ReplayFilter::default(),
+            replay_epoch: 0,
+            replay_budget_bytes: scrollback_size,
             size,
             last_good_size: size,
         }
@@ -376,6 +437,11 @@ impl OutputState {
             self.scrollback.extend(retained_data.iter().copied());
         }
         self.total_bytes += data.len() as u64;
+        self.process_parser_bytes(data);
+        self.process_replay_bytes(data);
+    }
+
+    fn process_parser_bytes(&mut self, data: &[u8]) {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.parser.process(data);
         }));
@@ -388,11 +454,52 @@ impl OutputState {
         }
     }
 
+    fn process_replay_bytes(&mut self, data: &[u8]) {
+        let filtered = self.replay_filter.filter(data);
+        if filtered.is_empty() {
+            return;
+        }
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.replay_parser.process(&filtered);
+        }));
+        if result.is_err() {
+            tracing::warn!(
+                "vt100 replay parser panicked while processing PTY output; resetting persisted terminal history parser"
+            );
+            self.replay_parser = vt100::Parser::new(
+                self.last_good_size.rows,
+                self.last_good_size.cols,
+                estimated_replay_scrollback_rows(self.replay_budget_bytes, self.last_good_size),
+            );
+            self.replay_filter = ReplayFilter::default();
+            self.replay_epoch = self.replay_epoch.saturating_add(1);
+        }
+    }
+
     fn resize(&mut self, size: TerminalSize) {
         let size = size.clamped();
+        if self.size != size {
+            self.replay_epoch = self.replay_epoch.saturating_add(1);
+        }
         self.size = size;
         self.last_good_size = size;
         self.parser.screen_mut().set_size(size.rows, size.cols);
+        self.replay_parser
+            .screen_mut()
+            .set_size(size.rows, size.cols);
+    }
+
+    fn from_history(scrollback_size: usize, initial_size: TerminalSize, history: &[u8]) -> Self {
+        let mut state = Self::new(scrollback_size, initial_size);
+        state.record_output(history, scrollback_size);
+        state
+    }
+
+    #[cfg(test)]
+    fn replay_history(&self) -> Vec<u8> {
+        let mut screen = self.replay_parser.screen().clone();
+        formatted_screen_history(&mut screen, self.replay_budget_bytes)
     }
 
     fn build_attach_payload(&self, resume_from: Option<u64>) -> (Vec<u8>, bool, bool) {
@@ -444,6 +551,261 @@ impl OutputState {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn build_replay_history_from_buffers(
+    initial_size: TerminalSize,
+    scrollback: &[u8],
+    snapshot: &[u8],
+) -> Vec<u8> {
+    let mut stream = Vec::with_capacity(scrollback.len() + snapshot.len());
+    stream.extend_from_slice(scrollback);
+    stream.extend_from_slice(snapshot);
+    build_replay_history_from_stream(initial_size, &stream)
+}
+
+#[cfg(test)]
+fn build_replay_history_from_stream(initial_size: TerminalSize, stream: &[u8]) -> Vec<u8> {
+    let size = initial_size.clamped();
+    let scrollback_rows = estimated_replay_scrollback_rows(DEFAULT_SCROLLBACK, size);
+    let mut parser = vt100::Parser::new(size.rows, size.cols, scrollback_rows);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        parser.process(stream);
+        if parser.screen().alternate_screen() {
+            parser.process(b"\x1b[?1049l");
+        }
+    }));
+    if result.is_err() {
+        tracing::warn!(
+            "vt100 parser panicked while building replay history; dropping persisted terminal history"
+        );
+        return Vec::new();
+    }
+
+    formatted_screen_history(parser.screen_mut(), DEFAULT_SCROLLBACK)
+}
+
+fn estimated_replay_scrollback_rows(budget_bytes: usize, size: TerminalSize) -> usize {
+    let cols = usize::from(size.cols.max(1));
+    let rows = usize::from(size.rows.max(1));
+    (budget_bytes / cols).max(rows)
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ReplayFilter {
+    in_alt_screen: bool,
+    state: ReplayFilterState,
+}
+
+#[derive(Clone, Debug, Default)]
+enum ReplayFilterState {
+    #[default]
+    Ground,
+    Esc,
+    Csi(Vec<u8>),
+    StringSequence(StringSequenceKind),
+    StringSequenceEsc(StringSequenceKind),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum StringSequenceKind {
+    Osc,
+    Dcs,
+    Pm,
+    Apc,
+}
+
+impl ReplayFilter {
+    fn filter(&mut self, data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(data.len());
+        for &byte in data {
+            match &mut self.state {
+                ReplayFilterState::Ground => {
+                    if byte == 0x1b {
+                        self.state = ReplayFilterState::Esc;
+                    } else if !self.in_alt_screen {
+                        out.push(byte);
+                    }
+                }
+                ReplayFilterState::Esc => match byte {
+                    b'[' => {
+                        self.state = ReplayFilterState::Csi(vec![0x1b, b'[']);
+                    }
+                    b']' => {
+                        self.state = ReplayFilterState::StringSequence(StringSequenceKind::Osc);
+                    }
+                    b'P' => {
+                        self.state = ReplayFilterState::StringSequence(StringSequenceKind::Dcs);
+                    }
+                    b'^' => {
+                        self.state = ReplayFilterState::StringSequence(StringSequenceKind::Pm);
+                    }
+                    b'_' => {
+                        self.state = ReplayFilterState::StringSequence(StringSequenceKind::Apc);
+                    }
+                    b'c' | b'=' | b'>' => {
+                        self.state = ReplayFilterState::Ground;
+                    }
+                    _ => {
+                        if !self.in_alt_screen {
+                            out.push(0x1b);
+                            out.push(byte);
+                        }
+                        self.state = ReplayFilterState::Ground;
+                    }
+                },
+                ReplayFilterState::Csi(seq) => {
+                    seq.push(byte);
+                    if (0x40..=0x7e).contains(&byte) {
+                        if let Some(private_modes) = parse_private_mode_sequence(seq, byte) {
+                            for mode in private_modes {
+                                if matches!(mode, 47 | 1047 | 1049) {
+                                    self.in_alt_screen = byte == b'h';
+                                }
+                            }
+                        } else if !self.in_alt_screen {
+                            out.extend_from_slice(seq);
+                        }
+                        self.state = ReplayFilterState::Ground;
+                    }
+                }
+                ReplayFilterState::StringSequence(kind) => match byte {
+                    0x07 => self.state = ReplayFilterState::Ground,
+                    0x1b => {
+                        self.state = ReplayFilterState::StringSequenceEsc(*kind);
+                    }
+                    _ => {}
+                },
+                ReplayFilterState::StringSequenceEsc(kind) => {
+                    if byte == b'\\' {
+                        self.state = ReplayFilterState::Ground;
+                    } else {
+                        self.state = ReplayFilterState::StringSequence(*kind);
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
+pub(crate) fn filter_replay_bytes(filter: &mut ReplayFilter, data: &[u8]) -> Vec<u8> {
+    filter.filter(data)
+}
+
+pub(crate) fn render_replay_screen_history(
+    mut screen: vt100::Screen,
+    budget_bytes: usize,
+) -> Vec<u8> {
+    formatted_screen_history(&mut screen, budget_bytes)
+}
+
+fn parse_private_mode_sequence(seq: &[u8], final_byte: u8) -> Option<Vec<u16>> {
+    if !(final_byte == b'h' || final_byte == b'l') {
+        return None;
+    }
+    if seq.len() < 5 || seq[0] != 0x1b || seq[1] != b'[' || seq[2] != b'?' {
+        return None;
+    }
+
+    let params = &seq[3..seq.len().saturating_sub(1)];
+    let parsed = String::from_utf8_lossy(params)
+        .split(';')
+        .filter_map(|part| part.parse::<u16>().ok())
+        .collect::<Vec<_>>();
+    Some(parsed)
+}
+
+struct RestoredHistoryRow {
+    formatted: Vec<u8>,
+    plain: String,
+    wrapped: bool,
+}
+
+fn formatted_screen_history(screen: &mut vt100::Screen, budget_bytes: usize) -> Vec<u8> {
+    screen.set_scrollback(usize::MAX);
+    let total_scrollback = screen.scrollback();
+    let (rows, cols) = screen.size();
+    let mut history_rows = Vec::new();
+
+    append_window_rows(&mut history_rows, screen, rows, cols);
+    if total_scrollback > 0 {
+        for offset in (0..total_scrollback).rev() {
+            screen.set_scrollback(offset);
+            append_row(&mut history_rows, screen, rows.saturating_sub(1), cols);
+        }
+    }
+
+    screen.set_scrollback(0);
+    trim_trailing_blank_rows(&mut history_rows);
+    trim_leading_rows_to_budget(&mut history_rows, budget_bytes);
+
+    let mut out = Vec::new();
+    for (index, row) in history_rows.iter().enumerate() {
+        if index > 0 && !out.ends_with(b"\n") && !history_rows[index - 1].wrapped {
+            out.extend_from_slice(b"\r\n");
+        }
+        out.extend_from_slice(&row.formatted);
+        if !row.wrapped {
+            out.extend_from_slice(b"\x1b[m");
+            out.extend_from_slice(b"\r\n");
+        }
+    }
+
+    out
+}
+
+fn append_window_rows(
+    out: &mut Vec<RestoredHistoryRow>,
+    screen: &vt100::Screen,
+    rows: u16,
+    cols: u16,
+) {
+    for row in 0..rows {
+        append_row(out, screen, row, cols);
+    }
+}
+
+fn append_row(out: &mut Vec<RestoredHistoryRow>, screen: &vt100::Screen, row: u16, cols: u16) {
+    let Some(formatted) = screen.rows_formatted(0, cols).nth(row as usize) else {
+        return;
+    };
+    let plain = screen.rows(0, cols).nth(row as usize).unwrap_or_default();
+    out.push(RestoredHistoryRow {
+        formatted,
+        plain,
+        wrapped: screen.row_wrapped(row),
+    });
+}
+
+fn trim_trailing_blank_rows(rows: &mut Vec<RestoredHistoryRow>) {
+    while rows
+        .last()
+        .is_some_and(|row| row.plain.trim_end().is_empty())
+    {
+        rows.pop();
+    }
+}
+
+fn trim_leading_rows_to_budget(rows: &mut Vec<RestoredHistoryRow>, budget_bytes: usize) {
+    while rows.len() > 1 && rendered_history_len(rows) > budget_bytes {
+        rows.remove(0);
+    }
+}
+
+fn rendered_history_len(rows: &[RestoredHistoryRow]) -> usize {
+    let mut len = 0usize;
+    for (index, row) in rows.iter().enumerate() {
+        if index > 0 && !rows[index - 1].wrapped {
+            len = len.saturating_add(2);
+        }
+        len = len.saturating_add(row.formatted.len());
+        if !row.wrapped {
+            len = len.saturating_add(5);
+        }
+    }
+    len
+}
+
 impl LiveTab {
     /// Spawn a new LiveTab from an already-opened PTY pair
     /// and child process. Starts a background reader task
@@ -457,10 +819,62 @@ impl LiveTab {
         scrollback_size: usize,
         initial_size: TerminalSize,
     ) -> Self {
+        let spawn = LiveTabSpawn {
+            info,
+            shell_process_name,
+            worktree_root,
+            master,
+            child,
+            scrollback_size,
+        };
+        Self::spawn_with_output_state(
+            spawn,
+            initial_size,
+            OutputState::new(scrollback_size, initial_size),
+        )
+    }
+
+    pub fn spawn_restored(
+        info: TabInfo,
+        shell_process_name: Option<String>,
+        worktree_root: PathBuf,
+        master: Box<dyn MasterPty + Send>,
+        child: Box<dyn Child + Send + Sync>,
+        scrollback_size: usize,
+        restored: RestoredTerminalState,
+    ) -> Self {
+        let spawn = LiveTabSpawn {
+            info,
+            shell_process_name,
+            worktree_root,
+            master,
+            child,
+            scrollback_size,
+        };
+        Self::spawn_with_output_state(
+            spawn,
+            restored.size,
+            OutputState::from_history(scrollback_size, restored.size, &restored.buffers.history),
+        )
+    }
+
+    fn spawn_with_output_state(
+        spawn: LiveTabSpawn,
+        initial_size: TerminalSize,
+        output_state: OutputState,
+    ) -> Self {
+        let LiveTabSpawn {
+            info,
+            shell_process_name,
+            worktree_root,
+            master,
+            child,
+            scrollback_size,
+        } = spawn;
         let mut reader = master.try_clone_reader().unwrap();
         let writer = master.take_writer().unwrap();
 
-        let output_state = Arc::new(Mutex::new(OutputState::new(scrollback_size, initial_size)));
+        let output_state = Arc::new(Mutex::new(output_state));
         let (output_tx, _) = broadcast::channel(64);
         let (pty_size_tx, _) = broadcast::channel(16);
         let (close_tx, _) = broadcast::channel(1);
@@ -671,6 +1085,58 @@ impl LiveTab {
     /// closing. Called by `delete_tab` for explicit closure.
     pub fn notify_close(&self) {
         let _ = self.close_tx.send(());
+    }
+
+    pub(crate) fn capture_persistence_snapshot(
+        &self,
+        requested_source_offset: u64,
+        requested_replay_epoch: u64,
+    ) -> TerminalPersistenceCapture {
+        let output_state = self.output_state.lock().unwrap();
+        let raw_start_offset = output_state
+            .total_bytes
+            .saturating_sub(output_state.scrollback.len() as u64);
+        if output_state.replay_epoch == requested_replay_epoch
+            && requested_source_offset >= raw_start_offset
+        {
+            let source_start = requested_source_offset.min(output_state.total_bytes);
+            let offset_in_scrollback = (source_start.saturating_sub(raw_start_offset)) as usize;
+            let (front, back) = output_state.scrollback.as_slices();
+            let mut source_bytes =
+                Vec::with_capacity((output_state.total_bytes - source_start) as usize);
+            let front_skip = offset_in_scrollback.min(front.len());
+            source_bytes.extend_from_slice(&front[front_skip..]);
+            if offset_in_scrollback > front.len() {
+                source_bytes.extend_from_slice(&back[offset_in_scrollback - front.len()..]);
+            } else {
+                source_bytes.extend_from_slice(back);
+            }
+            return TerminalPersistenceCapture::Incremental(TerminalIncrementalCapture {
+                size: output_state.size,
+                replay_budget_bytes: output_state.replay_budget_bytes,
+                source_bytes_end: output_state.total_bytes,
+                replay_epoch: output_state.replay_epoch,
+                source_bytes,
+            });
+        }
+
+        TerminalPersistenceCapture::FullRebuild(Box::new(TerminalFullRebuildCapture {
+            size: output_state.size,
+            replay_budget_bytes: output_state.replay_budget_bytes,
+            source_bytes_end: output_state.total_bytes,
+            replay_epoch: output_state.replay_epoch,
+            replay_screen: output_state.replay_parser.screen().clone(),
+            replay_filter: output_state.replay_filter.clone(),
+        }))
+    }
+
+    pub(crate) fn capture_persistence_seed(&self) -> TerminalPersistenceSeed {
+        let output_state = self.output_state.lock().unwrap();
+        TerminalPersistenceSeed {
+            total_bytes: output_state.total_bytes,
+            replay_epoch: output_state.replay_epoch,
+            replay_filter: output_state.replay_filter.clone(),
+        }
     }
 
     /// Kill the child process and wait for exit.
@@ -1114,7 +1580,8 @@ mod tests {
 
     use super::{
         AttachmentRegistry, DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS, DEFAULT_SCROLLBACK, LiveTab,
-        TabInfo, TerminalSignalScanner, TerminalSize,
+        OutputState, RestoredTerminalBuffers, RestoredTerminalState, TabInfo,
+        TerminalSignalScanner, TerminalSize, build_replay_history_from_buffers,
     };
 
     #[test]
@@ -1501,6 +1968,49 @@ mod tests {
         ))
     }
 
+    fn spawn_test_restored_tab(history: Vec<u8>, size: TerminalSize) -> Arc<LiveTab> {
+        let pty_system = NativePtySystem::default();
+        let pair = pty_system.openpty(size.to_pty_size()).unwrap();
+
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.arg("-c");
+        cmd.arg("cat");
+        cmd.set_controlling_tty(false);
+        cmd.cwd("/");
+        cmd.env("TERM", "xterm-256color");
+
+        let child = pair.slave.spawn_command(cmd).unwrap();
+        drop(pair.slave);
+
+        Arc::new(LiveTab::spawn_restored(
+            TabInfo::Terminal {
+                id: "tab".to_string(),
+                session_id: "default".to_string(),
+                worktree_id: "worktree".to_string(),
+                pane_id: "pane-1".to_string(),
+                label: "Terminal 1".to_string(),
+                position: 1.0,
+                created_at: 0,
+                preview: false,
+                has_notification: false,
+                labels: crate::tab::TerminalTabLabels {
+                    custom_label: None,
+                    smart_label: None,
+                    title_label: None,
+                },
+            },
+            Some("sh".to_string()),
+            PathBuf::from("/tmp/worktree"),
+            pair.master,
+            child,
+            DEFAULT_SCROLLBACK,
+            RestoredTerminalState {
+                size,
+                buffers: RestoredTerminalBuffers { history },
+            },
+        ))
+    }
+
     #[test]
     fn attachment_registry_uses_smallest_visible_size() {
         let mut registry = AttachmentRegistry::new(TerminalSize::default_pty());
@@ -1768,11 +2278,127 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn restored_attach_omits_alternate_screen_history() {
+        let normal_history = b"before alt\r\n";
+        let enable_mouse = b"\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1006h";
+        let body = b"\x1b[31mhtop\x1b[m";
+        let mut restored = Vec::new();
+        restored.extend_from_slice(normal_history);
+        restored.extend_from_slice(enable_mouse);
+        restored.extend_from_slice(body);
+        let restored_size = TerminalSize::new(132, 47);
+        let replay_history = build_replay_history_from_buffers(restored_size, &restored, &[]);
+        let tab = spawn_test_restored_tab(replay_history.clone(), restored_size);
+
+        let first_attachment = tab.attach(Some(0));
+        let first_payload = String::from_utf8_lossy(&first_attachment.initial_payload);
+
+        assert!(!first_attachment.snapshot);
+        assert_eq!(first_attachment.current_size, restored_size);
+        assert!(first_payload.contains("before alt"));
+        assert!(!first_payload.contains("htop"));
+        assert!(!first_payload.contains("\x1b[?1049h"));
+        assert!(!first_payload.contains("\x1b[?1000h"));
+        assert!(!first_payload.contains("\x1b[?1002h"));
+        assert!(!first_payload.contains("\x1b[?1006h"));
+
+        let second_attachment = tab.attach(None);
+        let second_payload = String::from_utf8_lossy(&second_attachment.initial_payload);
+
+        assert!(second_attachment.snapshot);
+        assert_eq!(second_attachment.current_size, restored_size);
+        assert!(second_payload.contains("before alt"));
+        assert!(!second_payload.contains("htop"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn restored_attach_replays_inert_history_for_every_fresh_attach() {
+        let restored = b"\x1b[31mclaude\x1b[m".to_vec();
+        let tab = spawn_test_restored_tab(restored.clone(), TerminalSize::default_pty());
+
+        let first_attachment = tab.attach(Some(0));
+        let first_payload = String::from_utf8_lossy(&first_attachment.initial_payload);
+        assert!(first_payload.contains("claude"));
+        assert!(first_payload.contains("\x1b[31m"));
+
+        let second_attachment = tab.attach(None);
+        let second_payload = String::from_utf8_lossy(&second_attachment.initial_payload);
+        assert!(second_payload.contains("claude"));
+        assert!(second_payload.contains("\x1b[31m"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn restored_attach_byte_offset_includes_restored_history() {
+        let restored = b"before restart\r\n".to_vec();
+        let tab = spawn_test_restored_tab(restored.clone(), TerminalSize::default_pty());
+
+        let attachment = tab.attach(Some(0));
+
+        assert_eq!(
+            attachment.byte_offset,
+            attachment.initial_payload.len() as u64
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn restored_resume_replays_missing_history_prefix() {
+        let restored = b"before restart".to_vec();
+        let tab = spawn_test_restored_tab(restored.clone(), TerminalSize::default_pty());
+
+        let first_attachment = tab.attach(Some(0));
+        let resume_from = first_attachment.byte_offset.saturating_sub(4);
+        let resumed_attachment = tab.attach(Some(resume_from));
+        let resumed_payload = String::from_utf8_lossy(&resumed_attachment.initial_payload);
+
+        assert!(!resumed_attachment.snapshot);
+        assert!(resumed_payload.contains("tart"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn restored_attach_trims_blank_tail_rows() {
+        let restored = b"~/Devbox\r\n\x1b[32m>\x1b[m ".to_vec();
+        let tab = spawn_test_restored_tab(restored.clone(), TerminalSize::new(132, 47));
+
+        let attachment = tab.attach(Some(0));
+        let payload = String::from_utf8_lossy(&attachment.initial_payload);
+
+        assert!(payload.contains("~/Devbox"));
+        assert!(!payload.contains("\n\n\n\n\n\n\n\n\n\n"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn restored_attach_resets_formatting_after_non_wrapped_rows() {
+        let restored = b"\x1b[4mVagrantfile\x1b[m\r\nprompt".to_vec();
+        let tab = spawn_test_restored_tab(restored.clone(), TerminalSize::new(132, 47));
+
+        let attachment = tab.attach(Some(0));
+        let mut parser = vt100::Parser::new(DEFAULT_PTY_ROWS, DEFAULT_PTY_COLS, 0);
+        parser.process(&attachment.initial_payload);
+
+        assert!(!parser.screen().underline());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn resize_updates_parser_size() {
         let tab = spawn_test_live_tab();
 
         assert!(tab.resize_pty(TerminalSize::new(120, 40)));
 
         assert_eq!(tab.screen_for_test().size(), (40, 120));
+    }
+
+    #[test]
+    fn replay_history_omits_alternate_screen_bytes_before_budgeting() {
+        let mut output_state = OutputState::new(64, TerminalSize::default_pty());
+        output_state.record_output(b"before alt\r\n", 64);
+        output_state.record_output(b"\x1b[?1049h", 64);
+        output_state.record_output(&vec![b'x'; 1024], 64);
+        output_state.record_output(b"\x1b[?1049l", 64);
+
+        let replay_history = output_state.replay_history();
+        let history = String::from_utf8_lossy(&replay_history);
+
+        assert!(history.contains("before alt"));
+        assert!(!history.contains("xxxxxxxxxx"));
     }
 }
