@@ -1249,19 +1249,27 @@ export interface components {
     TerminalFontSource: "default" | "system" | "bundled";
     TerminalSettings: {
       bundledFont: string;
+      /** Format: int32 */
+      clientScrollbackRows: number;
       escapeSequenceTitles: boolean;
       /** Format: int32 */
       fontSize: number;
       fontSource: components["schemas"]["TerminalFontSource"];
+      /** Format: int32 */
+      serverScrollbackBytes: number;
       smartTabNaming: boolean;
       systemFontFamily: string;
     };
     TerminalSettingsPatch: {
       bundledFont?: string | null;
+      /** Format: int32 */
+      clientScrollbackRows?: number | null;
       escapeSequenceTitles?: boolean | null;
       /** Format: int32 */
       fontSize?: number | null;
       fontSource?: null | components["schemas"]["TerminalFontSource"];
+      /** Format: int32 */
+      serverScrollbackBytes?: number | null;
       smartTabNaming?: boolean | null;
       systemFontFamily?: string | null;
     };

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT replay_start_offset, length(data) AS \"byte_len!: i64\"\n        FROM terminal_replay_chunks\n        WHERE tab_id = ?1\n        ORDER BY replay_start_offset\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "replay_start_offset",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "byte_len!: i64",
+        "ordinal": 1,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "4750649b536bead31127487cc159fb64f92ce95f9b84397231c6bc92affa453f"
+}

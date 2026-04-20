@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -17,6 +17,7 @@ use crate::pty::live_tab::TerminalSize;
 use crate::tab::{TabInfo, TerminalTabLabels, WorktreePaneNode, WorktreeTabLayout};
 
 const WRITER_TICK: Duration = Duration::from_millis(250);
+const TERMINAL_REPLAY_CHUNK_SIZE: usize = 32 * 1024;
 static STATE_DB_MIGRATOR: Migrator = sqlx::migrate!();
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema, TS)]
@@ -153,8 +154,27 @@ pub struct TerminalRestorePayload {
 
 #[derive(Debug, Clone)]
 pub struct TerminalPersistedState {
-    pub size: TerminalSize,
-    pub replay_history: Vec<u8>,
+    pub kind: TerminalPersistedStateKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum TerminalPersistedStateKind {
+    Append {
+        size: TerminalSize,
+        replay_budget_bytes: usize,
+        replay_epoch: u64,
+        source_bytes_end: u64,
+        replay_total_bytes: u64,
+        replay_append: Vec<u8>,
+    },
+    Rebuild {
+        size: TerminalSize,
+        replay_budget_bytes: usize,
+        replay_epoch: u64,
+        source_bytes_end: u64,
+        replay_total_bytes: u64,
+        replay_history: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -277,11 +297,13 @@ impl WorktreeStateService {
     pub async fn load_terminal_restore_payload(
         self: std::sync::Arc<Self>,
         tab_id: String,
+        replay_budget_bytes: usize,
     ) -> std::io::Result<TerminalRestorePayload> {
         let (reply_tx, reply_rx) = oneshot::channel();
         let tx = self.tx.clone();
         tx.send(Command::LoadTerminalRestorePayload {
             tab_id,
+            replay_budget_bytes,
             reply: reply_tx,
         })
         .map_err(channel_closed)?;
@@ -337,6 +359,7 @@ enum Command {
     },
     LoadTerminalRestorePayload {
         tab_id: String,
+        replay_budget_bytes: usize,
         reply: oneshot::Sender<std::io::Result<TerminalRestorePayload>>,
     },
     DeleteTabState {
@@ -357,7 +380,7 @@ enum Command {
 
 #[derive(Debug, Default)]
 struct WriterState {
-    pending_terminal_flushes: HashMap<String, TerminalFlush>,
+    pending_terminal_flushes: VecDeque<TerminalFlush>,
     pending_worktree_snapshots: HashMap<String, WorktreeSnapshot>,
 }
 
@@ -435,7 +458,7 @@ async fn open_connection(path: &Path) -> io::Result<SqliteConnection> {
         .filename(path)
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)
-        .synchronous(SqliteSynchronous::Full)
+        .synchronous(SqliteSynchronous::Normal)
         .foreign_keys(false);
     let mut conn = SqliteConnection::connect_with(&options)
         .await
@@ -571,17 +594,17 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
             }
         }
         Command::EnqueueTerminalFlush { flush } => {
-            state
-                .pending_terminal_flushes
-                .entry(flush.tab_id.clone())
-                .and_modify(|pending| merge_terminal_flush(pending, &flush))
-                .or_insert(flush);
+            state.pending_terminal_flushes.push_back(flush);
         }
-        Command::LoadTerminalRestorePayload { tab_id, reply } => {
+        Command::LoadTerminalRestorePayload {
+            tab_id,
+            replay_budget_bytes,
+            reply,
+        } => {
             let _ = flush_pending_worktree_snapshots(conn, state).await;
             let _ = flush_pending_terminal_batches(conn, state).await;
             let _ = reply.send(
-                load_terminal_restore_payload(conn, &tab_id)
+                load_terminal_restore_payload(conn, &tab_id, replay_budget_bytes)
                     .await
                     .map_err(std::io::Error::other),
             );
@@ -596,7 +619,9 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
                     "failed to flush pending worktree state before tab delete: {error}"
                 );
             }
-            state.pending_terminal_flushes.remove(&tab_id);
+            state
+                .pending_terminal_flushes
+                .retain(|flush| flush.tab_id != tab_id);
             if let Err(error) = delete_tab_rows(conn, &[tab_id]).await {
                 tracing::warn!("failed to delete tab rows: {error}");
             }
@@ -613,7 +638,7 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
             }
             state
                 .pending_terminal_flushes
-                .retain(|_, flush| flush.worktree_id != worktree_id);
+                .retain(|flush| flush.worktree_id != worktree_id);
             if let Err(error) = delete_worktree_rows(conn, &project_id, &worktree_id).await {
                 tracing::warn!(worktree_id, "failed to delete worktree rows: {error}");
             }
@@ -627,7 +652,7 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
             }
             state
                 .pending_terminal_flushes
-                .retain(|_, flush| flush.project_id != project_id);
+                .retain(|flush| flush.project_id != project_id);
             if let Err(error) = delete_project_rows(conn, &project_id).await {
                 tracing::warn!(project_id, "failed to delete project rows: {error}");
             }
@@ -636,17 +661,12 @@ async fn handle_command(conn: &mut SqliteConnection, state: &mut WriterState, co
     }
 }
 
-fn merge_terminal_flush(existing: &mut TerminalFlush, next: &TerminalFlush) {
-    existing.metadata = next.metadata.clone();
-    existing.flushed_at_ms = next.flushed_at_ms;
-}
-
 async fn flush_pending_terminal_batches(
     conn: &mut SqliteConnection,
     state: &mut WriterState,
 ) -> Result<(), sqlx::Error> {
     let pending = std::mem::take(&mut state.pending_terminal_flushes);
-    for flush in pending.into_values() {
+    for flush in pending {
         persist_terminal_flush(conn, &flush).await?;
     }
     Ok(())
@@ -694,6 +714,16 @@ async fn flush_pending_project_snapshots(
 
 async fn cleanup_orphaned_tab_rows(conn: &mut SqliteConnection) -> Result<(), sqlx::Error> {
     let mut tx = conn.begin().await?;
+    sqlx::query!(
+        "
+        DELETE FROM terminal_replay_chunks
+        WHERE NOT EXISTS (
+            SELECT 1 FROM tabs WHERE tabs.tab_id = terminal_replay_chunks.tab_id
+        )
+        "
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         "
         DELETE FROM terminal_state
@@ -1127,12 +1157,19 @@ async fn update_terminal_labels(
     Ok(())
 }
 
-async fn persist_terminal_flush(
-    conn: &mut SqliteConnection,
+async fn upsert_terminal_state_metadata_tx(
+    tx: &mut Transaction<'_, Sqlite>,
     flush: &TerminalFlush,
+    size: TerminalSize,
+    replay_total_bytes: u64,
+    source_bytes_end: u64,
+    replay_epoch: u64,
 ) -> Result<(), sqlx::Error> {
-    let last_size_cols = i64::from(flush.metadata.size.cols);
-    let last_size_rows = i64::from(flush.metadata.size.rows);
+    let last_size_cols = i64::from(size.cols);
+    let last_size_rows = i64::from(size.rows);
+    let replay_total_bytes = replay_total_bytes as i64;
+    let source_bytes_end = source_bytes_end as i64;
+    let replay_epoch = replay_epoch as i64;
     let last_flush_at_ms = flush.flushed_at_ms as i64;
     let updated_at_ms = now_ms() as i64;
     sqlx::query!(
@@ -1143,16 +1180,20 @@ async fn persist_terminal_flush(
             worktree_id,
             last_size_cols,
             last_size_rows,
-            replay_history,
+            replay_total_bytes,
+            source_bytes_end,
+            replay_epoch,
             last_flush_at_ms,
             updated_at_ms
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
         ON CONFLICT(tab_id) DO UPDATE SET
             project_id = excluded.project_id,
             worktree_id = excluded.worktree_id,
             last_size_cols = excluded.last_size_cols,
             last_size_rows = excluded.last_size_rows,
-            replay_history = excluded.replay_history,
+            replay_total_bytes = excluded.replay_total_bytes,
+            source_bytes_end = excluded.source_bytes_end,
+            replay_epoch = excluded.replay_epoch,
             last_flush_at_ms = excluded.last_flush_at_ms,
             updated_at_ms = excluded.updated_at_ms
         ",
@@ -1161,12 +1202,226 @@ async fn persist_terminal_flush(
         flush.worktree_id,
         last_size_cols,
         last_size_rows,
-        flush.metadata.replay_history,
+        replay_total_bytes,
+        source_bytes_end,
+        replay_epoch,
         last_flush_at_ms,
         updated_at_ms,
     )
-    .execute(&mut *conn)
+    .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+async fn append_replay_bytes_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    tab_id: &str,
+    start_offset: u64,
+    data: &[u8],
+    created_at_ms: i64,
+) -> Result<(), sqlx::Error> {
+    if data.is_empty() {
+        return Ok(());
+    }
+
+    let mut offset = start_offset;
+    let mut remaining = data;
+    let tail = sqlx::query!(
+        "
+        SELECT replay_start_offset, length(data) AS \"byte_len!: i64\"
+        FROM terminal_replay_chunks
+        WHERE tab_id = ?1
+        ORDER BY replay_start_offset DESC
+        LIMIT 1
+        ",
+        tab_id,
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some(tail) = tail {
+        let tail_start = tail.replay_start_offset.max(0) as u64;
+        let tail_len = tail.byte_len.max(0) as usize;
+        let tail_end = tail_start.saturating_add(tail_len as u64);
+        if tail_end == start_offset && tail_len < TERMINAL_REPLAY_CHUNK_SIZE {
+            let append_len = remaining
+                .len()
+                .min(TERMINAL_REPLAY_CHUNK_SIZE.saturating_sub(tail_len));
+            let append_bytes = &remaining[..append_len];
+            sqlx::query!(
+                "
+                UPDATE terminal_replay_chunks
+                SET data = data || ?3
+                WHERE tab_id = ?1 AND replay_start_offset = ?2
+                ",
+                tab_id,
+                tail.replay_start_offset,
+                append_bytes,
+            )
+            .execute(&mut **tx)
+            .await?;
+            offset = offset.saturating_add(append_len as u64);
+            remaining = &remaining[append_len..];
+        }
+    }
+
+    while !remaining.is_empty() {
+        let chunk_len = remaining.len().min(TERMINAL_REPLAY_CHUNK_SIZE);
+        let chunk_offset = offset as i64;
+        let chunk_bytes = &remaining[..chunk_len];
+        sqlx::query!(
+            "
+            INSERT INTO terminal_replay_chunks (
+                tab_id,
+                replay_start_offset,
+                data,
+                created_at_ms
+            ) VALUES (?1, ?2, ?3, ?4)
+            ",
+            tab_id,
+            chunk_offset,
+            chunk_bytes,
+            created_at_ms,
+        )
+        .execute(&mut **tx)
+        .await?;
+        offset = offset.saturating_add(chunk_len as u64);
+        remaining = &remaining[chunk_len..];
+    }
+
+    Ok(())
+}
+
+async fn replace_replay_history_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    tab_id: &str,
+    replay_history: &[u8],
+    created_at_ms: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "DELETE FROM terminal_replay_chunks WHERE tab_id = ?1",
+        tab_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    append_replay_bytes_tx(tx, tab_id, 0, replay_history, created_at_ms).await
+}
+
+async fn prune_replay_chunks_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    tab_id: &str,
+    replay_total_bytes: u64,
+    replay_budget_bytes: usize,
+) -> Result<(), sqlx::Error> {
+    let retained_from = replay_total_bytes.saturating_sub(replay_budget_bytes as u64);
+    if retained_from == 0 {
+        return Ok(());
+    }
+
+    let rows = sqlx::query!(
+        "
+        SELECT replay_start_offset, length(data) AS \"byte_len!: i64\"
+        FROM terminal_replay_chunks
+        WHERE tab_id = ?1
+        ORDER BY replay_start_offset
+        ",
+        tab_id,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for row in rows {
+        let start = row.replay_start_offset.max(0) as u64;
+        let end = start.saturating_add(row.byte_len.max(0) as u64);
+        if end <= retained_from {
+            sqlx::query!(
+                "
+                DELETE FROM terminal_replay_chunks
+                WHERE tab_id = ?1 AND replay_start_offset = ?2
+                ",
+                tab_id,
+                row.replay_start_offset,
+            )
+            .execute(&mut **tx)
+            .await?;
+        } else {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+async fn persist_terminal_flush(
+    conn: &mut SqliteConnection,
+    flush: &TerminalFlush,
+) -> Result<(), sqlx::Error> {
+    let mut tx = conn.begin().await?;
+    let created_at_ms = now_ms() as i64;
+    match &flush.metadata.kind {
+        TerminalPersistedStateKind::Append {
+            size,
+            replay_budget_bytes,
+            replay_epoch,
+            source_bytes_end,
+            replay_total_bytes,
+            replay_append,
+        } => {
+            let replay_start_offset = replay_total_bytes.saturating_sub(replay_append.len() as u64);
+            append_replay_bytes_tx(
+                &mut tx,
+                &flush.tab_id,
+                replay_start_offset,
+                replay_append,
+                created_at_ms,
+            )
+            .await?;
+            prune_replay_chunks_tx(
+                &mut tx,
+                &flush.tab_id,
+                *replay_total_bytes,
+                *replay_budget_bytes,
+            )
+            .await?;
+            upsert_terminal_state_metadata_tx(
+                &mut tx,
+                flush,
+                *size,
+                *replay_total_bytes,
+                *source_bytes_end,
+                *replay_epoch,
+            )
+            .await?;
+        }
+        TerminalPersistedStateKind::Rebuild {
+            size,
+            replay_budget_bytes,
+            replay_epoch,
+            source_bytes_end,
+            replay_total_bytes,
+            replay_history,
+        } => {
+            replace_replay_history_tx(&mut tx, &flush.tab_id, replay_history, created_at_ms)
+                .await?;
+            prune_replay_chunks_tx(
+                &mut tx,
+                &flush.tab_id,
+                *replay_total_bytes,
+                *replay_budget_bytes,
+            )
+            .await?;
+            upsert_terminal_state_metadata_tx(
+                &mut tx,
+                flush,
+                *size,
+                *replay_total_bytes,
+                *source_bytes_end,
+                *replay_epoch,
+            )
+            .await?;
+        }
+    }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -1423,10 +1678,11 @@ async fn load_browser_histories(
 async fn load_terminal_restore_payload(
     conn: &mut SqliteConnection,
     tab_id: &str,
+    replay_budget_bytes: usize,
 ) -> Result<TerminalRestorePayload, sqlx::Error> {
     let row = sqlx::query!(
         "
-        SELECT last_size_cols, last_size_rows, replay_history
+        SELECT last_size_cols, last_size_rows, replay_total_bytes
         FROM terminal_state
         WHERE tab_id = ?1
         ",
@@ -1435,17 +1691,50 @@ async fn load_terminal_restore_payload(
     .fetch_optional(&mut *conn)
     .await?;
 
-    let (cols, rows, replay_history) = row
-        .map(|row| (row.last_size_cols, row.last_size_rows, row.replay_history))
+    let (cols, rows, replay_total_bytes) = row
+        .map(|row| {
+            (
+                row.last_size_cols,
+                row.last_size_rows,
+                row.replay_total_bytes.max(0) as u64,
+            )
+        })
         .unwrap_or((
             i64::from(TerminalSize::default_pty().cols),
             i64::from(TerminalSize::default_pty().rows),
-            Vec::new(),
+            0,
         ));
+
+    let chunk_rows = sqlx::query!(
+        "
+        SELECT replay_start_offset, data
+        FROM terminal_replay_chunks
+        WHERE tab_id = ?1
+        ORDER BY replay_start_offset
+        ",
+        tab_id,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+
+    let retained_from = replay_total_bytes.saturating_sub(replay_budget_bytes as u64);
+    let mut history =
+        Vec::with_capacity(replay_total_bytes.min(replay_budget_bytes as u64) as usize);
+    for row in chunk_rows {
+        let start = row.replay_start_offset.max(0) as u64;
+        let data = row.data;
+        let end = start.saturating_add(data.len() as u64);
+        if end <= retained_from {
+            continue;
+        }
+
+        let skip = retained_from.saturating_sub(start) as usize;
+        history.extend_from_slice(&data[skip.min(data.len())..]);
+    }
 
     Ok(TerminalRestorePayload {
         size: TerminalSize::new(cols.max(0) as u16, rows.max(0) as u16).clamped(),
-        history: replay_history,
+        history,
     })
 }
 
@@ -1455,6 +1744,19 @@ async fn delete_worktree_rows(
     worktree_id: &str,
 ) -> Result<(), sqlx::Error> {
     let mut tx = conn.begin().await?;
+    sqlx::query!(
+        "
+        DELETE FROM terminal_replay_chunks
+        WHERE tab_id IN (
+            SELECT tab_id FROM terminal_state
+            WHERE project_id = ?1 AND worktree_id = ?2
+        )
+        ",
+        project_id,
+        worktree_id,
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         "DELETE FROM terminal_state WHERE project_id = ?1 AND worktree_id = ?2",
         project_id,
@@ -1498,6 +1800,17 @@ async fn delete_project_rows(
     project_id: &str,
 ) -> Result<(), sqlx::Error> {
     let mut tx = conn.begin().await?;
+    sqlx::query!(
+        "
+        DELETE FROM terminal_replay_chunks
+        WHERE tab_id IN (
+            SELECT tab_id FROM terminal_state WHERE project_id = ?1
+        )
+        ",
+        project_id,
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         "DELETE FROM terminal_state WHERE project_id = ?1",
         project_id,
@@ -1558,6 +1871,15 @@ async fn delete_tab_rows_tx(
         return Ok(());
     }
 
+    let mut replay_chunks_query =
+        QueryBuilder::<Sqlite>::new("DELETE FROM terminal_replay_chunks WHERE tab_id IN (");
+    let mut separated = replay_chunks_query.separated(", ");
+    for tab_id in tab_ids {
+        separated.push_bind(tab_id);
+    }
+    separated.push_unseparated(")");
+    replay_chunks_query.build().execute(&mut **tx).await?;
+
     let mut terminal_state_query =
         QueryBuilder::<Sqlite>::new("DELETE FROM terminal_state WHERE tab_id IN (");
     let mut separated = terminal_state_query.separated(", ");
@@ -1591,6 +1913,17 @@ async fn delete_all_worktree_tab_rows(
     worktree_id: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
+        "
+        DELETE FROM terminal_replay_chunks
+        WHERE tab_id IN (
+            SELECT tab_id FROM terminal_state WHERE worktree_id = ?1
+        )
+        ",
+        worktree_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
         "DELETE FROM terminal_state WHERE worktree_id = ?1",
         worktree_id
     )
@@ -1616,6 +1949,18 @@ async fn delete_missing_tab_owned_rows(
     worktree_id: &str,
     current_tab_ids: &[String],
 ) -> Result<(), sqlx::Error> {
+    let mut replay_chunks_query = QueryBuilder::<Sqlite>::new(
+        "DELETE FROM terminal_replay_chunks WHERE tab_id IN (SELECT tab_id FROM terminal_state WHERE worktree_id = ",
+    );
+    replay_chunks_query.push_bind(worktree_id.to_string());
+    replay_chunks_query.push(" AND tab_id NOT IN (");
+    let mut separated = replay_chunks_query.separated(", ");
+    for id in current_tab_ids {
+        separated.push_bind(id.clone());
+    }
+    separated.push_unseparated("))");
+    replay_chunks_query.build().execute(&mut **tx).await?;
+
     let mut terminal_state_query =
         QueryBuilder::<Sqlite>::new("DELETE FROM terminal_state WHERE worktree_id = ");
     terminal_state_query.push_bind(worktree_id.to_string());
@@ -1665,6 +2010,23 @@ mod tests {
 
     use super::*;
     use crate::tab::GitDiffScope;
+
+    fn terminal_rebuild_state(
+        size: TerminalSize,
+        source_bytes_end: u64,
+        replay_history: Vec<u8>,
+    ) -> TerminalPersistedState {
+        TerminalPersistedState {
+            kind: TerminalPersistedStateKind::Rebuild {
+                size,
+                replay_budget_bytes: crate::pty::live_tab::DEFAULT_SCROLLBACK,
+                replay_epoch: 0,
+                source_bytes_end,
+                replay_total_bytes: replay_history.len() as u64,
+                replay_history,
+            },
+        }
+    }
 
     fn make_snapshot() -> WorktreeSnapshot {
         WorktreeSnapshot {
@@ -1852,27 +2214,38 @@ mod tests {
         let path = tmp.path().join("state.sqlite3");
         let mut conn = open_connection(&path).await.unwrap();
 
-        for index in 0..4 {
-            persist_terminal_flush(
-                &mut conn,
-                &TerminalFlush {
-                    project_id: "project-1".to_string(),
-                    worktree_id: "worktree-1".to_string(),
-                    tab_id: "terminal-1".to_string(),
-                    metadata: TerminalPersistedState {
-                        size: TerminalSize::default_pty(),
-                        replay_history: vec![index as u8; 70_000],
-                    },
-                    flushed_at_ms: index as u64,
-                },
-            )
-            .await
-            .unwrap();
-        }
+        let oversized_history = vec![b'x'; crate::pty::live_tab::DEFAULT_SCROLLBACK + 10];
+        persist_terminal_flush(
+            &mut conn,
+            &TerminalFlush {
+                project_id: "project-1".to_string(),
+                worktree_id: "worktree-1".to_string(),
+                tab_id: "terminal-1".to_string(),
+                metadata: terminal_rebuild_state(
+                    TerminalSize::default_pty(),
+                    oversized_history.len() as u64,
+                    oversized_history,
+                ),
+                flushed_at_ms: 1,
+            },
+        )
+        .await
+        .unwrap();
 
-        let payload = load_terminal_restore_payload(&mut conn, "terminal-1")
-            .await
-            .unwrap();
+        let payload = load_terminal_restore_payload(
+            &mut conn,
+            "terminal-1",
+            crate::pty::live_tab::DEFAULT_SCROLLBACK,
+        )
+        .await
+        .unwrap();
+        let persisted_total = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(SUM(length(data)), 0) FROM terminal_replay_chunks WHERE tab_id = 'terminal-1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap() as usize;
+        assert!(persisted_total > crate::pty::live_tab::DEFAULT_SCROLLBACK);
         assert!(payload.history.len() <= crate::pty::live_tab::DEFAULT_SCROLLBACK);
     }
 
@@ -1888,10 +2261,7 @@ mod tests {
             project_id: "project-1".to_string(),
             worktree_id: "worktree-1".to_string(),
             tab_id: "terminal-1".to_string(),
-            metadata: TerminalPersistedState {
-                size: TerminalSize::default_pty(),
-                replay_history: b"hello".to_vec(),
-            },
+            metadata: terminal_rebuild_state(TerminalSize::default_pty(), 5, b"hello".to_vec()),
             flushed_at_ms: 1,
         });
         service.delete_tab_state("terminal-1".to_string(), "worktree-1".to_string());
@@ -2057,10 +2427,7 @@ mod tests {
                 project_id: "project-1".to_string(),
                 worktree_id: "worktree-1".to_string(),
                 tab_id: "terminal-1".to_string(),
-                metadata: TerminalPersistedState {
-                    size: TerminalSize::default_pty(),
-                    replay_history: b"hello".to_vec(),
-                },
+                metadata: terminal_rebuild_state(TerminalSize::default_pty(), 5, b"hello".to_vec()),
                 flushed_at_ms: 1,
             },
         )
@@ -2151,8 +2518,8 @@ mod tests {
             "
             INSERT INTO terminal_state (
                 tab_id, project_id, worktree_id, last_size_cols, last_size_rows,
-                replay_history, last_flush_at_ms, updated_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?)
+                replay_total_bytes, source_bytes_end, replay_epoch, last_flush_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ",
         )
         .bind("tab-live")
@@ -2160,7 +2527,9 @@ mod tests {
         .bind("worktree-1")
         .bind(80_i64)
         .bind(24_i64)
-        .bind(vec![1_u8])
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(0_i64)
         .bind(1_i64)
         .bind(1_i64)
         .bind("tab-orphan")
@@ -2168,8 +2537,27 @@ mod tests {
         .bind("worktree-1")
         .bind(80_i64)
         .bind(24_i64)
-        .bind(vec![2_u8])
         .bind(1_i64)
+        .bind(1_i64)
+        .bind(0_i64)
+        .bind(1_i64)
+        .bind(1_i64)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+        sqlx::query(
+            "
+            INSERT INTO terminal_replay_chunks (tab_id, replay_start_offset, data, created_at_ms)
+            VALUES (?, ?, ?, ?), (?, ?, ?, ?)
+            ",
+        )
+        .bind("tab-live")
+        .bind(0_i64)
+        .bind(vec![1_u8])
+        .bind(1_i64)
+        .bind("tab-orphan")
+        .bind(0_i64)
+        .bind(vec![2_u8])
         .bind(1_i64)
         .execute(&mut conn)
         .await
@@ -2192,6 +2580,14 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(orphan_terminal_state_count, 0);
+
+        let orphan_terminal_chunk_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM terminal_replay_chunks WHERE tab_id = 'tab-orphan'",
+        )
+        .fetch_one(&mut reopened)
+        .await
+        .unwrap();
+        assert_eq!(orphan_terminal_chunk_count, 0);
 
         let live_history_count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM browser_history_entries WHERE tab_id = 'tab-live'",

@@ -17,5 +17,6 @@ export interface TerminalAdapter {
   clear(): void;
   refreshTheme(): void;
   updateFont(family: string, size: number): void;
+  updateScrollback(rows: number): void;
   dispose(): void;
 }

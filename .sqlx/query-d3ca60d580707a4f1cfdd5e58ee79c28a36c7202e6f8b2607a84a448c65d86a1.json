@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n        SELECT last_size_cols, last_size_rows, replay_history\n        FROM terminal_state\n        WHERE tab_id = ?1\n        ",
+  "query": "\n        SELECT last_size_cols, last_size_rows, replay_total_bytes\n        FROM terminal_state\n        WHERE tab_id = ?1\n        ",
   "describe": {
     "columns": [
       {
@@ -14,9 +14,9 @@
         "type_info": "Integer"
       },
       {
-        "name": "replay_history",
+        "name": "replay_total_bytes",
         "ordinal": 2,
-        "type_info": "Blob"
+        "type_info": "Integer"
       }
     ],
     "parameters": {
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "5eba3f4ba036d06213570abbbeba31545dd439dd52cd31819529080134209ee9"
+  "hash": "d3ca60d580707a4f1cfdd5e58ee79c28a36c7202e6f8b2607a84a448c65d86a1"
 }

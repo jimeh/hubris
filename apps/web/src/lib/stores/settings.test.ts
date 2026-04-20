@@ -149,6 +149,8 @@ function createSettingsState(
         systemFontFamily: "",
         bundledFont: "jetbrainsmono-nf",
         fontSize: 14,
+        clientScrollbackRows: 10000,
+        serverScrollbackBytes: 256 * 1024,
         smartTabNaming: true,
         escapeSequenceTitles: true,
         ...(overrides?.terminal ?? {}),
@@ -344,6 +346,49 @@ describe("settings store", () => {
     expect(mockPatchSettings).toHaveBeenCalledWith({
       terminal: { fontSize: 16 },
     });
+  });
+
+  it("keeps optimistic scrollback edits visible before the debounced save", async () => {
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    act(() => {
+      store.useSettingsStore.getState().updateTerminal(
+        { clientScrollbackRows: 20000 },
+        { debounceKey: "terminal.clientScrollbackRows" },
+      );
+      store.useSettingsStore.getState().updateTerminal(
+        { serverScrollbackBytes: 512 * 1024 },
+        { debounceKey: "terminal.serverScrollbackBytes" },
+      );
+    });
+
+    expect(mockPatchSettings).not.toHaveBeenCalled();
+    expect(
+      store.useSettingsStore.getState().settings.terminal.clientScrollbackRows,
+    ).toBe(20000);
+    expect(
+      store.useSettingsStore.getState().settings.terminal.serverScrollbackBytes,
+    ).toBe(512 * 1024);
+  });
+
+  it("clamps scrollback settings to the configured minimums", async () => {
+    const store = await getStore();
+    store.initializeSettingsStore();
+
+    act(() => {
+      store.useSettingsStore.getState().updateTerminal({
+        clientScrollbackRows: 12,
+        serverScrollbackBytes: 2048,
+      });
+    });
+
+    expect(
+      store.useSettingsStore.getState().settings.terminal.clientScrollbackRows,
+    ).toBe(500);
+    expect(
+      store.useSettingsStore.getState().settings.terminal.serverScrollbackBytes,
+    ).toBe(10 * 1024);
   });
 
   it("preserves unrelated section references for single-section updates", async () => {

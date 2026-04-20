@@ -55,9 +55,19 @@ CREATE TABLE terminal_state (
     worktree_id TEXT NOT NULL,
     last_size_cols INTEGER NOT NULL,
     last_size_rows INTEGER NOT NULL,
-    replay_history BLOB NOT NULL DEFAULT x'',
+    replay_total_bytes INTEGER NOT NULL DEFAULT 0,
+    source_bytes_end INTEGER NOT NULL DEFAULT 0,
+    replay_epoch INTEGER NOT NULL DEFAULT 0,
     last_flush_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE terminal_replay_chunks (
+    tab_id TEXT NOT NULL,
+    replay_start_offset INTEGER NOT NULL,
+    data BLOB NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (tab_id, replay_start_offset)
 );
 
 CREATE INDEX idx_tabs_worktree_id ON tabs (worktree_id);

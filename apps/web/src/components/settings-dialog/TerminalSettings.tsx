@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Minus, Plus, Terminal, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,12 +16,28 @@ import { BUNDLED_FONTS } from "@/lib/terminal/fonts";
 
 const settingsRowClass =
   "grid gap-2 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center sm:gap-3";
+const MIN_CLIENT_SCROLLBACK_ROWS = 500;
+const MIN_SERVER_SCROLLBACK_KIB = 10;
+
+function parseIntegerInput(value: string): number | null {
+  if (!/^\d+$/.test(value)) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 export default function TerminalSettings() {
   const settings = useTerminalSettings((state) => state.settings);
   const fontFamily = useTerminalSettings((state) => state.fontFamily);
   const updateSettings = useTerminalSettings((state) => state.updateSettings);
   const writesBlocked = useSettingsStore((state) => state.status.writesBlocked);
+  const [clientScrollbackRowsInput, setClientScrollbackRowsInput] = useState(
+    String(settings.clientScrollbackRows),
+  );
+  const [serverScrollbackKiBInput, setServerScrollbackKiBInput] = useState(
+    String(Math.round(settings.serverScrollbackBytes / 1024)),
+  );
 
   const fontPreviewLines = [
     "Hello, World!",
@@ -28,76 +45,18 @@ export default function TerminalSettings() {
     "abcdefghijklm ~!@#$%^&*()",
   ];
 
+  useEffect(() => {
+    setClientScrollbackRowsInput(String(settings.clientScrollbackRows));
+  }, [settings.clientScrollbackRows]);
+
+  useEffect(() => {
+    setServerScrollbackKiBInput(
+      String(Math.round(settings.serverScrollbackBytes / 1024)),
+    );
+  }, [settings.serverScrollbackBytes]);
+
   return (
     <section className="space-y-3">
-      <div className="flex items-center gap-2">
-        <Terminal className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-sm font-medium">Tabs</h3>
-      </div>
-      <div className={settingsRowClass}>
-        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
-          Smart Tab Naming
-        </Label>
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">
-            Show the shell path, or the active process when a command is
-            running.
-          </p>
-          <div className="flex flex-wrap gap-1">
-            <Button
-              variant={settings.smartTabNaming ? "secondary" : "ghost"}
-              size="sm"
-              disabled={writesBlocked}
-              onClick={() => void updateSettings({ smartTabNaming: true })}
-            >
-              On
-            </Button>
-            <Button
-              variant={!settings.smartTabNaming ? "secondary" : "ghost"}
-              size="sm"
-              disabled={writesBlocked}
-              onClick={() => void updateSettings({ smartTabNaming: false })}
-            >
-              Off
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className={settingsRowClass}>
-        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
-          Custom Terminal Titles
-        </Label>
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">
-            Allow apps and shells to rename tabs with terminal title escape
-            sequences.
-          </p>
-          <div className="flex flex-wrap gap-1">
-            <Button
-              variant={settings.escapeSequenceTitles ? "secondary" : "ghost"}
-              size="sm"
-              disabled={writesBlocked}
-              onClick={() =>
-                void updateSettings({ escapeSequenceTitles: true })
-              }
-            >
-              On
-            </Button>
-            <Button
-              variant={!settings.escapeSequenceTitles ? "secondary" : "ghost"}
-              size="sm"
-              disabled={writesBlocked}
-              onClick={() =>
-                void updateSettings({ escapeSequenceTitles: false })
-              }
-            >
-              Off
-            </Button>
-          </div>
-        </div>
-      </div>
-
       <div className="flex items-center gap-2">
         <Terminal className="h-4 w-4 text-muted-foreground" />
         <h3 className="text-sm font-medium">Font</h3>
@@ -254,6 +213,196 @@ export default function TerminalSettings() {
             {"\n"}
             {fontPreviewLines.join("\n")}
           </pre>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Terminal className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-medium">Tabs</h3>
+      </div>
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          Smart Tab Naming
+        </Label>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Show the shell path, or the active process when a command is
+            running.
+          </p>
+          <div className="flex flex-wrap gap-1">
+            <Button
+              variant={settings.smartTabNaming ? "secondary" : "ghost"}
+              size="sm"
+              disabled={writesBlocked}
+              onClick={() => void updateSettings({ smartTabNaming: true })}
+            >
+              On
+            </Button>
+            <Button
+              variant={!settings.smartTabNaming ? "secondary" : "ghost"}
+              size="sm"
+              disabled={writesBlocked}
+              onClick={() => void updateSettings({ smartTabNaming: false })}
+            >
+              Off
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          Custom Terminal Titles
+        </Label>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Allow apps and shells to rename tabs with terminal title escape
+            sequences.
+          </p>
+          <div className="flex flex-wrap gap-1">
+            <Button
+              variant={settings.escapeSequenceTitles ? "secondary" : "ghost"}
+              size="sm"
+              disabled={writesBlocked}
+              onClick={() =>
+                void updateSettings({ escapeSequenceTitles: true })
+              }
+            >
+              On
+            </Button>
+            <Button
+              variant={!settings.escapeSequenceTitles ? "secondary" : "ghost"}
+              size="sm"
+              disabled={writesBlocked}
+              onClick={() =>
+                void updateSettings({ escapeSequenceTitles: false })
+              }
+            >
+              Off
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Terminal className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-medium">Scrollback</h3>
+      </div>
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          Browser Rows
+        </Label>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Xterm.js keeps this many rows in the browser for live scrolling.
+            Minimum 500.
+          </p>
+          <Input
+            type="text"
+            inputMode="numeric"
+            value={clientScrollbackRowsInput}
+            disabled={writesBlocked}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setClientScrollbackRowsInput(value);
+              const parsed = parseIntegerInput(value);
+              if (
+                parsed !== null &&
+                parsed >= MIN_CLIENT_SCROLLBACK_ROWS
+              ) {
+                void updateSettings(
+                  {
+                    clientScrollbackRows: parsed,
+                  },
+                  {
+                    debounceKey: "terminal.clientScrollbackRows",
+                  },
+                );
+              }
+            }}
+            onBlur={() => {
+              const parsed = parseIntegerInput(clientScrollbackRowsInput);
+              if (
+                parsed !== null &&
+                parsed >= MIN_CLIENT_SCROLLBACK_ROWS
+              ) {
+                setClientScrollbackRowsInput(String(parsed));
+                return;
+              }
+
+              setClientScrollbackRowsInput(
+                String(MIN_CLIENT_SCROLLBACK_ROWS),
+              );
+              void updateSettings(
+                {
+                  clientScrollbackRows: MIN_CLIENT_SCROLLBACK_ROWS,
+                },
+                {
+                  debounceKey: "terminal.clientScrollbackRows",
+                  debounceMs: 0,
+                },
+              );
+            }}
+            className="h-8 w-28"
+          />
+        </div>
+      </div>
+
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          Server Buffer
+        </Label>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Hubris stores this much replay history per terminal for reconnects
+            and restart restore. Minimum 10 KiB.
+          </p>
+          <div className="flex items-center gap-2">
+            <Input
+              type="text"
+              inputMode="numeric"
+              value={serverScrollbackKiBInput}
+              disabled={writesBlocked}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setServerScrollbackKiBInput(value);
+                const parsed = parseIntegerInput(value);
+                if (parsed !== null && parsed >= MIN_SERVER_SCROLLBACK_KIB) {
+                  void updateSettings(
+                    {
+                      serverScrollbackBytes: parsed * 1024,
+                    },
+                    {
+                      debounceKey: "terminal.serverScrollbackBytes",
+                    },
+                  );
+                }
+              }}
+              onBlur={() => {
+                const parsed = parseIntegerInput(serverScrollbackKiBInput);
+                if (parsed !== null && parsed >= MIN_SERVER_SCROLLBACK_KIB) {
+                  setServerScrollbackKiBInput(String(parsed));
+                  return;
+                }
+
+                setServerScrollbackKiBInput(
+                  String(MIN_SERVER_SCROLLBACK_KIB),
+                );
+                void updateSettings(
+                  {
+                    serverScrollbackBytes:
+                      MIN_SERVER_SCROLLBACK_KIB * 1024,
+                  },
+                  {
+                    debounceKey: "terminal.serverScrollbackBytes",
+                    debounceMs: 0,
+                  },
+                );
+              }}
+              className="h-8 w-28"
+            />
+            <span className="text-xs text-muted-foreground">KiB</span>
+          </div>
         </div>
       </div>
     </section>

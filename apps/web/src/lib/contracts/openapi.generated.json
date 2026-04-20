@@ -3933,11 +3933,18 @@
           "bundledFont",
           "fontSize",
           "smartTabNaming",
-          "escapeSequenceTitles"
+          "escapeSequenceTitles",
+          "clientScrollbackRows",
+          "serverScrollbackBytes"
         ],
         "properties": {
           "bundledFont": {
             "type": "string"
+          },
+          "clientScrollbackRows": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "escapeSequenceTitles": {
             "type": "boolean"
@@ -3949,6 +3956,11 @@
           },
           "fontSource": {
             "$ref": "#/components/schemas/TerminalFontSource"
+          },
+          "serverScrollbackBytes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "smartTabNaming": {
             "type": "boolean"
@@ -3963,6 +3975,11 @@
         "properties": {
           "bundledFont": {
             "type": ["string", "null"]
+          },
+          "clientScrollbackRows": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
           },
           "escapeSequenceTitles": {
             "type": ["boolean", "null"]
@@ -3981,6 +3998,11 @@
                 "$ref": "#/components/schemas/TerminalFontSource"
               }
             ]
+          },
+          "serverScrollbackBytes": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
           },
           "smartTabNaming": {
             "type": ["boolean", "null"]

@@ -13,6 +13,7 @@ const terminalState = {
   fontFamily: "JetBrains Mono",
   settings: {
     fontSize: 14,
+    clientScrollbackRows: 10000,
   },
 };
 
@@ -119,6 +120,7 @@ describe("TerminalTab", () => {
     terminalState.version = 0;
     terminalState.fontFamily = "JetBrains Mono";
     terminalState.settings.fontSize = 14;
+    terminalState.settings.clientScrollbackRows = 10000;
 
     mockTerminal = {
       open: vi.fn(),
@@ -140,6 +142,7 @@ describe("TerminalTab", () => {
       clear: vi.fn(),
       refreshTheme: vi.fn(),
       updateFont: vi.fn(),
+      updateScrollback: vi.fn(),
       dispose: vi.fn(),
     };
     mockCreateXtermAdapter.mockReset();

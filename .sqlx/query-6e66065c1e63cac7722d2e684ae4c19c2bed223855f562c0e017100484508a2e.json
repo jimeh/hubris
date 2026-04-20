@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        DELETE FROM terminal_replay_chunks\n        WHERE tab_id IN (\n            SELECT tab_id FROM terminal_state WHERE project_id = ?1\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "6e66065c1e63cac7722d2e684ae4c19c2bed223855f562c0e017100484508a2e"
+}

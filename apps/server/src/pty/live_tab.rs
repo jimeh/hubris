@@ -15,10 +15,10 @@ use tokio::time::Instant;
 
 use crate::tab::TabInfo;
 
-/// Default scrollback buffer size in bytes (~128KB).
+/// Default scrollback buffer size in bytes (~256KB).
 /// Passed to `LiveTab::spawn()` so it can be overridden
 /// per-tab in the future (e.g., from user settings).
-pub const DEFAULT_SCROLLBACK: usize = 128 * 1024;
+pub const DEFAULT_SCROLLBACK: usize = 256 * 1024;
 pub const DEFAULT_PTY_COLS: u16 = 80;
 pub const DEFAULT_PTY_ROWS: u16 = 24;
 const MIN_PTY_COLS: u16 = 8;
@@ -47,6 +47,38 @@ pub struct RestoredTerminalBuffers {
 pub struct RestoredTerminalState {
     pub size: TerminalSize,
     pub buffers: RestoredTerminalBuffers,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum TerminalPersistenceCapture {
+    Incremental(TerminalIncrementalCapture),
+    FullRebuild(Box<TerminalFullRebuildCapture>),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TerminalIncrementalCapture {
+    pub size: TerminalSize,
+    pub replay_budget_bytes: usize,
+    pub source_bytes_end: u64,
+    pub replay_epoch: u64,
+    pub source_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TerminalFullRebuildCapture {
+    pub size: TerminalSize,
+    pub replay_budget_bytes: usize,
+    pub source_bytes_end: u64,
+    pub replay_epoch: u64,
+    pub replay_screen: vt100::Screen,
+    pub replay_filter: ReplayFilter,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TerminalPersistenceSeed {
+    pub total_bytes: u64,
+    pub replay_epoch: u64,
+    pub replay_filter: ReplayFilter,
 }
 
 struct LiveTabSpawn {
@@ -364,6 +396,7 @@ struct OutputState {
     parser: vt100::Parser,
     replay_parser: vt100::Parser,
     replay_filter: ReplayFilter,
+    replay_epoch: u64,
     replay_budget_bytes: usize,
     size: TerminalSize,
     last_good_size: TerminalSize,
@@ -379,6 +412,7 @@ impl OutputState {
             parser: vt100::Parser::new(size.rows, size.cols, 0),
             replay_parser: vt100::Parser::new(size.rows, size.cols, replay_scrollback_rows),
             replay_filter: ReplayFilter::default(),
+            replay_epoch: 0,
             replay_budget_bytes: scrollback_size,
             size,
             last_good_size: size,
@@ -439,11 +473,15 @@ impl OutputState {
                 estimated_replay_scrollback_rows(self.replay_budget_bytes, self.last_good_size),
             );
             self.replay_filter = ReplayFilter::default();
+            self.replay_epoch = self.replay_epoch.saturating_add(1);
         }
     }
 
     fn resize(&mut self, size: TerminalSize) {
         let size = size.clamped();
+        if self.size != size {
+            self.replay_epoch = self.replay_epoch.saturating_add(1);
+        }
         self.size = size;
         self.last_good_size = size;
         self.parser.screen_mut().set_size(size.rows, size.cols);
@@ -458,6 +496,7 @@ impl OutputState {
         state
     }
 
+    #[cfg(test)]
     fn replay_history(&self) -> Vec<u8> {
         let mut screen = self.replay_parser.screen().clone();
         formatted_screen_history(&mut screen, self.replay_budget_bytes)
@@ -551,13 +590,13 @@ fn estimated_replay_scrollback_rows(budget_bytes: usize, size: TerminalSize) -> 
     (budget_bytes / cols).max(rows)
 }
 
-#[derive(Default)]
-struct ReplayFilter {
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ReplayFilter {
     in_alt_screen: bool,
     state: ReplayFilterState,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 enum ReplayFilterState {
     #[default]
     Ground,
@@ -567,7 +606,7 @@ enum ReplayFilterState {
     StringSequenceEsc(StringSequenceKind),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum StringSequenceKind {
     Osc,
     Dcs,
@@ -647,6 +686,17 @@ impl ReplayFilter {
         }
         out
     }
+}
+
+pub(crate) fn filter_replay_bytes(filter: &mut ReplayFilter, data: &[u8]) -> Vec<u8> {
+    filter.filter(data)
+}
+
+pub(crate) fn render_replay_screen_history(
+    mut screen: vt100::Screen,
+    budget_bytes: usize,
+) -> Vec<u8> {
+    formatted_screen_history(&mut screen, budget_bytes)
 }
 
 fn parse_private_mode_sequence(seq: &[u8], final_byte: u8) -> Option<Vec<u16>> {
@@ -1037,9 +1087,56 @@ impl LiveTab {
         let _ = self.close_tx.send(());
     }
 
-    pub fn persistence_state(&self) -> (TerminalSize, Vec<u8>) {
+    pub(crate) fn capture_persistence_snapshot(
+        &self,
+        requested_source_offset: u64,
+        requested_replay_epoch: u64,
+    ) -> TerminalPersistenceCapture {
         let output_state = self.output_state.lock().unwrap();
-        (output_state.size, output_state.replay_history())
+        let raw_start_offset = output_state
+            .total_bytes
+            .saturating_sub(output_state.scrollback.len() as u64);
+        if output_state.replay_epoch == requested_replay_epoch
+            && requested_source_offset >= raw_start_offset
+        {
+            let source_start = requested_source_offset.min(output_state.total_bytes);
+            let offset_in_scrollback = (source_start.saturating_sub(raw_start_offset)) as usize;
+            let (front, back) = output_state.scrollback.as_slices();
+            let mut source_bytes =
+                Vec::with_capacity((output_state.total_bytes - source_start) as usize);
+            let front_skip = offset_in_scrollback.min(front.len());
+            source_bytes.extend_from_slice(&front[front_skip..]);
+            if offset_in_scrollback > front.len() {
+                source_bytes.extend_from_slice(&back[offset_in_scrollback - front.len()..]);
+            } else {
+                source_bytes.extend_from_slice(back);
+            }
+            return TerminalPersistenceCapture::Incremental(TerminalIncrementalCapture {
+                size: output_state.size,
+                replay_budget_bytes: output_state.replay_budget_bytes,
+                source_bytes_end: output_state.total_bytes,
+                replay_epoch: output_state.replay_epoch,
+                source_bytes,
+            });
+        }
+
+        TerminalPersistenceCapture::FullRebuild(Box::new(TerminalFullRebuildCapture {
+            size: output_state.size,
+            replay_budget_bytes: output_state.replay_budget_bytes,
+            source_bytes_end: output_state.total_bytes,
+            replay_epoch: output_state.replay_epoch,
+            replay_screen: output_state.replay_parser.screen().clone(),
+            replay_filter: output_state.replay_filter.clone(),
+        }))
+    }
+
+    pub(crate) fn capture_persistence_seed(&self) -> TerminalPersistenceSeed {
+        let output_state = self.output_state.lock().unwrap();
+        TerminalPersistenceSeed {
+            total_bytes: output_state.total_bytes,
+            replay_epoch: output_state.replay_epoch,
+            replay_filter: output_state.replay_filter.clone(),
+        }
     }
 
     /// Kill the child process and wait for exit.

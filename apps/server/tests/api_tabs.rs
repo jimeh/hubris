@@ -611,8 +611,14 @@ async fn test_delete_terminal_tab_removes_persisted_terminal_state() {
             worktree_id,
             tab_id: tab_id.clone(),
             metadata: hubris_server::worktree_state::TerminalPersistedState {
-                size: hubris_server::pty::live_tab::TerminalSize::default_pty(),
-                replay_history: b"hello".to_vec(),
+                kind: hubris_server::worktree_state::TerminalPersistedStateKind::Rebuild {
+                    size: hubris_server::pty::live_tab::TerminalSize::default_pty(),
+                    replay_epoch: 0,
+                    source_bytes_end: 5,
+                    replay_total_bytes: 5,
+                    replay_budget_bytes: hubris_server::pty::live_tab::DEFAULT_SCROLLBACK,
+                    replay_history: b"hello".to_vec(),
+                },
             },
             flushed_at_ms: 1,
         });

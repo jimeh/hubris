@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                UPDATE terminal_replay_chunks\n                SET data = data || ?3\n                WHERE tab_id = ?1 AND replay_start_offset = ?2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "339ee0ec29950f37e4c2d569907d6bd42e8ca483eaecb4c1782292b875f321a3"
+}

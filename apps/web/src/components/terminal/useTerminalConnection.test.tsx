@@ -150,6 +150,7 @@ describe("useTerminalConnection", () => {
       clear: vi.fn(),
       refreshTheme: vi.fn(),
       updateFont: vi.fn(),
+      updateScrollback: vi.fn(),
       dispose: vi.fn(),
     };
 
