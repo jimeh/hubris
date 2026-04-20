@@ -353,14 +353,18 @@ describe("settings store", () => {
     store.initializeSettingsStore();
 
     act(() => {
-      store.useSettingsStore.getState().updateTerminal(
-        { clientScrollbackRows: 20000 },
-        { debounceKey: "terminal.clientScrollbackRows" },
-      );
-      store.useSettingsStore.getState().updateTerminal(
-        { serverScrollbackBytes: 512 * 1024 },
-        { debounceKey: "terminal.serverScrollbackBytes" },
-      );
+      store.useSettingsStore
+        .getState()
+        .updateTerminal(
+          { clientScrollbackRows: 20000 },
+          { debounceKey: "terminal.clientScrollbackRows" },
+        );
+      store.useSettingsStore
+        .getState()
+        .updateTerminal(
+          { serverScrollbackBytes: 512 * 1024 },
+          { debounceKey: "terminal.serverScrollbackBytes" },
+        );
     });
 
     expect(mockPatchSettings).not.toHaveBeenCalled();

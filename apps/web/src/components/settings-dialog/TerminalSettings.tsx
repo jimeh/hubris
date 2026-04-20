@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Minus, Plus, Terminal, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,28 +32,23 @@ export default function TerminalSettings() {
   const fontFamily = useTerminalSettings((state) => state.fontFamily);
   const updateSettings = useTerminalSettings((state) => state.updateSettings);
   const writesBlocked = useSettingsStore((state) => state.status.writesBlocked);
-  const [clientScrollbackRowsInput, setClientScrollbackRowsInput] = useState(
-    String(settings.clientScrollbackRows),
-  );
-  const [serverScrollbackKiBInput, setServerScrollbackKiBInput] = useState(
-    String(Math.round(settings.serverScrollbackBytes / 1024)),
-  );
+  const [clientScrollbackRowsDraft, setClientScrollbackRowsDraft] = useState<
+    string | null
+  >(null);
+  const [serverScrollbackKiBDraft, setServerScrollbackKiBDraft] = useState<
+    string | null
+  >(null);
 
   const fontPreviewLines = [
     "Hello, World!",
     "ABCDEFGHIJKLM 0123456789",
     "abcdefghijklm ~!@#$%^&*()",
   ];
-
-  useEffect(() => {
-    setClientScrollbackRowsInput(String(settings.clientScrollbackRows));
-  }, [settings.clientScrollbackRows]);
-
-  useEffect(() => {
-    setServerScrollbackKiBInput(
-      String(Math.round(settings.serverScrollbackBytes / 1024)),
-    );
-  }, [settings.serverScrollbackBytes]);
+  const clientScrollbackRowsInput =
+    clientScrollbackRowsDraft ?? String(settings.clientScrollbackRows);
+  const serverScrollbackKiBInput =
+    serverScrollbackKiBDraft ??
+    String(Math.round(settings.serverScrollbackBytes / 1024));
 
   return (
     <section className="space-y-3">
@@ -304,12 +299,9 @@ export default function TerminalSettings() {
             disabled={writesBlocked}
             onChange={(event) => {
               const value = event.currentTarget.value;
-              setClientScrollbackRowsInput(value);
+              setClientScrollbackRowsDraft(value);
               const parsed = parseIntegerInput(value);
-              if (
-                parsed !== null &&
-                parsed >= MIN_CLIENT_SCROLLBACK_ROWS
-              ) {
+              if (parsed !== null && parsed >= MIN_CLIENT_SCROLLBACK_ROWS) {
                 void updateSettings(
                   {
                     clientScrollbackRows: parsed,
@@ -322,17 +314,12 @@ export default function TerminalSettings() {
             }}
             onBlur={() => {
               const parsed = parseIntegerInput(clientScrollbackRowsInput);
-              if (
-                parsed !== null &&
-                parsed >= MIN_CLIENT_SCROLLBACK_ROWS
-              ) {
-                setClientScrollbackRowsInput(String(parsed));
+              if (parsed !== null && parsed >= MIN_CLIENT_SCROLLBACK_ROWS) {
+                setClientScrollbackRowsDraft(null);
                 return;
               }
 
-              setClientScrollbackRowsInput(
-                String(MIN_CLIENT_SCROLLBACK_ROWS),
-              );
+              setClientScrollbackRowsDraft(null);
               void updateSettings(
                 {
                   clientScrollbackRows: MIN_CLIENT_SCROLLBACK_ROWS,
@@ -365,7 +352,7 @@ export default function TerminalSettings() {
               disabled={writesBlocked}
               onChange={(event) => {
                 const value = event.currentTarget.value;
-                setServerScrollbackKiBInput(value);
+                setServerScrollbackKiBDraft(value);
                 const parsed = parseIntegerInput(value);
                 if (parsed !== null && parsed >= MIN_SERVER_SCROLLBACK_KIB) {
                   void updateSettings(
@@ -381,17 +368,14 @@ export default function TerminalSettings() {
               onBlur={() => {
                 const parsed = parseIntegerInput(serverScrollbackKiBInput);
                 if (parsed !== null && parsed >= MIN_SERVER_SCROLLBACK_KIB) {
-                  setServerScrollbackKiBInput(String(parsed));
+                  setServerScrollbackKiBDraft(null);
                   return;
                 }
 
-                setServerScrollbackKiBInput(
-                  String(MIN_SERVER_SCROLLBACK_KIB),
-                );
+                setServerScrollbackKiBDraft(null);
                 void updateSettings(
                   {
-                    serverScrollbackBytes:
-                      MIN_SERVER_SCROLLBACK_KIB * 1024,
+                    serverScrollbackBytes: MIN_SERVER_SCROLLBACK_KIB * 1024,
                   },
                   {
                     debounceKey: "terminal.serverScrollbackBytes",
