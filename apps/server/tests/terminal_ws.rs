@@ -660,7 +660,12 @@ async fn resume_attach_uses_snapshot_when_gap_exceeds_scrollback() {
         }
         other => panic!("expected attached message, got {other:?}"),
     };
-    send_input(&mut first, b"perl -e 'print \"x\" x 150000'\n").await;
+    let overflow_bytes = DEFAULT_SCROLLBACK + 8192;
+    send_input(
+        &mut first,
+        format!("perl -e 'print \"x\" x {overflow_bytes}'\n").as_bytes(),
+    )
+    .await;
     assert!(read_binary_bytes(&mut first, DEFAULT_SCROLLBACK + 1).await > DEFAULT_SCROLLBACK);
 
     let mut resumed = connect_terminal_with_resume(&base, tab_id, Some(base_offset)).await;
