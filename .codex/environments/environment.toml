@@ -6,6 +6,12 @@ name = "hubris"
 script = '''
 cd "$CODEX_WORKTREE_PATH"
 cp -av "$CODEX_SOURCE_TREE_PATH/.gitnexus" .
+for path in projects.json settings.toml project-meta; do
+  if [ -e "$CODEX_SOURCE_TREE_PATH/tmp/data/$path" ]; then
+    mkdir -p tmp/data
+    cp -av "$CODEX_SOURCE_TREE_PATH/tmp/data/$path" tmp/data/
+  fi
+done
 mise setup
 mise run gitnexus:analyze
 '''
