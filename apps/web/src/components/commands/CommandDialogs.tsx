@@ -22,6 +22,8 @@ import { useProjectStore } from "@/lib/stores/projects";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 
+type DirtyTabCloseBehavior = "discard" | "save";
+
 function CloseDirtyTabDialog({
   label,
   onClose,
@@ -33,38 +35,30 @@ function CloseDirtyTabDialog({
 }) {
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleDiscard(): Promise<void> {
+  async function runClose(saveBehavior: DirtyTabCloseBehavior): Promise<void> {
     setSubmitting(true);
 
-    const result = await executeCommand({
-      args: { saveBehavior: "discard", tabId },
-      id: "tab.close",
-      source: "dialog",
-    });
+    try {
+      const result = await executeCommand({
+        args: { saveBehavior, tabId },
+        id: "tab.close",
+        source: "dialog",
+      });
 
-    if (result.status === "success") {
-      onClose();
-      return;
+      if (result.status === "success") {
+        onClose();
+      }
+    } finally {
+      setSubmitting(false);
     }
+  }
 
-    setSubmitting(false);
+  async function handleDiscard(): Promise<void> {
+    await runClose("discard");
   }
 
   async function handleSave(): Promise<void> {
-    setSubmitting(true);
-
-    const result = await executeCommand({
-      args: { saveBehavior: "save", tabId },
-      id: "tab.close",
-      source: "dialog",
-    });
-
-    if (result.status === "success") {
-      onClose();
-      return;
-    }
-
-    setSubmitting(false);
+    await runClose("save");
   }
 
   return (

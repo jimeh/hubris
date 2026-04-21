@@ -1,11 +1,11 @@
-import { commandIds, getCommandDefinition } from "./registry";
-import { projectForWorktree } from "./context";
+import { projectForWorktree } from "@/lib/commands/context";
+import { commandIds, getCommandDefinition } from "@/lib/commands/registry";
 import type {
   AnyCommandPaletteItem,
   CommandContextSnapshot,
   CommandId,
   CommandPaletteItem,
-} from "./types";
+} from "@/lib/commands/types";
 import { sections } from "@/components/settings-dialog/sections";
 
 const STATIC_PALETTE_COMMANDS = [

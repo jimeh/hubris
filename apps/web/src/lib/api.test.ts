@@ -245,6 +245,21 @@ describe("API client", () => {
         status: 409,
       });
     });
+
+    it("tolerates 404 (already gone)", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+        }),
+      );
+
+      await expect(deleteProjectWorktree("p1", "w1")).resolves.toBeUndefined();
+      expect(fetch).toHaveBeenCalledWith("/api/projects/p1/worktrees/w1", {
+        method: "DELETE",
+      });
+    });
   });
 
   describe("listProjectWorktreeStartPoints", () => {
