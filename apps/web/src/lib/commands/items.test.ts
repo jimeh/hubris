@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildCommandContextSnapshot } from "./context";
-import { getCommandPaletteItems } from "./items";
+import { buildCommandContextSnapshot } from "@/lib/commands/context";
+import { getCommandPaletteItems } from "@/lib/commands/items";
 
 function makeProject(id: string, name: string) {
   return {
@@ -114,6 +114,31 @@ describe("command palette items", () => {
         }),
       ]),
     );
+    expect(items.some((item) => item.key === "worktree.create")).toBe(false);
+  });
+
+  it("hides the generic worktree create item when project-scoped items exist", () => {
+    const firstProject = makeProject("p1", "Alpha");
+    const secondProject = makeProject("p2", "Beta");
+
+    const items = getCommandPaletteItems(
+      buildCommandContextSnapshot({
+        activeTabId: null,
+        focusedPaneByWorktree: {},
+        projects: [firstProject, secondProject],
+        selectedWorktreeId: null,
+        tabs: [],
+        worktreesByProject: {},
+      }),
+    );
+
+    expect(items.some((item) => item.key === "worktree.create")).toBe(false);
+    expect(
+      items.filter((item) => item.id === "worktree.create").map((item) => item.key),
+    ).toEqual([
+      `worktree.create:${firstProject.id}`,
+      `worktree.create:${secondProject.id}`,
+    ]);
   });
 
   it("filters unavailable commands when required context is missing", () => {

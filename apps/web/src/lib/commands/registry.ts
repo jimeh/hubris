@@ -561,6 +561,40 @@ export const commandRegistry = {
     keywords: ["worktree", "create", "new"],
     title: "New Worktree",
   }),
+  "worktree.import": defineCommand({
+    async execute(context, args) {
+      const projectId = resolveProjectId(
+        args?.projectId,
+        context.selectedProject?.id ?? null,
+      );
+      if (!projectId) {
+        return { reason: "No project selected", status: "unavailable" };
+      }
+
+      if (!args?.path) {
+        useCommandUiStore.getState().openDialog({
+          projectId,
+          type: "add-worktree",
+        });
+        return cancelled();
+      }
+
+      await useWorktreeStore.getState().importWorktree(projectId, args.path);
+      return success();
+    },
+    group: "Worktrees",
+    icon: Plus,
+    id: "worktree.import",
+    isAvailable(context, args) {
+      const projectId = resolveProjectId(
+        args?.projectId,
+        context.selectedProject?.id ?? null,
+      );
+      return projectId ? enabled() : disabled("Select a project first");
+    },
+    keywords: ["worktree", "import"],
+    title: "Import Worktree",
+  }),
   "worktree.remove": defineCommand({
     async execute(context, args) {
       const worktreeId = resolveWorktreeId(

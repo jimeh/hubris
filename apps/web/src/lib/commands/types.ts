@@ -18,6 +18,7 @@ export type CommandId =
   | "tab.renameTerminal"
   | "tab.resetTerminalName"
   | "worktree.create"
+  | "worktree.import"
   | "worktree.remove"
   | "worktree.rename"
   | "worktree.select"
@@ -59,6 +60,12 @@ export type CommandArgsById = {
         startPoint?: string;
       }
     | undefined;
+  "worktree.import":
+    | {
+        path?: string;
+        projectId?: string;
+      }
+    | undefined;
   "worktree.remove":
     | {
         force?: boolean;
@@ -83,8 +90,6 @@ export type CommandArgsById = {
       }
     | undefined;
 };
-
-export type AnyCommandArgs = CommandArgsById[CommandId];
 
 export type CommandAvailability = {
   enabled: boolean;
@@ -133,14 +138,18 @@ export type CommandDefinition<TId extends CommandId = CommandId> = {
   title: string;
 };
 
-export type CommandPaletteItem = {
-  args?: AnyCommandArgs;
+export type CommandPaletteItem<TId extends CommandId> = {
+  args?: CommandArgsById[TId];
   group: string;
   icon?: LucideIcon;
-  id: CommandId;
+  id: TId;
   key: string;
   keywords: string[];
   searchText?: string;
   subtitle?: string;
   title: string;
 };
+
+export type AnyCommandPaletteItem = {
+  [TId in CommandId]: CommandPaletteItem<TId>;
+}[CommandId];

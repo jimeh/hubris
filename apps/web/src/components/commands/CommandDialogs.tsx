@@ -172,10 +172,14 @@ export default function CommandDialogs() {
             }
           }}
           onImport={async (path) => {
-            await useWorktreeStore
-              .getState()
-              .importWorktree(activeProject.id, path);
-            closeDialog();
+            const result = await executeCommand({
+              args: { path, projectId: activeProject.id },
+              id: "worktree.import",
+              source: "dialog",
+            });
+            if (result.status === "success") {
+              closeDialog();
+            }
           }}
           onClose={closeDialog}
         />

@@ -23,7 +23,26 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/components/AddProjectDialog", () => ({ default: () => null }));
-vi.mock("@/components/AddWorktreeDialog", () => ({ default: () => null }));
+vi.mock("@/components/AddWorktreeDialog", () => ({
+  default: ({
+    onAdd,
+    onImport,
+  }: {
+    onAdd: (
+      branch: string,
+      startPoint?: string,
+      sourceRef?: string,
+    ) => Promise<void>;
+    onImport: (path: string) => Promise<void>;
+  }) => (
+    <div>
+      <button onClick={() => void onAdd("feature")}>Create worktree</button>
+      <button onClick={() => void onImport("/tmp/imported")}>
+        Import worktree
+      </button>
+    </div>
+  ),
+}));
 vi.mock("@/components/ConfirmDialog", () => ({ default: () => null }));
 vi.mock("@/components/ProjectRemoveDialog", () => ({ default: () => null }));
 vi.mock("@/components/RenameProjectDialog", () => ({ default: () => null }));
@@ -487,5 +506,34 @@ describe("CommandDialogs", () => {
         undefined,
       );
     });
+  });
+
+  it("routes worktree imports through the command runtime", async () => {
+    const project = makeProject();
+    const importedWorktree = {
+      ...makeWorktree(),
+      id: "w-imported",
+      is_local: false,
+      path: "/tmp/imported",
+    };
+    const importSpy = vi
+      .spyOn(useWorktreeStore.getState(), "importWorktree")
+      .mockResolvedValue(importedWorktree);
+
+    useCommandUiStore.setState({
+      dialog: {
+        projectId: project.id,
+        type: "add-worktree",
+      },
+    });
+
+    render(<CommandDialogs />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Import worktree" }));
+
+    await waitFor(() => {
+      expect(importSpy).toHaveBeenCalledWith(project.id, "/tmp/imported");
+    });
+    expect(useCommandUiStore.getState().dialog).toBeNull();
   });
 });

@@ -12,7 +12,18 @@ import {
   getCommandPaletteItems,
   useCommandContext,
 } from "@/lib/commands";
+import type { CommandId, CommandPaletteItem } from "@/lib/commands";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
+
+function executePaletteItem<TId extends CommandId>(
+  item: CommandPaletteItem<TId>,
+) {
+  return executeCommand({
+    args: item.args,
+    id: item.id,
+    source: "command-palette",
+  });
+}
 
 export default function CommandPalette() {
   const context = useCommandContext();
@@ -52,11 +63,7 @@ export default function CommandPalette() {
                   keywords={item.keywords}
                   onSelect={() => {
                     closePalette();
-                    void executeCommand({
-                      args: item.args as never,
-                      id: item.id,
-                      source: "command-palette",
-                    });
+                    void executePaletteItem(item);
                   }}
                   value={
                     item.searchText ?? `${item.title} ${item.subtitle ?? ""}`

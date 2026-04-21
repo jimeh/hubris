@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useTabStore } from "@/lib/stores/tabs";
@@ -53,10 +53,13 @@ export function useCommandAction<TId extends CommandId>(
   const context = useCommandContext();
   const definition = getCommandDefinition(id);
   const availability = definition.isAvailable(context, args);
+  const latestArgsRef = useRef(args);
+  latestArgsRef.current = args;
+  const serializedArgs = useMemo(() => JSON.stringify(args ?? null), [args]);
 
   const run = useCallback(async () => {
-    return executeCommand({ args, id, source });
-  }, [args, id, source]);
+    return executeCommand({ args: latestArgsRef.current, id, source });
+  }, [id, serializedArgs, source]);
 
   return {
     availability,

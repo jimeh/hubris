@@ -1,6 +1,11 @@
 import { commandIds, getCommandDefinition } from "./registry";
 import { projectForWorktree } from "./context";
-import type { CommandContextSnapshot, CommandPaletteItem } from "./types";
+import type {
+  AnyCommandPaletteItem,
+  CommandContextSnapshot,
+  CommandId,
+  CommandPaletteItem,
+} from "./types";
 import { sections } from "@/components/settings-dialog/sections";
 
 const STATIC_PALETTE_COMMANDS = [
@@ -36,12 +41,27 @@ function formatProjectScopedWorktreeSubtitle(input: {
   return parts.join(" • ");
 }
 
+function shouldIncludeStaticPaletteCommand(
+  id: (typeof STATIC_PALETTE_COMMANDS)[number],
+  context: CommandContextSnapshot,
+) {
+  if (id === "worktree.create" && context.projects.length > 0) {
+    return false;
+  }
+
+  return true;
+}
+
 export function getCommandPaletteItems(
   context: CommandContextSnapshot,
-): CommandPaletteItem[] {
-  const items: CommandPaletteItem[] = [];
+): AnyCommandPaletteItem[] {
+  const items: AnyCommandPaletteItem[] = [];
 
   for (const id of STATIC_PALETTE_COMMANDS) {
+    if (!shouldIncludeStaticPaletteCommand(id, context)) {
+      continue;
+    }
+
     const definition = getCommandDefinition(id);
     const availability = definition.isAvailable(context, undefined);
     if (!availability.enabled) {
@@ -187,11 +207,7 @@ export function getCommandPaletteItems(
   }
 
   return items
-    .filter(
-      (item) =>
-        getCommandDefinition(item.id).isAvailable(context, item.args as never)
-          .enabled,
-    )
+    .filter((item) => isPaletteItemAvailable(context, item))
     .sort((left, right) => {
       const groupComparison = left.group.localeCompare(right.group);
       if (groupComparison !== 0) {
@@ -211,6 +227,13 @@ export function getCommandPaletteItems(
 
       return left.key.localeCompare(right.key);
     });
+}
+
+function isPaletteItemAvailable<TId extends CommandId>(
+  context: CommandContextSnapshot,
+  item: CommandPaletteItem<TId>,
+) {
+  return getCommandDefinition(item.id).isAvailable(context, item.args).enabled;
 }
 
 export function getRegisteredCommandIds() {

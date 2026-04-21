@@ -108,6 +108,7 @@ describe("command runtime", () => {
       expect.arrayContaining([
         "project.add",
         "worktree.create",
+        "worktree.import",
         "tab.newTerminal",
         "settings.openSection",
       ]),
@@ -169,5 +170,21 @@ describe("command runtime", () => {
       projectId: projectOne.id,
       type: "add-worktree",
     });
+  });
+
+  it("routes worktree import through the command runtime", async () => {
+    const { projectTwo, worktreeTwo } = seedContext();
+    const importSpy = vi
+      .spyOn(useWorktreeStore.getState(), "importWorktree")
+      .mockResolvedValue(worktreeTwo);
+
+    const result = await executeCommand({
+      args: { path: "/tmp/imported", projectId: projectTwo.id },
+      id: "worktree.import",
+      source: "system",
+    });
+
+    expect(result).toEqual({ status: "success" });
+    expect(importSpy).toHaveBeenCalledWith(projectTwo.id, "/tmp/imported");
   });
 });

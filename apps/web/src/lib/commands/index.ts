@@ -4,6 +4,7 @@ export { getCommandDefinition } from "./registry";
 export { executeCommand, getCommandAvailability } from "./runtime";
 export { useCommandAction, useCommandContext } from "./react";
 export type {
+  AnyCommandPaletteItem,
   CommandArgsById,
   CommandAvailability,
   CommandContextSnapshot,
