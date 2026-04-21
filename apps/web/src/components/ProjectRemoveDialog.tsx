@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Folder, FolderX, GitBranchPlus, ShieldAlert } from "lucide-react";
 import {
   Dialog,
@@ -12,8 +13,8 @@ import { Button } from "@/components/ui/button";
 type ProjectRemoveDialogProps = {
   projectName: string;
   forceManagedDelete?: boolean;
-  onRemoveOnly: () => void;
-  onRemoveAndDeleteManaged: () => void;
+  onRemoveOnly: () => Promise<void> | void;
+  onRemoveAndDeleteManaged: () => Promise<void> | void;
   onClose: () => void;
 };
 
@@ -24,8 +25,22 @@ export default function ProjectRemoveDialog({
   onRemoveAndDeleteManaged,
   onClose,
 }: ProjectRemoveDialogProps) {
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleAction(
+    action: () => Promise<void> | void,
+  ): Promise<void> {
+    setSubmitting(true);
+
+    try {
+      await action();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !submitting && onClose()}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader className="gap-3">
           <div className="flex items-start gap-3">
@@ -78,9 +93,10 @@ export default function ProjectRemoveDialog({
               </div>
             </div>
             <Button
+              disabled={submitting}
               variant="outline"
               className="mt-4 w-full justify-center"
-              onClick={onRemoveOnly}
+              onClick={() => void handleAction(onRemoveOnly)}
             >
               Remove only
             </Button>
@@ -104,9 +120,10 @@ export default function ProjectRemoveDialog({
               </div>
             </div>
             <Button
+              disabled={submitting}
               variant="destructive"
               className="mt-4 w-full justify-center"
-              onClick={onRemoveAndDeleteManaged}
+              onClick={() => void handleAction(onRemoveAndDeleteManaged)}
             >
               {forceManagedDelete
                 ? "Force remove + delete managed worktrees"
@@ -116,7 +133,7 @@ export default function ProjectRemoveDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
+          <Button disabled={submitting} variant="ghost" onClick={onClose}>
             Cancel
           </Button>
         </DialogFooter>

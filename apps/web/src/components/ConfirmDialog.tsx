@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +13,7 @@ type Props = {
   title: string;
   description: string;
   confirmLabel?: string;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void> | void;
   onClose: () => void;
 };
 
@@ -23,18 +24,34 @@ export default function ConfirmDialog({
   onConfirm,
   onClose,
 }: Props) {
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleConfirm(): Promise<void> {
+    setSubmitting(true);
+
+    try {
+      await onConfirm();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !submitting && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button disabled={submitting} variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="destructive" onClick={onConfirm}>
+          <Button
+            disabled={submitting}
+            variant="destructive"
+            onClick={() => void handleConfirm()}
+          >
             {confirmLabel}
           </Button>
         </DialogFooter>

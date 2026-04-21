@@ -5,6 +5,7 @@ import {
   createProjectWorktree,
   createTab,
   deleteProject,
+  deleteProjectWorktree,
   deleteTab,
   getProjectWorktreeCommitDetails,
   getProjectWorktreeFileContent,
@@ -212,7 +213,37 @@ describe("API client", () => {
         }),
       );
 
-      await expect(deleteProject("abc-123")).rejects.toThrow("500");
+      await expect(deleteProject("abc-123")).rejects.toMatchObject({
+        name: "ApiStatusError",
+        status: 500,
+      });
+    });
+  });
+
+  describe("deleteProjectWorktree", () => {
+    it("sends DELETE to /api/projects/:projectId/worktrees/:worktreeId", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+
+      await deleteProjectWorktree("p1", "w1");
+
+      expect(fetch).toHaveBeenCalledWith("/api/projects/p1/worktrees/w1", {
+        method: "DELETE",
+      });
+    });
+
+    it("throws ApiStatusError on non-404 failures", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 409,
+        }),
+      );
+
+      await expect(deleteProjectWorktree("p1", "w1")).rejects.toMatchObject({
+        name: "ApiStatusError",
+        status: 409,
+      });
     });
   });
 

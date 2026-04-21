@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiStatusError } from "@/lib/api";
 import { resetBootstrapForTests } from "@/lib/bootstrap";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useProjectStore } from "@/lib/stores/projects";
@@ -186,5 +187,53 @@ describe("command runtime", () => {
 
     expect(result).toEqual({ status: "success" });
     expect(importSpy).toHaveBeenCalledWith(projectTwo.id, "/tmp/imported");
+  });
+
+  it("reopens project removal in force mode on 409 conflicts", async () => {
+    const { projectOne } = seedContext();
+    vi.spyOn(useProjectStore.getState(), "remove").mockRejectedValue(
+      new ApiStatusError(409),
+    );
+
+    const result = await executeCommand({
+      args: {
+        deleteManagedWorktrees: true,
+        projectId: projectOne.id,
+      },
+      id: "project.remove",
+      source: "button",
+    });
+
+    expect(result).toEqual({ status: "cancelled" });
+    expect(useCommandUiStore.getState().dialog).toEqual({
+      forceManagedDelete: true,
+      projectId: projectOne.id,
+      type: "remove-project",
+    });
+  });
+
+  it("reopens worktree removal in force mode on 409 conflicts", async () => {
+    const { projectOne, worktreeOne } = seedContext();
+    vi.spyOn(useWorktreeStore.getState(), "remove").mockRejectedValue(
+      new ApiStatusError(409),
+    );
+
+    const result = await executeCommand({
+      args: {
+        force: false,
+        projectId: projectOne.id,
+        worktreeId: worktreeOne.id,
+      },
+      id: "worktree.remove",
+      source: "button",
+    });
+
+    expect(result).toEqual({ status: "cancelled" });
+    expect(useCommandUiStore.getState().dialog).toEqual({
+      forceDelete: true,
+      projectId: projectOne.id,
+      type: "remove-worktree",
+      worktreeId: worktreeOne.id,
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import AddWorktreeDialog from "@/components/AddWorktreeDialog";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -123,16 +123,38 @@ export default function CommandDialogs() {
     dialog && "projectId" in dialog
       ? (projects.find((project) => project.id === dialog.projectId) ?? null)
       : null;
+  const scopedWorktrees =
+    dialog && "projectId" in dialog
+      ? (worktreesByProject[dialog.projectId] ?? [])
+      : Object.values(worktreesByProject).flat();
   const activeWorktree =
     dialog && "worktreeId" in dialog
-      ? (Object.values(worktreesByProject)
-          .flat()
-          .find((worktree) => worktree.id === dialog.worktreeId) ?? null)
+      ? (scopedWorktrees.find(
+          (worktree) => worktree.id === dialog.worktreeId,
+        ) ?? null)
       : null;
   const activeTab =
     dialog && "tabId" in dialog
       ? (tabs.find((tab) => tab.id === dialog.tabId) ?? null)
       : null;
+
+  const hasStaleDialogReference =
+    ((dialog?.type === "add-worktree" ||
+      dialog?.type === "rename-project" ||
+      dialog?.type === "remove-project") &&
+      !activeProject) ||
+    ((dialog?.type === "rename-worktree" ||
+      dialog?.type === "remove-worktree") &&
+      (!activeProject || !activeWorktree)) ||
+    ((dialog?.type === "rename-terminal-tab" ||
+      dialog?.type === "close-dirty-tab") &&
+      !activeTab);
+
+  useEffect(() => {
+    if (hasStaleDialogReference) {
+      closeDialog();
+    }
+  }, [closeDialog, hasStaleDialogReference]);
 
   return (
     <>
@@ -268,8 +290,8 @@ export default function CommandDialogs() {
               confirmLabel="Force Delete"
               description={`Worktree ${activeWorktree.name} has uncommitted changes or is busy. Force delete it anyway?`}
               onClose={closeDialog}
-              onConfirm={() => {
-                void executeCommand({
+              onConfirm={async () => {
+                const result = await executeCommand({
                   args: {
                     force: true,
                     projectId: activeProject.id,
@@ -277,11 +299,10 @@ export default function CommandDialogs() {
                   },
                   id: "worktree.remove",
                   source: "dialog",
-                }).then((result) => {
-                  if (result.status === "success") {
-                    closeDialog();
-                  }
                 });
+                if (result.status === "success") {
+                  closeDialog();
+                }
               }}
               title="Force Delete Worktree"
             />
@@ -289,8 +310,8 @@ export default function CommandDialogs() {
             <WorktreeRemoveDialog
               isImported={activeWorktree.is_imported}
               onClose={closeDialog}
-              onDeleteFromDisk={() => {
-                void executeCommand({
+              onDeleteFromDisk={async () => {
+                const result = await executeCommand({
                   args: {
                     force: false,
                     projectId: activeProject.id,
@@ -298,14 +319,13 @@ export default function CommandDialogs() {
                   },
                   id: "worktree.remove",
                   source: "dialog",
-                }).then((result) => {
-                  if (result.status === "success") {
-                    closeDialog();
-                  }
                 });
+                if (result.status === "success") {
+                  closeDialog();
+                }
               }}
-              onUntrackOnly={() => {
-                void executeCommand({
+              onUntrackOnly={async () => {
+                const result = await executeCommand({
                   args: {
                     projectId: activeProject.id,
                     untrackOnly: true,
@@ -313,11 +333,10 @@ export default function CommandDialogs() {
                   },
                   id: "worktree.remove",
                   source: "dialog",
-                }).then((result) => {
-                  if (result.status === "success") {
-                    closeDialog();
-                  }
                 });
+                if (result.status === "success") {
+                  closeDialog();
+                }
               }}
               worktreeName={activeWorktree.name}
             />

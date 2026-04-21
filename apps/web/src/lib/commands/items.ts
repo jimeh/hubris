@@ -89,7 +89,7 @@ export function getCommandPaletteItems(
         ...(getCommandDefinition("worktree.create").keywords ?? []),
         project.name,
       ],
-      searchText: `New Worktree in ${project.name} ${project.name}`,
+      searchText: `New Worktree in ${project.name}`,
       subtitle: project.name,
       title: `New Worktree in ${project.name}`,
     });

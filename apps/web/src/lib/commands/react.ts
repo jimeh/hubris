@@ -1,12 +1,16 @@
 import { useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { buildCommandContextSnapshot } from "@/lib/commands/context";
+import { getCommandDefinition } from "@/lib/commands/registry";
+import { executeCommand } from "@/lib/commands/runtime";
+import type {
+  CommandArgsById,
+  CommandId,
+  CommandSource,
+} from "@/lib/commands/types";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
-import { buildCommandContextSnapshot } from "./context";
-import { getCommandDefinition } from "./registry";
-import { executeCommand } from "./runtime";
-import type { CommandArgsById, CommandId, CommandSource } from "./types";
 
 export function useCommandContext() {
   const projects = useProjectStore((state) => state.projects);
@@ -52,7 +56,6 @@ export function useCommandAction<TId extends CommandId>(
 ) {
   const context = useCommandContext();
   const definition = getCommandDefinition(id);
-  const availability = definition.isAvailable(context, args);
   const serializedArgs = useMemo(() => JSON.stringify(args ?? null), [args]);
   const stableArgs = useMemo(
     () =>
@@ -61,6 +64,7 @@ export function useCommandAction<TId extends CommandId>(
         : (JSON.parse(serializedArgs) as CommandArgsById[TId]),
     [serializedArgs],
   );
+  const availability = definition.isAvailable(context, stableArgs);
 
   const run = useCallback(async () => {
     return executeCommand({ args: stableArgs, id, source });

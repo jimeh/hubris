@@ -536,4 +536,37 @@ describe("CommandDialogs", () => {
     });
     expect(useCommandUiStore.getState().dialog).toBeNull();
   });
+
+  it("clears stale worktree dialog intents when the worktree no longer exists", async () => {
+    const project = makeProject();
+
+    useCommandUiStore.setState({
+      dialog: {
+        projectId: project.id,
+        type: "remove-worktree",
+        worktreeId: "missing-worktree",
+      },
+    });
+
+    render(<CommandDialogs />);
+
+    await waitFor(() => {
+      expect(useCommandUiStore.getState().dialog).toBeNull();
+    });
+  });
+
+  it("clears stale tab dialog intents when the tab no longer exists", async () => {
+    useCommandUiStore.setState({
+      dialog: {
+        tabId: "missing-tab",
+        type: "close-dirty-tab",
+      },
+    });
+
+    render(<CommandDialogs />);
+
+    await waitFor(() => {
+      expect(useCommandUiStore.getState().dialog).toBeNull();
+    });
+  });
 });

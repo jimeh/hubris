@@ -2,9 +2,9 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetBootstrapForTests } from "@/lib/bootstrap";
+import { useCommandAction } from "@/lib/commands/react";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
-import { useCommandAction } from "./react";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -87,5 +87,28 @@ describe("useCommandAction", () => {
       undefined,
       undefined,
     );
+  });
+
+  it("derives availability from the normalized args shape", () => {
+    const { result, rerender } = renderHook(
+      ({ projectId }) =>
+        useCommandAction("worktree.create", {
+          branch: "release",
+          projectId,
+        }),
+      {
+        initialProps: { projectId: "p1" },
+      },
+    );
+
+    expect(result.current.disabled).toBe(false);
+
+    rerender({ projectId: null as unknown as string });
+
+    expect(result.current.disabled).toBe(true);
+    expect(result.current.availability).toEqual({
+      enabled: false,
+      reason: "Select a project first",
+    });
   });
 });

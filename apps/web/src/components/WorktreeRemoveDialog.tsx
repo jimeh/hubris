@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AlertTriangle, Folder, FolderX, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -12,8 +13,8 @@ import { Button } from "@/components/ui/button";
 type Props = {
   worktreeName: string;
   isImported?: boolean;
-  onUntrackOnly: () => void;
-  onDeleteFromDisk: () => void;
+  onUntrackOnly: () => Promise<void> | void;
+  onDeleteFromDisk: () => Promise<void> | void;
   onClose: () => void;
 };
 
@@ -24,8 +25,22 @@ export default function WorktreeRemoveDialog({
   onDeleteFromDisk,
   onClose,
 }: Props) {
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleAction(
+    action: () => Promise<void> | void,
+  ): Promise<void> {
+    setSubmitting(true);
+
+    try {
+      await action();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !submitting && onClose()}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader className="gap-3">
           <div className="flex items-start gap-3">
@@ -77,9 +92,10 @@ export default function WorktreeRemoveDialog({
               </div>
             </div>
             <Button
+              disabled={submitting}
               variant="outline"
               className="mt-4 w-full justify-center"
-              onClick={onUntrackOnly}
+              onClick={() => void handleAction(onUntrackOnly)}
             >
               Remove from Hubris
             </Button>
@@ -102,9 +118,10 @@ export default function WorktreeRemoveDialog({
               </div>
             </div>
             <Button
+              disabled={submitting}
               variant="destructive"
               className="mt-4 w-full justify-center"
-              onClick={onDeleteFromDisk}
+              onClick={() => void handleAction(onDeleteFromDisk)}
             >
               Delete from disk
             </Button>
@@ -112,7 +129,7 @@ export default function WorktreeRemoveDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
+          <Button disabled={submitting} variant="ghost" onClick={onClose}>
             Cancel
           </Button>
         </DialogFooter>
