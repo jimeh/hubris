@@ -55,7 +55,7 @@ export default function CommandPalette() {
                       source: "command-palette",
                     });
                   }}
-                  value={`${item.title} ${item.subtitle ?? ""}`}
+                  value={item.searchText ?? `${item.title} ${item.subtitle ?? ""}`}
                 >
                   {Icon ? <Icon className="h-4 w-4" /> : null}
                   <div className="flex min-w-0 flex-1 flex-col">

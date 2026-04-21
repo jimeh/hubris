@@ -1,4 +1,5 @@
 import { commandIds, getCommandDefinition } from "./registry";
+import { projectForWorktree } from "./context";
 import type { CommandContextSnapshot, CommandPaletteItem } from "./types";
 import { sections } from "@/components/settings-dialog/sections";
 
@@ -15,6 +16,24 @@ const STATIC_PALETTE_COMMANDS = [
 
 function baseKeywords(id: (typeof STATIC_PALETTE_COMMANDS)[number]) {
   return getCommandDefinition(id).keywords ?? [];
+}
+
+function formatProjectScopedWorktreeSubtitle(input: {
+  branch?: string;
+  projectName: string;
+  worktreeName?: string;
+}) {
+  const parts = [input.projectName];
+
+  if (input.worktreeName) {
+    parts.push(input.worktreeName);
+  }
+
+  if (input.branch) {
+    parts.push(input.branch);
+  }
+
+  return parts.join(" • ");
 }
 
 export function getCommandPaletteItems(
@@ -50,6 +69,7 @@ export function getCommandPaletteItems(
         ...(getCommandDefinition("worktree.create").keywords ?? []),
         project.name,
       ],
+      searchText: `New Worktree in ${project.name} ${project.name}`,
       subtitle: project.name,
       title: `New Worktree in ${project.name}`,
     });
@@ -57,6 +77,11 @@ export function getCommandPaletteItems(
 
   for (const worktree of context.worktrees) {
     if (worktree.id === context.selectedWorktree?.id) {
+      continue;
+    }
+
+    const project = projectForWorktree(context, worktree.id);
+    if (!project) {
       continue;
     }
 
@@ -68,15 +93,22 @@ export function getCommandPaletteItems(
       key: `worktree.select:${worktree.id}`,
       keywords: [
         ...(getCommandDefinition("worktree.select").keywords ?? []),
+        project.name,
         worktree.name,
         worktree.branch,
       ],
-      subtitle: worktree.branch,
+      searchText: `Switch to ${worktree.name} ${project.name} ${worktree.branch}`,
+      subtitle: formatProjectScopedWorktreeSubtitle({
+        branch: worktree.branch,
+        projectName: project.name,
+      }),
       title: `Switch to ${worktree.name}`,
     });
   }
 
   if (context.selectedWorktree) {
+    const project = projectForWorktree(context, context.selectedWorktree.id);
+
     for (const uiMode of ["hubris", "vscode"] as const) {
       if (context.selectedWorktree.ui_mode === uiMode) {
         continue;
@@ -94,9 +126,19 @@ export function getCommandPaletteItems(
         key: `worktree.setUiMode:${uiMode}`,
         keywords: [
           ...(getCommandDefinition("worktree.setUiMode").keywords ?? []),
+          project?.name ?? "",
+          context.selectedWorktree.name,
           uiMode,
         ],
-        subtitle: context.selectedWorktree.name,
+        searchText: `Switch Current Worktree to ${
+          uiMode === "hubris" ? "Hubris" : "VS Code"
+        } ${project?.name ?? ""} ${context.selectedWorktree.name}`,
+        subtitle: project
+          ? formatProjectScopedWorktreeSubtitle({
+              projectName: project.name,
+              worktreeName: context.selectedWorktree.name,
+            })
+          : context.selectedWorktree.name,
         title: `Switch Current Worktree to ${
           uiMode === "hubris" ? "Hubris" : "VS Code"
         }`,
@@ -155,7 +197,19 @@ export function getCommandPaletteItems(
       if (groupComparison !== 0) {
         return groupComparison;
       }
-      return left.title.localeCompare(right.title);
+      const titleComparison = left.title.localeCompare(right.title);
+      if (titleComparison !== 0) {
+        return titleComparison;
+      }
+
+      const subtitleComparison = (left.subtitle ?? "").localeCompare(
+        right.subtitle ?? "",
+      );
+      if (subtitleComparison !== 0) {
+        return subtitleComparison;
+      }
+
+      return left.key.localeCompare(right.key);
     });
 }
 

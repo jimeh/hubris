@@ -101,7 +101,8 @@ describe("command palette items", () => {
           args: { worktreeId: siblingWorktree.id },
           id: "worktree.select",
           key: `worktree.select:${siblingWorktree.id}`,
-          subtitle: siblingWorktree.branch,
+          searchText: `Switch to ${siblingWorktree.name} ${project.name} ${siblingWorktree.branch}`,
+          subtitle: `${project.name} • ${siblingWorktree.branch}`,
           title: `Switch to ${siblingWorktree.name}`,
         }),
         expect.objectContaining({
@@ -176,5 +177,90 @@ describe("command palette items", () => {
     expect(
       items.some((item) => item.key === `tab.focus:${offscreenTab.id}`),
     ).toBe(false);
+  });
+
+  it("adds project context to duplicate worktree switch items", () => {
+    const alpha = makeProject("p1", "Alpha");
+    const beta = makeProject("p2", "Beta");
+    const selectedWorktree = makeWorktree("w1", alpha.id, ".git/local", {
+      branch: "main",
+    });
+    const alphaSibling = makeWorktree("w2", alpha.id, ".git/local", {
+      branch: "release",
+    });
+    const betaSibling = makeWorktree("w3", beta.id, ".git/local", {
+      branch: "develop",
+    });
+
+    const items = getCommandPaletteItems(
+      buildCommandContextSnapshot({
+        activeTabId: null,
+        focusedPaneByWorktree: {},
+        projects: [alpha, beta],
+        selectedWorktreeId: selectedWorktree.id,
+        tabs: [],
+        worktreesByProject: {
+          [alpha.id]: [selectedWorktree, alphaSibling],
+          [beta.id]: [betaSibling],
+        },
+      }),
+    );
+
+    const switchItems = items.filter((item) => item.id === "worktree.select");
+
+    expect(
+      switchItems.map((item) => ({
+        key: item.key,
+        searchText: item.searchText,
+        subtitle: item.subtitle,
+        title: item.title,
+      })),
+    ).toEqual([
+      {
+        key: `worktree.select:${alphaSibling.id}`,
+        searchText: "Switch to .git/local Alpha release",
+        subtitle: "Alpha • release",
+        title: "Switch to .git/local",
+      },
+      {
+        key: `worktree.select:${betaSibling.id}`,
+        searchText: "Switch to .git/local Beta develop",
+        subtitle: "Beta • develop",
+        title: "Switch to .git/local",
+      },
+    ]);
+  });
+
+  it("scopes worktree mode-switch items by project and worktree name", () => {
+    const project = makeProject("p1", "Devbox");
+    const selectedWorktree = makeWorktree("w1", project.id, ".git/local", {
+      branch: "main",
+      ui_mode: "hubris",
+    });
+
+    const items = getCommandPaletteItems(
+      buildCommandContextSnapshot({
+        activeTabId: null,
+        focusedPaneByWorktree: {},
+        projects: [project],
+        selectedWorktreeId: selectedWorktree.id,
+        tabs: [],
+        worktreesByProject: {
+          [project.id]: [selectedWorktree],
+        },
+      }),
+    );
+
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "worktree.setUiMode",
+          searchText:
+            "Switch Current Worktree to VS Code Devbox .git/local",
+          subtitle: "Devbox • .git/local",
+          title: "Switch Current Worktree to VS Code",
+        }),
+      ]),
+    );
   });
 });

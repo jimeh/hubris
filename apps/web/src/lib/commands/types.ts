@@ -140,6 +140,7 @@ export type CommandPaletteItem = {
   id: CommandId;
   key: string;
   keywords: string[];
+  searchText?: string;
   subtitle?: string;
   title: string;
 };

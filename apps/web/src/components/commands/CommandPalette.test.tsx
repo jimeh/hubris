@@ -51,10 +51,16 @@ vi.mock("@/components/ui/command", () => ({
   CommandItem: ({
     children,
     onSelect,
+    value,
   }: {
     children: React.ReactNode;
     onSelect?: (value: string) => void;
-  }) => <button onClick={() => onSelect?.("")}>{children}</button>,
+    value?: string;
+  }) => (
+    <button data-value={value} onClick={() => onSelect?.("")}>
+      {children}
+    </button>
+  ),
   CommandList: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
@@ -148,6 +154,51 @@ describe("CommandPalette", () => {
     );
 
     expect(useWorktreeStore.getState().selectedWorktreeId).toBe(feature.id);
+  });
+
+  it("renders duplicate worktree switch items with project-scoped context", () => {
+    const alpha = makeProject("p1", "Alpha");
+    const beta = makeProject("p2", "Beta");
+    const selected = makeWorktree("w1", alpha.id, ".git/local", {
+      branch: "main",
+      position: 1,
+    });
+    const alphaSibling = makeWorktree("w2", alpha.id, ".git/local", {
+      branch: "release",
+      position: 2,
+    });
+    const betaSibling = makeWorktree("w3", beta.id, ".git/local", {
+      branch: "develop",
+      position: 1,
+    });
+
+    useProjectStore.setState({ projects: [alpha, beta] });
+    useWorktreeStore.setState({
+      selectedWorktreeId: selected.id,
+      worktreesByProject: {
+        [alpha.id]: [selected, alphaSibling],
+        [beta.id]: [betaSibling],
+      },
+    });
+    useCommandUiStore.setState({ paletteOpen: true });
+
+    render(<CommandPalette />);
+
+    const switchButtons = screen.getAllByRole("button", {
+      name: /switch to \.git\/local/i,
+    });
+
+    expect(switchButtons).toHaveLength(2);
+    expect(switchButtons[0]).toHaveTextContent("Alpha • release");
+    expect(switchButtons[0]).toHaveAttribute(
+      "data-value",
+      "Switch to .git/local Alpha release",
+    );
+    expect(switchButtons[1]).toHaveTextContent("Beta • develop");
+    expect(switchButtons[1]).toHaveAttribute(
+      "data-value",
+      "Switch to .git/local Beta develop",
+    );
   });
 
   it("reuses a dialog to gather missing args before completing a command", async () => {
