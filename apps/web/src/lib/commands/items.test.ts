@@ -134,7 +134,9 @@ describe("command palette items", () => {
 
     expect(items.some((item) => item.key === "worktree.create")).toBe(false);
     expect(
-      items.filter((item) => item.id === "worktree.create").map((item) => item.key),
+      items
+        .filter((item) => item.id === "worktree.create")
+        .map((item) => item.key),
     ).toEqual([
       `worktree.create:${firstProject.id}`,
       `worktree.create:${secondProject.id}`,

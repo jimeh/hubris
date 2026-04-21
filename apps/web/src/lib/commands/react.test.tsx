@@ -43,10 +43,7 @@ describe("useCommandAction", () => {
     vi.restoreAllMocks();
 
     useProjectStore.setState({
-      projects: [
-        makeProject("p1", "Alpha"),
-        makeProject("p2", "Beta"),
-      ],
+      projects: [makeProject("p1", "Alpha"), makeProject("p2", "Beta")],
     });
     useWorktreeStore.setState({
       selectedWorktreeId: null,

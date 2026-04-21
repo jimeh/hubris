@@ -230,8 +230,8 @@ export default function CommandDialogs() {
         <ProjectRemoveDialog
           forceManagedDelete={dialog.forceManagedDelete}
           onClose={closeDialog}
-          onRemoveAndDeleteManaged={() => {
-            void executeCommand({
+          onRemoveAndDeleteManaged={async () => {
+            const result = await executeCommand({
               args: {
                 deleteManagedWorktrees: true,
                 force: dialog.forceManagedDelete,
@@ -239,25 +239,23 @@ export default function CommandDialogs() {
               },
               id: "project.remove",
               source: "dialog",
-            }).then((result) => {
-              if (result.status === "success") {
-                closeDialog();
-              }
             });
+            if (result.status === "success") {
+              closeDialog();
+            }
           }}
-          onRemoveOnly={() => {
-            void executeCommand({
+          onRemoveOnly={async () => {
+            const result = await executeCommand({
               args: {
                 deleteManagedWorktrees: false,
                 projectId: activeProject.id,
               },
               id: "project.remove",
               source: "dialog",
-            }).then((result) => {
-              if (result.status === "success") {
-                closeDialog();
-              }
             });
+            if (result.status === "success") {
+              closeDialog();
+            }
           }}
           projectName={activeProject.name}
         />

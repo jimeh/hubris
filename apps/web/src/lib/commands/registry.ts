@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ApiStatusError } from "@/lib/api";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
 import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useProjectStore } from "@/lib/stores/projects";
@@ -77,6 +78,14 @@ function isDirtyTab(tabId: string): boolean {
   );
 }
 
+function projectIdForWorktreeId(worktreeId: string): string | null {
+  const worktree = Object.values(useWorktreeStore.getState().worktreesByProject)
+    .flat()
+    .find((candidate) => candidate.id === worktreeId);
+
+  return worktree?.project_id ?? null;
+}
+
 async function saveDirtyTab(tabId: string): Promise<boolean> {
   const tab = useTabStore
     .getState()
@@ -85,32 +94,19 @@ async function saveDirtyTab(tabId: string): Promise<boolean> {
     return false;
   }
 
-  if (tab.type === "file") {
-    const worktree = Object.values(
-      useWorktreeStore.getState().worktreesByProject,
-    )
-      .flat()
-      .find((candidate) => candidate.id === tab.worktree_id);
-    const projectId = worktree?.project_id ?? null;
+  if (tab.type === "file" || tab.type === "git_diff") {
+    const projectId = projectIdForWorktreeId(tab.worktree_id);
     if (!projectId) {
       return false;
     }
 
-    await useFileEditorStore
-      .getState()
-      .save(projectId, tab.worktree_id, tab.id);
-  } else if (tab.type === "git_diff") {
-    const worktree = Object.values(
-      useWorktreeStore.getState().worktreesByProject,
-    )
-      .flat()
-      .find((candidate) => candidate.id === tab.worktree_id);
-    const projectId = worktree?.project_id ?? null;
-    if (!projectId) {
-      return false;
+    if (tab.type === "file") {
+      await useFileEditorStore
+        .getState()
+        .save(projectId, tab.worktree_id, tab.id);
+    } else {
+      await useGitDiffStore.getState().save(projectId, tab.worktree_id, tab.id);
     }
-
-    await useGitDiffStore.getState().save(projectId, tab.worktree_id, tab.id);
   }
 
   return !isDirtyTab(tabId);
@@ -246,7 +242,8 @@ export const commandRegistry = {
         if (
           args.deleteManagedWorktrees &&
           !args.force &&
-          (error as Error).message === "409"
+          error instanceof ApiStatusError &&
+          error.status === 409
         ) {
           useCommandUiStore.getState().openDialog({
             forceManagedDelete: true,
@@ -628,7 +625,8 @@ export const commandRegistry = {
         if (
           !args?.force &&
           !args?.untrackOnly &&
-          (error as Error).message === "409"
+          error instanceof ApiStatusError &&
+          error.status === 409
         ) {
           useCommandUiStore.getState().openDialog({
             forceDelete: true,
