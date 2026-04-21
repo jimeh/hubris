@@ -28,7 +28,20 @@ vi.mock("@/components/ConfirmDialog", () => ({ default: () => null }));
 vi.mock("@/components/ProjectRemoveDialog", () => ({ default: () => null }));
 vi.mock("@/components/RenameProjectDialog", () => ({ default: () => null }));
 vi.mock("@/components/SettingsDialog", () => ({ default: () => null }));
-vi.mock("@/components/WorktreeRemoveDialog", () => ({ default: () => null }));
+vi.mock("@/components/WorktreeRemoveDialog", () => ({
+  default: ({
+    onDeleteFromDisk,
+    onUntrackOnly,
+  }: {
+    onDeleteFromDisk: () => void;
+    onUntrackOnly: () => void;
+  }) => (
+    <div>
+      <button onClick={onDeleteFromDisk}>Delete from disk</button>
+      <button onClick={onUntrackOnly}>Untrack only</button>
+    </div>
+  ),
+}));
 
 vi.mock("@/components/ui/alert-dialog", () => ({
   AlertDialog: ({
@@ -49,7 +62,11 @@ vi.mock("@/components/ui/alert-dialog", () => ({
   }) => (
     <button
       disabled={disabled}
-      onClick={() => onClick?.({ preventDefault: () => {} })}
+      onClick={() => {
+        if (!disabled) {
+          onClick?.({ preventDefault: () => {} });
+        }
+      }}
     >
       {children}
     </button>
@@ -376,6 +393,99 @@ describe("CommandDialogs", () => {
     await waitFor(() => {
       expect(closeSpy).toHaveBeenCalledTimes(1);
       expect(closeSpy).toHaveBeenCalledWith(tab.id);
+    });
+  });
+
+  it("does not allow duplicate discard actions while a dirty close is pending", async () => {
+    const tab = makeFileTab("file-discard");
+    const closeAttempt = deferred<void>();
+    const closeSpy = vi
+      .spyOn(useTabStore.getState(), "close")
+      .mockImplementation(async () => {
+        await closeAttempt.promise;
+      });
+
+    useTabStore.setState({
+      activeTabId: tab.id,
+      tabs: [tab],
+    });
+    useFileEditorStore.setState({
+      sessions: {
+        [tab.id]: {
+          dirty: true,
+          draft: "draft",
+          error: null,
+          externalChange: false,
+          language: "typescript",
+          loadStatus: "loaded",
+          path: tab.path,
+          readOnly: false,
+          reloadGeneration: 0,
+          saveStatus: "idle",
+          savedContent: "saved",
+          tabId: tab.id,
+          unsupportedReason: null,
+          versionToken: "v1",
+        },
+      },
+    });
+    useCommandUiStore.setState({
+      dialog: { tabId: tab.id, type: "close-dirty-tab" },
+    });
+
+    render(<CommandDialogs />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Don't Save" }));
+
+    await waitFor(() => {
+      expect(closeSpy).toHaveBeenCalled();
+      expect(closeSpy).toHaveBeenCalledWith(tab.id);
+    });
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    const discardButton = screen.getByRole("button", { name: "Don't Save" });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    const pendingCallCount = closeSpy.mock.calls.length;
+
+    expect(cancelButton).toBeDisabled();
+    expect(discardButton).toBeDisabled();
+    expect(saveButton).toBeDisabled();
+
+    fireEvent.click(discardButton);
+    expect(closeSpy).toHaveBeenCalledTimes(pendingCallCount);
+
+    await act(async () => {
+      closeAttempt.resolve();
+      await Promise.resolve();
+    });
+  });
+
+  it("passes explicit delete args when removing a worktree from disk", async () => {
+    const project = makeProject();
+    const worktree = makeWorktree();
+    const removeSpy = vi
+      .spyOn(useWorktreeStore.getState(), "remove")
+      .mockResolvedValue(undefined);
+
+    useCommandUiStore.setState({
+      dialog: {
+        projectId: project.id,
+        type: "remove-worktree",
+        worktreeId: worktree.id,
+      },
+    });
+
+    render(<CommandDialogs />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete from disk" }));
+
+    await waitFor(() => {
+      expect(removeSpy).toHaveBeenCalledWith(
+        project.id,
+        worktree.id,
+        false,
+        undefined,
+      );
     });
   });
 });

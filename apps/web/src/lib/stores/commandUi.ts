@@ -48,13 +48,8 @@ export const useCommandUiStore = create<CommandUiState>((set) => ({
     set({ paletteOpen: false, paletteQuery: "" });
   },
   setPaletteOpen(open) {
-    set((state) =>
-      open
-        ? { paletteOpen: true }
-        : {
-            paletteOpen: false,
-            paletteQuery: state.paletteQuery ? "" : state.paletteQuery,
-          },
+    set(
+      open ? { paletteOpen: true } : { paletteOpen: false, paletteQuery: "" },
     );
   },
   setPaletteQuery(paletteQuery) {

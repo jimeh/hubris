@@ -55,9 +55,10 @@
 
 - **Frontend actions now route through a shared command layer**: define app-wide
   actions under `apps/web/src/lib/commands/` with a stable dot-named ID
-  (`project.add`, `worktree.create`, `tab.close`, `settings.openSection`, etc.)
-  and reuse that command from palettes, buttons, menus, and dialogs instead of
-  duplicating leaf-component orchestration.
+  (`project.add`, `worktree.create`, `tab.close`, `app.openSettings`, etc.) and
+  reuse that command from palettes, buttons, menus, and dialogs instead of
+  duplicating leaf-component orchestration. `app.openSettings` accepts an
+  optional `section` arg when callers need to open a specific settings pane.
 - **Command args override derived context**: commands resolve missing
   `projectId`, `worktreeId`, `tabId`, `paneId`, and settings section data from
   the current Zustand-backed frontend snapshot, but explicit args always win.

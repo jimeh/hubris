@@ -60,12 +60,22 @@ describe("SettingsDialogRoot", () => {
     expect(screen.getByRole("combobox")).toHaveTextContent("VS Code");
   });
 
-  it("honors the initial section when opened from a command", () => {
-    render(
+  it("resets to the requested section when reopened from a command", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <SettingsDialogRoot open onOpenChange={onOpenChange} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Terminal" }));
+    expect(screen.getByText("Terminal section")).toBeInTheDocument();
+
+    rerender(<SettingsDialogRoot open={false} onOpenChange={onOpenChange} />);
+    rerender(
       <SettingsDialogRoot
         initialSection="VS Code"
         open
-        onOpenChange={vi.fn()}
+        onOpenChange={onOpenChange}
       />,
     );
 

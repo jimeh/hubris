@@ -31,9 +31,11 @@ function CloseDirtyTabDialog({
   onClose: () => void;
   tabId: string;
 }) {
-  const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   async function handleDiscard(): Promise<void> {
+    setSubmitting(true);
+
     const result = await executeCommand({
       args: { saveBehavior: "discard", tabId },
       id: "tab.close",
@@ -42,11 +44,14 @@ function CloseDirtyTabDialog({
 
     if (result.status === "success") {
       onClose();
+      return;
     }
+
+    setSubmitting(false);
   }
 
   async function handleSave(): Promise<void> {
-    setSaving(true);
+    setSubmitting(true);
 
     const result = await executeCommand({
       args: { saveBehavior: "save", tabId },
@@ -59,14 +64,14 @@ function CloseDirtyTabDialog({
       return;
     }
 
-    setSaving(false);
+    setSubmitting(false);
   }
 
   return (
     <AlertDialog
       open
       onOpenChange={(open) => {
-        if (!open && !saving) {
+        if (!open && !submitting) {
           onClose();
         }
       }}
@@ -79,10 +84,10 @@ function CloseDirtyTabDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             className="bg-muted text-foreground hover:bg-muted/80"
-            disabled={saving}
+            disabled={submitting}
             onClick={(event) => {
               event.preventDefault();
               void handleDiscard();
@@ -91,7 +96,7 @@ function CloseDirtyTabDialog({
             Don&apos;t Save
           </AlertDialogAction>
           <AlertDialogAction
-            disabled={saving}
+            disabled={submitting}
             onClick={(event) => {
               event.preventDefault();
               void handleSave();
@@ -285,6 +290,7 @@ export default function CommandDialogs() {
               onDeleteFromDisk={() => {
                 void executeCommand({
                   args: {
+                    force: false,
                     projectId: activeProject.id,
                     worktreeId: activeWorktree.id,
                   },

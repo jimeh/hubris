@@ -255,8 +255,7 @@ describe("command palette items", () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: "worktree.setUiMode",
-          searchText:
-            "Switch Current Worktree to VS Code Devbox .git/local",
+          searchText: "Switch Current Worktree to VS Code Devbox .git/local",
           subtitle: "Devbox • .git/local",
           title: "Switch Current Worktree to VS Code",
         }),

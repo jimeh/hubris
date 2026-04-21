@@ -7,8 +7,11 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { getCommandPaletteItems } from "@/lib/commands";
-import { executeCommand, useCommandContext } from "@/lib/commands";
+import {
+  executeCommand,
+  getCommandPaletteItems,
+  useCommandContext,
+} from "@/lib/commands";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 
 export default function CommandPalette() {
@@ -55,7 +58,9 @@ export default function CommandPalette() {
                       source: "command-palette",
                     });
                   }}
-                  value={item.searchText ?? `${item.title} ${item.subtitle ?? ""}`}
+                  value={
+                    item.searchText ?? `${item.title} ${item.subtitle ?? ""}`
+                  }
                 >
                   {Icon ? <Icon className="h-4 w-4" /> : null}
                   <div className="flex min-w-0 flex-1 flex-col">
