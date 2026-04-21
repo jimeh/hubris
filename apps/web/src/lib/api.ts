@@ -155,7 +155,7 @@ export async function deleteProject(
     method: "DELETE",
   });
   if (!res.ok && res.status !== 404) {
-    throw new Error(`${res.status}`);
+    throwStatusError(res.status);
   }
 }
 
@@ -530,7 +530,7 @@ export async function deleteProjectWorktree(
       method: "DELETE",
     },
   );
-  if (!res.ok && res.status !== 404) throw new Error(`${res.status}`);
+  if (!res.ok && res.status !== 404) throwStatusError(res.status);
 }
 
 export async function listFiles(

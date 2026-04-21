@@ -51,6 +51,29 @@
   against that slice, or React will hit `getSnapshot` and maximum update depth
   errors.
 
+## Frontend Commands
+
+- **Frontend actions now route through a shared command layer**: define app-wide
+  actions under `apps/web/src/lib/commands/` with a stable dot-named ID
+  (`project.add`, `worktree.create`, `tab.close`, `app.openSettings`, etc.) and
+  reuse that command from palettes, buttons, menus, and dialogs instead of
+  duplicating leaf-component orchestration. `app.openSettings` accepts an
+  optional `section` arg when callers need to open a specific settings pane.
+- **Command args override derived context**: commands resolve missing
+  `projectId`, `worktreeId`, `tabId`, `paneId`, and settings section data from
+  the current Zustand-backed frontend snapshot, but explicit args always win.
+  Keep commands reusable by passing concrete args from context menus or row
+  actions when the caller already knows the target.
+- **Palette items may be dynamic, commands stay stable**: the command palette
+  can synthesize state-backed entries like "Switch to worktree X" or "Focus tab
+  Y", but those items should still point at the same stable command IDs plus
+  serializable args.
+- **Missing args should open command-owned prompts, not ad hoc local state**: if
+  a command needs more input, open the shared `commandUi` dialog intent and
+  reuse existing dialogs from
+  `apps/web/src/components/commands/CommandDialogs.tsx` instead of rebuilding
+  modal state in the triggering component.
+
 ## Explorer
 
 - **Explorer refresh UI should be stale-while-revalidate**: watcher-driven

@@ -59,4 +59,29 @@ describe("SettingsDialogRoot", () => {
     expect(screen.getByText("VS Code section")).toBeInTheDocument();
     expect(screen.getByRole("combobox")).toHaveTextContent("VS Code");
   });
+
+  it("resets to the requested section when reopened from a command", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <SettingsDialogRoot open onOpenChange={onOpenChange} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Terminal" }));
+    expect(screen.getByText("Terminal section")).toBeInTheDocument();
+
+    rerender(<SettingsDialogRoot open={false} onOpenChange={onOpenChange} />);
+    rerender(
+      <SettingsDialogRoot
+        initialSection="VS Code"
+        open
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    expect(screen.getByText("VS Code section")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { current: "page", name: "VS Code" }),
+    ).toBeInTheDocument();
+  });
 });

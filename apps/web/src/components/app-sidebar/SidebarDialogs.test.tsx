@@ -1,47 +1,17 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import type { Project } from "@/lib/types";
-import type { DialogState } from "./types";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import SidebarDialogs from "./SidebarDialogs";
+import { resetBootstrapForTests } from "@/lib/bootstrap";
+import { executeCommand } from "@/lib/commands";
+import { useCommandUiStore } from "@/lib/stores/commandUi";
+import { useProjectStore } from "@/lib/stores/projects";
 
-vi.mock("@/components/AddProjectDialog", () => ({
-  default: () => null,
+vi.mock("@/lib/commands", () => ({
+  executeCommand: vi.fn(),
 }));
 
-vi.mock("@/components/AddWorktreeDialog", () => ({
-  default: () => null,
-}));
-
-vi.mock("@/components/WorktreeRemoveDialog", () => ({
-  default: () => null,
-}));
-
-vi.mock("@/components/RenameProjectDialog", () => ({
-  default: () => null,
-}));
-
-vi.mock("@/components/SettingsDialog", () => ({
-  default: () => null,
-}));
-
-function makeDialogState(overrides: Partial<DialogState> = {}): DialogState {
-  return {
-    addProject: false,
-    showSettings: false,
-    addWorktree: null,
-    renameProject: null,
-    confirmRemoveProject: null,
-    confirmForceRemoveProject: null,
-    confirmRemoveWorktree: null,
-    renameWorktree: null,
-    confirmForceRemoveWorktree: null,
-    actionError: null,
-    ...overrides,
-  };
-}
-
-function makeProject(id: string, name: string): Project {
+function makeProject(id: string, name: string) {
   return {
     id,
     name,
@@ -50,51 +20,49 @@ function makeProject(id: string, name: string): Project {
   };
 }
 
-function renderSidebarDialogs(dialogState: DialogState) {
-  const onRemoveProject = vi.fn().mockResolvedValue(undefined);
-
-  render(
-    <SidebarDialogs
-      dialogState={dialogState}
-      projects={[makeProject("p1", "Devbox")]}
-      setDialogState={vi.fn()}
-      onAddProject={vi.fn()}
-      onAddWorktree={vi.fn()}
-      onImportWorktree={vi.fn()}
-      onRenameProject={vi.fn()}
-      onRenameWorktree={vi.fn()}
-      onRemoveProject={onRemoveProject}
-      onRemoveWorktree={vi.fn()}
-    />,
-  );
-
-  return { onRemoveProject };
-}
-
 describe("SidebarDialogs", () => {
-  it("offers remove-only and delete-managed actions for project removal", () => {
-    const { onRemoveProject } = renderSidebarDialogs(
-      makeDialogState({ confirmRemoveProject: "p1" }),
-    );
-
-    expect(
-      screen.getByText(/leave all worktrees and directories on disk/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/git-linked worktrees outside hubris are left alone/i),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Remove only" }));
-
-    expect(onRemoveProject).toHaveBeenCalledWith("p1", {
-      deleteManagedWorktrees: false,
+  beforeEach(() => {
+    resetBootstrapForTests();
+    vi.mocked(executeCommand).mockReset();
+    vi.mocked(executeCommand).mockResolvedValue({ status: "success" });
+    useProjectStore.setState({
+      projects: [makeProject("p1", "Devbox")],
     });
   });
 
-  it("calls delete-managed removal when the destructive action is chosen", () => {
-    const { onRemoveProject } = renderSidebarDialogs(
-      makeDialogState({ confirmRemoveProject: "p1" }),
-    );
+  it("routes remove-only project removal through the command system", async () => {
+    useCommandUiStore.setState({
+      dialog: {
+        projectId: "p1",
+        type: "remove-project",
+      },
+    });
+
+    render(<SidebarDialogs />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove only" }));
+
+    await waitFor(() => {
+      expect(executeCommand).toHaveBeenCalledWith({
+        args: {
+          deleteManagedWorktrees: false,
+          projectId: "p1",
+        },
+        id: "project.remove",
+        source: "dialog",
+      });
+    });
+  });
+
+  it("routes delete-managed project removal through the command system", async () => {
+    useCommandUiStore.setState({
+      dialog: {
+        projectId: "p1",
+        type: "remove-project",
+      },
+    });
+
+    render(<SidebarDialogs />);
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -102,27 +70,54 @@ describe("SidebarDialogs", () => {
       }),
     );
 
-    expect(onRemoveProject).toHaveBeenCalledWith("p1", {
-      deleteManagedWorktrees: true,
+    await waitFor(() => {
+      expect(executeCommand).toHaveBeenCalledWith({
+        args: {
+          deleteManagedWorktrees: true,
+          force: undefined,
+          projectId: "p1",
+        },
+        id: "project.remove",
+        source: "dialog",
+      });
     });
   });
 
-  it("offers remove-only fallback and force-delete action for conflict follow-up", () => {
-    const { onRemoveProject } = renderSidebarDialogs(
-      makeDialogState({ confirmForceRemoveProject: "p1" }),
-    );
+  it("routes force-dialog remove-only through the command system", async () => {
+    useCommandUiStore.setState({
+      dialog: {
+        forceManagedDelete: true,
+        projectId: "p1",
+        type: "remove-project",
+      },
+    });
+
+    render(<SidebarDialogs />);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove only" }));
 
-    expect(onRemoveProject).toHaveBeenCalledWith("p1", {
-      deleteManagedWorktrees: false,
+    await waitFor(() => {
+      expect(executeCommand).toHaveBeenCalledWith({
+        args: {
+          deleteManagedWorktrees: false,
+          projectId: "p1",
+        },
+        id: "project.remove",
+        source: "dialog",
+      });
     });
   });
 
-  it("force-conflict dialog can force managed deletion", () => {
-    const { onRemoveProject } = renderSidebarDialogs(
-      makeDialogState({ confirmForceRemoveProject: "p1" }),
-    );
+  it("routes force-delete project removal through the command system", async () => {
+    useCommandUiStore.setState({
+      dialog: {
+        forceManagedDelete: true,
+        projectId: "p1",
+        type: "remove-project",
+      },
+    });
+
+    render(<SidebarDialogs />);
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -130,9 +125,16 @@ describe("SidebarDialogs", () => {
       }),
     );
 
-    expect(onRemoveProject).toHaveBeenCalledWith("p1", {
-      deleteManagedWorktrees: true,
-      force: true,
+    await waitFor(() => {
+      expect(executeCommand).toHaveBeenCalledWith({
+        args: {
+          deleteManagedWorktrees: true,
+          force: true,
+          projectId: "p1",
+        },
+        id: "project.remove",
+        source: "dialog",
+      });
     });
   });
 });

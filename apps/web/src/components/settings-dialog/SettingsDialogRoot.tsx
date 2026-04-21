@@ -43,11 +43,13 @@ import {
 import SettingsStatusNotice from "@/components/SettingsStatusNotice";
 import { useSettingsStore } from "@/lib/stores/settings";
 
-export default function SettingsDialogRoot({
+function SettingsDialogBody({
+  initialSection = "Appearance",
   open,
   onOpenChange,
 }: SettingsDialogProps) {
-  const [activeSection, setActiveSection] = useState<SectionName>("Appearance");
+  const [activeSection, setActiveSection] =
+    useState<SectionName>(initialSection);
   const settingsStatus = useSettingsStore((state) => state.status);
 
   return (
@@ -139,5 +141,17 @@ export default function SettingsDialogRoot({
         </SidebarProvider>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export default function SettingsDialogRoot(props: SettingsDialogProps) {
+  const { initialSection = "Appearance", open } = props;
+
+  return (
+    <SettingsDialogBody
+      key={open ? initialSection : "__closed__"}
+      {...props}
+      initialSection={initialSection}
+    />
   );
 }
