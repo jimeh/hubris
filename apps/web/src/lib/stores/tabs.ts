@@ -77,6 +77,12 @@ type OpenBrowserOptions = {
   paneId?: string;
 };
 
+type OpenAgentChatOptions = {
+  worktreeId: string;
+  conversationId?: string;
+  paneId?: string;
+};
+
 type BrowserTabUpdate = {
   label?: string;
   url?: string;
@@ -109,6 +115,7 @@ type TabsState = {
   openFile: (options: OpenFileOptions) => Promise<Tab>;
   openGitDiff: (options: OpenGitDiffOptions) => Promise<Tab>;
   openBrowser: (options: OpenBrowserOptions) => Promise<Tab>;
+  openAgentChat: (options: OpenAgentChatOptions) => Promise<Tab>;
   setBrowserState: (
     id: string,
     updates: BrowserTabUpdate,
@@ -518,6 +525,17 @@ function tabKey(tab: Tab): string {
         tab.url,
         tab.history.join("||"),
         tab.history_index,
+      ].join("|");
+    case "agent_chat":
+      return [
+        tab.id,
+        tab.label,
+        tab.position,
+        tab.worktree_id,
+        tab.pane_id,
+        tab.preview,
+        tab.type,
+        tab.conversation_id,
       ].join("|");
   }
 }
@@ -1379,6 +1397,53 @@ export const useTabStore = create<TabsState>((set, get) => {
         worktree_id: options.worktreeId,
         pane_id: paneId,
         url,
+      });
+      set((state) => {
+        const nextTabs = addTabIfMissing(state.tabs, tab);
+        const nextLayoutsByWorktree = ensureLayoutsForTabs(
+          nextTabs,
+          state.layoutsByWorktree,
+        );
+        return {
+          tabs: nextTabs,
+          layoutsByWorktree: nextLayoutsByWorktree,
+          ...activateLocal(
+            {
+              ...state,
+              tabs: nextTabs,
+              layoutsByWorktree: nextLayoutsByWorktree,
+            } as TabsState,
+            tab.id,
+          ),
+        };
+      });
+      return tab;
+    },
+    async openAgentChat(options) {
+      const existing =
+        options.conversationId == null
+          ? null
+          : (get().tabs.find(
+              (tab) =>
+                tab.type === "agent_chat" &&
+                tab.worktree_id === options.worktreeId &&
+                tab.conversation_id === options.conversationId,
+            ) ?? null);
+      if (existing) {
+        set((state) => activateLocal(state, existing.id));
+        return existing;
+      }
+
+      const paneId = resolvedPaneIdOrNew(
+        get(),
+        options.worktreeId,
+        options.paneId,
+      );
+      const tab = await createTab({
+        type: "agent_chat",
+        worktree_id: options.worktreeId,
+        pane_id: paneId,
+        conversation_id: options.conversationId,
       });
       set((state) => {
         const nextTabs = addTabIfMissing(state.tabs, tab);

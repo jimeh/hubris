@@ -181,7 +181,11 @@ function disposeModel(modelPath: string): void {
 }
 
 export function scheduleDisposeTabModels(tab: Tab): void {
-  if (tab.type === "terminal" || tab.type === "browser") {
+  if (
+    tab.type === "terminal" ||
+    tab.type === "browser" ||
+    tab.type === "agent_chat"
+  ) {
     return;
   }
 

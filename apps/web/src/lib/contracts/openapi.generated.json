@@ -9,6 +9,139 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/chats/{conversation_id}": {
+      "get": {
+        "tags": ["crate::api::chats"],
+        "operationId": "get_chat",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatConversationDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}/interrupt": {
+      "post": {
+        "tags": ["crate::api::chats"],
+        "operationId": "interrupt_chat",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Interrupt requested"
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conversation not running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}/messages": {
+      "post": {
+        "tags": ["crate::api::chats"],
+        "operationId": "send_chat_message",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendChatMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Message accepted"
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to start Codex runtime",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/editor-themes": {
       "get": {
         "tags": ["crate::api::editor_themes"],
@@ -1898,6 +2031,55 @@
         }
       }
     },
+    "/api/projects/{project_id}/worktrees/{worktree_id}/chats": {
+      "get": {
+        "tags": ["crate::api::chats"],
+        "operationId": "list_project_worktree_chats",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatConversationSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings": {
       "get": {
         "tags": ["crate::api::settings"],
@@ -2637,6 +2819,287 @@
           }
         }
       },
+      "ChatConversationDetail": {
+        "type": "object",
+        "description": "Full chat detail payload used to hydrate an open chat tab.",
+        "required": ["conversation", "messages"],
+        "properties": {
+          "conversation": {
+            "$ref": "#/components/schemas/ChatConversationSummary"
+          },
+          "latestRun": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatRun"
+              }
+            ]
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            }
+          }
+        }
+      },
+      "ChatConversationSummary": {
+        "type": "object",
+        "description": "Persisted summary for a conversation list row.",
+        "required": [
+          "id",
+          "sessionId",
+          "projectId",
+          "worktreeId",
+          "provider",
+          "title",
+          "createdAt",
+          "updatedAt",
+          "lastActivityAt",
+          "lastRunState",
+          "revision"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastActivityAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "lastError": {
+            "type": ["string", "null"]
+          },
+          "lastMessageAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "lastRunState": {
+            "$ref": "#/components/schemas/ChatRunStatus"
+          },
+          "openTabId": {
+            "type": ["string", "null"]
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ChatProvider"
+          },
+          "providerThreadId": {
+            "type": ["string", "null"]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "worktreeId": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatMessage": {
+        "type": "object",
+        "description": "Persisted transcript message.",
+        "required": [
+          "id",
+          "conversationId",
+          "role",
+          "status",
+          "contentText",
+          "sequence",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "contentText": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "role": {
+            "$ref": "#/components/schemas/ChatMessageRole"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatMessageStatus"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatMessageRole": {
+        "type": "string",
+        "description": "Persisted message role for a conversation transcript item.",
+        "enum": ["user", "assistant"]
+      },
+      "ChatMessageStatus": {
+        "type": "string",
+        "description": "Persisted message lifecycle state.",
+        "enum": ["pending", "streaming", "completed", "interrupted", "failed"]
+      },
+      "ChatProvider": {
+        "type": "string",
+        "description": "Supported chat providers.",
+        "enum": ["codex"]
+      },
+      "ChatRun": {
+        "type": "object",
+        "description": "Persisted run summary.",
+        "required": ["id", "conversationId", "status", "startedAt"],
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "errorMessage": {
+            "type": ["string", "null"]
+          },
+          "finishedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "startedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatRunStatus"
+          }
+        }
+      },
+      "ChatRunStatus": {
+        "type": "string",
+        "description": "Persisted run lifecycle state.",
+        "enum": ["starting", "running", "completed", "interrupted", "failed"]
+      },
+      "ChatRuntimeLifecycle": {
+        "type": "string",
+        "description": "In-memory runtime lifecycle state for a live Codex app-server process.",
+        "enum": [
+          "stopped",
+          "starting",
+          "ready",
+          "running",
+          "stopping",
+          "failed"
+        ]
+      },
+      "ChatRuntimeStatus": {
+        "type": "object",
+        "description": "Shared runtime summary pushed over SSE.",
+        "required": [
+          "conversationId",
+          "sessionId",
+          "projectId",
+          "worktreeId",
+          "lifecycle",
+          "updatedAt"
+        ],
+        "properties": {
+          "activeMessageId": {
+            "type": ["string", "null"]
+          },
+          "activeRunId": {
+            "type": ["string", "null"]
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": ["string", "null"]
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/ChatRuntimeLifecycle"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "providerThreadId": {
+            "type": ["string", "null"]
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "worktreeId": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatSettings": {
+        "type": "object",
+        "description": "Chat settings owned by the backend.",
+        "required": ["idleTimeoutMinutes"],
+        "properties": {
+          "idleTimeoutMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "idleTimeoutMinutes": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "ClientControlMessage": {
         "oneOf": [
           {
@@ -2752,6 +3215,25 @@
               },
               "url": {
                 "type": "string"
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["worktree_id", "type"],
+            "properties": {
+              "conversation_id": {
+                "type": ["string", "null"]
+              },
+              "pane_id": {
+                "type": ["string", "null"]
+              },
+              "type": {
+                "type": "string",
+                "enum": ["agent_chat"]
               },
               "worktree_id": {
                 "type": "string"
@@ -3353,6 +3835,15 @@
           }
         }
       },
+      "SendChatMessageRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
       "ServerControlMessage": {
         "oneOf": [
           {
@@ -3431,6 +3922,9 @@
           "appearance": {
             "$ref": "#/components/schemas/AppearanceSettings"
           },
+          "chat": {
+            "$ref": "#/components/schemas/ChatSettings"
+          },
           "editor": {
             "$ref": "#/components/schemas/EditorSettings"
           },
@@ -3455,6 +3949,16 @@
               },
               {
                 "$ref": "#/components/schemas/AppearanceSettingsPatch"
+              }
+            ]
+          },
+          "chat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatSettingsPatch"
               }
             ]
           },
@@ -3817,6 +4321,57 @@
               },
               "url": {
                 "type": "string"
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "session_id",
+              "worktree_id",
+              "pane_id",
+              "label",
+              "position",
+              "created_at",
+              "preview",
+              "conversation_id",
+              "type"
+            ],
+            "properties": {
+              "conversation_id": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "pane_id": {
+                "type": "string"
+              },
+              "position": {
+                "type": "number",
+                "format": "double"
+              },
+              "preview": {
+                "type": "boolean"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["agent_chat"]
               },
               "worktree_id": {
                 "type": "string"

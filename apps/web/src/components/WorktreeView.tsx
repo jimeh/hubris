@@ -26,6 +26,7 @@ import { useShallow } from "zustand/react/shallow";
 import BrowserTab from "@/components/BrowserTab";
 import FileEditorTab from "@/components/FileEditorTab";
 import GitDiffTab from "@/components/GitDiffTab";
+import AgentChatTabView from "@/components/AgentChatTab";
 import TabBar, { type TabBarAction } from "@/components/TabBar";
 import TerminalTab from "@/components/TerminalTab";
 import WorktreeRightSidebar from "@/components/WorktreeRightSidebar";
@@ -75,6 +76,7 @@ type PaneLeafProps = {
   onCloseTab: (tabId: string) => void;
   onAddTerminal: () => void;
   onAddBrowser: () => Promise<void>;
+  onAddChat: () => Promise<void>;
   onSplitRight: () => void;
   onSplitDown: () => void;
   onResetTerminalTabName: (tabId: string) => Promise<void>;
@@ -332,6 +334,7 @@ function PaneLeaf({
   onCloseTab,
   onAddTerminal,
   onAddBrowser,
+  onAddChat,
   onSplitRight,
   onSplitDown,
   onResetTerminalTabName,
@@ -360,6 +363,7 @@ function PaneLeaf({
         onClose={onCloseTab}
         onAddTerminal={onAddTerminal}
         onAddBrowser={onAddBrowser}
+        onAddChat={onAddChat}
         onSplitRight={onSplitRight}
         onSplitDown={onSplitDown}
         onResetTerminalTabName={onResetTerminalTabName}
@@ -490,6 +494,7 @@ export default function WorktreeView({ worktree, active }: Props) {
     focusPane,
     setSplitRatio,
     persistLayout,
+    openAgentChat,
     removeLocal,
   } = useTabStore(
     useShallow((state) => ({
@@ -503,6 +508,7 @@ export default function WorktreeView({ worktree, active }: Props) {
       focusPane: state.focusPane,
       setSplitRatio: state.setSplitRatio,
       persistLayout: state.persistLayout,
+      openAgentChat: state.openAgentChat,
       removeLocal: state.removeLocal,
     })),
   );
@@ -990,6 +996,9 @@ export default function WorktreeView({ worktree, active }: Props) {
               source: "button",
             });
           }}
+          onAddChat={async () => {
+            await openAgentChat({ worktreeId: worktree.id, paneId });
+          }}
           onSplitRight={() => {
             void executeCommand({
               args: {
@@ -1032,6 +1041,7 @@ export default function WorktreeView({ worktree, active }: Props) {
       handlePinTab,
       handleResetTerminalTabName,
       lockedTabIds,
+      openAgentChat,
       paneTabsById,
       registerViewport,
       tabBarActionsByTabId,
@@ -1153,6 +1163,8 @@ export default function WorktreeView({ worktree, active }: Props) {
                       />
                     ) : tab.type === "browser" ? (
                       <BrowserTab tab={tab} visible={visible} />
+                    ) : tab.type === "agent_chat" ? (
+                      <AgentChatTabView tab={tab} visible={visible} />
                     ) : null}
                   </div>
                 );

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use utoipa::ToSchema;
 
+use crate::chat::ChatSettings;
 use crate::events::EventKind;
 use crate::settings_manager::SettingsManagerError;
 use crate::state::AppState;
@@ -317,6 +318,8 @@ pub struct Settings {
     pub worktree: WorktreeSettings,
     #[serde(default)]
     pub vscode: VscodeSettings,
+    #[serde(default)]
+    pub chat: ChatSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
@@ -377,6 +380,13 @@ pub struct VscodeSettingsPatch {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_timeout_minutes: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 pub struct SettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub appearance: Option<AppearanceSettingsPatch>,
@@ -388,6 +398,8 @@ pub struct SettingsPatch {
     pub worktree: Option<WorktreeSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vscode: Option<VscodeSettingsPatch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<ChatSettingsPatch>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]

@@ -1,6 +1,7 @@
 use axum::Json;
 use utoipa::OpenApi;
 
+use crate::api::chats::SendChatMessageRequest;
 use crate::api::editor_themes::{
     DiscoveredExtension, DiscoveredTheme, EditorThemeEntry, ImportThemeRequest, VscodeThemeJson,
     VscodeTokenColor, VscodeTokenColorSettings, VscodeTokenScope,
@@ -21,10 +22,10 @@ use crate::api::projects::{
     AddProjectRequest, Project, ReorderProjectsRequest, UpdateProjectRequest,
 };
 use crate::api::settings::{
-    AppearanceSettings, AppearanceSettingsPatch, ColorScheme, EditorSettings, EditorSettingsPatch,
-    Settings, SettingsPatch, SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource,
-    TerminalSettings, TerminalSettingsPatch, WorktreeLocationMode, WorktreeSettings,
-    WorktreeSettingsPatch,
+    AppearanceSettings, AppearanceSettingsPatch, ChatSettingsPatch, ColorScheme, EditorSettings,
+    EditorSettingsPatch, Settings, SettingsPatch, SettingsState, SettingsStatus,
+    SettingsStatusKind, TerminalFontSource, TerminalSettings, TerminalSettingsPatch,
+    WorktreeLocationMode, WorktreeSettings, WorktreeSettingsPatch,
 };
 use crate::api::system::SystemInfo;
 use crate::api::tabs::{
@@ -45,6 +46,11 @@ use crate::api::worktrees::{
     ListImportableWorktreesResponse, ListWorktreeStartPointsResponse, ListWorktreesResponse,
     RenameWorktreeBranchRequest, ReorderWorktreesRequest, StartPoint, UpdateWorktreeRequest,
     Worktree, WorktreeGitPathActionRequest, WorktreeGitStatusResponse,
+};
+use crate::chat::{
+    ChatConversationDetail, ChatConversationSummary, ChatMessage, ChatMessageRole,
+    ChatMessageStatus, ChatProvider, ChatRun, ChatRunStatus, ChatRuntimeLifecycle,
+    ChatRuntimeStatus, ChatSettings,
 };
 use crate::tab::{
     GitDiffScope, TabInfo, TabPaneSplitAxis, WorktreePaneNode, WorktreePaneTabs, WorktreeTabLayout,
@@ -76,6 +82,10 @@ use crate::tab::{
         crate::api::files::put_project_worktree_file_content,
         crate::api::files::rename_project_worktree_file,
         crate::api::files::get_project_worktree_git_diff,
+        crate::api::chats::list_project_worktree_chats,
+        crate::api::chats::get_chat,
+        crate::api::chats::send_chat_message,
+        crate::api::chats::interrupt_chat,
         crate::api::projects::list_projects,
         crate::api::projects::add_project,
         crate::api::projects::update_project,
@@ -200,6 +210,19 @@ use crate::tab::{
             EditorSettingsPatch,
             WorktreeSettings,
             WorktreeSettingsPatch,
+            ChatProvider,
+            ChatMessageRole,
+            ChatMessageStatus,
+            ChatRunStatus,
+            ChatRuntimeLifecycle,
+            ChatConversationSummary,
+            ChatMessage,
+            ChatRun,
+            ChatConversationDetail,
+            ChatRuntimeStatus,
+            ChatSettings,
+            ChatSettingsPatch,
+            SendChatMessageRequest,
             Settings,
             SettingsPatch,
             SettingsStatusKind,

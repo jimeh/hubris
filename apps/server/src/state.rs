@@ -5,6 +5,7 @@ use dashmap::DashMap;
 use tokio::sync::Mutex;
 
 use crate::api::projects::Project;
+use crate::chat::ChatService;
 use crate::events::EventBus;
 use crate::keybindings_manager::KeybindingsManager;
 use crate::process_manager::ManagedProcessService;
@@ -43,6 +44,7 @@ pub struct AppState {
     pub settings: Arc<SettingsManager>,
     pub keybindings: Arc<KeybindingsManager>,
     pub worktree_files: Arc<WorktreeFilesService>,
+    pub chats: Arc<ChatService>,
 }
 
 impl AppState {
@@ -81,6 +83,14 @@ impl AppState {
             code_server.clone(),
             vscode_cli.clone(),
         ));
+        let chats = Arc::new(
+            ChatService::new(
+                &data_dir.join("state.sqlite3"),
+                events.clone(),
+                settings.clone(),
+            )
+            .await?,
+        );
         register_vscode_tasks(&tasks, code_server.clone(), vscode_cli.clone());
         processes.register_controller(code_server.clone());
         processes.register_controller(vscode_cli.clone());
@@ -106,6 +116,7 @@ impl AppState {
             settings,
             keybindings,
             worktree_files: Arc::new(WorktreeFilesService::new(events.clone())),
+            chats,
         })
     }
 

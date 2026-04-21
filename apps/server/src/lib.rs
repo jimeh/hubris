@@ -1,5 +1,6 @@
 mod access;
 pub mod api;
+pub mod chat;
 pub mod events;
 mod frontend;
 mod fs_sync;
@@ -35,6 +36,7 @@ pub use access::{
     DESKTOP_BOOTSTRAP_PATH, DESKTOP_SESSION_COOKIE_NAME, DesktopAccess, ServerAccess,
 };
 use access::{desktop_auth_middleware, desktop_bootstrap_handler};
+use api::chats::{get_chat, interrupt_chat, list_project_worktree_chats, send_chat_message};
 use api::editor_themes::{
     delete_editor_theme, discover_editor_themes, get_editor_theme, import_extension_theme,
     list_editor_themes, upload_editor_theme,
@@ -397,9 +399,16 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
             "/projects/{id}/worktrees/{worktree_id}/git/diff",
             get(get_project_worktree_git_diff),
         )
+        .route(
+            "/projects/{id}/worktrees/{worktree_id}/chats",
+            get(list_project_worktree_chats),
+        )
         .route("/tabs", get(list_tabs).post(create_tab))
         .route("/tabs/reorder", put(reorder_tabs))
         .route("/tabs/{id}", delete(delete_tab).patch(update_tab))
+        .route("/chats/{conversation_id}", get(get_chat))
+        .route("/chats/{conversation_id}/messages", post(send_chat_message))
+        .route("/chats/{conversation_id}/interrupt", post(interrupt_chat))
         .route("/events", get(event_stream))
         .route("/terminal/ws", get(ws_handler))
         .route("/system", get(get_system_info))

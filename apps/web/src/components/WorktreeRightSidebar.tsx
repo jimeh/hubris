@@ -10,11 +10,13 @@ import {
 import {
   Files,
   GitBranch,
+  MessagesSquare,
   PanelRightClose,
   RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 import WorktreeAllFilesPanel from "@/components/WorktreeAllFilesPanel";
+import WorktreeChatsPanel from "@/components/WorktreeChatsPanel";
 import WorktreeGitStatusViewToggle from "@/components/WorktreeGitStatusViewToggle";
 import WorktreeGitStatusPanel from "@/components/WorktreeGitStatusPanel";
 import WorktreeRightSidebarResizeHandle from "@/components/WorktreeRightSidebarResizeHandle";
@@ -30,6 +32,7 @@ import { useWorktreeGitStatusViewStore } from "@/lib/stores/worktreeGitStatusVie
 import {
   DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB,
   WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
+  WORKTREE_RIGHT_SIDEBAR_CHATS_TAB,
   WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
   type WorktreeRightSidebarTabId,
 } from "@/lib/worktreeRightSidebar";
@@ -67,6 +70,13 @@ const RIGHT_SIDEBAR_TABS: Record<
     description: "Review staged, unstaged, and ahead changes.",
     icon: GitBranch,
     Content: WorktreeGitStatusPanel,
+  },
+  [WORKTREE_RIGHT_SIDEBAR_CHATS_TAB]: {
+    id: WORKTREE_RIGHT_SIDEBAR_CHATS_TAB,
+    title: "Chats",
+    description: "Resume and manage Codex chats for this worktree.",
+    icon: MessagesSquare,
+    Content: WorktreeChatsPanel,
   },
 };
 
@@ -346,6 +356,10 @@ export default function WorktreeRightSidebar({ worktree, active }: Props) {
           />
         </Button>
       );
+    }
+
+    if (activeTab === WORKTREE_RIGHT_SIDEBAR_CHATS_TAB) {
+      return null;
     }
 
     return (

@@ -2352,6 +2352,7 @@ mod tests {
                 vscode: Some(VscodeSettingsPatch {
                     runtime: Some(VscodeRuntimeKind::CodeServer),
                 }),
+                chat: None,
             })
             .await
             .unwrap();
@@ -3565,6 +3566,7 @@ mod tests {
                 vscode: Some(VscodeSettingsPatch {
                     runtime: Some(VscodeRuntimeKind::CodeServer),
                 }),
+                chat: None,
             })
             .await
             .unwrap();

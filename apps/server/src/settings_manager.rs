@@ -13,10 +13,11 @@ use tokio::sync::RwLock;
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 use crate::api::settings::{
-    AppearanceSettingsPatch, EditorSettingsPatch, Settings, SettingsPatch, SettingsState,
-    SettingsStatus, TerminalSettingsPatch, VscodeSettingsPatch, WorktreeSettingsPatch,
-    clamp_client_scrollback_rows, clamp_server_scrollback_bytes,
+    AppearanceSettingsPatch, ChatSettingsPatch, EditorSettingsPatch, Settings, SettingsPatch,
+    SettingsState, SettingsStatus, TerminalSettingsPatch, VscodeSettingsPatch,
+    WorktreeSettingsPatch, clamp_client_scrollback_rows, clamp_server_scrollback_bytes,
 };
+use crate::chat::clamp_chat_idle_timeout_minutes;
 use crate::events::{EventBus, EventKind};
 use crate::fs_sync::sync_parent_directory;
 
@@ -384,6 +385,9 @@ fn apply_patch_to_settings(settings: &mut Settings, patch: &SettingsPatch) {
     if let Some(vscode) = &patch.vscode {
         apply_vscode_patch(&mut settings.vscode, vscode);
     }
+    if let Some(chat) = &patch.chat {
+        apply_chat_patch(&mut settings.chat, chat);
+    }
 }
 
 fn apply_appearance_patch(
@@ -461,6 +465,12 @@ fn apply_vscode_patch(
 ) {
     if let Some(runtime) = patch.runtime {
         settings.runtime = runtime;
+    }
+}
+
+fn apply_chat_patch(settings: &mut crate::chat::ChatSettings, patch: &ChatSettingsPatch) {
+    if let Some(idle_timeout_minutes) = patch.idle_timeout_minutes {
+        settings.idle_timeout_minutes = clamp_chat_idle_timeout_minutes(idle_timeout_minutes);
     }
 }
 
@@ -551,6 +561,18 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
             table.insert("runtime", value(runtime.as_str()));
         }
     }
+
+    if let Some(chat) = &patch.chat {
+        let table = ensure_table(document, "chat");
+        if let Some(idle_timeout_minutes) = chat.idle_timeout_minutes {
+            table.insert(
+                "idleTimeoutMinutes",
+                value(i64::from(clamp_chat_idle_timeout_minutes(
+                    idle_timeout_minutes,
+                ))),
+            );
+        }
+    }
 }
 
 fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
@@ -613,6 +635,14 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
 
     let vscode = ensure_table(document, "vscode");
     vscode.insert("runtime", value(settings.vscode.runtime.as_str()));
+
+    let chat = ensure_table(document, "chat");
+    chat.insert(
+        "idleTimeoutMinutes",
+        value(i64::from(clamp_chat_idle_timeout_minutes(
+            settings.chat.idle_timeout_minutes,
+        ))),
+    );
 }
 
 async fn persist_document(

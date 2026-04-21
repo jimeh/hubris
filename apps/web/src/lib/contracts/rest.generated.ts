@@ -4,6 +4,54 @@
  */
 
 export interface paths {
+  "/api/chats/{conversation_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_chat"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}/interrupt": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["interrupt_chat"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}/messages": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["send_chat_message"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/editor-themes": {
     parameters: {
       query?: never;
@@ -557,6 +605,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{project_id}/worktrees/{worktree_id}/chats": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_project_worktree_chats"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/settings": {
     parameters: {
       query?: never;
@@ -821,6 +885,126 @@ export interface components {
       darkTheme?: string | null;
       lightTheme?: string | null;
     };
+    /** @description Full chat detail payload used to hydrate an open chat tab. */
+    ChatConversationDetail: {
+      conversation: components["schemas"]["ChatConversationSummary"];
+      latestRun?: null | components["schemas"]["ChatRun"];
+      messages: components["schemas"]["ChatMessage"][];
+    };
+    /** @description Persisted summary for a conversation list row. */
+    ChatConversationSummary: {
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      /** Format: int64 */
+      lastActivityAt: number;
+      lastError?: string | null;
+      /** Format: int64 */
+      lastMessageAt?: number | null;
+      lastRunState: components["schemas"]["ChatRunStatus"];
+      openTabId?: string | null;
+      projectId: string;
+      provider: components["schemas"]["ChatProvider"];
+      providerThreadId?: string | null;
+      /** Format: int64 */
+      revision: number;
+      sessionId: string;
+      title: string;
+      /** Format: int64 */
+      updatedAt: number;
+      worktreeId: string;
+    };
+    /** @description Persisted transcript message. */
+    ChatMessage: {
+      contentText: string;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      providerTurnId?: string | null;
+      role: components["schemas"]["ChatMessageRole"];
+      /** Format: int32 */
+      sequence: number;
+      status: components["schemas"]["ChatMessageStatus"];
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description Persisted message role for a conversation transcript item.
+     * @enum {string}
+     */
+    ChatMessageRole: "user" | "assistant";
+    /**
+     * @description Persisted message lifecycle state.
+     * @enum {string}
+     */
+    ChatMessageStatus:
+      | "pending"
+      | "streaming"
+      | "completed"
+      | "interrupted"
+      | "failed";
+    /**
+     * @description Supported chat providers.
+     * @enum {string}
+     */
+    ChatProvider: "codex";
+    /** @description Persisted run summary. */
+    ChatRun: {
+      conversationId: string;
+      errorMessage?: string | null;
+      /** Format: int64 */
+      finishedAt?: number | null;
+      id: string;
+      providerTurnId?: string | null;
+      /** Format: int64 */
+      startedAt: number;
+      status: components["schemas"]["ChatRunStatus"];
+    };
+    /**
+     * @description Persisted run lifecycle state.
+     * @enum {string}
+     */
+    ChatRunStatus:
+      | "starting"
+      | "running"
+      | "completed"
+      | "interrupted"
+      | "failed";
+    /**
+     * @description In-memory runtime lifecycle state for a live Codex app-server process.
+     * @enum {string}
+     */
+    ChatRuntimeLifecycle:
+      | "stopped"
+      | "starting"
+      | "ready"
+      | "running"
+      | "stopping"
+      | "failed";
+    /** @description Shared runtime summary pushed over SSE. */
+    ChatRuntimeStatus: {
+      activeMessageId?: string | null;
+      activeRunId?: string | null;
+      conversationId: string;
+      lastError?: string | null;
+      lifecycle: components["schemas"]["ChatRuntimeLifecycle"];
+      projectId: string;
+      providerThreadId?: string | null;
+      sessionId: string;
+      /** Format: int64 */
+      updatedAt: number;
+      worktreeId: string;
+    };
+    /** @description Chat settings owned by the backend. */
+    ChatSettings: {
+      /** Format: int32 */
+      idleTimeoutMinutes: number;
+    };
+    ChatSettingsPatch: {
+      /** Format: int32 */
+      idleTimeoutMinutes?: number | null;
+    };
     ClientControlMessage: {
       /** Format: int32 */
       cols: number;
@@ -863,6 +1047,13 @@ export interface components {
           /** @enum {string} */
           type: "browser";
           url: string;
+          worktree_id: string;
+        }
+      | {
+          conversation_id?: string | null;
+          pane_id?: string | null;
+          /** @enum {string} */
+          type: "agent_chat";
           worktree_id: string;
         };
     CreateWorktreeRequest: {
@@ -1073,6 +1264,9 @@ export interface components {
     ReorderWorktreesRequest: {
       worktree_ids: string[];
     };
+    SendChatMessageRequest: {
+      text: string;
+    };
     ServerControlMessage:
       | {
           /** Format: int64 */
@@ -1100,6 +1294,7 @@ export interface components {
         };
     Settings: {
       appearance?: components["schemas"]["AppearanceSettings"];
+      chat?: components["schemas"]["ChatSettings"];
       editor?: components["schemas"]["EditorSettings"];
       terminal?: components["schemas"]["TerminalSettings"];
       vscode?: components["schemas"]["VscodeSettings"];
@@ -1107,6 +1302,7 @@ export interface components {
     };
     SettingsPatch: {
       appearance?: null | components["schemas"]["AppearanceSettingsPatch"];
+      chat?: null | components["schemas"]["ChatSettingsPatch"];
       editor?: null | components["schemas"]["EditorSettingsPatch"];
       terminal?: null | components["schemas"]["TerminalSettingsPatch"];
       vscode?: null | components["schemas"]["VscodeSettingsPatch"];
@@ -1204,6 +1400,21 @@ export interface components {
           /** @enum {string} */
           type: "browser";
           url: string;
+          worktree_id: string;
+        }
+      | {
+          conversation_id: string;
+          /** Format: int64 */
+          created_at: number;
+          id: string;
+          label: string;
+          pane_id: string;
+          /** Format: double */
+          position: number;
+          preview: boolean;
+          session_id: string;
+          /** @enum {string} */
+          type: "agent_chat";
           worktree_id: string;
         };
     /** @enum {string} */
@@ -1558,6 +1769,120 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  get_chat: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Conversation detail */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatConversationDetail"];
+        };
+      };
+      /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  interrupt_chat: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Interrupt requested */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Conversation not running */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  send_chat_message: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SendChatMessageRequest"];
+      };
+    };
+    responses: {
+      /** @description Message accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Failed to start Codex runtime */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
   list_editor_themes: {
     parameters: {
       query?: never;
@@ -3298,6 +3623,33 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  list_project_worktree_chats: {
+    parameters: {
+      query: {
+        session_id: string;
+      };
+      header?: never;
+      path: {
+        /** @description Project ID */
+        project_id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Conversation summaries */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatConversationSummary"][];
         };
       };
     };

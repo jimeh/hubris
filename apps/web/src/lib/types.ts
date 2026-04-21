@@ -7,6 +7,7 @@ export type TerminalTab = Extract<Tab, { type: "terminal" }>;
 export type FileTab = Extract<Tab, { type: "file" }>;
 export type GitDiffTab = Extract<Tab, { type: "git_diff" }>;
 export type BrowserTab = Extract<Tab, { type: "browser" }>;
+export type AgentChatTab = Extract<Tab, { type: "agent_chat" }>;
 export type TabPaneSplitAxis = components["schemas"]["TabPaneSplitAxis"];
 export type WorktreePaneNode = components["schemas"]["WorktreePaneNode"];
 export type WorktreePaneTabs = components["schemas"]["WorktreePaneTabs"];
@@ -27,3 +28,15 @@ export type WorktreeFileContentResponse =
 export type WorktreeGitDiffResponse =
   components["schemas"]["WorktreeGitDiffResponse"];
 export type SystemInfo = components["schemas"]["SystemInfo"];
+export type ChatConversationSummary =
+  components["schemas"]["ChatConversationSummary"];
+export type ChatConversationDetail =
+  components["schemas"]["ChatConversationDetail"];
+export type ChatMessage = components["schemas"]["ChatMessage"];
+export type ChatRun = components["schemas"]["ChatRun"];
+export type ChatRuntimeStatus = components["schemas"]["ChatRuntimeStatus"];
+export type ChatMessageRole = components["schemas"]["ChatMessageRole"];
+export type ChatMessageStatus = components["schemas"]["ChatMessageStatus"];
+export type ChatRunStatus = components["schemas"]["ChatRunStatus"];
+export type ChatRuntimeLifecycle =
+  components["schemas"]["ChatRuntimeLifecycle"];

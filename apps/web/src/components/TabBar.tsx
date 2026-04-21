@@ -5,6 +5,7 @@ import {
   ChevronsRight,
   Columns2,
   Globe,
+  MessageSquare,
   Rows2,
   SquareTerminal,
   type LucideIcon,
@@ -43,6 +44,7 @@ type Props = {
   onClose: (tabId: string) => void;
   onAddTerminal: () => void;
   onAddBrowser: () => Promise<void>;
+  onAddChat?: () => Promise<void>;
   onReorder?: (orderedIds: string[]) => Promise<void>;
   onSplitRight?: () => void;
   onSplitDown?: () => void;
@@ -67,6 +69,7 @@ export default function TabBar({
   onClose,
   onAddTerminal,
   onAddBrowser,
+  onAddChat = async () => {},
   onReorder = async () => {},
   onSplitRight,
   onSplitDown,
@@ -272,6 +275,19 @@ export default function TabBar({
           }}
         >
           <Globe className="h-2.5 w-2.5" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="New Chat"
+          title="New Chat"
+          className="h-6 w-6"
+          onClick={() => {
+            void onAddChat();
+          }}
+        >
+          <MessageSquare className="h-2.5 w-2.5" />
         </Button>
         <Button
           type="button"

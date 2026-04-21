@@ -141,3 +141,13 @@ but too specific for the root `AGENTS.md` map.
 - Git status views should not key rows by bare `path` alone. The same path can
   appear more than once in a rendered section/tree, so React keys need section
   or index context to avoid duplicate-key crashes.
+- Zustand selectors used through `useSyncExternalStore` consumers must return
+  stable references. Derive filtered/sorted chat sidebar lists outside the
+  selector or memoize them, or React can hit the "getSnapshot should be cached"
+  infinite-update failure.
+- The assistant-ui chat tab viewport must be a flex column with the transcript
+  scroller using `min-h-0 flex-1`. Letting the scroll area claim full height
+  pushes the composer off-screen inside Hubris tab panes.
+- Codex `app-server` `turn/start` expects `input` to be an array of input items,
+  not a single object. Sending a lone map produces
+  `invalid type: map, expected a sequence`.

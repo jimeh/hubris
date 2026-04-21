@@ -11,6 +11,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
 import WorktreeRightSidebar from "./WorktreeRightSidebar";
+import { resetChatStoreForTests, useChatStore } from "@/lib/stores/chats";
 import {
   initializeWorktreeRightSidebarStore,
   resetWorktreeRightSidebarStoreForTests,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/stores/worktrees";
 import {
   WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
+  WORKTREE_RIGHT_SIDEBAR_CHATS_TAB,
   WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
 } from "@/lib/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
@@ -100,6 +102,7 @@ async function seedSelectedWorktree(worktree = makeWorktree()): Promise<void> {
 }
 
 async function resetStores(): Promise<void> {
+  resetChatStoreForTests();
   resetWorktreeRightSidebarStoreForTests();
   resetWorktreeRightSidebarWidthStoreForTests();
   resetWorktreeFileManagerStoreForTests();
@@ -215,6 +218,56 @@ describe("WorktreeRightSidebar", () => {
     expect(
       screen.getByRole("button", { name: "Resize right sidebar" }),
     ).toBeInTheDocument();
+  });
+
+  it("switches to the chats tab without triggering unstable snapshot errors", async () => {
+    const worktree = makeWorktree();
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    await seedSelectedWorktree(worktree);
+    useChatStore.setState({
+      conversationsById: {
+        "chat-1": {
+          id: "chat-1",
+          sessionId: "default",
+          projectId: worktree.project_id,
+          worktreeId: worktree.id,
+          provider: "codex",
+          providerThreadId: "thread-1",
+          title: "Investigate build failure",
+          createdAt: 10,
+          updatedAt: 10,
+          lastActivityAt: 10,
+          lastMessageAt: 10,
+          openTabId: null,
+          lastRunState: "completed",
+          lastError: null,
+          revision: 1,
+        },
+      },
+      runtimesByConversationId: {},
+      detailsByConversationId: {},
+    });
+
+    render(<WorktreeRightSidebar worktree={worktree} active />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Chats" }));
+
+    expect(
+      await screen.findByText("Investigate build failure"),
+    ).toBeInTheDocument();
+    expect(useWorktreeRightSidebarStore.getState().activeTab).toBe(
+      WORKTREE_RIGHT_SIDEBAR_CHATS_TAB,
+    );
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining(
+        "The result of getSnapshot should be cached to avoid an infinite loop",
+      ),
+    );
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("Maximum update depth exceeded"),
+    );
   });
 
   it("keeps labeled tabs when the desktop header has enough room", async () => {

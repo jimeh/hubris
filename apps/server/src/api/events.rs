@@ -91,6 +91,30 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         | EventKind::TabsReordered {
             session_id: event_session_id,
             ..
+        }
+        | EventKind::ChatConversationCreated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatConversationUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatRuntimeUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatMessageDelta {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatMessageUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatRunUpdated {
+            session_id: event_session_id,
+            ..
         } => event_session_id == session_id,
         EventKind::WorktreeTabLayoutUpdated { .. } => true,
         EventKind::ProjectAdded(_)
@@ -146,6 +170,16 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
     let mut project_errors = HashMap::new();
     let settings = state.settings.get().await;
     let keybindings = state.keybindings.get().await;
+    let chat_conversations = state
+        .chats
+        .list_session_conversations(session_id)
+        .await
+        .unwrap_or_default();
+    let chat_runtimes = state
+        .chats
+        .list_runtime_statuses(session_id)
+        .await
+        .unwrap_or_default();
     let vscode = state.vscode.status().await.into();
     let managed_processes = state
         .processes
@@ -179,6 +213,8 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         tabs,
         tab_layouts,
         worktree_restore_state,
+        chat_conversations,
+        chat_runtimes,
         projects,
         worktrees,
         project_errors,

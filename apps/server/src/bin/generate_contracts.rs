@@ -24,6 +24,11 @@ use hubris_server::api::vscode::{
     VscodeRuntimeStatus, VscodeStatus,
 };
 use hubris_server::api::worktrees::{Worktree, WorktreeUiMode};
+use hubris_server::chat::{
+    ChatConversationDetail, ChatConversationSummary, ChatMessage, ChatMessageRole,
+    ChatMessageStatus, ChatProvider, ChatRun, ChatRunStatus, ChatRuntimeLifecycle,
+    ChatRuntimeStatus, ChatSettings,
+};
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
 use hubris_server::tab::{
@@ -101,6 +106,17 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<WorktreeSettings>(&mut sse, &cfg)?;
     push_ts_export::<VscodeRuntimeKind>(&mut sse, &cfg)?;
     push_ts_export::<VscodeSettings>(&mut sse, &cfg)?;
+    push_ts_export::<ChatProvider>(&mut sse, &cfg)?;
+    push_ts_export::<ChatMessageRole>(&mut sse, &cfg)?;
+    push_ts_export::<ChatMessageStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatRunStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatRuntimeLifecycle>(&mut sse, &cfg)?;
+    push_ts_export::<ChatConversationSummary>(&mut sse, &cfg)?;
+    push_ts_export::<ChatMessage>(&mut sse, &cfg)?;
+    push_ts_export::<ChatRun>(&mut sse, &cfg)?;
+    push_ts_export::<ChatConversationDetail>(&mut sse, &cfg)?;
+    push_ts_export::<ChatRuntimeStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatSettings>(&mut sse, &cfg)?;
     push_ts_export::<Settings>(&mut sse, &cfg)?;
     push_ts_export::<SettingsStatusKind>(&mut sse, &cfg)?;
     push_ts_export::<SettingsStatus>(&mut sse, &cfg)?;

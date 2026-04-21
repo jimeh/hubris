@@ -12,6 +12,7 @@ use crate::api::settings::{Settings, SettingsState, SettingsStatus};
 use crate::api::tasks::{TaskInvocationStatus, TaskRemoved, TaskUpdated};
 use crate::api::vscode::VscodeStatus;
 use crate::api::worktrees::Worktree;
+use crate::chat::{ChatConversationSummary, ChatMessage, ChatRun, ChatRuntimeStatus};
 use crate::tab::{TabInfo, WorktreeTabLayout, WorktreeTabLayoutState};
 use crate::worktree_state::WorktreeRestoreState;
 
@@ -29,6 +30,8 @@ pub enum EventKind {
         tabs: Vec<TabInfo>,
         tab_layouts: HashMap<String, WorktreeTabLayout>,
         worktree_restore_state: HashMap<String, WorktreeRestoreState>,
+        chat_conversations: Vec<ChatConversationSummary>,
+        chat_runtimes: Vec<ChatRuntimeStatus>,
         projects: Vec<Project>,
         worktrees: HashMap<String, Vec<Worktree>>,
         project_errors: HashMap<String, String>,
@@ -111,6 +114,41 @@ pub enum EventKind {
     TaskUpdated(Box<TaskUpdated>),
     #[serde(rename = "task_removed")]
     TaskRemoved(Box<TaskRemoved>),
+    #[serde(rename = "chat_conversation_created")]
+    ChatConversationCreated {
+        session_id: String,
+        conversation: ChatConversationSummary,
+    },
+    #[serde(rename = "chat_conversation_updated")]
+    ChatConversationUpdated {
+        session_id: String,
+        conversation: ChatConversationSummary,
+    },
+    #[serde(rename = "chat_runtime_updated")]
+    ChatRuntimeUpdated {
+        session_id: String,
+        runtime: ChatRuntimeStatus,
+    },
+    #[serde(rename = "chat_message_delta")]
+    ChatMessageDelta {
+        session_id: String,
+        conversation_id: String,
+        message_id: String,
+        delta: String,
+        revision: u64,
+    },
+    #[serde(rename = "chat_message_updated")]
+    ChatMessageUpdated {
+        session_id: String,
+        conversation_id: String,
+        message: ChatMessage,
+    },
+    #[serde(rename = "chat_run_updated")]
+    ChatRunUpdated {
+        session_id: String,
+        conversation_id: String,
+        run: ChatRun,
+    },
 }
 
 impl EventKind {
@@ -138,6 +176,12 @@ impl EventKind {
             EventKind::ManagedProcessUpdated(_) => "managed_process_updated",
             EventKind::TaskUpdated(_) => "task_updated",
             EventKind::TaskRemoved(_) => "task_removed",
+            EventKind::ChatConversationCreated { .. } => "chat_conversation_created",
+            EventKind::ChatConversationUpdated { .. } => "chat_conversation_updated",
+            EventKind::ChatRuntimeUpdated { .. } => "chat_runtime_updated",
+            EventKind::ChatMessageDelta { .. } => "chat_message_delta",
+            EventKind::ChatMessageUpdated { .. } => "chat_message_updated",
+            EventKind::ChatRunUpdated { .. } => "chat_run_updated",
         }
     }
 }
@@ -228,6 +272,8 @@ mod tests {
                 tabs: vec![],
                 tab_layouts: HashMap::new(),
                 worktree_restore_state: HashMap::new(),
+                chat_conversations: vec![],
+                chat_runtimes: vec![],
                 projects: vec![],
                 worktrees: HashMap::new(),
                 project_errors: HashMap::new(),

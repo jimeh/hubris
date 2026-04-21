@@ -1,3 +1,4 @@
+pub mod chats;
 pub mod editor_themes;
 pub mod errors;
 pub mod events;

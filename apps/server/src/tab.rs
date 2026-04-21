@@ -126,6 +126,18 @@ pub enum TabInfo {
         history: Vec<String>,
         history_index: usize,
     },
+    AgentChat {
+        id: String,
+        session_id: String,
+        worktree_id: String,
+        pane_id: String,
+        label: String,
+        position: f64,
+        #[ts(type = "number")]
+        created_at: u64,
+        preview: bool,
+        conversation_id: String,
+    },
 }
 
 impl TabInfo {
@@ -134,7 +146,8 @@ impl TabInfo {
             Self::Terminal { id, .. }
             | Self::File { id, .. }
             | Self::GitDiff { id, .. }
-            | Self::Browser { id, .. } => id,
+            | Self::Browser { id, .. }
+            | Self::AgentChat { id, .. } => id,
         }
     }
 
@@ -143,7 +156,8 @@ impl TabInfo {
             Self::Terminal { session_id, .. }
             | Self::File { session_id, .. }
             | Self::GitDiff { session_id, .. }
-            | Self::Browser { session_id, .. } => session_id,
+            | Self::Browser { session_id, .. }
+            | Self::AgentChat { session_id, .. } => session_id,
         }
     }
 
@@ -152,7 +166,8 @@ impl TabInfo {
             Self::Terminal { worktree_id, .. }
             | Self::File { worktree_id, .. }
             | Self::GitDiff { worktree_id, .. }
-            | Self::Browser { worktree_id, .. } => worktree_id,
+            | Self::Browser { worktree_id, .. }
+            | Self::AgentChat { worktree_id, .. } => worktree_id,
         }
     }
 
@@ -161,7 +176,8 @@ impl TabInfo {
             Self::Terminal { pane_id, .. }
             | Self::File { pane_id, .. }
             | Self::GitDiff { pane_id, .. }
-            | Self::Browser { pane_id, .. } => pane_id,
+            | Self::Browser { pane_id, .. }
+            | Self::AgentChat { pane_id, .. } => pane_id,
         }
     }
 
@@ -170,7 +186,8 @@ impl TabInfo {
             Self::Terminal { label, .. }
             | Self::File { label, .. }
             | Self::GitDiff { label, .. }
-            | Self::Browser { label, .. } => label,
+            | Self::Browser { label, .. }
+            | Self::AgentChat { label, .. } => label,
         }
     }
 
@@ -179,7 +196,8 @@ impl TabInfo {
             Self::Terminal { position, .. }
             | Self::File { position, .. }
             | Self::GitDiff { position, .. }
-            | Self::Browser { position, .. } => *position,
+            | Self::Browser { position, .. }
+            | Self::AgentChat { position, .. } => *position,
         }
     }
 
@@ -188,7 +206,8 @@ impl TabInfo {
             Self::Terminal { created_at, .. }
             | Self::File { created_at, .. }
             | Self::GitDiff { created_at, .. }
-            | Self::Browser { created_at, .. } => *created_at,
+            | Self::Browser { created_at, .. }
+            | Self::AgentChat { created_at, .. } => *created_at,
         }
     }
 
@@ -197,7 +216,8 @@ impl TabInfo {
             Self::Terminal { preview, .. }
             | Self::File { preview, .. }
             | Self::GitDiff { preview, .. }
-            | Self::Browser { preview, .. } => *preview,
+            | Self::Browser { preview, .. }
+            | Self::AgentChat { preview, .. } => *preview,
         }
     }
 
@@ -207,6 +227,10 @@ impl TabInfo {
 
     pub fn is_browser(&self) -> bool {
         matches!(self, Self::Browser { .. })
+    }
+
+    pub fn is_agent_chat(&self) -> bool {
+        matches!(self, Self::AgentChat { .. })
     }
 
     pub fn has_notification(&self) -> bool {
@@ -261,12 +285,22 @@ impl TabInfo {
         }
     }
 
+    pub fn conversation_id(&self) -> Option<&str> {
+        match self {
+            Self::AgentChat {
+                conversation_id, ..
+            } => Some(conversation_id),
+            _ => None,
+        }
+    }
+
     pub fn set_position(&mut self, next: f64) {
         match self {
             Self::Terminal { position, .. }
             | Self::File { position, .. }
             | Self::GitDiff { position, .. }
-            | Self::Browser { position, .. } => *position = next,
+            | Self::Browser { position, .. }
+            | Self::AgentChat { position, .. } => *position = next,
         }
     }
 
@@ -275,7 +309,8 @@ impl TabInfo {
             Self::Terminal { pane_id, .. }
             | Self::File { pane_id, .. }
             | Self::GitDiff { pane_id, .. }
-            | Self::Browser { pane_id, .. } => *pane_id = next,
+            | Self::Browser { pane_id, .. }
+            | Self::AgentChat { pane_id, .. } => *pane_id = next,
         }
     }
 
@@ -284,7 +319,8 @@ impl TabInfo {
             Self::Terminal { preview, .. }
             | Self::File { preview, .. }
             | Self::GitDiff { preview, .. }
-            | Self::Browser { preview, .. } => *preview = next,
+            | Self::Browser { preview, .. }
+            | Self::AgentChat { preview, .. } => *preview = next,
         }
     }
 
@@ -293,7 +329,8 @@ impl TabInfo {
             Self::Terminal { label, .. }
             | Self::File { label, .. }
             | Self::GitDiff { label, .. }
-            | Self::Browser { label, .. } => *label = next,
+            | Self::Browser { label, .. }
+            | Self::AgentChat { label, .. } => *label = next,
         }
     }
 

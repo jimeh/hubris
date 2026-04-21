@@ -37,6 +37,10 @@ import {
   resetTaskStoreForTests,
 } from "@/lib/stores/tasks";
 import {
+  initializeChatStore,
+  resetChatStoreForTests,
+} from "@/lib/stores/chats";
+import {
   initializeSettingsStore,
   resetSettingsStoreForTests,
 } from "@/lib/stores/settings";
@@ -65,6 +69,7 @@ export function bootstrapApp(): void {
   initializeWorktreeFileManagerStore();
   initializeWorktreeRightSidebarStore();
   initializeTaskStore();
+  initializeChatStore();
   initializeVscodeStore();
   initializeSettingsStore();
   initializeKeybindingsStore();
@@ -85,6 +90,7 @@ export function resetBootstrapForTests(): void {
   resetWorktreeFileManagerStoreForTests();
   resetWorktreeRightSidebarStoreForTests();
   resetTaskStoreForTests();
+  resetChatStoreForTests();
   resetVscodeStoreForTests();
   resetSettingsStoreForTests();
   resetKeybindingsStoreForTests();

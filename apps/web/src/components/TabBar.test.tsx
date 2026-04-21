@@ -266,7 +266,8 @@ describe("TabBar", () => {
     expect(buttons[2]).toHaveAttribute("aria-label", "Split Vertically");
     expect(buttons[3]).toHaveAttribute("aria-label", "Split Horizontally");
     expect(buttons[4]).toHaveAttribute("aria-label", "New Browser");
-    expect(buttons[5]).toHaveAttribute("aria-label", "New Terminal");
+    expect(buttons[5]).toHaveAttribute("aria-label", "New Chat");
+    expect(buttons[6]).toHaveAttribute("aria-label", "New Terminal");
 
     fireEvent.click(screen.getByRole("button", { name: "Previous Change" }));
     fireEvent.click(screen.getByRole("button", { name: "Next Change" }));

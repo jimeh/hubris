@@ -182,6 +182,12 @@ export type WorktreeGitCommitDetails = GitCommitDetailsResponse;
 export type WorktreeFileContent = WorktreeFileContentResponse;
 export type SaveWorktreeFileContentResponse = WriteWorktreeFileContentResponse;
 export type WorktreeGitDiff = WorktreeGitDiffResponse;
+export type ChatConversationSummary =
+  components["schemas"]["ChatConversationSummary"];
+export type ChatConversationDetail =
+  components["schemas"]["ChatConversationDetail"];
+export type ChatRuntimeStatus = components["schemas"]["ChatRuntimeStatus"];
+type SendChatMessageRequest = components["schemas"]["SendChatMessageRequest"];
 
 export async function listProjectWorktreeStartPoints(
   projectId: string,
@@ -602,6 +608,59 @@ export async function updateTab(
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
+}
+
+export async function listProjectWorktreeChats(
+  projectId: string,
+  worktreeId: string,
+  sessionId = "default",
+): Promise<ChatConversationSummary[]> {
+  const params = new URLSearchParams({ session_id: sessionId });
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/chats?${params.toString()}`,
+  );
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function getChat(
+  conversationId: string,
+): Promise<ChatConversationDetail> {
+  const res = await fetch(`${BASE}/chats/${conversationId}`);
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function sendChatMessage(
+  conversationId: string,
+  text: string,
+): Promise<void> {
+  const payload: SendChatMessageRequest = { text };
+  const res = await fetch(`${BASE}/chats/${conversationId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+}
+
+export async function interruptChat(conversationId: string): Promise<void> {
+  const res = await fetch(`${BASE}/chats/${conversationId}/interrupt`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
 }
 
 export async function reorderTabs(
