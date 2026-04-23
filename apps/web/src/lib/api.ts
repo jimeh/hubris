@@ -14,6 +14,10 @@ import type {
   Worktree,
 } from "./types";
 import type { components } from "@/lib/contracts/rest.generated";
+import type {
+  KeybindingEntry,
+  KeybindingsState,
+} from "@/lib/contracts/sse.generated";
 import type { Settings, SettingsPatch, SettingsState } from "./theme/types";
 import { apiBase, terminalWsUrlBase } from "./desktopRuntime";
 
@@ -719,6 +723,30 @@ export async function replaceSettings(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
+  });
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+  return res.json();
+}
+
+// --- Keybindings ---
+
+export async function getKeybindings(): Promise<KeybindingsState> {
+  const res = await fetch(`${BASE}/keybindings`);
+  if (!res.ok) {
+    throwStatusError(res.status);
+  }
+  return res.json();
+}
+
+export async function replaceKeybindings(
+  keybindings: KeybindingEntry[],
+): Promise<KeybindingsState> {
+  const res = await fetch(`${BASE}/keybindings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(keybindings),
   });
   if (!res.ok) {
     throwStatusError(res.status);

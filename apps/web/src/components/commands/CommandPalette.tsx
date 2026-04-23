@@ -13,7 +13,9 @@ import {
   useCommandContext,
 } from "@/lib/commands";
 import type { CommandId, CommandPaletteItem } from "@/lib/commands";
+import { getFirstKeybindingForCommandArgs } from "@/lib/keybindings/registry";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
+import { useKeybindingsStore } from "@/lib/stores/keybindings";
 
 function executePaletteItem<TId extends CommandId>(
   item: CommandPaletteItem<TId>,
@@ -33,6 +35,7 @@ export default function CommandPalette() {
   const closePalette = useCommandUiStore((state) => state.closePalette);
   const setPaletteOpen = useCommandUiStore((state) => state.setPaletteOpen);
   const setPaletteQuery = useCommandUiStore((state) => state.setPaletteQuery);
+  const keybindingRegistry = useKeybindingsStore((state) => state.registry);
 
   const groups = useMemo(() => {
     return Object.entries(
@@ -78,6 +81,19 @@ export default function CommandPalette() {
                       </span>
                     ) : null}
                   </div>
+                  {getFirstKeybindingForCommandArgs(
+                    keybindingRegistry,
+                    item.id,
+                    item.args,
+                  ) ? (
+                    <kbd className="ml-3 shrink-0 rounded border bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                      {getFirstKeybindingForCommandArgs(
+                        keybindingRegistry,
+                        item.id,
+                        item.args,
+                      )}
+                    </kbd>
+                  ) : null}
                 </CommandItem>
               );
             })}

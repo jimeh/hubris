@@ -249,6 +249,64 @@
         }
       }
     },
+    "/api/keybindings": {
+      "get": {
+        "tags": ["crate::api::keybindings"],
+        "summary": "GET /api/keybindings",
+        "operationId": "get_keybindings",
+        "responses": {
+          "200": {
+            "description": "Current keybindings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeybindingsState"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "tags": ["crate::api::keybindings"],
+        "summary": "PUT /api/keybindings",
+        "operationId": "put_keybindings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/KeybindingEntry"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Keybindings saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeybindingsState"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Keybindings file is invalid on disk"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/api/openapi.json": {
       "get": {
         "tags": [],
@@ -2987,6 +3045,62 @@
             "type": ["string", "null"]
           }
         }
+      },
+      "KeybindingEntry": {
+        "type": "object",
+        "required": ["key"],
+        "properties": {
+          "args": {},
+          "command": {
+            "type": ["string", "null"]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "key": {
+            "type": "string"
+          },
+          "when": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "KeybindingsState": {
+        "type": "object",
+        "required": ["keybindings", "generation", "status"],
+        "properties": {
+          "generation": {
+            "type": "string"
+          },
+          "keybindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KeybindingEntry"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/KeybindingsStatus"
+          }
+        }
+      },
+      "KeybindingsStatus": {
+        "type": "object",
+        "required": ["kind", "writesBlocked"],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/KeybindingsStatusKind"
+          },
+          "message": {
+            "type": ["string", "null"]
+          },
+          "writesBlocked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "KeybindingsStatusKind": {
+        "type": "string",
+        "enum": ["ok", "invalidFile"]
       },
       "ListFilesResponse": {
         "type": "object",

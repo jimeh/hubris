@@ -2,6 +2,9 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use hubris_server::api::keybindings::{
+    KeybindingEntry, KeybindingsState, KeybindingsStatus, KeybindingsStatusKind,
+};
 use hubris_server::api::processes::{
     ManagedProcessExitInfo, ManagedProcessLifecycleStateValue, ManagedProcessStatus,
 };
@@ -75,6 +78,9 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     let cfg = Config::from_env();
 
     let mut sse = String::from("// Generated file. Do not edit.\n\n");
+    sse.push_str(
+        "export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };\n\n",
+    );
     push_ts_export::<GitDiffScope>(&mut sse, &cfg)?;
     push_ts_export::<TabPaneSplitAxis>(&mut sse, &cfg)?;
     push_ts_export::<WorktreePaneNode>(&mut sse, &cfg)?;
@@ -99,6 +105,10 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<SettingsStatusKind>(&mut sse, &cfg)?;
     push_ts_export::<SettingsStatus>(&mut sse, &cfg)?;
     push_ts_export::<SettingsState>(&mut sse, &cfg)?;
+    push_ts_export::<KeybindingEntry>(&mut sse, &cfg)?;
+    push_ts_export::<KeybindingsStatusKind>(&mut sse, &cfg)?;
+    push_ts_export::<KeybindingsStatus>(&mut sse, &cfg)?;
+    push_ts_export::<KeybindingsState>(&mut sse, &cfg)?;
     push_ts_export::<VscodeInstallPhase>(&mut sse, &cfg)?;
     push_ts_export::<VscodeInstallProgress>(&mut sse, &cfg)?;
     push_ts_export::<VscodeLatestCheck>(&mut sse, &cfg)?;

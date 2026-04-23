@@ -104,6 +104,7 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         | EventKind::WorktreeFilesUpdated { .. }
         | EventKind::WorktreeGitStatusUpdated { .. }
         | EventKind::SettingsUpdated(_)
+        | EventKind::KeybindingsUpdated(_)
         | EventKind::VscodeUpdated(_)
         | EventKind::ManagedProcessUpdated(_)
         | EventKind::TaskUpdated(_)
@@ -144,6 +145,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
     let mut worktrees = HashMap::new();
     let mut project_errors = HashMap::new();
     let settings = state.settings.get().await;
+    let keybindings = state.keybindings.get().await;
     let vscode = state.vscode.status().await.into();
     let managed_processes = state
         .processes
@@ -183,6 +185,9 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         settings: Box::new(settings.settings),
         settings_generation: settings.generation,
         settings_status: settings.status,
+        keybindings: Box::new(keybindings.keybindings),
+        keybindings_generation: keybindings.generation,
+        keybindings_status: keybindings.status,
         vscode: Box::new(vscode),
         managed_processes,
         tasks,

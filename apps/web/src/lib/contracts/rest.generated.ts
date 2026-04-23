@@ -106,6 +106,24 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/keybindings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** GET /api/keybindings */
+    get: operations["get_keybindings"];
+    /** PUT /api/keybindings */
+    put: operations["put_keybindings"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/openapi.json": {
     parameters: {
       query?: never;
@@ -951,6 +969,25 @@ export interface components {
       force?: boolean;
       version?: string | null;
     };
+    KeybindingEntry: {
+      args?: unknown;
+      command?: string | null;
+      disabled?: boolean;
+      key: string;
+      when?: string | null;
+    };
+    KeybindingsState: {
+      generation: string;
+      keybindings: components["schemas"]["KeybindingEntry"][];
+      status: components["schemas"]["KeybindingsStatus"];
+    };
+    KeybindingsStatus: {
+      kind: components["schemas"]["KeybindingsStatusKind"];
+      message?: string | null;
+      writesBlocked: boolean;
+    };
+    /** @enum {string} */
+    KeybindingsStatusKind: "ok" | "invalidFile";
     ListFilesResponse: {
       /** @description Subdirectories within `path`. */
       entries: components["schemas"]["DirEntry"][];
@@ -1752,6 +1789,71 @@ export interface operations {
       };
       /** @description Directory not found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  get_keybindings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Current keybindings */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KeybindingsState"];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  put_keybindings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["KeybindingEntry"][];
+      };
+    };
+    responses: {
+      /** @description Keybindings saved */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KeybindingsState"];
+        };
+      };
+      /** @description Keybindings file is invalid on disk */
+      409: {
         headers: {
           [name: string]: unknown;
         };

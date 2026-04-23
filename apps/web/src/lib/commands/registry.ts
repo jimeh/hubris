@@ -116,6 +116,18 @@ async function saveDirtyTab(tabId: string): Promise<boolean> {
  * Stable frontend command registry used by the palette and direct UI triggers.
  */
 export const commandRegistry = {
+  "app.openCommandPalette": defineCommand({
+    async execute() {
+      useCommandUiStore.getState().openPalette();
+      return cancelled();
+    },
+    group: "App",
+    icon: Search,
+    id: "app.openCommandPalette",
+    isAvailable: () => enabled(),
+    keywords: ["commands", "palette"],
+    title: "Open Command Palette",
+  }),
   "app.openSettings": defineCommand({
     async execute(_context, args) {
       useCommandUiStore.getState().openDialog({

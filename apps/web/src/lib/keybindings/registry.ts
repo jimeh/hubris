@@ -1,0 +1,171 @@
+import { getCommandDefinition, type CommandId } from "@/lib/commands";
+import { defaultKeybindings, type KeybindingDefinition } from "./defaults";
+import { formatKeybinding, normalizeKeybinding } from "./keys";
+import { evaluateWhenExpression, type KeybindingWhenContext } from "./when";
+
+export type UserKeybindingEntry = {
+  args?: unknown;
+  command?: string | null;
+  disabled?: boolean;
+  key: string;
+  when?: string | null;
+};
+
+export type KeybindingConflict = {
+  bindings: KeybindingDefinition[];
+  key: string;
+};
+
+export type KeybindingRegistry = {
+  bindings: KeybindingDefinition[];
+  conflicts: KeybindingConflict[];
+};
+
+export function buildKeybindingRegistry(
+  userKeybindings: UserKeybindingEntry[],
+): KeybindingRegistry {
+  const normalizedDefaults = defaultKeybindings.map(normalizeDefinition);
+  const normalizedUser = userKeybindings.map((binding) =>
+    normalizeDefinition({
+      args: binding.args as KeybindingDefinition["args"],
+      command: isCommandId(binding.command) ? binding.command : undefined,
+      disabled: binding.disabled,
+      key: binding.key,
+      source: "user",
+      when: binding.when ?? undefined,
+    }),
+  );
+  const disabledDefaultKeys = new Set(
+    normalizedUser
+      .filter((binding) => binding.disabled)
+      .map((binding) => bindingPrecedenceKey(binding)),
+  );
+  const bindings = [
+    ...normalizedDefaults.filter(
+      (binding) => !disabledDefaultKeys.has(bindingPrecedenceKey(binding)),
+    ),
+    ...normalizedUser.filter((binding) => !binding.disabled && binding.command),
+  ].sort(compareKeybindings);
+
+  return {
+    bindings,
+    conflicts: findConflicts(bindings),
+  };
+}
+
+export function resolveKeybinding(input: {
+  context: KeybindingWhenContext;
+  key: string;
+  registry: KeybindingRegistry;
+}): KeybindingDefinition | null {
+  const normalizedKey = normalizeKeybinding(input.key);
+  const matches = input.registry.bindings.filter((binding) => {
+    if (binding.key !== normalizedKey) {
+      return false;
+    }
+    return evaluateWhenExpression(binding.when, input.context);
+  });
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  return matches.sort(compareKeybindingSpecificity)[0] ?? null;
+}
+
+export function getFirstKeybindingForCommand(
+  registry: KeybindingRegistry,
+  command: CommandId,
+): string | null {
+  const binding =
+    registry.bindings.find((candidate) => candidate.command === command) ??
+    null;
+  return binding ? formatKeybinding(binding.key) : null;
+}
+
+export function getFirstKeybindingForCommandArgs(
+  registry: KeybindingRegistry,
+  command: CommandId,
+  args: unknown,
+): string | null {
+  const serializedArgs = JSON.stringify(args ?? null);
+  const binding =
+    registry.bindings.find(
+      (candidate) =>
+        candidate.command === command &&
+        JSON.stringify(candidate.args ?? null) === serializedArgs,
+    ) ?? null;
+  return binding ? formatKeybinding(binding.key) : null;
+}
+
+function normalizeDefinition<TId extends CommandId>(
+  binding: Omit<KeybindingDefinition<TId>, "key"> & { key: string },
+): KeybindingDefinition<TId> {
+  return {
+    ...binding,
+    key: normalizeKeybinding(binding.key),
+    when: binding.when?.trim() || undefined,
+  };
+}
+
+function compareKeybindings(
+  left: KeybindingDefinition,
+  right: KeybindingDefinition,
+): number {
+  return (
+    left.key.localeCompare(right.key) ||
+    (left.when ?? "").localeCompare(right.when ?? "") ||
+    (left.command ?? "").localeCompare(right.command ?? "") ||
+    left.source.localeCompare(right.source)
+  );
+}
+
+function compareKeybindingSpecificity(
+  left: KeybindingDefinition,
+  right: KeybindingDefinition,
+): number {
+  const specificity = whenSpecificity(right.when) - whenSpecificity(left.when);
+  if (specificity !== 0) {
+    return specificity;
+  }
+
+  if (left.source !== right.source) {
+    return left.source === "user" ? -1 : 1;
+  }
+
+  return compareKeybindings(left, right);
+}
+
+function whenSpecificity(when: string | undefined): number {
+  return when ? when.split(/&&|\|\|/).length : 0;
+}
+
+function bindingPrecedenceKey(
+  binding: Pick<KeybindingDefinition, "key" | "when">,
+): string {
+  return `${binding.key}\u0000${binding.when ?? ""}`;
+}
+
+function findConflicts(bindings: KeybindingDefinition[]): KeybindingConflict[] {
+  const grouped = new Map<string, KeybindingDefinition[]>();
+  for (const binding of bindings) {
+    const key = bindingPrecedenceKey(binding);
+    grouped.set(key, [...(grouped.get(key) ?? []), binding]);
+  }
+
+  return [...grouped.entries()]
+    .filter(([, entries]) => entries.length > 1)
+    .map(([key, entries]) => ({ bindings: entries, key }));
+}
+
+function isCommandId(value: string | null | undefined): value is CommandId {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    return getCommandDefinition(value as CommandId).id === value;
+  } catch {
+    return false;
+  }
+}

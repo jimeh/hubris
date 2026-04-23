@@ -41,6 +41,10 @@ import {
   resetSettingsStoreForTests,
 } from "@/lib/stores/settings";
 import {
+  initializeKeybindingsStore,
+  resetKeybindingsStoreForTests,
+} from "@/lib/stores/keybindings";
+import {
   initializeSystemStore,
   resetSystemStoreForTests,
 } from "@/lib/stores/system";
@@ -63,6 +67,7 @@ export function bootstrapApp(): void {
   initializeTaskStore();
   initializeVscodeStore();
   initializeSettingsStore();
+  initializeKeybindingsStore();
   initializeSystemStore();
 
   getEventClient().connect();
@@ -82,6 +87,7 @@ export function resetBootstrapForTests(): void {
   resetTaskStoreForTests();
   resetVscodeStoreForTests();
   resetSettingsStoreForTests();
+  resetKeybindingsStoreForTests();
   resetSystemStoreForTests();
   getEventClient().disconnect();
 }

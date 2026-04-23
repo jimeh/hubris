@@ -27,6 +27,7 @@ const SSE_EVENT_NAMES = [
   "worktree_files_updated",
   "worktree_git_status_updated",
   "settings_updated",
+  "keybindings_updated",
   "vscode_updated",
   "managed_process_updated",
   "task_updated",

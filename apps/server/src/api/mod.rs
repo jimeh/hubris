@@ -2,6 +2,7 @@ pub mod editor_themes;
 pub mod errors;
 pub mod events;
 pub mod files;
+pub mod keybindings;
 #[path = "monaco_languages.generated.rs"]
 pub mod monaco_languages_generated;
 pub mod openapi;

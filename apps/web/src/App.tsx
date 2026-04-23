@@ -23,6 +23,8 @@ import AppSidebar from "@/components/AppSidebar";
 import BranchInfo from "@/components/BranchInfo";
 import CommandDialogs from "@/components/commands/CommandDialogs";
 import CommandPalette from "@/components/commands/CommandPalette";
+import KeybindingsStatusNotice from "@/components/KeybindingsStatusNotice";
+import KeyboardShortcuts from "@/components/KeyboardShortcuts";
 import SettingsStatusNotice from "@/components/SettingsStatusNotice";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import ToastViewport from "@/components/ToastViewport";
@@ -34,10 +36,10 @@ import { applyMonacoTheme } from "@/lib/monaco";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useSystemStore } from "@/lib/stores/system";
-import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useHubrisWorkbenchStore } from "@/lib/stores/hubrisWorkbench";
+import { useKeybindingsStore } from "@/lib/stores/keybindings";
 import { useVscodeWorkbenchStore } from "@/lib/stores/vscodeWorkbench";
 import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
@@ -199,7 +201,10 @@ function AppHeader({
             size="sm"
             className="inline-flex"
             onClick={() => {
-              useCommandUiStore.getState().openPalette();
+              void executeCommand({
+                id: "app.openCommandPalette",
+                source: "button",
+              });
             }}
           >
             <Search className="h-4 w-4" />
@@ -254,6 +259,7 @@ export default function App() {
   const activeTheme = useSettingsStore((state) => state.activeTheme);
   const editorThemeData = useSettingsStore((state) => state.editorThemeData);
   const settingsStatus = useSettingsStore((state) => state.status);
+  const keybindingsStatus = useKeybindingsStore((state) => state.status);
   const isResizing = useSidebarWidthStore((state) => state.isResizing);
   const switchToWorktree = useTabStore((state) => state.switchToWorktree);
   const cachedHubrisWorktreeIds = useHubrisWorkbenchStore(
@@ -415,6 +421,7 @@ export default function App() {
             selectedWorktree={selectedWorktree}
           />
           <SettingsStatusNotice status={settingsStatus} />
+          <KeybindingsStatusNotice status={keybindingsStatus} />
           <div className="relative flex flex-1 overflow-hidden">
             {selectedWorktree ? (
               <>
@@ -447,6 +454,7 @@ export default function App() {
           </div>
           <CommandPalette />
           <CommandDialogs />
+          <KeyboardShortcuts />
           <ToastViewport />
         </SidebarInset>
       </SidebarProvider>

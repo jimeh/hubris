@@ -3,6 +3,7 @@ import type { SectionName } from "@/components/settings-dialog/sections";
 import type { Project, Tab, Worktree } from "@/lib/types";
 
 export type CommandId =
+  | "app.openCommandPalette"
   | "app.openSettings"
   | "pane.splitDown"
   | "pane.splitRight"
@@ -25,6 +26,7 @@ export type CommandId =
   | "worktree.setUiMode";
 
 export type CommandArgsById = {
+  "app.openCommandPalette": undefined;
   "app.openSettings": { section?: SectionName } | undefined;
   "pane.splitDown":
     | { paneId?: string; projectId?: string; worktreeId?: string }
@@ -107,6 +109,7 @@ export type CommandSource =
   | "command-palette"
   | "context-menu"
   | "dialog"
+  | "keyboard-shortcut"
   | "system"
   | "tab-bar";
 
