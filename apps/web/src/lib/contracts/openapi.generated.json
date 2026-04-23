@@ -9,6 +9,37 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/chats/models": {
+      "get": {
+        "tags": ["crate::api::chats"],
+        "operationId": "list_chat_models",
+        "responses": {
+          "200": {
+            "description": "Available Codex models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatModelOption"
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to query Codex models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/chats/{conversation_id}": {
       "get": {
         "tags": ["crate::api::chats"],
@@ -131,6 +162,55 @@
           },
           "500": {
             "description": "Failed to start Codex runtime",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}/settings": {
+      "patch": {
+        "tags": ["crate::api::chats"],
+        "operationId": "patch_chat_settings",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatConversationSettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated conversation summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatConversationSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -2845,6 +2925,35 @@
           }
         }
       },
+      "ChatConversationSettingsPatch": {
+        "type": "object",
+        "description": "Conversation-level model preferences that apply to future turns.",
+        "properties": {
+          "selectedEffort": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatReasoningEffort"
+              }
+            ]
+          },
+          "selectedModel": {
+            "type": ["string", "null"]
+          },
+          "selectedPermissionMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatPermissionMode"
+              }
+            ]
+          }
+        }
+      },
       "ChatConversationSummary": {
         "type": "object",
         "description": "Persisted summary for a conversation list row.",
@@ -2903,6 +3012,29 @@
             "format": "int64",
             "minimum": 0
           },
+          "selectedEffort": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatReasoningEffort"
+              }
+            ]
+          },
+          "selectedModel": {
+            "type": ["string", "null"]
+          },
+          "selectedPermissionMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatPermissionMode"
+              }
+            ]
+          },
           "sessionId": {
             "type": "string"
           },
@@ -2928,6 +3060,7 @@
           "role",
           "status",
           "contentText",
+          "reasoningText",
           "sequence",
           "createdAt",
           "updatedAt"
@@ -2949,6 +3082,9 @@
           },
           "providerTurnId": {
             "type": ["string", "null"]
+          },
+          "reasoningText": {
+            "type": "string"
           },
           "role": {
             "$ref": "#/components/schemas/ChatMessageRole"
@@ -2978,10 +3114,76 @@
         "description": "Persisted message lifecycle state.",
         "enum": ["pending", "streaming", "completed", "interrupted", "failed"]
       },
+      "ChatModelOption": {
+        "type": "object",
+        "description": "One selectable Codex model exposed by app-server.",
+        "required": [
+          "id",
+          "model",
+          "displayName",
+          "description",
+          "isDefault",
+          "hidden",
+          "defaultReasoningEffort",
+          "supportedReasoningEfforts"
+        ],
+        "properties": {
+          "defaultReasoningEffort": {
+            "$ref": "#/components/schemas/ChatReasoningEffort"
+          },
+          "description": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "supportedReasoningEfforts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatModelReasoningEffortOption"
+            }
+          }
+        }
+      },
+      "ChatModelReasoningEffortOption": {
+        "type": "object",
+        "description": "One reasoning-effort option supported by a Codex model.",
+        "required": ["reasoningEffort", "description"],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "reasoningEffort": {
+            "$ref": "#/components/schemas/ChatReasoningEffort"
+          }
+        }
+      },
+      "ChatPermissionMode": {
+        "type": "string",
+        "description": "Explicit permissions preset override. `None` means use Codex defaults.",
+        "enum": ["full_access"]
+      },
       "ChatProvider": {
         "type": "string",
         "description": "Supported chat providers.",
         "enum": ["codex"]
+      },
+      "ChatReasoningEffort": {
+        "type": "string",
+        "description": "Supported reasoning-effort values exposed by Codex model selection.",
+        "enum": ["none", "minimal", "low", "medium", "high", "xhigh"]
       },
       "ChatRun": {
         "type": "object",

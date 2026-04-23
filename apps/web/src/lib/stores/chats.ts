@@ -2,16 +2,21 @@ import { create } from "zustand";
 import {
   getChat,
   interruptChat,
+  listChatModels,
+  patchChatSettings,
   sendChatMessage,
   type ChatConversationSummary as ApiChatConversationSummary,
+  type ChatModelOption as ApiChatModelOption,
   type ChatRuntimeStatus as ApiChatRuntimeStatus,
 } from "@/lib/api";
 import { getEventClient, type SseEventData } from "@/lib/events";
 import { useTabStore } from "@/lib/stores/tabs";
 import type {
   ChatConversationDetail,
+  ChatConversationSettingsPatch,
   ChatConversationSummary,
   ChatMessage,
+  ChatModelOption,
   ChatRuntimeStatus,
   ChatRun,
 } from "@/lib/types";
@@ -27,14 +32,22 @@ type ChatStoreState = {
   conversationsById: Record<string, ChatConversationSummary>;
   runtimesByConversationId: Record<string, ChatRuntimeStatus>;
   detailsByConversationId: Record<string, ConversationDetailState>;
+  modelOptions: ChatModelOption[];
+  modelOptionsStatus: "idle" | "loading" | "loaded" | "error";
+  modelOptionsError: string | null;
   ensureConversationLoaded: (
     conversationId: string,
   ) => Promise<ChatConversationDetail | null>;
+  ensureModelsLoaded: () => Promise<ChatModelOption[]>;
   refreshConversation: (
     conversationId: string,
   ) => Promise<ChatConversationDetail | null>;
   sendMessage: (conversationId: string, text: string) => Promise<void>;
   interruptRun: (conversationId: string) => Promise<void>;
+  updateConversationSettings: (
+    conversationId: string,
+    patch: ChatConversationSettingsPatch,
+  ) => Promise<void>;
   clearConversationDetail: (conversationId: string) => void;
 };
 
@@ -59,6 +72,17 @@ function indexRuntimes(
   return Object.fromEntries(
     runtimes.map((runtime) => [runtime.conversationId, runtime]),
   );
+}
+
+function normalizeModelOptions(
+  models: readonly ApiChatModelOption[],
+): ChatModelOption[] {
+  return [...models].sort((left, right) => {
+    if (left.isDefault !== right.isDefault) {
+      return left.isDefault ? -1 : 1;
+    }
+    return left.displayName.localeCompare(right.displayName);
+  });
 }
 
 function sortMessages(messages: readonly ChatMessage[]): ChatMessage[] {
@@ -212,6 +236,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   conversationsById: {},
   runtimesByConversationId: {},
   detailsByConversationId: {},
+  modelOptions: [],
+  modelOptionsStatus: "idle",
+  modelOptionsError: null,
   async ensureConversationLoaded(conversationId) {
     const current = get().detailsByConversationId[conversationId];
     if (
@@ -226,6 +253,35 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }
     return loadConversation(conversationId);
   },
+  async ensureModelsLoaded() {
+    if (get().modelOptionsStatus === "loaded") {
+      return get().modelOptions;
+    }
+    if (get().modelOptionsStatus === "loading") {
+      return get().modelOptions;
+    }
+
+    set({
+      modelOptionsStatus: "loading",
+      modelOptionsError: null,
+    });
+    try {
+      const models = normalizeModelOptions(await listChatModels());
+      set({
+        modelOptions: models,
+        modelOptionsStatus: "loaded",
+        modelOptionsError: null,
+      });
+      return models;
+    } catch (error) {
+      set({
+        modelOptionsStatus: "error",
+        modelOptionsError:
+          error instanceof Error ? error.message : "Failed to load models",
+      });
+      return [];
+    }
+  },
   async refreshConversation(conversationId) {
     return loadConversation(conversationId);
   },
@@ -234,6 +290,13 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
   async interruptRun(conversationId) {
     await interruptChat(conversationId);
+  },
+  async updateConversationSettings(conversationId, patch) {
+    const summary = await patchChatSettings(conversationId, patch);
+    handleConversationEvent({
+      session_id: summary.sessionId,
+      conversation: summary,
+    });
   },
   clearConversationDetail(conversationId) {
     set((state) => {
@@ -398,5 +461,8 @@ export function resetChatStoreForTests(): void {
     conversationsById: {},
     runtimesByConversationId: {},
     detailsByConversationId: {},
+    modelOptions: [],
+    modelOptionsStatus: "idle",
+    modelOptionsError: null,
   });
 }

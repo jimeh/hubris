@@ -151,3 +151,7 @@ but too specific for the root `AGENTS.md` map.
 - Codex `app-server` `turn/start` expects `input` to be an array of input items,
   not a single object. Sending a lone map produces
   `invalid type: map, expected a sequence`.
+- Codex `app-server` uses different sandbox shapes for thread and turn APIs.
+  `thread/start` and `thread/resume` take `sandbox: "danger-full-access"` style
+  string enums, while `turn/start` takes object-shaped `sandboxPolicy` values
+  like `{ type: "dangerFullAccess" }`.

@@ -18,7 +18,9 @@ export type CommandId =
   | "tab.close"
   | "tab.focus"
   | "tab.newBrowser"
+  | "tab.newChat"
   | "tab.newTerminal"
+  | "tab.openChat"
   | "tab.pin"
   | "tab.renameTerminal"
   | "tab.resetTerminalName"
@@ -63,7 +65,11 @@ export type CommandArgsById = {
   "tab.newBrowser":
     | { paneId?: string; url?: string; worktreeId?: string }
     | undefined;
+  "tab.newChat": { paneId?: string; worktreeId?: string } | undefined;
   "tab.newTerminal": { paneId?: string; worktreeId?: string } | undefined;
+  "tab.openChat":
+    | { conversationId: string; paneId?: string; worktreeId?: string }
+    | undefined;
   "tab.pin": { tabId?: string } | undefined;
   "tab.renameTerminal": { name?: string; tabId?: string } | undefined;
   "tab.resetTerminalName": { tabId?: string } | undefined;

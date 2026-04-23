@@ -96,6 +96,11 @@ describe("command palette items", () => {
           title: "Switch Worktree",
         }),
         expect.objectContaining({
+          id: "tab.newChat",
+          key: "tab.newChat",
+          title: "New Chat Tab",
+        }),
+        expect.objectContaining({
           args: { projectId: project.id },
           id: "worktree.create",
           key: `worktree.create:${project.id}`,
@@ -167,6 +172,7 @@ describe("command palette items", () => {
 
     expect(items.some((item) => item.id === "tab.close")).toBe(false);
     expect(items.some((item) => item.id === "tab.newTerminal")).toBe(false);
+    expect(items.some((item) => item.id === "tab.newChat")).toBe(false);
   });
 
   it("skips dynamic items that would duplicate the current selection", () => {

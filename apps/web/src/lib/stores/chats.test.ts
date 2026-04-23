@@ -9,6 +9,8 @@ import {
 } from "./chats";
 
 const mockGetChat = vi.fn();
+const mockListChatModels = vi.fn();
+const mockPatchChatSettings = vi.fn();
 const mockSendChatMessage = vi.fn();
 const mockInterruptChat = vi.fn();
 
@@ -41,6 +43,8 @@ vi.mock("@/lib/api", async () => {
   return {
     ...actual,
     getChat: (...args: unknown[]) => mockGetChat(...args),
+    listChatModels: (...args: unknown[]) => mockListChatModels(...args),
+    patchChatSettings: (...args: unknown[]) => mockPatchChatSettings(...args),
     sendChatMessage: (...args: unknown[]) => mockSendChatMessage(...args),
     interruptChat: (...args: unknown[]) => mockInterruptChat(...args),
   };
@@ -68,6 +72,9 @@ const conversation = {
   provider: "codex" as const,
   providerThreadId: "thread-1",
   title: "New Chat",
+  selectedModel: null,
+  selectedEffort: null,
+  selectedPermissionMode: null,
   createdAt: 10,
   updatedAt: 10,
   lastActivityAt: 10,
@@ -88,6 +95,7 @@ const detail = {
       role: "assistant" as const,
       status: "streaming" as const,
       contentText: "Hello",
+      reasoningText: "",
       sequence: 1,
       createdAt: 10,
       updatedAt: 10,
@@ -108,6 +116,8 @@ describe("chat store", () => {
   beforeEach(() => {
     mockEvents = new MockEventClient();
     mockGetChat.mockReset();
+    mockListChatModels.mockReset();
+    mockPatchChatSettings.mockReset();
     mockSendChatMessage.mockReset();
     mockInterruptChat.mockReset();
     resetTabStoreForTests();
@@ -183,6 +193,20 @@ describe("chat store", () => {
         ?.messages[0]?.contentText,
     ).toBe("Hello world");
 
+    mockEvents.emit("chat_message_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      message: {
+        ...detail.messages[0],
+        reasoningText: "Inspecting the worktree state",
+      },
+    });
+
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
+        ?.messages[0]?.reasoningText,
+    ).toBe("Inspecting the worktree state");
+
     mockEvents.emit("chat_conversation_updated", {
       session_id: "default",
       conversation: {
@@ -195,5 +219,54 @@ describe("chat store", () => {
     expect(useTabStore.getState().tabs[0]?.label).toBe(
       "Investigate build failure",
     );
+  });
+
+  it("loads model options and applies conversation setting updates immediately", async () => {
+    initializeChatStore();
+    mockListChatModels.mockResolvedValue([
+      {
+        id: "gpt-5.4",
+        model: "gpt-5.4",
+        displayName: "GPT-5.4",
+        description: "Default",
+        isDefault: true,
+        hidden: false,
+        defaultReasoningEffort: "medium",
+        supportedReasoningEfforts: [
+          {
+            reasoningEffort: "low",
+            description: "Low",
+          },
+          {
+            reasoningEffort: "medium",
+            description: "Medium",
+          },
+        ],
+      },
+    ]);
+    mockPatchChatSettings.mockResolvedValue({
+      ...conversation,
+      selectedModel: "gpt-5.4",
+      selectedEffort: "medium",
+      selectedPermissionMode: "full_access",
+      revision: 2,
+    });
+
+    const models = await useChatStore.getState().ensureModelsLoaded();
+    expect(models[0]?.model).toBe("gpt-5.4");
+
+    await useChatStore.getState().updateConversationSettings("chat-1", {
+      selectedModel: "gpt-5.4",
+      selectedEffort: "medium",
+      selectedPermissionMode: "full_access",
+    });
+
+    expect(
+      useChatStore.getState().conversationsById["chat-1"]?.selectedModel,
+    ).toBe("gpt-5.4");
+    expect(
+      useChatStore.getState().conversationsById["chat-1"]
+        ?.selectedPermissionMode,
+    ).toBe("full_access");
   });
 });

@@ -6,7 +6,10 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
-use crate::chat::{ChatConversationDetail, ChatConversationSummary, ChatServiceError};
+use crate::chat::{
+    ChatConversationDetail, ChatConversationSettingsPatch, ChatConversationSummary,
+    ChatModelOption, ChatServiceError,
+};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -63,6 +66,21 @@ pub async fn list_project_worktree_chats(
 
 #[utoipa::path(
     get,
+    path = "/api/chats/models",
+    responses(
+        (status = 200, description = "Available Codex models", body = [ChatModelOption]),
+        (status = 502, description = "Failed to query Codex models", body = ApiErrorResponse),
+    ),
+)]
+pub async fn list_chat_models(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ChatModelOption>>, (StatusCode, Json<ApiErrorResponse>)> {
+    let models = state.chats.list_models().await.map_err(map_chat_error)?;
+    Ok(Json(models))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/chats/{conversation_id}",
     params(
         ("conversation_id" = String, Path, description = "Conversation ID"),
@@ -90,6 +108,31 @@ pub async fn get_chat(
             )
         })?;
     Ok(Json(detail))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/chats/{conversation_id}/settings",
+    request_body = ChatConversationSettingsPatch,
+    params(
+        ("conversation_id" = String, Path, description = "Conversation ID"),
+    ),
+    responses(
+        (status = 200, description = "Updated conversation summary", body = ChatConversationSummary),
+        (status = 404, description = "Conversation not found", body = ApiErrorResponse),
+    ),
+)]
+pub async fn patch_chat_settings(
+    State(state): State<AppState>,
+    Path(conversation_id): Path<String>,
+    Json(request): Json<ChatConversationSettingsPatch>,
+) -> Result<Json<ChatConversationSummary>, (StatusCode, Json<ApiErrorResponse>)> {
+    let summary = state
+        .chats
+        .update_conversation_settings(&conversation_id, request)
+        .await
+        .map_err(map_chat_error)?;
+    Ok(Json(summary))
 }
 
 #[utoipa::path(

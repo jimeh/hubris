@@ -494,7 +494,6 @@ export default function WorktreeView({ worktree, active }: Props) {
     focusPane,
     setSplitRatio,
     persistLayout,
-    openAgentChat,
     removeLocal,
   } = useTabStore(
     useShallow((state) => ({
@@ -508,7 +507,6 @@ export default function WorktreeView({ worktree, active }: Props) {
       focusPane: state.focusPane,
       setSplitRatio: state.setSplitRatio,
       persistLayout: state.persistLayout,
-      openAgentChat: state.openAgentChat,
       removeLocal: state.removeLocal,
     })),
   );
@@ -997,7 +995,11 @@ export default function WorktreeView({ worktree, active }: Props) {
             });
           }}
           onAddChat={async () => {
-            await openAgentChat({ worktreeId: worktree.id, paneId });
+            await executeCommand({
+              args: { paneId, worktreeId: worktree.id },
+              id: "tab.newChat",
+              source: "button",
+            });
           }}
           onSplitRight={() => {
             void executeCommand({
@@ -1041,7 +1043,6 @@ export default function WorktreeView({ worktree, active }: Props) {
       handlePinTab,
       handleResetTerminalTabName,
       lockedTabIds,
-      openAgentChat,
       paneTabsById,
       registerViewport,
       tabBarActionsByTabId,

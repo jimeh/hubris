@@ -187,6 +187,10 @@ export type ChatConversationSummary =
 export type ChatConversationDetail =
   components["schemas"]["ChatConversationDetail"];
 export type ChatRuntimeStatus = components["schemas"]["ChatRuntimeStatus"];
+export type ChatModelOption = components["schemas"]["ChatModelOption"];
+export type ChatPermissionMode = components["schemas"]["ChatPermissionMode"];
+export type ChatConversationSettingsPatch =
+  components["schemas"]["ChatConversationSettingsPatch"];
 type SendChatMessageRequest = components["schemas"]["SendChatMessageRequest"];
 
 export async function listProjectWorktreeStartPoints(
@@ -630,6 +634,31 @@ export async function getChat(
   conversationId: string,
 ): Promise<ChatConversationDetail> {
   const res = await fetch(`${BASE}/chats/${conversationId}`);
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function listChatModels(): Promise<ChatModelOption[]> {
+  const res = await fetch(`${BASE}/chats/models`);
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function patchChatSettings(
+  conversationId: string,
+  patch: ChatConversationSettingsPatch,
+): Promise<ChatConversationSummary> {
+  const res = await fetch(`${BASE}/chats/${conversationId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
   if (!res.ok) {
     const message = await readApiErrorMessage(res);
     throwStatusError(res.status, message ?? undefined);

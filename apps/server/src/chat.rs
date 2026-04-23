@@ -47,6 +47,68 @@ impl ChatProvider {
     }
 }
 
+/// Supported reasoning-effort values exposed by Codex model selection.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatReasoningEffort {
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+}
+
+impl ChatReasoningEffort {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+        }
+    }
+}
+
+/// One reasoning-effort option supported by a Codex model.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelReasoningEffortOption {
+    pub reasoning_effort: ChatReasoningEffort,
+    pub description: String,
+}
+
+/// One selectable Codex model exposed by app-server.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelOption {
+    pub id: String,
+    pub model: String,
+    pub display_name: String,
+    pub description: String,
+    pub is_default: bool,
+    pub hidden: bool,
+    pub default_reasoning_effort: ChatReasoningEffort,
+    pub supported_reasoning_efforts: Vec<ChatModelReasoningEffortOption>,
+}
+
+/// Explicit permissions preset override. `None` means use Codex defaults.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatPermissionMode {
+    FullAccess,
+}
+
+impl ChatPermissionMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::FullAccess => "full_access",
+        }
+    }
+}
+
 /// Persisted message role for a conversation transcript item.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -146,6 +208,12 @@ pub struct ChatConversationSummary {
     pub last_message_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_effort: Option<ChatReasoningEffort>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_permission_mode: Option<ChatPermissionMode>,
     pub last_run_state: ChatRunStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
@@ -164,6 +232,7 @@ pub struct ChatMessage {
     pub role: ChatMessageRole,
     pub status: ChatMessageStatus,
     pub content_text: String,
+    pub reasoning_text: String,
     pub sequence: u32,
     #[ts(type = "number")]
     pub created_at: u64,
@@ -235,6 +304,15 @@ pub struct ChatSettings {
     pub idle_timeout_minutes: u32,
 }
 
+/// Conversation-level model preferences that apply to future turns.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatConversationSettingsPatch {
+    pub selected_model: Option<String>,
+    pub selected_effort: Option<ChatReasoningEffort>,
+    pub selected_permission_mode: Option<ChatPermissionMode>,
+}
+
 impl Default for ChatSettings {
     fn default() -> Self {
         Self {
@@ -294,6 +372,7 @@ struct RuntimeState {
     active_run_id: Option<String>,
     active_message_id: Option<String>,
     lifecycle: ChatRuntimeLifecycle,
+    active_reasoning_summary_index: Option<u64>,
     idle_generation: u64,
     shutting_down: bool,
 }
@@ -308,6 +387,7 @@ impl RuntimeState {
             active_run_id: None,
             active_message_id: None,
             lifecycle: ChatRuntimeLifecycle::Starting,
+            active_reasoning_summary_index: None,
             idle_generation: 0,
             shutting_down: false,
         }
@@ -563,6 +643,9 @@ struct ConversationRow {
     last_activity_at_ms: i64,
     last_message_at_ms: Option<i64>,
     open_tab_id: Option<String>,
+    selected_model: Option<String>,
+    selected_effort: Option<String>,
+    selected_permission_mode: Option<String>,
     last_run_state: String,
     last_error: Option<String>,
     revision: i64,
@@ -576,6 +659,7 @@ struct MessageRow {
     role: String,
     status: String,
     content_text: String,
+    reasoning_text: String,
     sequence: i64,
     created_at_ms: i64,
     updated_at_ms: i64,
@@ -686,6 +770,7 @@ impl ChatService {
                 id, session_id, project_id, worktree_id, provider,
                 provider_thread_id, title, created_at_ms, updated_at_ms,
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
+                selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error, revision
             FROM chat_conversations
             WHERE id = ?
@@ -710,6 +795,7 @@ impl ChatService {
                 id, session_id, project_id, worktree_id, provider,
                 provider_thread_id, title, created_at_ms, updated_at_ms,
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
+                selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error, revision
             FROM chat_conversations
             WHERE project_id = ? AND worktree_id = ? AND session_id = ?
@@ -735,6 +821,7 @@ impl ChatService {
                 id, session_id, project_id, worktree_id, provider,
                 provider_thread_id, title, created_at_ms, updated_at_ms,
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
+                selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error, revision
             FROM chat_conversations
             WHERE session_id = ?
@@ -760,7 +847,8 @@ impl ChatService {
             "
             SELECT
                 id, conversation_id, provider_turn_id, role, status,
-                content_text, sequence, created_at_ms, updated_at_ms
+                content_text, reasoning_text, sequence, created_at_ms,
+                updated_at_ms
             FROM chat_messages
             WHERE conversation_id = ?
             ORDER BY sequence ASC, created_at_ms ASC, id ASC
@@ -908,6 +996,67 @@ impl ChatService {
         Ok(statuses)
     }
 
+    /// List Codex models available to the current app-server installation.
+    pub async fn list_models(&self) -> Result<Vec<ChatModelOption>, ChatServiceError> {
+        let client = CodexAppServerClient::spawn().await?;
+        let response = client
+            .request("model/list", json!({ "includeHidden": false }))
+            .await;
+        client.shutdown().await;
+        let response = response?;
+
+        let models = response
+            .get("data")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(model_option_from_value)
+            .collect::<Vec<_>>();
+        Ok(models)
+    }
+
+    /// Persist conversation-level model settings used for future turns.
+    pub async fn update_conversation_settings(
+        &self,
+        conversation_id: &str,
+        patch: ChatConversationSettingsPatch,
+    ) -> Result<ChatConversationSummary, ChatServiceError> {
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_conversations
+            SET
+                selected_model = ?,
+                selected_effort = ?,
+                selected_permission_mode = ?,
+                updated_at_ms = ?,
+                last_activity_at_ms = ?,
+                revision = revision + 1
+            WHERE id = ?
+            ",
+        )
+        .bind(patch.selected_model)
+        .bind(
+            patch
+                .selected_effort
+                .map(|value| value.as_str().to_string()),
+        )
+        .bind(
+            patch
+                .selected_permission_mode
+                .map(|value| value.as_str().to_string()),
+        )
+        .bind(now)
+        .bind(now)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+
+        self.emit_conversation_updated(conversation_id)
+            .await?
+            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))
+    }
+
     /// Persist a new user message, ensure a runtime exists, and start a turn.
     pub async fn send_message(
         self: &Arc<Self>,
@@ -951,35 +1100,54 @@ impl ChatService {
             state.active_run_id = Some(run_id.clone());
             state.active_message_id = Some(assistant_message_id.clone());
             state.lifecycle = ChatRuntimeLifecycle::Running;
+            state.active_reasoning_summary_index = None;
             state.shutting_down = false;
             state.idle_generation = state.idle_generation.saturating_add(1);
         }
         self.emit_runtime_status(conversation_id, &runtime.state, None)
             .await;
 
-        let turn_response = runtime
-            .client
-            .request(
-                "turn/start",
-                json!({
-                    "threadId": runtime
-                        .state
-                        .lock()
-                        .await
-                        .provider_thread_id
-                        .clone()
-                        .ok_or_else(|| ChatServiceError::new(
+        let mut turn_params = serde_json::Map::new();
+        turn_params.insert(
+            "threadId".to_string(),
+            Value::String(
+                runtime
+                    .state
+                    .lock()
+                    .await
+                    .provider_thread_id
+                    .clone()
+                    .ok_or_else(|| {
+                        ChatServiceError::new(
                             StatusCode::INTERNAL_SERVER_ERROR,
                             "chat runtime missing thread id",
-                        ))?,
-                    "input": [
-                        {
-                            "type": "text",
-                            "text": text,
-                        }
-                    ]
-                }),
-            )
+                        )
+                    })?,
+            ),
+        );
+        turn_params.insert(
+            "input".to_string(),
+            json!([
+                {
+                    "type": "text",
+                    "text": text,
+                }
+            ]),
+        );
+        if let Some(model) = &conversation.selected_model {
+            turn_params.insert("model".to_string(), Value::String(model.clone()));
+        }
+        if let Some(effort) = conversation.selected_effort {
+            turn_params.insert(
+                "effort".to_string(),
+                Value::String(effort.as_str().to_string()),
+            );
+        }
+        apply_turn_permission_mode(&mut turn_params, conversation.selected_permission_mode);
+
+        let turn_response = runtime
+            .client
+            .request("turn/start", Value::Object(turn_params))
             .await?;
         let provider_turn_id = extract_turn_id(&turn_response);
         self.attach_turn_to_run(
@@ -1049,33 +1217,41 @@ impl ChatService {
             .insert(conversation_id.to_string(), runtime.clone());
         self.spawn_provider_event_loop(conversation_id.to_string(), runtime.clone());
 
-        let provider_thread_id = if let Some(provider_thread_id) = &conversation.provider_thread_id
-        {
+        let resume_or_start = if let Some(provider_thread_id) = &conversation.provider_thread_id {
+            let mut params = serde_json::Map::new();
+            params.insert(
+                "threadId".to_string(),
+                Value::String(provider_thread_id.clone()),
+            );
+            apply_thread_permission_mode(&mut params, conversation.selected_permission_mode);
             let result = client
-                .request(
-                    "thread/resume",
-                    json!({
-                        "threadId": provider_thread_id,
-                    }),
-                )
+                .request("thread/resume", Value::Object(params))
                 .await?;
-            extract_thread_id(&result).unwrap_or_else(|| provider_thread_id.clone())
+            (
+                extract_thread_id(&result).unwrap_or_else(|| provider_thread_id.clone()),
+                result,
+            )
         } else {
+            let mut params = serde_json::Map::new();
+            params.insert("cwd".to_string(), Value::String(worktree_path.to_string()));
+            if let Some(model) = &conversation.selected_model {
+                params.insert("model".to_string(), Value::String(model.clone()));
+            }
+            apply_thread_permission_mode(&mut params, conversation.selected_permission_mode);
             let result = client
-                .request(
-                    "thread/start",
-                    json!({
-                        "cwd": worktree_path,
-                    }),
-                )
+                .request("thread/start", Value::Object(params))
                 .await?;
-            extract_thread_id(&result).ok_or_else(|| {
-                ChatServiceError::new(
-                    StatusCode::BAD_GATEWAY,
-                    "codex app-server did not return a thread id",
-                )
-            })?
+            (
+                extract_thread_id(&result).ok_or_else(|| {
+                    ChatServiceError::new(
+                        StatusCode::BAD_GATEWAY,
+                        "codex app-server did not return a thread id",
+                    )
+                })?,
+                result,
+            )
         };
+        let (provider_thread_id, thread_response) = resume_or_start;
 
         {
             let mut state = runtime.state.lock().await;
@@ -1087,6 +1263,12 @@ impl ChatService {
 
         self.persist_provider_thread_id(conversation_id, &provider_thread_id)
             .await?;
+        self.persist_thread_preferences(
+            conversation_id,
+            extract_model(&thread_response),
+            extract_reasoning_effort(&thread_response),
+        )
+        .await?;
         self.emit_runtime_status(conversation_id, &runtime.state, None)
             .await;
         self.reconcile_inflight_run_if_needed(conversation_id, &runtime, worktree_path)
@@ -1137,6 +1319,47 @@ impl ChatService {
         params: Value,
     ) -> Result<(), ChatServiceError> {
         match method {
+            "item/reasoning/summaryTextDelta" => {
+                let delta = params
+                    .get("delta")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if delta.is_empty() {
+                    return Ok(());
+                }
+                let summary_index = params
+                    .get("summaryIndex")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                let (message_id, session_id, prefixed_delta) = {
+                    let mut state = runtime.state.lock().await;
+                    let Some(message_id) = state.active_message_id.clone() else {
+                        return Ok(());
+                    };
+                    let needs_separator = matches!(
+                        state.active_reasoning_summary_index,
+                        Some(current) if current != summary_index
+                    );
+                    state.active_reasoning_summary_index = Some(summary_index);
+                    let prefix = if needs_separator { "\n\n" } else { "" };
+                    (
+                        message_id,
+                        state.session_id.clone(),
+                        format!("{prefix}{delta}"),
+                    )
+                };
+                let Some(message) = self
+                    .append_message_reasoning_delta(conversation_id, &message_id, &prefixed_delta)
+                    .await?
+                else {
+                    return Ok(());
+                };
+                self.events.emit(EventKind::ChatMessageUpdated {
+                    session_id,
+                    conversation_id: conversation_id.to_string(),
+                    message,
+                });
+            }
             "item/agentMessage/delta" => {
                 let delta = params
                     .get("delta")
@@ -1195,6 +1418,7 @@ impl ChatService {
                 let (run_id, message_id, session_id, generation) = {
                     let mut state = runtime.state.lock().await;
                     state.lifecycle = ChatRuntimeLifecycle::Ready;
+                    state.active_reasoning_summary_index = None;
                     state.idle_generation = state.idle_generation.saturating_add(1);
                     let generation = state.idle_generation;
                     (
@@ -1275,6 +1499,7 @@ impl ChatService {
             } else {
                 ChatRuntimeLifecycle::Failed
             };
+            state.active_reasoning_summary_index = None;
             (
                 state.active_run_id.take(),
                 state.active_message_id.take(),
@@ -1488,6 +1713,40 @@ impl ChatService {
         Ok(())
     }
 
+    async fn persist_thread_preferences(
+        &self,
+        conversation_id: &str,
+        selected_model: Option<String>,
+        selected_effort: Option<ChatReasoningEffort>,
+    ) -> Result<(), ChatServiceError> {
+        if selected_model.is_none() && selected_effort.is_none() {
+            return Ok(());
+        }
+
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_conversations
+            SET
+                selected_model = COALESCE(?, selected_model),
+                selected_effort = COALESCE(?, selected_effort),
+                updated_at_ms = ?,
+                last_activity_at_ms = ?,
+                revision = revision + 1
+            WHERE id = ?
+            ",
+        )
+        .bind(selected_model)
+        .bind(selected_effort.map(|value| value.as_str().to_string()))
+        .bind(now)
+        .bind(now)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        let _ = self.emit_conversation_updated(conversation_id).await?;
+        Ok(())
+    }
+
     async fn persist_run_start(
         &self,
         conversation: &ChatConversationSummary,
@@ -1520,8 +1779,8 @@ impl ChatService {
             "
             INSERT INTO chat_messages (
                 id, conversation_id, role, status, content_text,
-                sequence, created_at_ms, updated_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                reasoning_text, sequence, created_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ",
         )
         .bind(user_message_id)
@@ -1529,6 +1788,7 @@ impl ChatService {
         .bind(ChatMessageRole::User.as_str())
         .bind(ChatMessageStatus::Completed.as_str())
         .bind(text)
+        .bind("")
         .bind(i64::from(next_sequence))
         .bind(now)
         .bind(now)
@@ -1539,14 +1799,15 @@ impl ChatService {
             "
             INSERT INTO chat_messages (
                 id, conversation_id, role, status, content_text,
-                sequence, created_at_ms, updated_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                reasoning_text, sequence, created_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ",
         )
         .bind(assistant_message_id)
         .bind(&conversation.id)
         .bind(ChatMessageRole::Assistant.as_str())
         .bind(ChatMessageStatus::Streaming.as_str())
+        .bind("")
         .bind("")
         .bind(i64::from(next_sequence + 1))
         .bind(now)
@@ -1711,6 +1972,44 @@ impl ChatService {
         Ok(())
     }
 
+    async fn append_message_reasoning_delta(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+        delta: &str,
+    ) -> Result<Option<ChatMessage>, ChatServiceError> {
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_messages
+            SET reasoning_text = reasoning_text || ?, updated_at_ms = ?,
+                status = ?
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(delta)
+        .bind(now)
+        .bind(ChatMessageStatus::Streaming.as_str())
+        .bind(message_id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(
+            "
+            UPDATE chat_conversations
+            SET updated_at_ms = ?, last_activity_at_ms = ?, revision = revision + 1
+            WHERE id = ?
+            ",
+        )
+        .bind(now)
+        .bind(now)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        self.get_message_by_id(conversation_id, Some(message_id))
+            .await
+    }
+
     async fn replace_message_content(
         &self,
         conversation_id: &str,
@@ -1863,7 +2162,8 @@ impl ChatService {
             "
             SELECT
                 id, conversation_id, provider_turn_id, role, status,
-                content_text, sequence, created_at_ms, updated_at_ms
+                content_text, reasoning_text, sequence, created_at_ms,
+                updated_at_ms
             FROM chat_messages
             WHERE conversation_id = ? AND id = ?
             ",
@@ -1935,6 +2235,12 @@ fn conversation_from_row(row: ConversationRow) -> ChatConversationSummary {
         last_activity_at: row.last_activity_at_ms.max(0) as u64,
         last_message_at: row.last_message_at_ms.map(|value| value.max(0) as u64),
         open_tab_id: row.open_tab_id,
+        selected_model: row.selected_model,
+        selected_effort: row.selected_effort.as_deref().map(parse_reasoning_effort),
+        selected_permission_mode: row
+            .selected_permission_mode
+            .as_deref()
+            .and_then(parse_permission_mode),
         last_run_state: parse_run_status(&row.last_run_state),
         last_error: row.last_error,
         revision: row.revision.max(0) as u64,
@@ -1960,6 +2266,7 @@ fn message_from_row(row: MessageRow) -> ChatMessage {
         },
         status: parse_message_status(&row.status),
         content_text: row.content_text,
+        reasoning_text: row.reasoning_text,
         sequence: row.sequence.max(0) as u32,
         created_at: row.created_at_ms.max(0) as u64,
         updated_at: row.updated_at_ms.max(0) as u64,
@@ -1995,6 +2302,24 @@ fn parse_run_status(value: &str) -> ChatRunStatus {
         "interrupted" => ChatRunStatus::Interrupted,
         "failed" => ChatRunStatus::Failed,
         _ => ChatRunStatus::Completed,
+    }
+}
+
+fn parse_reasoning_effort(value: &str) -> ChatReasoningEffort {
+    match value {
+        "none" => ChatReasoningEffort::None,
+        "minimal" => ChatReasoningEffort::Minimal,
+        "low" => ChatReasoningEffort::Low,
+        "high" => ChatReasoningEffort::High,
+        "xhigh" => ChatReasoningEffort::Xhigh,
+        _ => ChatReasoningEffort::Medium,
+    }
+}
+
+fn parse_permission_mode(value: &str) -> Option<ChatPermissionMode> {
+    match value {
+        "full_access" => Some(ChatPermissionMode::FullAccess),
+        _ => None,
     }
 }
 
@@ -2036,6 +2361,54 @@ fn extract_turn_id(value: &Value) -> Option<String> {
         .or_else(|| value.get("id").and_then(Value::as_str).map(str::to_string))
 }
 
+fn extract_model(value: &Value) -> Option<String> {
+    value
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn extract_reasoning_effort(value: &Value) -> Option<ChatReasoningEffort> {
+    value
+        .get("reasoningEffort")
+        .and_then(Value::as_str)
+        .map(parse_reasoning_effort)
+}
+
+fn apply_thread_permission_mode(
+    params: &mut serde_json::Map<String, Value>,
+    permission_mode: Option<ChatPermissionMode>,
+) {
+    if matches!(permission_mode, Some(ChatPermissionMode::FullAccess)) {
+        params.insert(
+            "approvalPolicy".to_string(),
+            Value::String("never".to_string()),
+        );
+        params.insert(
+            "sandbox".to_string(),
+            Value::String("danger-full-access".to_string()),
+        );
+    }
+}
+
+fn apply_turn_permission_mode(
+    params: &mut serde_json::Map<String, Value>,
+    permission_mode: Option<ChatPermissionMode>,
+) {
+    if matches!(permission_mode, Some(ChatPermissionMode::FullAccess)) {
+        params.insert(
+            "approvalPolicy".to_string(),
+            Value::String("never".to_string()),
+        );
+        params.insert(
+            "sandboxPolicy".to_string(),
+            json!({
+                "type": "dangerFullAccess",
+            }),
+        );
+    }
+}
+
 fn extract_turn_text(turn: &Value) -> Option<String> {
     turn.pointer("/items")
         .and_then(Value::as_array)
@@ -2054,4 +2427,37 @@ fn extract_thread_read_text(value: &Value) -> Option<String> {
         .pointer("/thread/turns")
         .and_then(Value::as_array)
         .and_then(|turns| turns.iter().rev().find_map(extract_turn_text))
+}
+
+fn model_option_from_value(value: &Value) -> Option<ChatModelOption> {
+    let supported_reasoning_efforts = value
+        .get("supportedReasoningEfforts")
+        .and_then(Value::as_array)
+        .map(|options| {
+            options
+                .iter()
+                .filter_map(|option| {
+                    Some(ChatModelReasoningEffortOption {
+                        reasoning_effort: parse_reasoning_effort(
+                            option.get("reasoningEffort")?.as_str()?,
+                        ),
+                        description: option.get("description")?.as_str()?.to_string(),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Some(ChatModelOption {
+        id: value.get("id")?.as_str()?.to_string(),
+        model: value.get("model")?.as_str()?.to_string(),
+        display_name: value.get("displayName")?.as_str()?.to_string(),
+        description: value.get("description")?.as_str()?.to_string(),
+        is_default: value.get("isDefault")?.as_bool()?,
+        hidden: value.get("hidden")?.as_bool()?,
+        default_reasoning_effort: parse_reasoning_effort(
+            value.get("defaultReasoningEffort")?.as_str()?,
+        ),
+        supported_reasoning_efforts,
+    })
 }

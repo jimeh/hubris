@@ -32,11 +32,18 @@ export type ChatConversationSummary =
   components["schemas"]["ChatConversationSummary"];
 export type ChatConversationDetail =
   components["schemas"]["ChatConversationDetail"];
+export type ChatConversationSettingsPatch =
+  components["schemas"]["ChatConversationSettingsPatch"];
 export type ChatMessage = components["schemas"]["ChatMessage"];
+export type ChatModelOption = components["schemas"]["ChatModelOption"];
+export type ChatModelReasoningEffortOption =
+  components["schemas"]["ChatModelReasoningEffortOption"];
+export type ChatPermissionMode = components["schemas"]["ChatPermissionMode"];
 export type ChatRun = components["schemas"]["ChatRun"];
 export type ChatRuntimeStatus = components["schemas"]["ChatRuntimeStatus"];
 export type ChatMessageRole = components["schemas"]["ChatMessageRole"];
 export type ChatMessageStatus = components["schemas"]["ChatMessageStatus"];
+export type ChatReasoningEffort = components["schemas"]["ChatReasoningEffort"];
 export type ChatRunStatus = components["schemas"]["ChatRunStatus"];
 export type ChatRuntimeLifecycle =
   components["schemas"]["ChatRuntimeLifecycle"];

@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+  "/api/chats/models": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_chat_models"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/chats/{conversation_id}": {
     parameters: {
       query?: never;
@@ -50,6 +66,22 @@ export interface paths {
     options?: never;
     head?: never;
     patch?: never;
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}/settings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["patch_chat_settings"];
     trace?: never;
   };
   "/api/editor-themes": {
@@ -891,6 +923,14 @@ export interface components {
       latestRun?: null | components["schemas"]["ChatRun"];
       messages: components["schemas"]["ChatMessage"][];
     };
+    /** @description Conversation-level model preferences that apply to future turns. */
+    ChatConversationSettingsPatch: {
+      selectedEffort?: null | components["schemas"]["ChatReasoningEffort"];
+      selectedModel?: string | null;
+      selectedPermissionMode?:
+        | null
+        | components["schemas"]["ChatPermissionMode"];
+    };
     /** @description Persisted summary for a conversation list row. */
     ChatConversationSummary: {
       /** Format: int64 */
@@ -908,6 +948,11 @@ export interface components {
       providerThreadId?: string | null;
       /** Format: int64 */
       revision: number;
+      selectedEffort?: null | components["schemas"]["ChatReasoningEffort"];
+      selectedModel?: string | null;
+      selectedPermissionMode?:
+        | null
+        | components["schemas"]["ChatPermissionMode"];
       sessionId: string;
       title: string;
       /** Format: int64 */
@@ -922,6 +967,7 @@ export interface components {
       createdAt: number;
       id: string;
       providerTurnId?: string | null;
+      reasoningText: string;
       role: components["schemas"]["ChatMessageRole"];
       /** Format: int32 */
       sequence: number;
@@ -944,11 +990,43 @@ export interface components {
       | "completed"
       | "interrupted"
       | "failed";
+    /** @description One selectable Codex model exposed by app-server. */
+    ChatModelOption: {
+      defaultReasoningEffort: components["schemas"]["ChatReasoningEffort"];
+      description: string;
+      displayName: string;
+      hidden: boolean;
+      id: string;
+      isDefault: boolean;
+      model: string;
+      supportedReasoningEfforts: components["schemas"]["ChatModelReasoningEffortOption"][];
+    };
+    /** @description One reasoning-effort option supported by a Codex model. */
+    ChatModelReasoningEffortOption: {
+      description: string;
+      reasoningEffort: components["schemas"]["ChatReasoningEffort"];
+    };
+    /**
+     * @description Explicit permissions preset override. `None` means use Codex defaults.
+     * @enum {string}
+     */
+    ChatPermissionMode: "full_access";
     /**
      * @description Supported chat providers.
      * @enum {string}
      */
     ChatProvider: "codex";
+    /**
+     * @description Supported reasoning-effort values exposed by Codex model selection.
+     * @enum {string}
+     */
+    ChatReasoningEffort:
+      | "none"
+      | "minimal"
+      | "low"
+      | "medium"
+      | "high"
+      | "xhigh";
     /** @description Persisted run summary. */
     ChatRun: {
       conversationId: string;
@@ -1769,6 +1847,35 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  list_chat_models: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Available Codex models */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatModelOption"][];
+        };
+      };
+      /** @description Failed to query Codex models */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
   get_chat: {
     parameters: {
       query?: never;
@@ -1874,6 +1981,42 @@ export interface operations {
       };
       /** @description Failed to start Codex runtime */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  patch_chat_settings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ChatConversationSettingsPatch"];
+      };
+    };
+    responses: {
+      /** @description Updated conversation summary */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatConversationSummary"];
+        };
+      };
+      /** @description Conversation not found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
+import { executeCommand } from "@/lib/commands";
 import { useChatStore } from "@/lib/stores/chats";
 import { useTabStore } from "@/lib/stores/tabs";
 import type {
@@ -54,7 +55,6 @@ function runtimeLabel(
 }
 
 export default function WorktreeChatsPanel({ worktree }: Props) {
-  const openAgentChat = useTabStore((state) => state.openAgentChat);
   const activeTabId = useTabStore((state) => state.activeTabId);
   const tabs = useTabStore((state) => state.tabs);
   const conversationsById = useChatStore((state) => state.conversationsById);
@@ -90,7 +90,11 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
         <Button
           className="w-full justify-start gap-2"
           onClick={() => {
-            void openAgentChat({ worktreeId: worktree.id });
+            void executeCommand({
+              args: { worktreeId: worktree.id },
+              id: "tab.newChat",
+              source: "button",
+            });
           }}
         >
           <MessageSquarePlus className="h-4 w-4" />
@@ -120,9 +124,13 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
                         : "border-transparent hover:border-border hover:bg-muted/40",
                     )}
                     onClick={() => {
-                      void openAgentChat({
-                        worktreeId: worktree.id,
-                        conversationId: conversation.id,
+                      void executeCommand({
+                        args: {
+                          conversationId: conversation.id,
+                          worktreeId: worktree.id,
+                        },
+                        id: "tab.openChat",
+                        source: "button",
                       });
                     }}
                   >

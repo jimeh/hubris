@@ -132,6 +132,8 @@ describe("command runtime", () => {
         "worktree.selectPrevious",
         "worktree.showHistorySwitcher",
         "tab.newTerminal",
+        "tab.newChat",
+        "tab.openChat",
         "settings.openSection",
       ]),
     );
@@ -154,6 +156,41 @@ describe("command runtime", () => {
     expect(getCommandAvailability("tab.newTerminal")).toEqual({
       enabled: true,
       reason: undefined,
+    });
+    expect(getCommandAvailability("tab.newChat")).toEqual({
+      enabled: true,
+      reason: undefined,
+    });
+  });
+
+  it("creates chat tabs through the command runtime", async () => {
+    const { worktreeOne } = seedContext();
+    const tab = {
+      id: "chat-tab-1",
+      label: "New Chat",
+      position: 2,
+      worktree_id: worktreeOne.id,
+      pane_id: "pane-1",
+      session_id: "default",
+      type: "agent_chat" as const,
+      created_at: 0,
+      preview: false,
+      conversation_id: "conversation-1",
+    };
+    const openAgentChatSpy = vi
+      .spyOn(useTabStore.getState(), "openAgentChat")
+      .mockResolvedValue(tab);
+
+    const result = await executeCommand({
+      args: { paneId: "pane-2", worktreeId: worktreeOne.id },
+      id: "tab.newChat",
+      source: "button",
+    });
+
+    expect(result).toEqual({ status: "success" });
+    expect(openAgentChatSpy).toHaveBeenCalledWith({
+      paneId: "pane-2",
+      worktreeId: worktreeOne.id,
     });
   });
 
