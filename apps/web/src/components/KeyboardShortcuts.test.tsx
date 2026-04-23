@@ -2,6 +2,7 @@ import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import KeyboardShortcuts from "./KeyboardShortcuts";
 import { useKeybindingsStore } from "@/lib/stores/keybindings";
+import { useSettingsStore } from "@/lib/stores/settings";
 
 const mocks = vi.hoisted(() => ({
   executeCommand: vi.fn(),
@@ -41,7 +42,7 @@ describe("KeyboardShortcuts", () => {
             command: "tab.newTerminal",
             key: "ctrl+k",
             source: "user",
-            when: "selectedWorktree && !inputFocus && !terminalFocus",
+            when: "selectedWorktree && (!inputFocus || terminalFocus)",
           },
           {
             command: "app.openCommandPalette",
@@ -53,6 +54,15 @@ describe("KeyboardShortcuts", () => {
         conflicts: [],
       },
     });
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        terminal: {
+          ...state.settings.terminal,
+          sendKeybindingsToShell: false,
+        },
+      },
+    }));
   });
 
   afterEach(() => {
@@ -95,11 +105,47 @@ describe("KeyboardShortcuts", () => {
     expect(mocks.executeCommand).not.toHaveBeenCalled();
   });
 
-  it("honors terminal focus guards", () => {
+  it("executes app shortcuts while terminal input is focused by default", () => {
+    const textarea = document.createElement("textarea");
+    textarea.className = "xterm-helper-textarea";
+    document.body.append(textarea);
+    textarea.focus();
     render(<KeyboardShortcuts />);
 
-    window.dispatchEvent(
+    textarea.dispatchEvent(
       new KeyboardEvent("keydown", {
+        bubbles: true,
+        ctrlKey: true,
+        key: "K",
+      }),
+    );
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith({
+      args: undefined,
+      id: "tab.newTerminal",
+      source: "keyboard-shortcut",
+    });
+  });
+
+  it("sends terminal shortcuts to the shell when configured", () => {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        terminal: {
+          ...state.settings.terminal,
+          sendKeybindingsToShell: true,
+        },
+      },
+    }));
+    const textarea = document.createElement("textarea");
+    textarea.className = "xterm-helper-textarea";
+    document.body.append(textarea);
+    textarea.focus();
+    render(<KeyboardShortcuts />);
+
+    textarea.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
         ctrlKey: true,
         key: "K",
       }),

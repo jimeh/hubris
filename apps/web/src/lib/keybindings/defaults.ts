@@ -11,8 +11,7 @@ export type KeybindingDefinition<TId extends CommandId = CommandId> = {
 
 const WORKBENCH_SAFE = [
   "selectedWorktree",
-  "!inputFocus",
-  "!terminalFocus",
+  "(!inputFocus || terminalFocus)",
   "!browserFocus",
   "!editorFocus",
   "!commandPaletteOpen",
@@ -24,13 +23,13 @@ export const defaultKeybindings = [
     command: "app.openCommandPalette",
     key: "mod+k",
     source: "default",
-    when: "!inputFocus",
+    when: "(!inputFocus || terminalFocus)",
   },
   {
     command: "app.openSettings",
     key: "mod+,",
     source: "default",
-    when: "!inputFocus && !terminalFocus && !browserFocus && !editorFocus",
+    when: "(!inputFocus || terminalFocus) && !browserFocus && !editorFocus",
   },
   {
     command: "tab.newTerminal",

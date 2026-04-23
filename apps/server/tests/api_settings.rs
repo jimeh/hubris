@@ -138,6 +138,10 @@ fn assert_default_settings(body: &Value) {
         "jetbrainsmono-nf"
     );
     assert_eq!(body["settings"]["terminal"]["fontSize"], 14);
+    assert_eq!(
+        body["settings"]["terminal"]["sendKeybindingsToShell"],
+        false
+    );
     assert_eq!(body["settings"]["terminal"]["clientScrollbackRows"], 10_000);
     assert_eq!(
         body["settings"]["terminal"]["serverScrollbackBytes"],

@@ -136,6 +136,8 @@ pub struct TerminalSettings {
     #[schema(required = true)]
     pub escape_sequence_titles: bool,
     #[schema(required = true)]
+    pub send_keybindings_to_shell: bool,
+    #[schema(required = true)]
     pub client_scrollback_rows: u32,
     #[schema(required = true)]
     pub server_scrollback_bytes: u32,
@@ -150,6 +152,7 @@ impl Default for TerminalSettings {
             font_size: default_font_size(),
             smart_tab_naming: default_true(),
             escape_sequence_titles: default_true(),
+            send_keybindings_to_shell: false,
             client_scrollback_rows: default_client_scrollback_rows(),
             server_scrollback_bytes: default_server_scrollback_bytes(),
         }
@@ -218,6 +221,8 @@ struct TerminalSettingsCompat {
     smart_tab_naming: Option<bool>,
     #[serde(default)]
     escape_sequence_titles: Option<bool>,
+    #[serde(default)]
+    send_keybindings_to_shell: bool,
     #[serde(default = "default_client_scrollback_rows")]
     client_scrollback_rows: u32,
     #[serde(default = "default_server_scrollback_bytes")]
@@ -253,6 +258,7 @@ impl<'de> Deserialize<'de> for TerminalSettings {
                     default_true()
                 }
             }),
+            send_keybindings_to_shell: compat.send_keybindings_to_shell,
             client_scrollback_rows: clamp_client_scrollback_rows(compat.client_scrollback_rows),
             server_scrollback_bytes: clamp_server_scrollback_bytes(compat.server_scrollback_bytes),
         })
@@ -339,6 +345,8 @@ pub struct TerminalSettingsPatch {
     pub smart_tab_naming: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub escape_sequence_titles: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_keybindings_to_shell: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_scrollback_rows: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

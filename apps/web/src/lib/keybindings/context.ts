@@ -7,7 +7,9 @@ export function getKeybindingWhenContext(target: EventTarget | null) {
   const element = target instanceof Element ? target : document.activeElement;
   const inputFocus = isEditableElement(element);
   const activeTabType = commandContext.activeTab?.type ?? null;
-  const terminalFocus = activeTabType === "terminal" && !inputFocus;
+  const terminalFocus =
+    activeTabType === "terminal" &&
+    (element === document.body || isTerminalElement(element));
   const browserFocus = activeTabType === "browser" && !inputFocus;
   const editorFocus =
     (activeTabType === "file" || activeTabType === "git_diff") && !inputFocus;
@@ -30,6 +32,14 @@ export function getKeybindingWhenContext(target: EventTarget | null) {
   } satisfies KeybindingWhenContext;
 }
 
+function isTerminalElement(element: Element | null): boolean {
+  return (
+    element?.closest(
+      ".terminal-wrapper, .terminal-container, .xterm, .xterm-helper-textarea",
+    ) !== null
+  );
+}
+
 export function isEditableElement(element: Element | null): boolean {
   if (!element) {
     return false;
@@ -50,5 +60,9 @@ export function isEditableElement(element: Element | null): boolean {
     return true;
   }
 
-  return element.closest(".monaco-editor, .xterm-helper-textarea") !== null;
+  return (
+    element.closest(
+      ".monaco-editor, .xterm-helper-textarea, .terminal-wrapper",
+    ) !== null
+  );
 }

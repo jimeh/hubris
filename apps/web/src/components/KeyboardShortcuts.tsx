@@ -4,11 +4,15 @@ import { getKeybindingWhenContext } from "@/lib/keybindings/context";
 import { keybindingFromEvent } from "@/lib/keybindings/keys";
 import { resolveKeybinding } from "@/lib/keybindings/registry";
 import { useKeybindingsStore } from "@/lib/stores/keybindings";
+import { useSettingsStore } from "@/lib/stores/settings";
 
 const RESERVED_BROWSER_KEYS = new Set(["meta+r", "ctrl+r"]);
 
 export default function KeyboardShortcuts() {
   const registry = useKeybindingsStore((state) => state.registry);
+  const sendKeybindingsToShell = useSettingsStore(
+    (state) => state.settings.terminal.sendKeybindingsToShell,
+  );
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -22,6 +26,10 @@ export default function KeyboardShortcuts() {
       }
 
       const context = getKeybindingWhenContext(event.target);
+      if (sendKeybindingsToShell && context.terminalFocus) {
+        return;
+      }
+
       const binding = resolveKeybinding({ context, key, registry });
       if (!binding?.command) {
         return;
@@ -37,7 +45,7 @@ export default function KeyboardShortcuts() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [registry]);
+  }, [registry, sendKeybindingsToShell]);
 
   return null;
 }

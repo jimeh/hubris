@@ -171,6 +171,7 @@ export type TerminalSettings = {
   fontSize: number;
   smartTabNaming: boolean;
   escapeSequenceTitles: boolean;
+  sendKeybindingsToShell: boolean;
   clientScrollbackRows: number;
   serverScrollbackBytes: number;
 };

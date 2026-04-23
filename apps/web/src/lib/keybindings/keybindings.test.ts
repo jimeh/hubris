@@ -100,7 +100,7 @@ describe("keybinding registry", () => {
       {
         disabled: true,
         key: "mod+t",
-        when: "selectedWorktree && !inputFocus && !terminalFocus && !browserFocus && !editorFocus && !commandPaletteOpen && !dialogOpen",
+        when: "selectedWorktree && (!inputFocus || terminalFocus) && !browserFocus && !editorFocus && !commandPaletteOpen && !dialogOpen",
       },
     ]);
 

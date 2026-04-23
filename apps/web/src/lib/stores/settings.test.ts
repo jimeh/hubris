@@ -124,6 +124,7 @@ function createSettingsState(
       fontSize: number;
       smartTabNaming: boolean;
       escapeSequenceTitles: boolean;
+      sendKeybindingsToShell: boolean;
       tabLabelMode: "numbered" | "process" | "title";
     }>;
     editor: Partial<{
@@ -153,6 +154,7 @@ function createSettingsState(
         serverScrollbackBytes: 256 * 1024,
         smartTabNaming: true,
         escapeSequenceTitles: true,
+        sendKeybindingsToShell: false,
         ...(overrides?.terminal ?? {}),
       },
       editor: {

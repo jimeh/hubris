@@ -423,6 +423,9 @@ fn apply_terminal_patch(
     if let Some(escape_sequence_titles) = patch.escape_sequence_titles {
         settings.escape_sequence_titles = escape_sequence_titles;
     }
+    if let Some(send_keybindings_to_shell) = patch.send_keybindings_to_shell {
+        settings.send_keybindings_to_shell = send_keybindings_to_shell;
+    }
     if let Some(client_scrollback_rows) = patch.client_scrollback_rows {
         settings.client_scrollback_rows = clamp_client_scrollback_rows(client_scrollback_rows);
     }
@@ -508,6 +511,9 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
         if let Some(escape_sequence_titles) = terminal.escape_sequence_titles {
             table.insert("escapeSequenceTitles", value(escape_sequence_titles));
         }
+        if let Some(send_keybindings_to_shell) = terminal.send_keybindings_to_shell {
+            table.insert("sendKeybindingsToShell", value(send_keybindings_to_shell));
+        }
         if let Some(client_scrollback_rows) = terminal.client_scrollback_rows {
             table.insert(
                 "clientScrollbackRows",
@@ -574,6 +580,10 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
     terminal.insert(
         "escapeSequenceTitles",
         value(settings.terminal.escape_sequence_titles),
+    );
+    terminal.insert(
+        "sendKeybindingsToShell",
+        value(settings.terminal.send_keybindings_to_shell),
     );
     terminal.insert(
         "clientScrollbackRows",
@@ -912,6 +922,7 @@ tabLabelMode = "title"
                     server_scrollback_bytes: Some(512 * 1024),
                     smart_tab_naming: Some(false),
                     escape_sequence_titles: Some(false),
+                    send_keybindings_to_shell: Some(true),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -924,6 +935,7 @@ tabLabelMode = "title"
         assert!(written.contains("serverScrollbackBytes = 524288"));
         assert!(written.contains("smartTabNaming = false"));
         assert!(written.contains("escapeSequenceTitles = false"));
+        assert!(written.contains("sendKeybindingsToShell = true"));
         assert!(!written.contains("tabLabelMode"));
     }
 

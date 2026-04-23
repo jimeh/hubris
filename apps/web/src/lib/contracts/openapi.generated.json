@@ -4048,6 +4048,7 @@
           "fontSize",
           "smartTabNaming",
           "escapeSequenceTitles",
+          "sendKeybindingsToShell",
           "clientScrollbackRows",
           "serverScrollbackBytes"
         ],
@@ -4070,6 +4071,9 @@
           },
           "fontSource": {
             "$ref": "#/components/schemas/TerminalFontSource"
+          },
+          "sendKeybindingsToShell": {
+            "type": "boolean"
           },
           "serverScrollbackBytes": {
             "type": "integer",
@@ -4112,6 +4116,9 @@
                 "$ref": "#/components/schemas/TerminalFontSource"
               }
             ]
+          },
+          "sendKeybindingsToShell": {
+            "type": ["boolean", "null"]
           },
           "serverScrollbackBytes": {
             "type": ["integer", "null"],

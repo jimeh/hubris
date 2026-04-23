@@ -1292,6 +1292,7 @@ export interface components {
       /** Format: int32 */
       fontSize: number;
       fontSource: components["schemas"]["TerminalFontSource"];
+      sendKeybindingsToShell: boolean;
       /** Format: int32 */
       serverScrollbackBytes: number;
       smartTabNaming: boolean;
@@ -1305,6 +1306,7 @@ export interface components {
       /** Format: int32 */
       fontSize?: number | null;
       fontSource?: null | components["schemas"]["TerminalFontSource"];
+      sendKeybindingsToShell?: boolean | null;
       /** Format: int32 */
       serverScrollbackBytes?: number | null;
       smartTabNaming?: boolean | null;

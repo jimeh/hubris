@@ -281,6 +281,44 @@ export default function TerminalSettings() {
 
       <div className="flex items-center gap-2">
         <Terminal className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-medium">Keyboard</h3>
+      </div>
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          Send Keys to Shell
+        </Label>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Let terminal programs receive app shortcuts while the terminal is
+            focused.
+          </p>
+          <div className="flex flex-wrap gap-1">
+            <Button
+              variant={settings.sendKeybindingsToShell ? "secondary" : "ghost"}
+              size="sm"
+              disabled={writesBlocked}
+              onClick={() =>
+                void updateSettings({ sendKeybindingsToShell: true })
+              }
+            >
+              On
+            </Button>
+            <Button
+              variant={!settings.sendKeybindingsToShell ? "secondary" : "ghost"}
+              size="sm"
+              disabled={writesBlocked}
+              onClick={() =>
+                void updateSettings({ sendKeybindingsToShell: false })
+              }
+            >
+              Off
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Terminal className="h-4 w-4 text-muted-foreground" />
         <h3 className="text-sm font-medium">Scrollback</h3>
       </div>
       <div className={settingsRowClass}>

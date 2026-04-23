@@ -997,6 +997,7 @@ describe("API client", () => {
           serverScrollbackBytes: 256 * 1024,
           smartTabNaming: true,
           escapeSequenceTitles: true,
+          sendKeybindingsToShell: false,
         },
         editor: {
           lightEditorTheme: "hubris-light",
@@ -1057,6 +1058,7 @@ describe("API client", () => {
             serverScrollbackBytes: 256 * 1024,
             smartTabNaming: true,
             escapeSequenceTitles: true,
+            sendKeybindingsToShell: false,
           },
           editor: {
             lightEditorTheme: "hubris-light",
@@ -1097,6 +1099,7 @@ describe("API client", () => {
             serverScrollbackBytes: 256 * 1024,
             smartTabNaming: true,
             escapeSequenceTitles: true,
+            sendKeybindingsToShell: false,
           },
           editor: {
             lightEditorTheme: "hubris-light",
