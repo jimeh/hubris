@@ -11,12 +11,17 @@ import { getEventClient } from "@/lib/events";
 import type { Worktree } from "@/lib/types";
 
 const LS_SELECTED = "hubris-selected-worktree";
+const MAX_NAVIGATION_HISTORY = 50;
 
 type WorktreesState = {
   worktreesByProject: Record<string, Worktree[]>;
   projectErrors: Record<string, string>;
   selectedWorktreeId: string | null;
+  navigationBackIds: string[];
+  navigationForwardIds: string[];
   select: (worktreeId: string) => void;
+  navigateBack: () => void;
+  navigateForward: () => void;
   create: (
     projectId: string,
     branch: string,
@@ -120,6 +125,161 @@ function ensureSelection(
   return { selectedWorktreeId };
 }
 
+function knownWorktreeIds(
+  worktreesByProject: Record<string, Worktree[]>,
+): Set<string> {
+  return new Set(
+    allWorktrees(worktreesByProject).map((worktree) => worktree.id),
+  );
+}
+
+function pruneNavigationStack(
+  ids: string[],
+  validIds: Set<string>,
+  selectedWorktreeId: string | null,
+): string[] {
+  const seen = new Set<string>();
+  const pruned: string[] = [];
+  for (const id of ids) {
+    if (id === selectedWorktreeId || !validIds.has(id) || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    pruned.push(id);
+    if (pruned.length >= MAX_NAVIGATION_HISTORY) {
+      break;
+    }
+  }
+  return pruned;
+}
+
+function pushNavigationStack(
+  ids: string[],
+  id: string | null,
+  validIds: Set<string>,
+  selectedWorktreeId: string | null,
+): string[] {
+  return pruneNavigationStack(
+    id ? [id, ...ids] : ids,
+    validIds,
+    selectedWorktreeId,
+  );
+}
+
+function selectWorktreePatch(
+  state: Pick<
+    WorktreesState,
+    | "navigationBackIds"
+    | "navigationForwardIds"
+    | "selectedWorktreeId"
+    | "worktreesByProject"
+  >,
+  worktreeId: string,
+) {
+  if (worktreeId === state.selectedWorktreeId) {
+    return {};
+  }
+
+  const validIds = knownWorktreeIds(state.worktreesByProject);
+  if (validIds.size > 0 && !validIds.has(worktreeId)) {
+    return {};
+  }
+
+  lsSet(LS_SELECTED, worktreeId);
+  return {
+    navigationBackIds: pushNavigationStack(
+      state.navigationBackIds,
+      state.selectedWorktreeId,
+      validIds,
+      worktreeId,
+    ),
+    navigationForwardIds: [],
+    selectedWorktreeId: worktreeId,
+  };
+}
+
+function navigateWorktreePatch(
+  state: Pick<
+    WorktreesState,
+    | "navigationBackIds"
+    | "navigationForwardIds"
+    | "selectedWorktreeId"
+    | "worktreesByProject"
+  >,
+  direction: "back" | "forward",
+) {
+  const validIds = knownWorktreeIds(state.worktreesByProject);
+  const selectedWorktreeId = state.selectedWorktreeId;
+  const backIds = pruneNavigationStack(
+    state.navigationBackIds,
+    validIds,
+    selectedWorktreeId,
+  );
+  const forwardIds = pruneNavigationStack(
+    state.navigationForwardIds,
+    validIds,
+    selectedWorktreeId,
+  );
+  const sourceIds = direction === "back" ? backIds : forwardIds;
+  const targetId = sourceIds[0];
+
+  if (!targetId) {
+    return {
+      navigationBackIds: backIds,
+      navigationForwardIds: forwardIds,
+    };
+  }
+
+  lsSet(LS_SELECTED, targetId);
+  return direction === "back"
+    ? {
+        navigationBackIds: sourceIds.slice(1),
+        navigationForwardIds: pushNavigationStack(
+          forwardIds,
+          selectedWorktreeId,
+          validIds,
+          targetId,
+        ),
+        selectedWorktreeId: targetId,
+      }
+    : {
+        navigationBackIds: pushNavigationStack(
+          backIds,
+          selectedWorktreeId,
+          validIds,
+          targetId,
+        ),
+        navigationForwardIds: sourceIds.slice(1),
+        selectedWorktreeId: targetId,
+      };
+}
+
+function maintainNavigationState(
+  state: Pick<
+    WorktreesState,
+    | "navigationBackIds"
+    | "navigationForwardIds"
+    | "selectedWorktreeId"
+    | "worktreesByProject"
+  >,
+) {
+  const selection = ensureSelection(state);
+  const validIds = knownWorktreeIds(state.worktreesByProject);
+  return {
+    ...selection,
+    navigationBackIds: pruneNavigationStack(
+      state.navigationBackIds,
+      validIds,
+      selection.selectedWorktreeId,
+    ),
+    navigationForwardIds: pruneNavigationStack(
+      state.navigationForwardIds,
+      validIds,
+      selection.selectedWorktreeId,
+    ),
+  };
+}
+
 function upsertWorktree(
   worktreesByProject: Record<string, Worktree[]>,
   worktree: Worktree,
@@ -143,9 +303,16 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
   worktreesByProject: {},
   projectErrors: {},
   selectedWorktreeId: lsGet(LS_SELECTED),
+  navigationBackIds: [],
+  navigationForwardIds: [],
   select(worktreeId) {
-    lsSet(LS_SELECTED, worktreeId);
-    set({ selectedWorktreeId: worktreeId });
+    set((state) => selectWorktreePatch(state, worktreeId));
+  },
+  navigateBack() {
+    set((state) => navigateWorktreePatch(state, "back"));
+  },
+  navigateForward() {
+    set((state) => navigateWorktreePatch(state, "forward"));
   },
   async create(projectId, branch, startPoint, sourceRef) {
     const worktree = await createProjectWorktree(
@@ -175,7 +342,16 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
           ...state.worktreesByProject,
           [projectId]: next,
         },
-        selectedWorktreeId: worktree.id,
+        ...selectWorktreePatch(
+          {
+            ...state,
+            worktreesByProject: {
+              ...state.worktreesByProject,
+              [projectId]: next,
+            },
+          },
+          worktree.id,
+        ),
       };
     });
     return worktree;
@@ -203,7 +379,16 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
           ...state.worktreesByProject,
           [projectId]: next,
         },
-        selectedWorktreeId: worktree.id,
+        ...selectWorktreePatch(
+          {
+            ...state,
+            worktreesByProject: {
+              ...state.worktreesByProject,
+              [projectId]: next,
+            },
+          },
+          worktree.id,
+        ),
       };
     });
     return worktree;
@@ -227,7 +412,8 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
       };
       return {
         worktreesByProject,
-        ...ensureSelection({
+        ...maintainNavigationState({
+          ...state,
           worktreesByProject,
           selectedWorktreeId: state.selectedWorktreeId,
         }),
@@ -244,7 +430,8 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
         };
         return {
           worktreesByProject,
-          ...ensureSelection({
+          ...maintainNavigationState({
+            ...state,
             worktreesByProject,
             selectedWorktreeId: state.selectedWorktreeId,
           }),
@@ -388,7 +575,8 @@ export function initializeWorktreeStore(): void {
       useWorktreeStore.setState((state) => ({
         worktreesByProject,
         projectErrors,
-        ...ensureSelection({
+        ...maintainNavigationState({
+          ...state,
           worktreesByProject,
           selectedWorktreeId: state.selectedWorktreeId,
         }),
@@ -403,7 +591,8 @@ export function initializeWorktreeStore(): void {
         return {
           worktreesByProject,
           projectErrors,
-          ...ensureSelection({
+          ...maintainNavigationState({
+            ...state,
             worktreesByProject,
             selectedWorktreeId: state.selectedWorktreeId,
           }),
@@ -425,7 +614,8 @@ export function initializeWorktreeStore(): void {
         };
         return {
           worktreesByProject,
-          ...ensureSelection({
+          ...maintainNavigationState({
+            ...state,
             worktreesByProject,
             selectedWorktreeId: state.selectedWorktreeId,
           }),
@@ -457,7 +647,8 @@ export function initializeWorktreeStore(): void {
           return {
             worktreesByProject,
             projectErrors,
-            ...ensureSelection({
+            ...maintainNavigationState({
+              ...state,
               worktreesByProject,
               selectedWorktreeId: state.selectedWorktreeId,
             }),
@@ -478,5 +669,7 @@ export function resetWorktreeStoreForTests(): void {
     worktreesByProject: {},
     projectErrors: {},
     selectedWorktreeId: lsGet(LS_SELECTED),
+    navigationBackIds: [],
+    navigationForwardIds: [],
   });
 }

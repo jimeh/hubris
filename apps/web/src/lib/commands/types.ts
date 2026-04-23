@@ -10,6 +10,8 @@ export type CommandId =
   | "project.add"
   | "project.remove"
   | "project.rename"
+  | "project.selectNext"
+  | "project.selectPrevious"
   | "settings.openSection"
   | "tab.close"
   | "tab.focus"
@@ -20,9 +22,13 @@ export type CommandId =
   | "tab.resetTerminalName"
   | "worktree.create"
   | "worktree.import"
+  | "worktree.navigateBack"
+  | "worktree.navigateForward"
   | "worktree.remove"
   | "worktree.rename"
   | "worktree.select"
+  | "worktree.selectNext"
+  | "worktree.selectPrevious"
   | "worktree.setUiMode";
 
 export type CommandArgsById = {
@@ -39,6 +45,8 @@ export type CommandArgsById = {
     | { deleteManagedWorktrees?: boolean; force?: boolean; projectId?: string }
     | undefined;
   "project.rename": { name?: string; projectId?: string } | undefined;
+  "project.selectNext": undefined;
+  "project.selectPrevious": undefined;
   "settings.openSection": { section: SectionName };
   "tab.close":
     | {
@@ -68,6 +76,8 @@ export type CommandArgsById = {
         projectId?: string;
       }
     | undefined;
+  "worktree.navigateBack": undefined;
+  "worktree.navigateForward": undefined;
   "worktree.remove":
     | {
         force?: boolean;
@@ -84,6 +94,8 @@ export type CommandArgsById = {
       }
     | undefined;
   "worktree.select": { worktreeId?: string } | undefined;
+  "worktree.selectNext": undefined;
+  "worktree.selectPrevious": undefined;
   "worktree.setUiMode":
     | {
         projectId?: string;

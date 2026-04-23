@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderPlus, Settings } from "lucide-react";
+import { ArrowLeft, ArrowRight, FolderPlus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -33,6 +33,12 @@ export default function AppSidebarRoot() {
   const projectErrors = useWorktreeStore((state) => state.projectErrors);
   const selectWorktree = useWorktreeStore((state) => state.select);
   const reorderWorktrees = useWorktreeStore((state) => state.reorder);
+  const canNavigateBack = useWorktreeStore(
+    (state) => state.navigationBackIds.length > 0,
+  );
+  const canNavigateForward = useWorktreeStore(
+    (state) => state.navigationForwardIds.length > 0,
+  );
 
   const [showTopFade, setShowTopFade] = useState(false);
 
@@ -46,6 +52,44 @@ export default function AppSidebarRoot() {
         <div className="flex items-center justify-between pl-2 pr-1">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold">Projects</h2>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Go back"
+                  disabled={!canNavigateBack}
+                  onClick={() => {
+                    void executeCommand({
+                      id: "worktree.navigateBack",
+                      source: "button",
+                    });
+                  }}
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Go back</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Go forward"
+                  disabled={!canNavigateForward}
+                  onClick={() => {
+                    void executeCommand({
+                      id: "worktree.navigateForward",
+                      source: "button",
+                    });
+                  }}
+                >
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Go forward</TooltipContent>
+            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

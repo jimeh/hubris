@@ -15,12 +15,12 @@ vi.mock("sonner", () => ({
   },
 }));
 
-function makeProject(id: string, name: string) {
+function makeProject(id: string, name: string, position = 1) {
   return {
     id,
     name,
     path: `/tmp/${id}`,
-    position: 1,
+    position,
   };
 }
 
@@ -64,8 +64,8 @@ function makeTerminalTab(id: string, worktreeId: string, paneId = "pane-1") {
 }
 
 function seedContext() {
-  const projectOne = makeProject("p1", "Alpha");
-  const projectTwo = makeProject("p2", "Beta");
+  const projectOne = makeProject("p1", "Alpha", 1);
+  const projectTwo = makeProject("p2", "Beta", 2);
   const worktreeOne = makeWorktree("w1", "p1", "local", {
     is_local: true,
   });
@@ -108,8 +108,14 @@ describe("command runtime", () => {
     expect(commandIds()).toEqual(
       expect.arrayContaining([
         "project.add",
+        "project.selectNext",
+        "project.selectPrevious",
         "worktree.create",
         "worktree.import",
+        "worktree.navigateBack",
+        "worktree.navigateForward",
+        "worktree.selectNext",
+        "worktree.selectPrevious",
         "tab.newTerminal",
         "settings.openSection",
       ]),
@@ -187,6 +193,93 @@ describe("command runtime", () => {
 
     expect(result).toEqual({ status: "success" });
     expect(importSpy).toHaveBeenCalledWith(projectTwo.id, "/tmp/imported");
+  });
+
+  it("switches to the next and previous project local worktree", async () => {
+    const { projectTwo, worktreeOne, worktreeTwo } = seedContext();
+    const projectTwoLocal = makeWorktree("w2-local", projectTwo.id, "local", {
+      is_local: true,
+      position: 1,
+    });
+    useWorktreeStore.setState({
+      worktreesByProject: {
+        p1: [worktreeOne],
+        p2: [
+          projectTwoLocal,
+          {
+            ...worktreeTwo,
+            position: 2,
+          },
+        ],
+      },
+    });
+
+    await expect(
+      executeCommand({ id: "project.selectNext", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(
+      projectTwoLocal.id,
+    );
+
+    await expect(
+      executeCommand({ id: "project.selectPrevious", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(worktreeOne.id);
+  });
+
+  it("switches to worktrees across projects in sidebar order", async () => {
+    const { projectOne, projectTwo, worktreeOne, worktreeTwo } = seedContext();
+    const feature = makeWorktree("w1-feature", projectOne.id, "feature", {
+      position: 2,
+    });
+    const release = makeWorktree("w1-release", projectOne.id, "release", {
+      position: 3,
+    });
+    useWorktreeStore.setState({
+      selectedWorktreeId: worktreeOne.id,
+      worktreesByProject: {
+        [projectOne.id]: [worktreeOne, feature, release],
+        [projectTwo.id]: [worktreeTwo],
+      },
+    });
+
+    await expect(
+      executeCommand({ id: "worktree.selectPrevious", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(worktreeTwo.id);
+
+    await expect(
+      executeCommand({ id: "worktree.selectNext", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(worktreeOne.id);
+
+    await expect(
+      executeCommand({ id: "worktree.selectNext", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(feature.id);
+  });
+
+  it("navigates worktree history through commands", async () => {
+    const { worktreeOne, worktreeTwo } = seedContext();
+    useWorktreeStore.setState({
+      navigationBackIds: [worktreeTwo.id],
+      navigationForwardIds: [],
+      selectedWorktreeId: worktreeOne.id,
+    });
+
+    expect(getCommandAvailability("worktree.navigateBack")).toEqual({
+      enabled: true,
+      reason: undefined,
+    });
+
+    await expect(
+      executeCommand({ id: "worktree.navigateBack", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState()).toMatchObject({
+      navigationBackIds: [],
+      navigationForwardIds: [worktreeOne.id],
+      selectedWorktreeId: worktreeTwo.id,
+    });
   });
 
   it("reopens project removal in force mode on 409 conflicts", async () => {

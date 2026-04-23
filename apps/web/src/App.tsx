@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Check, Copy, Folder, PanelRight, Search } from "lucide-react";
+import { Check, Copy, Folder, PanelRight } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
@@ -194,25 +194,6 @@ function AppHeader({
           </button>
         </div>
       ) : null}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="inline-flex"
-            onClick={() => {
-              void executeCommand({
-                id: "app.openCommandPalette",
-                source: "button",
-              });
-            }}
-          >
-            <Search className="h-4 w-4" />
-            Commands
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">Open command palette</TooltipContent>
-      </Tooltip>
       {selectedWorktree ? (
         !isVscodeMode ? (
           <Tooltip>

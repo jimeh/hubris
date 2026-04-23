@@ -1,4 +1,6 @@
 import {
+  ArrowLeft,
+  ArrowRight,
   Globe,
   LayoutPanelTop,
   Monitor,
@@ -22,6 +24,7 @@ import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type {
   CommandAvailability,
+  CommandContextSnapshot,
   CommandDefinition,
   CommandId,
   CommandResult,
@@ -84,6 +87,80 @@ function projectIdForWorktreeId(worktreeId: string): string | null {
     .find((candidate) => candidate.id === worktreeId);
 
   return worktree?.project_id ?? null;
+}
+
+function byPosition<T extends { id: string; position?: number }>(
+  left: T,
+  right: T,
+): number {
+  return (
+    (left.position ?? 0) - (right.position ?? 0) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function selectProjectWorktree(
+  context: CommandContextSnapshot,
+  direction: 1 | -1,
+): string | null {
+  const selectedProjectId = context.selectedProject?.id;
+  if (!selectedProjectId) {
+    return null;
+  }
+
+  const projects = [...context.projects]
+    .sort(byPosition)
+    .filter(
+      (project) => (context.worktreesByProject[project.id] ?? []).length > 0,
+    );
+  const currentIndex = projects.findIndex(
+    (project) => project.id === selectedProjectId,
+  );
+  if (projects.length < 2 || currentIndex < 0) {
+    return null;
+  }
+
+  const nextProject = projects.at(
+    (currentIndex + direction + projects.length) % projects.length,
+  );
+  if (!nextProject) {
+    return null;
+  }
+
+  const worktrees = [
+    ...(context.worktreesByProject[nextProject.id] ?? []),
+  ].sort(byPosition);
+  return (
+    (worktrees.find((worktree) => worktree.is_local) ?? worktrees[0])?.id ??
+    null
+  );
+}
+
+function selectSiblingWorktree(
+  context: CommandContextSnapshot,
+  direction: 1 | -1,
+): string | null {
+  if (!context.selectedWorktree) {
+    return null;
+  }
+
+  const worktrees = [...context.projects]
+    .sort(byPosition)
+    .flatMap((project) =>
+      [...(context.worktreesByProject[project.id] ?? [])].sort(byPosition),
+    );
+  const currentIndex = worktrees.findIndex(
+    (worktree) => worktree.id === context.selectedWorktree?.id,
+  );
+  if (worktrees.length < 2 || currentIndex < 0) {
+    return null;
+  }
+
+  return (
+    worktrees.at(
+      (currentIndex + direction + worktrees.length) % worktrees.length,
+    )?.id ?? null
+  );
 }
 
 async function saveDirtyTab(tabId: string): Promise<boolean> {
@@ -313,6 +390,48 @@ export const commandRegistry = {
     },
     keywords: ["project", "rename"],
     title: "Rename Project",
+  }),
+  "project.selectNext": defineCommand({
+    async execute(context) {
+      const worktreeId = selectProjectWorktree(context, 1);
+      if (!worktreeId) {
+        return { reason: "No next project", status: "unavailable" };
+      }
+
+      useWorktreeStore.getState().select(worktreeId);
+      return success();
+    },
+    group: "Projects",
+    icon: Search,
+    id: "project.selectNext",
+    isAvailable(context) {
+      return selectProjectWorktree(context, 1)
+        ? enabled()
+        : disabled("No next project");
+    },
+    keywords: ["project", "next", "switch"],
+    title: "Switch to Next Project",
+  }),
+  "project.selectPrevious": defineCommand({
+    async execute(context) {
+      const worktreeId = selectProjectWorktree(context, -1);
+      if (!worktreeId) {
+        return { reason: "No previous project", status: "unavailable" };
+      }
+
+      useWorktreeStore.getState().select(worktreeId);
+      return success();
+    },
+    group: "Projects",
+    icon: Search,
+    id: "project.selectPrevious",
+    isAvailable(context) {
+      return selectProjectWorktree(context, -1)
+        ? enabled()
+        : disabled("No previous project");
+    },
+    keywords: ["project", "previous", "switch"],
+    title: "Switch to Previous Project",
   }),
   "settings.openSection": defineCommand({
     async execute(_context, args) {
@@ -604,6 +723,38 @@ export const commandRegistry = {
     keywords: ["worktree", "import"],
     title: "Import Worktree",
   }),
+  "worktree.navigateBack": defineCommand({
+    async execute() {
+      useWorktreeStore.getState().navigateBack();
+      return success();
+    },
+    group: "Worktrees",
+    icon: ArrowLeft,
+    id: "worktree.navigateBack",
+    isAvailable() {
+      return useWorktreeStore.getState().navigationBackIds.length > 0
+        ? enabled()
+        : disabled("No previous worktree in history");
+    },
+    keywords: ["worktree", "back", "history"],
+    title: "Go Back in Worktree History",
+  }),
+  "worktree.navigateForward": defineCommand({
+    async execute() {
+      useWorktreeStore.getState().navigateForward();
+      return success();
+    },
+    group: "Worktrees",
+    icon: ArrowRight,
+    id: "worktree.navigateForward",
+    isAvailable() {
+      return useWorktreeStore.getState().navigationForwardIds.length > 0
+        ? enabled()
+        : disabled("No next worktree in history");
+    },
+    keywords: ["worktree", "forward", "history"],
+    title: "Go Forward in Worktree History",
+  }),
   "worktree.remove": defineCommand({
     async execute(context, args) {
       const worktreeId = resolveWorktreeId(
@@ -731,6 +882,48 @@ export const commandRegistry = {
     },
     keywords: ["worktree", "switch", "select"],
     title: "Switch Worktree",
+  }),
+  "worktree.selectNext": defineCommand({
+    async execute(context) {
+      const worktreeId = selectSiblingWorktree(context, 1);
+      if (!worktreeId) {
+        return { reason: "No next worktree", status: "unavailable" };
+      }
+
+      useWorktreeStore.getState().select(worktreeId);
+      return success();
+    },
+    group: "Worktrees",
+    icon: Search,
+    id: "worktree.selectNext",
+    isAvailable(context) {
+      return selectSiblingWorktree(context, 1)
+        ? enabled()
+        : disabled("No next worktree");
+    },
+    keywords: ["worktree", "next", "switch"],
+    title: "Switch to Next Worktree",
+  }),
+  "worktree.selectPrevious": defineCommand({
+    async execute(context) {
+      const worktreeId = selectSiblingWorktree(context, -1);
+      if (!worktreeId) {
+        return { reason: "No previous worktree", status: "unavailable" };
+      }
+
+      useWorktreeStore.getState().select(worktreeId);
+      return success();
+    },
+    group: "Worktrees",
+    icon: Search,
+    id: "worktree.selectPrevious",
+    isAvailable(context) {
+      return selectSiblingWorktree(context, -1)
+        ? enabled()
+        : disabled("No previous worktree");
+    },
+    keywords: ["worktree", "previous", "switch"],
+    title: "Switch to Previous Worktree",
   }),
   "worktree.setUiMode": defineCommand({
     async execute(context, args) {

@@ -57,6 +57,30 @@ export const defaultKeybindings = [
     when: `${WORKBENCH_SAFE} && activeTabPreview`,
   },
   {
+    command: "project.selectPrevious",
+    key: "mod+alt+up",
+    source: "default",
+    when: WORKBENCH_SAFE,
+  },
+  {
+    command: "project.selectNext",
+    key: "mod+alt+down",
+    source: "default",
+    when: WORKBENCH_SAFE,
+  },
+  {
+    command: "worktree.selectPrevious",
+    key: "mod+alt+shift+up",
+    source: "default",
+    when: WORKBENCH_SAFE,
+  },
+  {
+    command: "worktree.selectNext",
+    key: "mod+alt+shift+down",
+    source: "default",
+    when: WORKBENCH_SAFE,
+  },
+  {
     command: "pane.splitRight",
     key: "mod+\\",
     source: "default",
