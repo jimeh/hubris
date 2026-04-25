@@ -6,7 +6,6 @@
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
     "bradlc.vscode-tailwindcss",
-    "DavidAnson.vscode-markdownlint",
-    "tauri-apps.tauri-vscode"
+    "DavidAnson.vscode-markdownlint"
   ]
 }
