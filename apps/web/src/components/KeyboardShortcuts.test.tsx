@@ -161,6 +161,32 @@ describe("KeyboardShortcuts", () => {
     expect(mocks.executeCommand).not.toHaveBeenCalled();
   });
 
+  it("does not treat body focus as terminal focus", () => {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        terminal: {
+          ...state.settings.terminal,
+          sendKeybindingsToShell: true,
+        },
+      },
+    }));
+    render(<KeyboardShortcuts />);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        ctrlKey: true,
+        key: "K",
+      }),
+    );
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith({
+      args: undefined,
+      id: "tab.newTerminal",
+      source: "keyboard-shortcut",
+    });
+  });
+
   it("does not intercept reserved browser reload shortcuts", () => {
     setNavigatorPlatform("MacIntel");
     useKeybindingsStore.setState({

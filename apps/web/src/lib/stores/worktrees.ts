@@ -402,7 +402,12 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
     }));
   },
   async remove(projectId, worktreeId, force = false, untrackOnly = false) {
-    const before = get().worktreesByProject[projectId] ?? [];
+    const beforeState = get();
+    const before = beforeState.worktreesByProject[projectId] ?? [];
+    const previousWorktreesByProject = beforeState.worktreesByProject;
+    const previousSelection = beforeState.selectedWorktreeId;
+    const previousBackIds = beforeState.navigationBackIds;
+    const previousForwardIds = beforeState.navigationForwardIds;
     set((state) => {
       const worktreesByProject = {
         ...state.worktreesByProject,
@@ -423,19 +428,11 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
     try {
       await deleteProjectWorktree(projectId, worktreeId, force, untrackOnly);
     } catch (error) {
-      set((state) => {
-        const worktreesByProject = {
-          ...state.worktreesByProject,
-          [projectId]: before,
-        };
-        return {
-          worktreesByProject,
-          ...maintainNavigationState({
-            ...state,
-            worktreesByProject,
-            selectedWorktreeId: state.selectedWorktreeId,
-          }),
-        };
+      set({
+        navigationBackIds: previousBackIds,
+        navigationForwardIds: previousForwardIds,
+        selectedWorktreeId: previousSelection,
+        worktreesByProject: previousWorktreesByProject,
       });
       throw error;
     }

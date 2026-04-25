@@ -223,4 +223,41 @@ describe("keybinding registry", () => {
 
     expect(binding?.command).toBe("tab.newBrowser");
   });
+
+  it("drops malformed user when expressions from the active registry", () => {
+    const registry = buildKeybindingRegistry([
+      {
+        command: "tab.newTerminal",
+        key: "ctrl+k",
+        when: "typoKey",
+      },
+    ]);
+
+    expect(
+      registry.bindings.some(
+        (binding) =>
+          binding.command === "tab.newTerminal" && binding.key === "ctrl+k",
+      ),
+    ).toBe(false);
+  });
+
+  it("ignores malformed when expressions while resolving shortcuts", () => {
+    const binding = resolveKeybinding({
+      context,
+      key: "ctrl+k",
+      registry: {
+        bindings: [
+          {
+            command: "tab.newTerminal",
+            key: "ctrl+k",
+            source: "user",
+            when: "typoKey",
+          },
+        ],
+        conflicts: [],
+      },
+    });
+
+    expect(binding).toBeNull();
+  });
 });

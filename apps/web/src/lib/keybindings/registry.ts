@@ -1,6 +1,10 @@
 import { getCommandDefinition, type CommandId } from "@/lib/commands";
 import { defaultKeybindings, type KeybindingDefinition } from "./defaults";
-import { formatKeybinding, normalizeKeybinding } from "./keys";
+import {
+  formatKeybinding,
+  getPlatformFlags,
+  normalizeKeybinding,
+} from "./keys";
 import { evaluateWhenExpression, type KeybindingWhenContext } from "./when";
 
 export type UserKeybindingEntry = {
@@ -21,20 +25,38 @@ export type KeybindingRegistry = {
   conflicts: KeybindingConflict[];
 };
 
+const validationContext = {
+  activeTabPreview: false,
+  activeTabType: "terminal",
+  browserFocus: false,
+  commandPaletteOpen: false,
+  dialogOpen: false,
+  editorFocus: false,
+  focusedPane: true,
+  gitStatusFocus: false,
+  inputFocus: false,
+  ...getPlatformFlags(),
+  selectedProject: true,
+  selectedWorktree: true,
+  terminalFocus: false,
+} satisfies KeybindingWhenContext;
+
 export function buildKeybindingRegistry(
   userKeybindings: UserKeybindingEntry[],
 ): KeybindingRegistry {
   const normalizedDefaults = defaultKeybindings.map(normalizeDefinition);
-  const normalizedUser = userKeybindings.map((binding) =>
-    normalizeDefinition({
-      args: binding.args as KeybindingDefinition["args"],
-      command: isCommandId(binding.command) ? binding.command : undefined,
-      disabled: binding.disabled,
-      key: binding.key,
-      source: "user",
-      when: binding.when ?? undefined,
-    }),
-  );
+  const normalizedUser = userKeybindings
+    .map((binding) =>
+      normalizeDefinition({
+        args: binding.args as KeybindingDefinition["args"],
+        command: isCommandId(binding.command) ? binding.command : undefined,
+        disabled: binding.disabled,
+        key: binding.key,
+        source: "user",
+        when: binding.when ?? undefined,
+      }),
+    )
+    .filter(hasValidWhenExpression);
   const disabledDefaultKeys = new Set(
     normalizedUser
       .filter((binding) => binding.disabled)
@@ -63,7 +85,11 @@ export function resolveKeybinding(input: {
     if (binding.key !== normalizedKey) {
       return false;
     }
-    return evaluateWhenExpression(binding.when, input.context);
+    try {
+      return evaluateWhenExpression(binding.when, input.context);
+    } catch {
+      return false;
+    }
   });
 
   if (matches.length === 0) {
@@ -106,6 +132,15 @@ function normalizeDefinition<TId extends CommandId>(
     key: normalizeKeybinding(binding.key),
     when: binding.when?.trim() || undefined,
   };
+}
+
+function hasValidWhenExpression(binding: KeybindingDefinition): boolean {
+  try {
+    evaluateWhenExpression(binding.when, validationContext);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function compareKeybindings(

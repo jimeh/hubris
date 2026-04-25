@@ -9,8 +9,7 @@ export function getKeybindingWhenContext(target: EventTarget | null) {
   const inputFocus = isEditableElement(element);
   const activeTabType = commandContext.activeTab?.type ?? null;
   const terminalFocus =
-    activeTabType === "terminal" &&
-    (element === document.body || isTerminalElement(element));
+    activeTabType === "terminal" && isTerminalElement(element);
   const browserFocus = activeTabType === "browser" && !inputFocus;
   const editorFocus =
     (activeTabType === "file" || activeTabType === "git_diff") && !inputFocus;
