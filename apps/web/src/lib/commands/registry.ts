@@ -859,11 +859,16 @@ export const commandRegistry = {
   }),
   "worktree.select": defineCommand({
     async execute(context, args) {
-      const worktreeId = resolveWorktreeId(
-        args?.worktreeId,
-        context.selectedWorktree?.id ?? null,
-      );
-      if (!worktreeId) {
+      if (!args?.worktreeId) {
+        useCommandUiStore.getState().openDialog({ type: "select-worktree" });
+        return cancelled();
+      }
+
+      const worktreeId = resolveWorktreeId(args.worktreeId, null);
+      if (
+        !worktreeId ||
+        !context.worktrees.some((worktree) => worktree.id === worktreeId)
+      ) {
         return { reason: "No worktree selected", status: "unavailable" };
       }
 
@@ -874,11 +879,17 @@ export const commandRegistry = {
     icon: Search,
     id: "worktree.select",
     isAvailable(context, args) {
-      const worktreeId = resolveWorktreeId(
-        args?.worktreeId,
-        context.selectedWorktree?.id ?? null,
-      );
-      return worktreeId ? enabled() : disabled("No worktree available");
+      if (!args?.worktreeId) {
+        return context.worktrees.length > 0
+          ? enabled()
+          : disabled("No worktree available");
+      }
+
+      const worktreeId = resolveWorktreeId(args.worktreeId, null);
+      return worktreeId &&
+        context.worktrees.some((worktree) => worktree.id === worktreeId)
+        ? enabled()
+        : disabled("No worktree available");
     },
     keywords: ["worktree", "switch", "select"],
     title: "Switch Worktree",
@@ -941,9 +952,16 @@ export const commandRegistry = {
         return { reason: "No worktree selected", status: "unavailable" };
       }
 
+      const nextUiMode =
+        uiMode === "cycle"
+          ? worktree?.ui_mode === "hubris"
+            ? "vscode"
+            : "hubris"
+          : uiMode;
+
       await useWorktreeStore
         .getState()
-        .updateUiMode(projectId, worktreeId, uiMode);
+        .updateUiMode(projectId, worktreeId, nextUiMode);
       return success();
     },
     group: "Worktrees",
@@ -957,6 +975,10 @@ export const commandRegistry = {
       const worktree = findWorktreeById(context, worktreeId ?? undefined);
       if (!worktree || !args?.uiMode) {
         return disabled("Select a worktree first");
+      }
+
+      if (args.uiMode === "cycle") {
+        return enabled();
       }
 
       return worktree.ui_mode === args.uiMode

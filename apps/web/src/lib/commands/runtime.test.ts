@@ -259,6 +259,17 @@ describe("command runtime", () => {
     expect(useWorktreeStore.getState().selectedWorktreeId).toBe(feature.id);
   });
 
+  it("opens the worktree picker when switching without a target", async () => {
+    seedContext();
+
+    await expect(
+      executeCommand({ id: "worktree.select", source: "system" }),
+    ).resolves.toEqual({ status: "cancelled" });
+    expect(useCommandUiStore.getState().dialog).toEqual({
+      type: "select-worktree",
+    });
+  });
+
   it("navigates worktree history through commands", async () => {
     const { worktreeOne, worktreeTwo } = seedContext();
     useWorktreeStore.setState({
@@ -280,6 +291,61 @@ describe("command runtime", () => {
       navigationForwardIds: [worktreeOne.id],
       selectedWorktreeId: worktreeTwo.id,
     });
+  });
+
+  it("cycles the current worktree UI mode", async () => {
+    const { projectOne, worktreeOne } = seedContext();
+    const updateSpy = vi
+      .spyOn(useWorktreeStore.getState(), "updateUiMode")
+      .mockResolvedValue(undefined);
+
+    expect(
+      getCommandAvailability("worktree.setUiMode", { uiMode: "cycle" }),
+    ).toEqual({
+      enabled: true,
+      reason: undefined,
+    });
+
+    await expect(
+      executeCommand({
+        args: { uiMode: "cycle" },
+        id: "worktree.setUiMode",
+        source: "keyboard-shortcut",
+      }),
+    ).resolves.toEqual({ status: "success" });
+
+    expect(updateSpy).toHaveBeenCalledWith(
+      projectOne.id,
+      worktreeOne.id,
+      "vscode",
+    );
+  });
+
+  it("cycles VS Code worktrees back to Hubris mode", async () => {
+    const { projectOne, worktreeOne } = seedContext();
+    useWorktreeStore.setState({
+      selectedWorktreeId: worktreeOne.id,
+      worktreesByProject: {
+        [projectOne.id]: [{ ...worktreeOne, ui_mode: "vscode" }],
+      },
+    });
+    const updateSpy = vi
+      .spyOn(useWorktreeStore.getState(), "updateUiMode")
+      .mockResolvedValue(undefined);
+
+    await expect(
+      executeCommand({
+        args: { uiMode: "cycle" },
+        id: "worktree.setUiMode",
+        source: "keyboard-shortcut",
+      }),
+    ).resolves.toEqual({ status: "success" });
+
+    expect(updateSpy).toHaveBeenCalledWith(
+      projectOne.id,
+      worktreeOne.id,
+      "hubris",
+    );
   });
 
   it("reopens project removal in force mode on 409 conflicts", async () => {

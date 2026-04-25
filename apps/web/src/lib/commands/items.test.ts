@@ -91,6 +91,11 @@ describe("command palette items", () => {
           title: "Open Settings",
         }),
         expect.objectContaining({
+          id: "worktree.select",
+          key: "worktree.select",
+          title: "Switch Worktree",
+        }),
+        expect.objectContaining({
           args: { projectId: project.id },
           id: "worktree.create",
           key: `worktree.create:${project.id}`,
@@ -233,7 +238,9 @@ describe("command palette items", () => {
       }),
     );
 
-    const switchItems = items.filter((item) => item.id === "worktree.select");
+    const switchItems = items.filter(
+      (item) => item.id === "worktree.select" && item.key !== "worktree.select",
+    );
 
     expect(
       switchItems.map((item) => ({

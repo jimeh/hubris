@@ -16,6 +16,7 @@ const STATIC_PALETTE_COMMANDS = [
   "pane.splitRight",
   "pane.splitDown",
   "tab.close",
+  "worktree.select",
   "app.openSettings",
 ] as const;
 

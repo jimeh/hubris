@@ -52,4 +52,19 @@ describe("command arg fields", () => {
 
     expect(() => fieldValuesToArgs(fields, {})).toThrow(/Section is required/);
   });
+
+  it("includes cycle as a worktree UI mode option", () => {
+    const fields = commandArgFieldsForCommand("worktree.setUiMode");
+
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "uiMode",
+          options: expect.arrayContaining([
+            expect.objectContaining({ value: "cycle" }),
+          ]),
+        }),
+      ]),
+    );
+  });
 });

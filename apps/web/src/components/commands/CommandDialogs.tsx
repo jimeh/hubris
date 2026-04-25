@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import AddWorktreeDialog from "@/components/AddWorktreeDialog";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -16,11 +16,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { executeCommand } from "@/lib/commands";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
+import type { Project, Worktree } from "@/lib/types";
 
 type DirtyTabCloseBehavior = "discard" | "save";
 
@@ -104,12 +113,121 @@ function CloseDirtyTabDialog({
   );
 }
 
+function byPosition<T extends { id: string; position?: number }>(
+  left: T,
+  right: T,
+): number {
+  return (
+    (left.position ?? 0) - (right.position ?? 0) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function worktreeSubtitle(project: Project, worktree: Worktree): string {
+  return [project.name, worktree.branch].filter(Boolean).join(" • ");
+}
+
+function WorktreeSelectDialog({
+  onClose,
+  projects,
+  selectedWorktreeId,
+  worktreesByProject,
+}: {
+  onClose: () => void;
+  projects: Project[];
+  selectedWorktreeId: string | null;
+  worktreesByProject: Record<string, Worktree[]>;
+}) {
+  const [query, setQuery] = useState("");
+  const items = useMemo(() => {
+    return [...projects].sort(byPosition).flatMap((project) =>
+      [...(worktreesByProject[project.id] ?? [])]
+        .sort(byPosition)
+        .map((worktree) => ({
+          project,
+          searchText: [
+            worktree.name,
+            worktree.branch,
+            project.name,
+            project.path,
+            worktree.path,
+          ].join(" "),
+          worktree,
+        })),
+    );
+  }, [projects, worktreesByProject]);
+
+  async function selectWorktree(worktreeId: string): Promise<void> {
+    const result = await executeCommand({
+      args: { worktreeId },
+      id: "worktree.select",
+      source: "dialog",
+    });
+    if (result.status === "success" || worktreeId === selectedWorktreeId) {
+      onClose();
+    }
+  }
+
+  return (
+    <CommandDialog
+      description="Search for a worktree to switch to."
+      open
+      title="Switch Worktree"
+      onOpenChange={(open) => {
+        if (!open) {
+          onClose();
+        }
+      }}
+    >
+      <CommandInput
+        placeholder="Switch worktree..."
+        value={query}
+        onValueChange={setQuery}
+      />
+      <CommandList>
+        <CommandEmpty>No worktrees found.</CommandEmpty>
+        <CommandGroup heading="Worktrees">
+          {items.map(({ project, searchText, worktree }) => (
+            <CommandItem
+              key={worktree.id}
+              keywords={[
+                project.name,
+                project.path,
+                worktree.branch,
+                worktree.name,
+                worktree.path,
+              ]}
+              onSelect={() => void selectWorktree(worktree.id)}
+              value={searchText}
+            >
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate">{worktree.name}</span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {worktreeSubtitle(project, worktree)}
+                </span>
+              </div>
+              {worktree.id === selectedWorktreeId ? (
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  Current
+                </span>
+              ) : null}
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </CommandList>
+    </CommandDialog>
+  );
+}
+
 export default function CommandDialogs() {
   const dialog = useCommandUiStore((state) => state.dialog);
   const closeDialog = useCommandUiStore((state) => state.closeDialog);
   const projects = useProjectStore((state) => state.projects);
   const worktreesByProject = useWorktreeStore(
     (state) => state.worktreesByProject,
+  );
+  const selectedWorktreeId = useWorktreeStore(
+    (state) => state.selectedWorktreeId,
   );
   const tabs = useTabStore((state) => state.tabs);
 
@@ -365,6 +483,15 @@ export default function CommandDialogs() {
           label={activeTab.label}
           onClose={closeDialog}
           tabId={activeTab.id}
+        />
+      ) : null}
+
+      {dialog?.type === "select-worktree" ? (
+        <WorktreeSelectDialog
+          projects={projects}
+          selectedWorktreeId={selectedWorktreeId}
+          worktreesByProject={worktreesByProject}
+          onClose={closeDialog}
         />
       ) : null}
 

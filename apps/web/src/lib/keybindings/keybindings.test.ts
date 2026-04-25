@@ -5,6 +5,7 @@ import {
   normalizeKeybinding,
   normalizeKeybindingForStorage,
 } from "./keys";
+import { defaultKeybindings } from "./defaults";
 import { buildKeybindingRegistry, resolveKeybinding } from "./registry";
 import {
   completeWhenExpression,
@@ -259,5 +260,35 @@ describe("keybinding registry", () => {
     });
 
     expect(binding).toBeNull();
+  });
+});
+
+describe("default keybindings", () => {
+  it("uses bracket shortcuts for worktree history and switching", () => {
+    expect(defaultKeybindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          command: "worktree.navigateBack",
+          key: "mod+[",
+        }),
+        expect.objectContaining({
+          command: "worktree.navigateForward",
+          key: "mod+]",
+        }),
+        expect.objectContaining({
+          command: "worktree.selectPrevious",
+          key: "mod+shift+[",
+        }),
+        expect.objectContaining({
+          command: "worktree.selectNext",
+          key: "mod+shift+]",
+        }),
+        expect.objectContaining({
+          args: { uiMode: "cycle" },
+          command: "worktree.setUiMode",
+          key: "mod+e",
+        }),
+      ]),
+    );
   });
 });

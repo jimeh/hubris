@@ -56,6 +56,13 @@ export const defaultKeybindings = [
     when: `${WORKBENCH_SAFE} && activeTabPreview`,
   },
   {
+    args: { uiMode: "cycle" },
+    command: "worktree.setUiMode",
+    key: "mod+e",
+    source: "default",
+    when: WORKBENCH_SAFE,
+  },
+  {
     command: "project.selectPrevious",
     key: "mod+alt+up",
     source: "default",
@@ -68,14 +75,26 @@ export const defaultKeybindings = [
     when: WORKBENCH_SAFE,
   },
   {
+    command: "worktree.navigateBack",
+    key: "mod+[",
+    source: "default",
+    when: WORKBENCH_SAFE,
+  },
+  {
+    command: "worktree.navigateForward",
+    key: "mod+]",
+    source: "default",
+    when: WORKBENCH_SAFE,
+  },
+  {
     command: "worktree.selectPrevious",
-    key: "mod+alt+shift+up",
+    key: "mod+shift+[",
     source: "default",
     when: WORKBENCH_SAFE,
   },
   {
     command: "worktree.selectNext",
-    key: "mod+alt+shift+down",
+    key: "mod+shift+]",
     source: "default",
     when: WORKBENCH_SAFE,
   },

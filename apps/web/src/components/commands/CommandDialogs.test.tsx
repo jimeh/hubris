@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -334,6 +335,61 @@ describe("CommandDialogs", () => {
     await waitFor(() => {
       expect(closeSpy).toHaveBeenCalledWith(tab.id);
     });
+  });
+
+  it("shows a searchable project-scoped worktree picker", async () => {
+    const alpha = makeProject();
+    const beta = {
+      ...makeProject(),
+      id: "p2",
+      name: "Beta",
+      path: "/tmp/beta",
+      position: 2,
+    };
+    const local = makeWorktree();
+    const feature = {
+      ...makeWorktree(),
+      id: "w2",
+      project_id: beta.id,
+      name: "feature-a",
+      path: "/tmp/beta-feature-a",
+      branch: "feature-a",
+      is_local: false,
+      position: 1,
+    };
+
+    useProjectStore.setState({ projects: [alpha, beta] });
+    useWorktreeStore.setState({
+      selectedWorktreeId: local.id,
+      worktreesByProject: {
+        [alpha.id]: [local],
+        [beta.id]: [feature],
+      },
+    });
+    useCommandUiStore.setState({
+      dialog: { type: "select-worktree" },
+    });
+
+    render(<CommandDialogs />);
+
+    expect(
+      screen.getByPlaceholderText("Switch worktree..."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Beta • feature-a")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Switch worktree..."), {
+      target: { value: "beta feature" },
+    });
+    fireEvent.click(
+      within(screen.getByText("feature-a").closest("[cmdk-item]")!).getByText(
+        "feature-a",
+      ),
+    );
+
+    await waitFor(() => {
+      expect(useWorktreeStore.getState().selectedWorktreeId).toBe(feature.id);
+    });
+    expect(useCommandUiStore.getState().dialog).toBeNull();
   });
 
   it("does not allow cancel or discard to race a pending save", async () => {

@@ -49,6 +49,7 @@ const saveBehaviorOptions = [
 const worktreeModeOptions = [
   { label: "Hubris", value: "hubris" },
   { label: "VS Code", value: "vscode" },
+  { label: "Cycle", value: "cycle" },
 ] as const;
 
 const commandArgFields = {
