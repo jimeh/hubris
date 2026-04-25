@@ -5,6 +5,7 @@ import {
   getPlatformFlags,
   normalizeKeybinding,
 } from "./keys";
+import { stableStringifyJson } from "./json";
 import { evaluateWhenExpression, type KeybindingWhenContext } from "./when";
 
 export type UserKeybindingEntry = {
@@ -114,12 +115,12 @@ export function getFirstKeybindingForCommandArgs(
   command: CommandId,
   args: unknown,
 ): string | null {
-  const serializedArgs = JSON.stringify(args ?? null);
+  const serializedArgs = stableStringifyJson(args ?? null);
   const binding =
     registry.bindings.find(
       (candidate) =>
         candidate.command === command &&
-        JSON.stringify(candidate.args ?? null) === serializedArgs,
+        stableStringifyJson(candidate.args ?? null) === serializedArgs,
     ) ?? null;
   return binding ? formatKeybinding(binding.key) : null;
 }
@@ -172,7 +173,55 @@ function compareKeybindingSpecificity(
 }
 
 function whenSpecificity(when: string | undefined): number {
-  return when ? when.split(/&&|\|\|/).length : 0;
+  if (!when?.trim()) {
+    return 0;
+  }
+
+  let terms = 1;
+  let depth = 0;
+  let maxDepth = 0;
+  let negations = 0;
+  for (let index = 0; index < when.length; index += 1) {
+    const char = when[index];
+    if (char === "'" || char === '"') {
+      index = skipString(when, index, char);
+      continue;
+    }
+    if (char === "(") {
+      depth += 1;
+      maxDepth = Math.max(maxDepth, depth);
+      continue;
+    }
+    if (char === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (char === "!") {
+      negations += 1;
+      continue;
+    }
+    if (when.startsWith("&&", index) || when.startsWith("||", index)) {
+      terms += 1;
+      index += 1;
+    }
+  }
+
+  return terms * 100 + negations * 10 + maxDepth;
+}
+
+function skipString(input: string, start: number, quote: string): number {
+  let index = start + 1;
+  while (index < input.length) {
+    if (input[index] === "\\") {
+      index += 2;
+      continue;
+    }
+    if (input[index] === quote) {
+      return index;
+    }
+    index += 1;
+  }
+  return input.length;
 }
 
 function bindingPrecedenceKey(

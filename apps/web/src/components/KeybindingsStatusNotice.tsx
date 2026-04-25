@@ -12,7 +12,9 @@ export default function KeybindingsStatusNotice({
 
   return (
     <section
+      aria-atomic="true"
       aria-live="polite"
+      role="status"
       className="relative overflow-hidden border border-x-0 border-t-0 border-amber-500/40 bg-[linear-gradient(135deg,rgba(245,158,11,0.16),rgba(251,191,36,0.08)_46%,rgba(120,53,15,0.14))] text-amber-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)] dark:text-amber-50"
     >
       <div className="absolute inset-y-0 left-0 w-1 bg-amber-500/70" />

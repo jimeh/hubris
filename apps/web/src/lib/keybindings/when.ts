@@ -189,8 +189,9 @@ function readString(
       return [value, index + 1];
     }
     if (char === "\\" && index + 1 < input.length) {
-      value += input[index + 1];
-      index += 2;
+      const [escaped, nextIndex] = readEscape(input, index);
+      value += escaped;
+      index = nextIndex;
       continue;
     }
     value += char;
@@ -198,6 +199,39 @@ function readString(
   }
 
   throw new Error("Unterminated string in when condition");
+}
+
+function readEscape(input: string, start: number): [string, number] {
+  const char = input[start + 1];
+  if (!char) {
+    throw new Error("Invalid escape in when condition string");
+  }
+
+  switch (char) {
+    case "\\":
+    case '"':
+    case "'":
+      return [char, start + 2];
+    case "b":
+      return ["\b", start + 2];
+    case "f":
+      return ["\f", start + 2];
+    case "n":
+      return ["\n", start + 2];
+    case "r":
+      return ["\r", start + 2];
+    case "t":
+      return ["\t", start + 2];
+    case "u": {
+      const hex = input.slice(start + 2, start + 6);
+      if (!/^[0-9A-Fa-f]{4}$/.test(hex)) {
+        throw new Error("Invalid unicode escape in when condition string");
+      }
+      return [String.fromCharCode(Number.parseInt(hex, 16)), start + 6];
+    }
+    default:
+      throw new Error(`Invalid escape "\\${char}" in when condition string`);
+  }
 }
 
 class Parser {

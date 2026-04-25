@@ -23,8 +23,7 @@ export function getKeybindingWhenContext(target: EventTarget | null) {
     dialogOpen: commandUi.dialog !== null,
     editorFocus,
     focusedPane: commandContext.focusedPaneId !== null,
-    gitStatusFocus:
-      element?.closest("[data-git-status-section-header]") !== null,
+    gitStatusFocus: element?.closest("[data-git-status]") !== null,
     inputFocus,
     ...getPlatformFlags(),
     selectedProject: commandContext.selectedProject !== null,

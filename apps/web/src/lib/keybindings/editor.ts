@@ -12,10 +12,32 @@ import {
   normalizeKeybinding,
   normalizeKeybindingForStorage,
 } from "./keys";
+import { stableStringifyJson } from "./json";
 import { evaluateWhenExpression, type KeybindingWhenContext } from "./when";
 
-const RESERVED_KEYBINDINGS = new Set(["ctrl+r", "meta+r"]);
+const RESERVED_KEYBINDINGS = new Set([
+  "ctrl+f5",
+  "ctrl+l",
+  "ctrl+n",
+  "ctrl+r",
+  "ctrl+shift+i",
+  "ctrl+shift+n",
+  "ctrl+shift+r",
+  "ctrl+t",
+  "ctrl+w",
+  "f5",
+  "meta+l",
+  "meta+n",
+  "meta+q",
+  "meta+r",
+  "meta+shift+i",
+  "meta+shift+n",
+  "meta+shift+r",
+  "meta+t",
+  "meta+w",
+]);
 
+// Keep this permissive sample in sync with getKeybindingWhenContext().
 const VALIDATION_CONTEXT = {
   activeTabPreview: false,
   activeTabType: "terminal",
@@ -360,7 +382,7 @@ function groupActiveBindings(bindings: CommandShortcutBinding[]) {
 }
 
 function commandArgsKey(binding: CommandShortcutBinding): string {
-  return `${binding.command}\u0000${JSON.stringify(binding.args ?? null)}`;
+  return `${binding.command}\u0000${stableStringifyJson(binding.args ?? null)}`;
 }
 
 function defaultDisableKey(key: string, when: string | null | undefined) {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addUserShortcut,
   disableCommandDefaults,
+  isReservedKeybinding,
   removeUserShortcut,
   resetCommandKeybindings,
   updateUserShortcutAdvanced,
@@ -98,12 +99,14 @@ describe("keybinding editor draft helpers", () => {
 
     const duplicate = validateKeybindingDraft([
       {
+        args: { one: 1, two: 2 },
         command: "tab.newTerminal",
         disabled: false,
         key: "ctrl+1",
         when: "selectedWorktree",
       },
       {
+        args: { two: 2, one: 1 },
         command: "tab.newTerminal",
         disabled: false,
         key: "ctrl+1",
@@ -157,5 +160,11 @@ describe("keybinding editor draft helpers", () => {
       },
     ]);
     expect(result.errors[0]).toMatch(/Unknown when condition key/);
+  });
+
+  it("rejects common browser and system shortcuts in the recorder", () => {
+    expect(isReservedKeybinding("cmd+w")).toBe(true);
+    expect(isReservedKeybinding("ctrl+shift+i")).toBe(true);
+    expect(isReservedKeybinding("mod+k")).toBe(false);
   });
 });

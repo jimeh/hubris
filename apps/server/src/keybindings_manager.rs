@@ -471,10 +471,14 @@ async fn persist_document(
         .await
         .map_err(|error| cleanup_temp_file_on_error(&temp_path, error))?;
 
-    if let Ok(metadata) = fs::metadata(path).await
-        && let Err(error) = fs::set_permissions(&temp_path, metadata.permissions()).await
-    {
-        return Err(cleanup_temp_file_on_error(&temp_path, error));
+    match fs::metadata(path).await {
+        Ok(metadata) => {
+            if let Err(error) = fs::set_permissions(&temp_path, metadata.permissions()).await {
+                return Err(cleanup_temp_file_on_error(&temp_path, error));
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => {}
     }
 
     if let Err(error) = file.write_all(contents.as_bytes()).await {

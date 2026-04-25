@@ -6,7 +6,11 @@ import {
   normalizeKeybindingForStorage,
 } from "./keys";
 import { defaultKeybindings } from "./defaults";
-import { buildKeybindingRegistry, resolveKeybinding } from "./registry";
+import {
+  buildKeybindingRegistry,
+  getFirstKeybindingForCommandArgs,
+  resolveKeybinding,
+} from "./registry";
 import {
   completeWhenExpression,
   evaluateWhenExpression,
@@ -131,6 +135,15 @@ describe("when conditions", () => {
     );
   });
 
+  it("decodes standard string escapes and rejects malformed escapes", () => {
+    expect(
+      evaluateWhenExpression("activeTabType == 'term\\u0069nal'", context),
+    ).toBe(true);
+    expect(() =>
+      evaluateWhenExpression("activeTabType == 'terminal\\q'", context),
+    ).toThrow(/Invalid escape/);
+  });
+
   it("suggests and inserts when condition completions", () => {
     expect(matchingWhenCompletions("selected", "selected".length)).toEqual(
       expect.arrayContaining([
@@ -223,6 +236,23 @@ describe("keybinding registry", () => {
     });
 
     expect(binding?.command).toBe("tab.newBrowser");
+  });
+
+  it("matches command args independent of object key order", () => {
+    const registry = buildKeybindingRegistry([
+      {
+        args: { port: 5173, url: "http://localhost:5173" },
+        command: "tab.newBrowser",
+        key: "ctrl+k",
+      },
+    ]);
+
+    expect(
+      getFirstKeybindingForCommandArgs(registry, "tab.newBrowser", {
+        url: "http://localhost:5173",
+        port: 5173,
+      }),
+    ).not.toBeNull();
   });
 
   it("drops malformed user when expressions from the active registry", () => {

@@ -59,6 +59,11 @@ export default function CommandPalette() {
           <CommandGroup key={group} heading={group}>
             {groupItems.map((item) => {
               const Icon = item.icon;
+              const keybindingLabel = getFirstKeybindingForCommandArgs(
+                keybindingRegistry,
+                item.id,
+                item.args,
+              );
 
               return (
                 <CommandItem
@@ -81,17 +86,9 @@ export default function CommandPalette() {
                       </span>
                     ) : null}
                   </div>
-                  {getFirstKeybindingForCommandArgs(
-                    keybindingRegistry,
-                    item.id,
-                    item.args,
-                  ) ? (
+                  {keybindingLabel ? (
                     <kbd className="ml-3 shrink-0 rounded border bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                      {getFirstKeybindingForCommandArgs(
-                        keybindingRegistry,
-                        item.id,
-                        item.args,
-                      )}
+                      {keybindingLabel}
                     </kbd>
                   ) : null}
                 </CommandItem>

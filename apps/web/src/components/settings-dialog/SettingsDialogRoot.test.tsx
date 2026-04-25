@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetSettingsStoreForTests } from "@/lib/stores/settings";
@@ -75,8 +75,13 @@ describe("SettingsDialogRoot", () => {
 
     render(<SettingsDialogRoot open onOpenChange={onOpenChange} />);
 
+    const sidebar = document.querySelector('[data-sidebar="header"]');
+    expect(sidebar).not.toBeNull();
+
     await user.click(
-      screen.getAllByRole("button", { name: "Close settings" })[0],
+      within(sidebar as HTMLElement).getByRole("button", {
+        name: "Close settings",
+      }),
     );
 
     expect(onOpenChange).toHaveBeenCalledWith(false);

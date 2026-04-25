@@ -222,6 +222,7 @@ function parseStorageKeybinding(input: string): StorageKeybinding {
 }
 
 function serializeStorageKeybinding(input: StorageKeybinding): string {
+  // Storage favors human-authored order while keeping macOS `mod` readable.
   return [
     input.ctrl ? "ctrl" : null,
     isMacPlatform() ? null : input.mod ? "mod" : null,
