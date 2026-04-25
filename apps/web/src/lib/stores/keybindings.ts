@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { getKeybindings } from "@/lib/api";
+import { getKeybindings, replaceKeybindings } from "@/lib/api";
 import { getEventClient } from "@/lib/events";
 import type {
   KeybindingEntry,
@@ -23,6 +23,9 @@ type KeybindingsStoreState = {
   registry: KeybindingRegistry;
   status: KeybindingsStatus;
   initialize: () => () => void;
+  replaceUserKeybindings: (
+    keybindings: KeybindingEntry[],
+  ) => Promise<KeybindingsState>;
 };
 
 const initialState = {
@@ -61,6 +64,11 @@ export const useKeybindingsStore = create<KeybindingsStoreState>(() => ({
         unsubscribe();
       }
     };
+  },
+  async replaceUserKeybindings(keybindings) {
+    const state = await replaceKeybindings(keybindings);
+    commitKeybindingsState(state);
+    return state;
   },
 }));
 

@@ -1,7 +1,10 @@
 import { useEffect } from "react";
 import { executeCommand, type CommandArgsById } from "@/lib/commands";
 import { getKeybindingWhenContext } from "@/lib/keybindings/context";
-import { keybindingFromEvent } from "@/lib/keybindings/keys";
+import {
+  keybindingFromEvent,
+  normalizeKeybinding,
+} from "@/lib/keybindings/keys";
 import { resolveKeybinding } from "@/lib/keybindings/registry";
 import { useKeybindingsStore } from "@/lib/stores/keybindings";
 import { useSettingsStore } from "@/lib/stores/settings";
@@ -21,7 +24,7 @@ export default function KeyboardShortcuts() {
       }
 
       const key = keybindingFromEvent(event);
-      if (RESERVED_BROWSER_KEYS.has(key)) {
+      if (RESERVED_BROWSER_KEYS.has(normalizeKeybinding(key))) {
         return;
       }
 

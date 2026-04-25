@@ -255,7 +255,7 @@ checks enforce this through `mise run check:backend`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (7422 symbols, 16951
+This project is indexed by GitNexus as **hubris** (7920 symbols, 18365
 relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 
@@ -279,31 +279,6 @@ code, assess impact, and navigate safely.
   execution flows it participates in — use
   `gitnexus_context({name: "symbolName"})`.
 
-## When Debugging
-
-1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows
-   related to the issue
-2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees,
-   and process participation
-3. `READ gitnexus://repo/hubris/process/{processName}` — trace the full
-   execution flow step by step
-4. For regressions:
-   `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what
-   your branch changed
-
-## When Refactoring
-
-- **Renaming**: MUST use
-  `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` first.
-  Review the preview — graph edits are safe, text_search edits need manual
-  review. Then run with `dry_run: false`.
-- **Extracting/Splitting**: MUST run `gitnexus_context({name: "target"})` to see
-  all incoming/outgoing refs, then
-  `gitnexus_impact({target: "target", direction: "upstream"})` to find all
-  external callers before moving code.
-- After any refactor: run `gitnexus_detect_changes({scope: "all"})` to verify
-  only expected files changed.
-
 ## Never Do
 
 - NEVER edit a function, class, or method without first running
@@ -314,25 +289,6 @@ code, assess impact, and navigate safely.
 - NEVER commit changes without running `gitnexus_detect_changes()` to check
   affected scope.
 
-## Tools Quick Reference
-
-| Tool             | When to use                   | Command                                                                 |
-| ---------------- | ----------------------------- | ----------------------------------------------------------------------- |
-| `query`          | Find code by concept          | `gitnexus_query({query: "auth validation"})`                            |
-| `context`        | 360-degree view of one symbol | `gitnexus_context({name: "validateUser"})`                              |
-| `impact`         | Blast radius before editing   | `gitnexus_impact({target: "X", direction: "upstream"})`                 |
-| `detect_changes` | Pre-commit scope check        | `gitnexus_detect_changes({scope: "staged"})`                            |
-| `rename`         | Safe multi-file rename        | `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` |
-| `cypher`         | Custom graph queries          | `gitnexus_cypher({query: "MATCH ..."})`                                 |
-
-## Impact Risk Levels
-
-| Depth | Meaning                               | Action                |
-| ----- | ------------------------------------- | --------------------- |
-| d=1   | WILL BREAK — direct callers/importers | MUST update these     |
-| d=2   | LIKELY AFFECTED — indirect deps       | Should test           |
-| d=3   | MAY NEED TESTING — transitive         | Test if critical path |
-
 ## Resources
 
 | Resource                                | Use for                                  |
@@ -341,39 +297,6 @@ code, assess impact, and navigate safely.
 | `gitnexus://repo/hubris/clusters`       | All functional areas                     |
 | `gitnexus://repo/hubris/processes`      | All execution flows                      |
 | `gitnexus://repo/hubris/process/{name}` | Step-by-step execution trace             |
-
-## Self-Check Before Finishing
-
-Before completing any code modification task, verify:
-
-1. `gitnexus_impact` was run for all modified symbols
-2. No HIGH/CRITICAL risk warnings were ignored
-3. `gitnexus_detect_changes()` confirms changes match expected scope
-4. All d=1 (WILL BREAK) dependents were updated
-
-## Keeping the Index Fresh
-
-After committing code changes, the GitNexus index becomes stale. Re-run analyze
-to update it:
-
-```bash
-npx gitnexus analyze
-```
-
-If the index previously included embeddings, preserve them by adding
-`--embeddings`:
-
-```bash
-npx gitnexus analyze --embeddings
-```
-
-To check whether embeddings exist, inspect `.gitnexus/meta.json` — the
-`stats.embeddings` field shows the count (0 means no embeddings). **Running
-analyze without `--embeddings` will delete any previously generated
-embeddings.**
-
-> Claude Code users: A PostToolUse hook handles this automatically after
-> `git commit` and `git merge`.
 
 ## CLI
 

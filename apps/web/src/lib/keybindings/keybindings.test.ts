@@ -3,30 +3,91 @@ import {
   formatKeybinding,
   keybindingFromEvent,
   normalizeKeybinding,
+  normalizeKeybindingForStorage,
 } from "./keys";
 import { buildKeybindingRegistry, resolveKeybinding } from "./registry";
-import { evaluateWhenExpression } from "./when";
+import {
+  completeWhenExpression,
+  evaluateWhenExpression,
+  matchingWhenCompletions,
+} from "./when";
 
 vi.mock("@/lib/commands", () => ({
   getCommandDefinition: (id: string) => ({ id }),
 }));
 
+function setNavigatorPlatform(platform: string): void {
+  Object.defineProperty(window.navigator, "platform", {
+    configurable: true,
+    value: platform,
+  });
+}
+
 describe("keybinding keys", () => {
   it("normalizes modifiers and platform mod aliases", () => {
+    setNavigatorPlatform("MacIntel");
+
     expect(normalizeKeybinding("shift+cmd+p")).toBe("meta+shift+p");
     expect(normalizeKeybinding("ctrl+alt+ArrowLeft")).toBe("ctrl+alt+left");
   });
 
-  it("normalizes keyboard events", () => {
+  it("records platform primary modifiers as mod", () => {
+    setNavigatorPlatform("MacIntel");
+
     expect(
       keybindingFromEvent({
-        altKey: true,
+        altKey: false,
+        code: "KeyP",
         ctrlKey: false,
-        key: "ArrowRight",
+        key: "p",
         metaKey: true,
         shiftKey: false,
       } as KeyboardEvent),
-    ).toBe("meta+alt+right");
+    ).toBe("mod+p");
+
+    setNavigatorPlatform("Linux x86_64");
+
+    expect(
+      keybindingFromEvent({
+        altKey: false,
+        code: "KeyP",
+        ctrlKey: true,
+        key: "p",
+        metaKey: false,
+        shiftKey: false,
+      } as KeyboardEvent),
+    ).toBe("mod+p");
+  });
+
+  it("keeps runtime and storage normalization separate", () => {
+    setNavigatorPlatform("MacIntel");
+
+    expect(normalizeKeybinding("mod+p")).toBe("meta+p");
+    expect(normalizeKeybindingForStorage("mod+p")).toBe("mod+p");
+    expect(normalizeKeybindingForStorage("cmd+p")).toBe("cmd+p");
+    expect(normalizeKeybindingForStorage("meta+p")).toBe("cmd+p");
+    expect(normalizeKeybindingForStorage("ctrl+p")).toBe("ctrl+p");
+  });
+
+  it("does not treat explicit meta as the platform mod alias", () => {
+    setNavigatorPlatform("MacIntel");
+
+    expect(normalizeKeybinding("meta+p")).toBe("meta+p");
+    expect(normalizeKeybinding("mod+p")).toBe("meta+p");
+    expect(normalizeKeybindingForStorage("meta+p")).not.toBe("mod+p");
+  });
+
+  it("uses physical letter keys for alt-modified characters", () => {
+    expect(
+      keybindingFromEvent({
+        altKey: true,
+        code: "KeyP",
+        ctrlKey: false,
+        key: "π",
+        metaKey: false,
+        shiftKey: false,
+      } as KeyboardEvent),
+    ).toBe("alt+p");
   });
 
   it("formats shortcut labels", () => {
@@ -39,6 +100,9 @@ describe("when conditions", () => {
     activeTabType: "terminal",
     editorFocus: false,
     inputFocus: false,
+    isLinux: false,
+    isMacOS: true,
+    isWindows: false,
     selectedWorktree: true,
     terminalFocus: true,
   };
@@ -55,10 +119,33 @@ describe("when conditions", () => {
     );
   });
 
+  it("supports OS-specific conditions", () => {
+    expect(evaluateWhenExpression("isMacOS && !isWindows", context)).toBe(true);
+    expect(evaluateWhenExpression("isLinux || isWindows", context)).toBe(false);
+  });
+
   it("fails loudly for unknown keys", () => {
     expect(() => evaluateWhenExpression("typoKey", context)).toThrow(
       /Unknown when condition key/,
     );
+  });
+
+  it("suggests and inserts when condition completions", () => {
+    expect(matchingWhenCompletions("selected", "selected".length)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: "selectedWorktree" }),
+      ]),
+    );
+    expect(
+      completeWhenExpression({
+        completion: "selectedWorktree",
+        cursorIndex: "selected".length,
+        value: "selected",
+      }),
+    ).toEqual({
+      cursorIndex: "selectedWorktree".length,
+      value: "selectedWorktree",
+    });
   });
 });
 
@@ -73,6 +160,9 @@ describe("keybinding registry", () => {
     focusedPane: true,
     gitStatusFocus: false,
     inputFocus: false,
+    isLinux: false,
+    isMacOS: true,
+    isWindows: false,
     selectedProject: true,
     selectedWorktree: true,
     terminalFocus: false,

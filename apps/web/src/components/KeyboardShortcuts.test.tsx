@@ -8,6 +8,13 @@ const mocks = vi.hoisted(() => ({
   executeCommand: vi.fn(),
 }));
 
+function setNavigatorPlatform(platform: string): void {
+  Object.defineProperty(window.navigator, "platform", {
+    configurable: true,
+    value: platform,
+  });
+}
+
 vi.mock("@/lib/commands", () => ({
   executeCommand: mocks.executeCommand,
   getCommandContextSnapshot: () => ({
@@ -148,6 +155,33 @@ describe("KeyboardShortcuts", () => {
         bubbles: true,
         ctrlKey: true,
         key: "K",
+      }),
+    );
+
+    expect(mocks.executeCommand).not.toHaveBeenCalled();
+  });
+
+  it("does not intercept reserved browser reload shortcuts", () => {
+    setNavigatorPlatform("MacIntel");
+    useKeybindingsStore.setState({
+      registry: {
+        bindings: [
+          {
+            command: "app.openCommandPalette",
+            key: "meta+r",
+            source: "user",
+            when: "selectedWorktree",
+          },
+        ],
+        conflicts: [],
+      },
+    });
+    render(<KeyboardShortcuts />);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "R",
+        metaKey: true,
       }),
     );
 

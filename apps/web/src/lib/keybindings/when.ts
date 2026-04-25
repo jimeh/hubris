@@ -1,5 +1,76 @@
 export type KeybindingWhenContext = Record<string, boolean | string | null>;
 
+export type WhenConditionCompletion = {
+  description: string;
+  value: string;
+};
+
+export const whenConditionCompletions = [
+  { description: "A preview tab is active", value: "activeTabPreview" },
+  { description: "The active tab is a browser", value: "browserFocus" },
+  { description: "The command palette is open", value: "commandPaletteOpen" },
+  { description: "A command-owned dialog is open", value: "dialogOpen" },
+  { description: "The active tab is an editor", value: "editorFocus" },
+  { description: "A pane is focused", value: "focusedPane" },
+  { description: "Git status or sidebar has focus", value: "gitStatusFocus" },
+  {
+    description: "Text input or editable element has focus",
+    value: "inputFocus",
+  },
+  { description: "The client is Linux", value: "isLinux" },
+  { description: "The client is macOS", value: "isMacOS" },
+  { description: "The client is Windows", value: "isWindows" },
+  { description: "A project is selected", value: "selectedProject" },
+  { description: "A worktree is selected", value: "selectedWorktree" },
+  { description: "The active terminal has focus", value: "terminalFocus" },
+  {
+    description: "Active tab is terminal",
+    value: "activeTabType == 'terminal'",
+  },
+  {
+    description: "Active tab is browser",
+    value: "activeTabType == 'browser'",
+  },
+  {
+    description: "Active tab is file editor",
+    value: "activeTabType == 'file'",
+  },
+  {
+    description: "Active tab is git diff",
+    value: "activeTabType == 'git_diff'",
+  },
+] as const satisfies readonly WhenConditionCompletion[];
+
+export function completeWhenExpression(input: {
+  completion: string;
+  cursorIndex: number;
+  value: string;
+}): { cursorIndex: number; value: string } {
+  const token = currentWhenToken(input.value, input.cursorIndex);
+  const nextValue =
+    input.value.slice(0, token.start) +
+    input.completion +
+    input.value.slice(input.cursorIndex);
+  return {
+    cursorIndex: token.start + input.completion.length,
+    value: nextValue,
+  };
+}
+
+export function matchingWhenCompletions(
+  value: string,
+  cursorIndex: number,
+): WhenConditionCompletion[] {
+  const token = currentWhenToken(value, cursorIndex);
+  if (!token.value) {
+    return [];
+  }
+  const needle = token.value.toLowerCase();
+  return whenConditionCompletions
+    .filter((completion) => completion.value.toLowerCase().includes(needle))
+    .slice(0, 8);
+}
+
 type Token =
   | { type: "and" | "bang" | "eq" | "lparen" | "neq" | "or" | "rparen" }
   | { type: "identifier" | "string"; value: string };
@@ -9,6 +80,21 @@ type Expression =
   | { type: "not"; value: Expression }
   | { left: Expression; type: "and" | "or"; right: Expression }
   | { key: string; type: "comparison"; value: string; operator: "==" | "!=" };
+
+function currentWhenToken(
+  value: string,
+  cursorIndex: number,
+): { start: number; value: string } {
+  const beforeCursor = value.slice(0, cursorIndex);
+  const match = /[A-Za-z_][A-Za-z0-9_.-]*$/.exec(beforeCursor);
+  if (!match) {
+    return { start: cursorIndex, value: "" };
+  }
+  return {
+    start: cursorIndex - match[0].length,
+    value: match[0],
+  };
+}
 
 export function evaluateWhenExpression(
   expression: string | undefined,

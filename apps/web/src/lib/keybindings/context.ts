@@ -1,5 +1,6 @@
 import { getCommandContextSnapshot } from "@/lib/commands";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
+import { getPlatformFlags } from "./keys";
 import type { KeybindingWhenContext } from "./when";
 
 export function getKeybindingWhenContext(target: EventTarget | null) {
@@ -26,6 +27,7 @@ export function getKeybindingWhenContext(target: EventTarget | null) {
     gitStatusFocus:
       element?.closest("[data-git-status-section-header]") !== null,
     inputFocus,
+    ...getPlatformFlags(),
     selectedProject: commandContext.selectedProject !== null,
     selectedWorktree: commandContext.selectedWorktree !== null,
     terminalFocus,
