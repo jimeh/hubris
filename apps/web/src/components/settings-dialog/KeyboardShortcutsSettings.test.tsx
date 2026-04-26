@@ -176,6 +176,43 @@ describe("KeyboardShortcutsSettings", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent("Record Shortcut");
   });
 
+  it("preserves default shortcut args and when conditions when rebinding", async () => {
+    const user = userEvent.setup();
+    const replaceUserKeybindings = seedKeybindings();
+    render(<KeyboardShortcutsSettings />);
+
+    await user.type(
+      screen.getByPlaceholderText("Search commands..."),
+      "Switch Worktree Mode",
+    );
+    const row = screen.getAllByTestId("keybinding-row:worktree.setUiMode")[0];
+
+    await user.click(
+      within(row).getByRole("button", {
+        name: /Edit shortcut .* for Switch Worktree Mode/,
+      }),
+    );
+    fireEvent.keyDown(window, { altKey: true, code: "Digit3", key: "3" });
+    await user.click(screen.getByRole("button", { name: "Save Shortcut" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(replaceUserKeybindings).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          disabled: true,
+          key: "mod+e",
+          when: expect.any(String),
+        }),
+        expect.objectContaining({
+          args: { uiMode: "cycle" },
+          command: "worktree.setUiMode",
+          key: "alt+3",
+          when: expect.any(String),
+        }),
+      ]),
+    );
+  });
+
   it("opens advanced shortcut fields from the when column chevron", async () => {
     const user = userEvent.setup();
     seedKeybindings([

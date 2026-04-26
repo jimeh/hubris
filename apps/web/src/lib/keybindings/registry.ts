@@ -47,16 +47,8 @@ export function buildKeybindingRegistry(
 ): KeybindingRegistry {
   const normalizedDefaults = defaultKeybindings.map(normalizeDefinition);
   const normalizedUser = userKeybindings
-    .map((binding) =>
-      normalizeDefinition({
-        args: binding.args as KeybindingDefinition["args"],
-        command: isCommandId(binding.command) ? binding.command : undefined,
-        disabled: binding.disabled,
-        key: binding.key,
-        source: "user",
-        when: binding.when ?? undefined,
-      }),
-    )
+    .map(normalizeUserDefinition)
+    .filter((binding): binding is KeybindingDefinition => binding !== null)
     .filter(hasValidWhenExpression);
   const disabledDefaultKeys = new Set(
     normalizedUser
@@ -74,6 +66,23 @@ export function buildKeybindingRegistry(
     bindings,
     conflicts: findConflicts(bindings),
   };
+}
+
+function normalizeUserDefinition(
+  binding: UserKeybindingEntry,
+): KeybindingDefinition | null {
+  try {
+    return normalizeDefinition({
+      args: binding.args as KeybindingDefinition["args"],
+      command: isCommandId(binding.command) ? binding.command : undefined,
+      disabled: binding.disabled,
+      key: binding.key,
+      source: "user",
+      when: binding.when ?? undefined,
+    });
+  } catch {
+    return null;
+  }
 }
 
 export function resolveKeybinding(input: {

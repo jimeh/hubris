@@ -272,6 +272,33 @@ describe("keybinding registry", () => {
     ).toBe(false);
   });
 
+  it("drops malformed user keybindings without breaking the registry", () => {
+    expect(() =>
+      buildKeybindingRegistry([
+        {
+          command: "tab.newTerminal",
+          key: "cmd",
+          when: "selectedWorktree",
+        },
+      ]),
+    ).not.toThrow();
+
+    const registry = buildKeybindingRegistry([
+      {
+        command: "tab.newTerminal",
+        key: "cmd",
+        when: "selectedWorktree",
+      },
+    ]);
+
+    expect(
+      registry.bindings.some(
+        (binding) =>
+          binding.command === "tab.newTerminal" && binding.key === "cmd",
+      ),
+    ).toBe(false);
+  });
+
   it("ignores malformed when expressions while resolving shortcuts", () => {
     const binding = resolveKeybinding({
       context,

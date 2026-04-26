@@ -93,9 +93,11 @@ const VALIDATION_CONTEXT = {
 };
 
 type RecordingTarget = {
+  args?: JsonValue | null;
   command: CommandId;
   disableDefaults: boolean;
   entryIndex?: number;
+  when?: string | null;
 };
 
 function sameKeybindings(
@@ -479,9 +481,11 @@ function CommandShortcutRowView({
       return;
     }
     onEdit({
+      args: binding.args,
       command: command.id,
       disableDefaults: binding.source === "default",
       entryIndex: binding.entryIndex,
+      when: binding.when,
     });
   }
 
@@ -742,9 +746,11 @@ function KeyboardShortcutsSettingsInner({
         ? disableCommandDefaults(current, recordingTarget.command)
         : current;
       return addUserShortcut({
+        args: recordingTarget.args,
         command: recordingTarget.command,
         key: recordedKey,
         keybindings: base,
+        when: recordingTarget.when,
       });
     });
     setRecordingTarget(null);
