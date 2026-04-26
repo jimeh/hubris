@@ -2,10 +2,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiStatusError } from "@/lib/api";
 import { resetBootstrapForTests } from "@/lib/bootstrap";
+import {
+  resetAppSidebarStoreForTests,
+  useAppSidebarStore,
+} from "@/lib/stores/appSidebar";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeHistorySwitcherStore } from "@/lib/stores/worktreeHistorySwitcher";
+import {
+  resetWorktreeRightSidebarStoreForTests,
+  useWorktreeRightSidebarStore,
+} from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import { commandIds, getCommandDefinition } from "./registry";
 import { executeCommand, getCommandAvailability } from "./runtime";
@@ -102,6 +110,8 @@ describe("command runtime", () => {
   beforeEach(() => {
     localStorage.clear();
     resetBootstrapForTests();
+    resetAppSidebarStoreForTests();
+    resetWorktreeRightSidebarStoreForTests();
     useWorktreeHistorySwitcherStore.getState().cancel();
     vi.restoreAllMocks();
   });
@@ -110,6 +120,8 @@ describe("command runtime", () => {
     expect(commandIds()).toEqual(
       expect.arrayContaining([
         "project.add",
+        "app.toggleLeftSidebar",
+        "app.toggleRightSidebar",
         "project.selectNext",
         "project.selectPrevious",
         "worktree.create",
@@ -143,6 +155,31 @@ describe("command runtime", () => {
       enabled: true,
       reason: undefined,
     });
+  });
+
+  it("toggles the registered left sidebar controller", async () => {
+    const toggle = vi.fn();
+    useAppSidebarStore.getState().setController({ toggle });
+
+    await expect(
+      executeCommand({ id: "app.toggleLeftSidebar", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("toggles the right sidebar for the current viewport", async () => {
+    const store = useWorktreeRightSidebarStore;
+    store.setState({ desktopOpen: true, isMobileViewport: false });
+
+    await expect(
+      executeCommand({ id: "app.toggleRightSidebar", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(store.getState().desktopOpen).toBe(false);
+
+    store.setState({ isMobileViewport: true, mobileOpen: false });
+    await executeCommand({ id: "app.toggleRightSidebar", source: "system" });
+    expect(store.getState().mobileOpen).toBe(true);
   });
 
   it("lets explicit args override derived context during execution", async () => {

@@ -4,6 +4,11 @@ import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setMobile } from "@/test/mobile";
 import App from "./App";
+import { executeCommand } from "@/lib/commands";
+import {
+  resetAppSidebarStoreForTests,
+  useAppSidebarStore,
+} from "@/lib/stores/appSidebar";
 import { useProjectStore } from "@/lib/stores/projects";
 import { resetTabStoreForTests } from "@/lib/stores/tabs";
 import {
@@ -151,6 +156,7 @@ describe("App", () => {
     setMobile(false);
 
     resetTabStoreForTests();
+    resetAppSidebarStoreForTests();
     resetSidebarWidthStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     resetSettingsStoreForTests();
@@ -222,6 +228,23 @@ describe("App", () => {
       "true",
     );
   }, 10_000);
+
+  it("registers the left sidebar toggle command controller", async () => {
+    render(<App />);
+
+    expect(useAppSidebarStore.getState().controller).not.toBeNull();
+
+    let result: unknown;
+    await act(async () => {
+      result = await executeCommand({
+        id: "app.toggleLeftSidebar",
+        source: "system",
+      });
+    });
+
+    expect(result).toEqual({ status: "success" });
+    expect(document.cookie).toContain("sidebar_state=false");
+  });
 
   it("updates sidebar width via DOM subscription without rerendering the main pane", async () => {
     render(<App />);

@@ -5,6 +5,7 @@ import {
   History,
   LayoutPanelTop,
   Monitor,
+  PanelLeft,
   PanelRight,
   PanelTop,
   Pencil,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ApiStatusError } from "@/lib/api";
+import { useAppSidebarStore } from "@/lib/stores/appSidebar";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
 import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useProjectStore } from "@/lib/stores/projects";
@@ -26,6 +28,7 @@ import {
   getCurrentWorktreeHistoryItems,
   useWorktreeHistorySwitcherStore,
 } from "@/lib/stores/worktreeHistorySwitcher";
+import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type {
   CommandAvailability,
@@ -224,6 +227,39 @@ export const commandRegistry = {
     isAvailable: () => enabled(),
     keywords: ["preferences", "settings"],
     title: "Open Settings",
+  }),
+  "app.toggleLeftSidebar": defineCommand({
+    async execute() {
+      return useAppSidebarStore.getState().toggle()
+        ? success()
+        : { reason: "Sidebar is not ready", status: "unavailable" };
+    },
+    group: "App",
+    icon: PanelLeft,
+    id: "app.toggleLeftSidebar",
+    isAvailable: () =>
+      useAppSidebarStore.getState().controller
+        ? enabled()
+        : disabled("Sidebar is not ready"),
+    keywords: ["primary", "sidebar", "projects"],
+    title: "Toggle Left Sidebar",
+  }),
+  "app.toggleRightSidebar": defineCommand({
+    async execute() {
+      const rightSidebar = useWorktreeRightSidebarStore.getState();
+      if (rightSidebar.isMobileViewport) {
+        rightSidebar.setMobileOpen(!rightSidebar.mobileOpen);
+      } else {
+        rightSidebar.toggleDesktop();
+      }
+      return success();
+    },
+    group: "App",
+    icon: PanelRight,
+    id: "app.toggleRightSidebar",
+    isAvailable: () => enabled(),
+    keywords: ["file manager", "git", "right", "sidebar"],
+    title: "Toggle Right Sidebar",
   }),
   "pane.splitDown": defineCommand({
     async execute(context, args) {

@@ -82,9 +82,7 @@ export default function KeyboardShortcuts() {
       }
 
       event.preventDefault();
-      if (binding.command === "worktree.showHistorySwitcher") {
-        event.stopPropagation();
-      }
+      event.stopPropagation();
       void executeCommand({
         args: binding.args as CommandArgsById[typeof binding.command],
         id: binding.command,

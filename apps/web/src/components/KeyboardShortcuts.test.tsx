@@ -109,6 +109,28 @@ describe("KeyboardShortcuts", () => {
     });
   });
 
+  it("stops handled shortcuts from reaching secondary listeners", () => {
+    const downstreamListener = vi.fn();
+    document.body.addEventListener("keydown", downstreamListener);
+    render(<KeyboardShortcuts />);
+
+    document.body.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        ctrlKey: true,
+        key: "P",
+        shiftKey: true,
+      }),
+    );
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith({
+      args: undefined,
+      id: "app.openCommandPalette",
+      source: "keyboard-shortcut",
+    });
+    expect(downstreamListener).not.toHaveBeenCalled();
+  });
+
   it("does not fire while typing in inputs", () => {
     const input = document.createElement("input");
     document.body.append(input);

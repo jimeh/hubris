@@ -5,6 +5,8 @@ import type { Project, Tab, Worktree } from "@/lib/types";
 export type CommandId =
   | "app.openCommandPalette"
   | "app.openSettings"
+  | "app.toggleLeftSidebar"
+  | "app.toggleRightSidebar"
   | "pane.splitDown"
   | "pane.splitRight"
   | "project.add"
@@ -35,6 +37,8 @@ export type CommandId =
 export type CommandArgsById = {
   "app.openCommandPalette": undefined;
   "app.openSettings": { section?: SectionName } | undefined;
+  "app.toggleLeftSidebar": undefined;
+  "app.toggleRightSidebar": undefined;
   "pane.splitDown":
     | { paneId?: string; projectId?: string; worktreeId?: string }
     | undefined;

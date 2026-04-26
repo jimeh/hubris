@@ -34,6 +34,7 @@ import WorktreeView from "@/components/WorktreeView";
 import { Button } from "@/components/ui/button";
 import { executeCommand } from "@/lib/commands";
 import { applyMonacoTheme } from "@/lib/monaco";
+import { useAppSidebarStore } from "@/lib/stores/appSidebar";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useSystemStore } from "@/lib/stores/system";
@@ -45,6 +46,20 @@ import { useVscodeWorkbenchStore } from "@/lib/stores/vscodeWorkbench";
 import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type { Worktree } from "@/lib/types";
+
+function AppSidebarCommandController() {
+  const sidebar = useSidebar();
+
+  useEffect(() => {
+    const controller = { toggle: sidebar.toggleSidebar };
+    useAppSidebarStore.getState().setController(controller);
+    return () => {
+      useAppSidebarStore.getState().clearController(controller);
+    };
+  }, [sidebar.toggleSidebar]);
+
+  return null;
+}
 
 function AppHeader({
   selectedProject,
@@ -395,6 +410,7 @@ export default function App() {
           } as React.CSSProperties
         }
       >
+        <AppSidebarCommandController />
         <AppSidebar />
         <SidebarResizeHandle />
         <SidebarInset>
