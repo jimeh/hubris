@@ -6,7 +6,11 @@ import {
   normalizeKeybinding,
 } from "./keys";
 import { stableStringifyJson } from "./json";
-import { evaluateWhenExpression, type KeybindingWhenContext } from "./when";
+import {
+  evaluateWhenExpression,
+  normalizeWhenExpressionWhitespace,
+  type KeybindingWhenContext,
+} from "./when";
 
 export type UserKeybindingEntry = {
   args?: unknown;
@@ -240,7 +244,7 @@ function skipString(input: string, start: number, quote: string): number {
 function bindingPrecedenceKey(
   binding: Pick<KeybindingDefinition, "key" | "when">,
 ): string {
-  return `${binding.key}\u0000${binding.when ?? ""}`;
+  return `${binding.key}\u0000${normalizeWhenExpressionWhitespace(binding.when) ?? ""}`;
 }
 
 function commandArgsKey(

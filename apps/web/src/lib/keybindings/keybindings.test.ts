@@ -15,6 +15,8 @@ import {
   completeWhenExpression,
   evaluateWhenExpression,
   matchingWhenCompletions,
+  normalizeWhenExpressionWhitespace,
+  tokenizeWhenExpressionForHighlighting,
 } from "./when";
 
 vi.mock("@/lib/commands", () => ({
@@ -122,6 +124,12 @@ describe("when conditions", () => {
     expect(evaluateWhenExpression("editorFocus || inputFocus", context)).toBe(
       false,
     );
+    expect(
+      evaluateWhenExpression(
+        "selectedWorktree\n  &&\tactiveTabType == 'terminal'\n  && !inputFocus",
+        context,
+      ),
+    ).toBe(true);
   });
 
   it("supports OS-specific conditions", () => {
@@ -151,6 +159,13 @@ describe("when conditions", () => {
       ]),
     );
     expect(
+      matchingWhenCompletions("selectedWorktree", "selectedWorktree".length),
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: "selectedWorktree" }),
+      ]),
+    );
+    expect(
       completeWhenExpression({
         completion: "selectedWorktree",
         cursorIndex: "selected".length,
@@ -160,6 +175,58 @@ describe("when conditions", () => {
       cursorIndex: "selectedWorktree".length,
       value: "selectedWorktree",
     });
+  });
+
+  it("normalizes condition whitespace outside string literals", () => {
+    expect(
+      normalizeWhenExpressionWhitespace(
+        "selectedWorktree\n  &&\tactiveTabType == 'terminal preview'",
+      ),
+    ).toBe("selectedWorktree && activeTabType == 'terminal preview'");
+  });
+
+  it("tokenizes conditions for syntax highlighting", () => {
+    expect(
+      tokenizeWhenExpressionForHighlighting(
+        "(selectedWorktree && activeTabType == 'terminal')",
+      ),
+    ).toEqual([
+      { type: "paren", value: "(" },
+      { type: "key", value: "selectedWorktree" },
+      { type: "whitespace", value: " " },
+      { type: "operator", value: "&&" },
+      { type: "whitespace", value: " " },
+      { type: "key", value: "activeTabType" },
+      { type: "whitespace", value: " " },
+      { type: "operator", value: "==" },
+      { type: "whitespace", value: " " },
+      { type: "string", value: "'terminal'" },
+      { type: "paren", value: ")" },
+    ]);
+  });
+
+  it("marks unknown and invalid highlight tokens without throwing", () => {
+    expect(tokenizeWhenExpressionForHighlighting("typoKey @ 'open")).toEqual([
+      { type: "unknown", value: "typoKey" },
+      { type: "whitespace", value: " " },
+      { type: "invalid", value: "@" },
+      { type: "whitespace", value: " " },
+      { type: "invalid", value: "'open" },
+    ]);
+  });
+
+  it("preserves whitespace tokens for multiline highlighting", () => {
+    expect(
+      tokenizeWhenExpressionForHighlighting(
+        "selectedWorktree\n  && inputFocus",
+      ),
+    ).toEqual([
+      { type: "key", value: "selectedWorktree" },
+      { type: "whitespace", value: "\n  " },
+      { type: "operator", value: "&&" },
+      { type: "whitespace", value: " " },
+      { type: "key", value: "inputFocus" },
+    ]);
   });
 });
 
@@ -236,6 +303,30 @@ describe("keybinding registry", () => {
     });
 
     expect(binding?.command).toBe("tab.newBrowser");
+  });
+
+  it("treats condition linefeeds as normal whitespace for conflicts", () => {
+    const registry = buildKeybindingRegistry([
+      {
+        command: "tab.newTerminal",
+        key: "ctrl+k",
+        when: "selectedWorktree && focusedPane",
+      },
+      {
+        command: "tab.newBrowser",
+        key: "ctrl+k",
+        when: "selectedWorktree\n  && focusedPane",
+      },
+    ]);
+
+    expect(registry.conflicts).toHaveLength(1);
+    expect(
+      resolveKeybinding({
+        context,
+        key: "ctrl+k",
+        registry,
+      }),
+    ).toBeNull();
   });
 
   it("does not resolve exact active conflicts", () => {

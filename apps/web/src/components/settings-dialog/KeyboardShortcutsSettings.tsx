@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -51,6 +51,7 @@ import {
   isReservedKeybinding,
   parseArgsText,
   removeUserShortcut,
+  replaceDefaultShortcut,
   replaceUserShortcut,
   resetCommandKeybindings,
   stringifyArgs,
@@ -69,6 +70,8 @@ import {
   completeWhenExpression,
   evaluateWhenExpression,
   matchingWhenCompletions,
+  tokenizeWhenExpressionForHighlighting,
+  type WhenHighlightToken,
 } from "@/lib/keybindings/when";
 import { useKeybindingsStore } from "@/lib/stores/keybindings";
 import type {
@@ -151,11 +154,11 @@ export default function KeyboardShortcutsSettings() {
 function ShortcutAdvancedPanel({
   binding,
   disabled,
-  onApply,
+  onCommit,
 }: {
   binding: CommandShortcutBinding;
   disabled: boolean;
-  onApply: (when: string, args: JsonValue | undefined) => void;
+  onCommit: (when: string, args: JsonValue | undefined) => void;
 }) {
   const [when, setWhen] = useState(binding.when ?? "");
   const argFields = commandArgFieldsForCommand(binding.command);
@@ -166,15 +169,21 @@ function ShortcutAdvancedPanel({
   const [argsText, setArgsText] = useState(stringifyArgs(binding.args));
   const [error, setError] = useState<string | null>(null);
 
-  function validateAndApply(): void {
+  function commitAdvancedEdits(): void {
     try {
-      if (when.trim()) {
-        evaluateWhenExpression(when, VALIDATION_CONTEXT);
+      const nextWhen = when.trim();
+      if (nextWhen) {
+        evaluateWhenExpression(nextWhen, VALIDATION_CONTEXT);
       }
       const args = structuredArgs
         ? fieldValuesToArgs(argFields, argValues)
         : parseArgsText(argsText);
-      onApply(when, args);
+      const argsChanged =
+        JSON.stringify(args ?? null) !== JSON.stringify(binding.args ?? null);
+      const whenChanged = nextWhen !== (binding.when ?? "");
+      if (argsChanged || whenChanged) {
+        onCommit(nextWhen, args);
+      }
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
@@ -187,36 +196,31 @@ function ShortcutAdvancedPanel({
 
   return (
     <div className="border-t border-b bg-muted/20 px-3 py-3">
-      <div className="grid min-w-[720px] gap-3 md:grid-cols-[minmax(240px,1fr)_minmax(240px,1fr)_auto]">
-        <div className="grid gap-1 text-xs text-muted-foreground">
+      <div className="grid min-w-[720px] gap-3 md:grid-cols-2">
+        <div className="grid gap-1 text-xs text-muted-foreground md:col-span-2">
           <span>When</span>
           <WhenConditionInput
             value={when}
             disabled={disabled}
             onChange={setWhen}
+            onCommit={commitAdvancedEdits}
           />
         </div>
-        <ShortcutArgsEditor
-          argFields={argFields}
-          argValues={argValues}
-          argsText={argsText}
-          disabled={disabled}
-          structuredArgs={structuredArgs}
-          onArgValueChange={updateArgValue}
-          onArgsTextChange={setArgsText}
-        />
-        <div className="flex items-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="xs"
+        <div className="md:col-span-2">
+          <ShortcutArgsEditor
+            argFields={argFields}
+            argValues={argValues}
+            argsText={argsText}
             disabled={disabled}
-            onClick={validateAndApply}
-          >
-            Apply
-          </Button>
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+            structuredArgs={structuredArgs}
+            onArgValueChange={updateArgValue}
+            onArgsTextChange={setArgsText}
+            onCommit={commitAdvancedEdits}
+          />
         </div>
+        {error ? (
+          <p className="text-xs text-destructive md:col-span-2">{error}</p>
+        ) : null}
       </div>
     </div>
   );
@@ -226,18 +230,25 @@ function WhenConditionInput({
   disabled,
   value,
   onChange,
+  onCommit,
 }: {
   disabled: boolean;
   value: string;
   onChange: (value: string) => void;
+  onCommit: () => void;
 }) {
   const [focused, setFocused] = useState(false);
   const [cursorIndex, setCursorIndex] = useState(value.length);
+  const highlightRef = useRef<HTMLPreElement>(null);
   const completions = focused
     ? matchingWhenCompletions(value, cursorIndex)
     : [];
+  const highlightTokens = useMemo(
+    () => tokenizeWhenExpressionForHighlighting(value),
+    [value],
+  );
 
-  function updateCursor(input: HTMLInputElement): void {
+  function updateCursor(input: HTMLTextAreaElement): void {
     setCursorIndex(input.selectionStart ?? input.value.length);
   }
 
@@ -251,35 +262,71 @@ function WhenConditionInput({
     setCursorIndex(next.cursorIndex);
   }
 
+  function syncHighlightScroll(input: HTMLTextAreaElement): void {
+    if (!highlightRef.current) {
+      return;
+    }
+    highlightRef.current.scrollTop = input.scrollTop;
+    highlightRef.current.scrollLeft = input.scrollLeft;
+  }
+
   return (
     <div className="relative">
-      <Input
-        aria-label="When"
-        value={value}
-        disabled={disabled}
-        placeholder="selectedWorktree && !inputFocus"
-        onBlur={() => setFocused(false)}
-        onChange={(event) => {
-          onChange(event.currentTarget.value);
-          updateCursor(event.currentTarget);
-        }}
-        onClick={(event) => updateCursor(event.currentTarget)}
-        onFocus={(event) => {
-          setFocused(true);
-          updateCursor(event.currentTarget);
-        }}
-        onKeyDown={(event) => {
-          if (
-            completions.length === 0 ||
-            (event.key !== "Tab" && event.key !== "Enter")
-          ) {
-            return;
-          }
-          event.preventDefault();
-          applyCompletion(completions[0].value);
-        }}
-        onKeyUp={(event) => updateCursor(event.currentTarget)}
-      />
+      <div className="relative min-h-20">
+        <pre
+          ref={highlightRef}
+          aria-hidden="true"
+          data-testid="when-highlight"
+          className="pointer-events-none absolute inset-0 min-h-20 overflow-hidden whitespace-pre-wrap break-words rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-5 shadow-xs"
+        >
+          {highlightTokens.length > 0 ? (
+            highlightTokens.map((token, index) => (
+              <span
+                key={`${index}:${token.type}:${token.value}`}
+                data-token-kind={token.type}
+                className={whenHighlightTokenClass(token)}
+              >
+                {token.value}
+              </span>
+            ))
+          ) : (
+            <span className="text-transparent">
+              selectedWorktree && !inputFocus
+            </span>
+          )}
+        </pre>
+        <textarea
+          aria-label="When"
+          value={value}
+          disabled={disabled}
+          placeholder="selectedWorktree && !inputFocus"
+          rows={3}
+          className="relative z-10 min-h-20 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs leading-5 text-transparent caret-foreground shadow-xs outline-none placeholder:text-muted-foreground selection:bg-primary/30 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
+          onBlur={() => {
+            setFocused(false);
+            onCommit();
+          }}
+          onChange={(event) => {
+            onChange(event.currentTarget.value);
+            updateCursor(event.currentTarget);
+            syncHighlightScroll(event.currentTarget);
+          }}
+          onClick={(event) => updateCursor(event.currentTarget)}
+          onFocus={(event) => {
+            setFocused(true);
+            updateCursor(event.currentTarget);
+          }}
+          onKeyDown={(event) => {
+            if (completions.length === 0 || event.key !== "Tab") {
+              return;
+            }
+            event.preventDefault();
+            applyCompletion(completions[0].value);
+          }}
+          onKeyUp={(event) => updateCursor(event.currentTarget)}
+          onScroll={(event) => syncHighlightScroll(event.currentTarget)}
+        />
+      </div>
       {completions.length > 0 ? (
         <div className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border bg-popover p-1 shadow-md">
           {completions.map((completion) => (
@@ -304,6 +351,23 @@ function WhenConditionInput({
   );
 }
 
+function whenHighlightTokenClass(token: WhenHighlightToken): string {
+  switch (token.type) {
+    case "key":
+      return "text-sky-400";
+    case "operator":
+    case "paren":
+      return "text-muted-foreground";
+    case "string":
+      return "text-emerald-400";
+    case "unknown":
+    case "invalid":
+      return "text-destructive";
+    case "whitespace":
+      return "text-transparent";
+  }
+}
+
 function ShortcutArgsEditor({
   argFields,
   argValues,
@@ -312,6 +376,7 @@ function ShortcutArgsEditor({
   structuredArgs,
   onArgValueChange,
   onArgsTextChange,
+  onCommit,
 }: {
   argFields: readonly CommandArgField[];
   argValues: CommandArgFieldValues;
@@ -320,6 +385,7 @@ function ShortcutArgsEditor({
   structuredArgs: boolean;
   onArgValueChange: (key: string, value: string) => void;
   onArgsTextChange: (value: string) => void;
+  onCommit: () => void;
 }) {
   if (!structuredArgs) {
     return (
@@ -331,6 +397,7 @@ function ShortcutArgsEditor({
           placeholder='{"url":"http://localhost:5173"}'
           className="min-h-16 rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
           onChange={(event) => onArgsTextChange(event.currentTarget.value)}
+          onBlur={onCommit}
         />
       </label>
     );
@@ -356,6 +423,7 @@ function ShortcutArgsEditor({
           field={field}
           value={argValues[field.key] ?? ""}
           onChange={(value) => onArgValueChange(field.key, value)}
+          onCommit={onCommit}
         />
       ))}
     </div>
@@ -367,11 +435,13 @@ function CommandArgInput({
   field,
   value,
   onChange,
+  onCommit,
 }: {
   disabled: boolean;
   field: CommandArgField;
   value: string;
   onChange: (value: string) => void;
+  onCommit: () => void;
 }) {
   if (field.type === "boolean") {
     return (
@@ -384,7 +454,7 @@ function CommandArgInput({
             onChange(nextValue === unsetSelectValue ? "" : nextValue)
           }
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger className="w-full" onBlur={onCommit}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -408,7 +478,7 @@ function CommandArgInput({
             onChange(nextValue === unsetSelectValue ? "" : nextValue)
           }
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger className="w-full" onBlur={onCommit}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -432,6 +502,7 @@ function CommandArgInput({
         disabled={disabled}
         placeholder={field.placeholder}
         onChange={(event) => onChange(event.currentTarget.value)}
+        onBlur={onCommit}
       />
     </label>
   );
@@ -452,14 +523,14 @@ function CommandShortcutRowView({
   advancedOpen: boolean;
   disabled: boolean;
   tableRow: ShortcutTableRow;
-  onAdd: (command: CommandId) => void;
+  onAdd: (target: RecordingTarget) => void;
   onDisableDefaults: (command: CommandId) => void;
   onEdit: (target: RecordingTarget) => void;
   onRemove: (entryIndex: number) => void;
   onReset: (command: CommandId) => void;
-  onToggleAdvanced: (entryIndex: number) => void;
+  onToggleAdvanced: (id: string) => void;
   onUpdateAdvanced: (
-    entryIndex: number,
+    binding: CommandShortcutBinding,
     when: string,
     args: JsonValue | undefined,
   ) => void;
@@ -472,7 +543,7 @@ function CommandShortcutRowView({
         ? "User"
         : "";
   const when = binding?.when?.trim() ? binding.when : "";
-  const canShowAdvanced = binding?.entryIndex !== undefined;
+  const canShowAdvanced = binding !== null;
   const hasMenuActions =
     binding?.entryIndex !== undefined ||
     binding?.source === "default" ||
@@ -530,35 +601,41 @@ function CommandShortcutRowView({
             size="icon-xs"
             disabled={disabled}
             aria-label={`Add shortcut for ${command.title}`}
-            onClick={() => onAdd(command.id)}
+            onClick={() =>
+              onAdd({
+                args: binding?.args,
+                command: command.id,
+                disableDefaults: false,
+                when: binding?.when,
+              })
+            }
           >
             <Plus className="h-3 w-3" />
           </Button>
         </div>
-        <div className="flex min-w-0 items-center gap-1.5">
-          {canShowAdvanced ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              disabled={disabled}
-              aria-label={`${advancedOpen ? "Hide" : "Show"} advanced for ${binding.formattedKey} on ${command.title}`}
-              onClick={() => onToggleAdvanced(binding.entryIndex!)}
-            >
-              <ChevronDown
-                className={cn(
-                  "h-3 w-3 transition-transform",
-                  advancedOpen ? "rotate-180" : "",
-                )}
-              />
-            </Button>
-          ) : null}
-          {when ? (
-            <span className="truncate font-mono text-xs text-muted-foreground">
-              {when}
-            </span>
-          ) : null}
-        </div>
+        {canShowAdvanced ? (
+          <button
+            type="button"
+            className="flex min-w-0 items-center gap-1.5 rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+            disabled={disabled}
+            aria-label={`${advancedOpen ? "Hide" : "Show"} advanced for ${binding.formattedKey} on ${command.title}`}
+            onClick={() => onToggleAdvanced(tableRow.id)}
+          >
+            <ChevronDown
+              className={cn(
+                "h-3 w-3 shrink-0 transition-transform",
+                advancedOpen ? "rotate-180" : "",
+              )}
+            />
+            {when ? (
+              <span className="truncate font-mono text-xs text-muted-foreground">
+                {when}
+              </span>
+            ) : null}
+          </button>
+        ) : (
+          <div />
+        )}
         <div className="truncate text-xs text-muted-foreground">{source}</div>
         <div className="flex min-w-0 justify-end">
           {hasMenuActions ? (
@@ -602,14 +679,12 @@ function CommandShortcutRowView({
           ) : null}
         </div>
       </div>
-      {binding?.entryIndex !== undefined && advancedOpen ? (
+      {binding && advancedOpen ? (
         <ShortcutAdvancedPanel
-          key={`advanced:${binding.entryIndex}:${binding.when ?? ""}:${JSON.stringify(binding.args ?? null)}`}
+          key={`advanced:${tableRow.id}`}
           binding={binding}
           disabled={disabled}
-          onApply={(when, args) =>
-            onUpdateAdvanced(binding.entryIndex!, when, args)
-          }
+          onCommit={(when, args) => onUpdateAdvanced(binding, when, args)}
         />
       ) : null}
     </div>
@@ -635,9 +710,7 @@ function KeyboardShortcutsSettingsInner({
     useState<RecordingTarget | null>(null);
   const [recordedKey, setRecordedKey] = useState("");
   const [recordingError, setRecordingError] = useState<string | null>(null);
-  const [advancedEntryIndex, setAdvancedEntryIndex] = useState<number | null>(
-    null,
-  );
+  const [advancedRowId, setAdvancedRowId] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
@@ -891,15 +964,10 @@ function KeyboardShortcutsSettingsInner({
               {tableRows.map((tableRow) => (
                 <CommandShortcutRowView
                   key={tableRow.id}
-                  advancedOpen={
-                    tableRow.binding?.entryIndex !== undefined &&
-                    advancedEntryIndex === tableRow.binding.entryIndex
-                  }
+                  advancedOpen={advancedRowId === tableRow.id}
                   tableRow={tableRow}
                   disabled={status.writesBlocked || saving}
-                  onAdd={(command) =>
-                    openRecorder({ command, disableDefaults: false })
-                  }
+                  onAdd={openRecorder}
                   onDisableDefaults={(command) =>
                     setDraft((current) =>
                       disableCommandDefaults(current, command),
@@ -907,34 +975,43 @@ function KeyboardShortcutsSettingsInner({
                   }
                   onEdit={openRecorder}
                   onRemove={(entryIndex) => {
-                    setAdvancedEntryIndex((current) =>
-                      current === entryIndex ? null : current,
-                    );
+                    setAdvancedRowId(null);
                     setDraft((current) =>
                       removeUserShortcut(current, entryIndex),
                     );
                   }}
                   onReset={(command) => {
-                    setAdvancedEntryIndex(null);
+                    setAdvancedRowId(null);
                     setDraft((current) =>
                       resetCommandKeybindings(current, command),
                     );
                   }}
-                  onToggleAdvanced={(entryIndex) =>
-                    setAdvancedEntryIndex((current) =>
-                      current === entryIndex ? null : entryIndex,
+                  onToggleAdvanced={(rowId) =>
+                    setAdvancedRowId((current) =>
+                      current === rowId ? null : rowId,
                     )
                   }
-                  onUpdateAdvanced={(entryIndex, when, args) =>
-                    setDraft((current) =>
-                      updateUserShortcutAdvanced({
+                  onUpdateAdvanced={(binding, when, args) => {
+                    setDraft((current) => {
+                      if (binding.source === "default") {
+                        return replaceDefaultShortcut({
+                          args,
+                          command: binding.command,
+                          key: binding.storageKey,
+                          keybindings: current,
+                          originalWhen: binding.when,
+                          when,
+                        });
+                      }
+
+                      return updateUserShortcutAdvanced({
                         args,
-                        entryIndex,
+                        entryIndex: binding.entryIndex!,
                         keybindings: current,
                         when,
-                      }),
-                    )
-                  }
+                      });
+                    });
+                  }}
                 />
               ))}
               {tableRows.length === 0 ? (

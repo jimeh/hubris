@@ -5,6 +5,26 @@ export type WhenConditionCompletion = {
   value: string;
 };
 
+export const knownWhenConditionKeys = [
+  "activeTabPreview",
+  "activeTabType",
+  "browserFocus",
+  "commandPaletteOpen",
+  "dialogOpen",
+  "editorFocus",
+  "focusedPane",
+  "gitStatusFocus",
+  "inputFocus",
+  "isLinux",
+  "isMacOS",
+  "isWindows",
+  "selectedProject",
+  "selectedWorktree",
+  "terminalFocus",
+] as const;
+
+const knownWhenConditionKeySet = new Set<string>(knownWhenConditionKeys);
+
 export const whenConditionCompletions = [
   { description: "A preview tab is active", value: "activeTabPreview" },
   { description: "The active tab is a browser", value: "browserFocus" },
@@ -67,8 +87,178 @@ export function matchingWhenCompletions(
   }
   const needle = token.value.toLowerCase();
   return whenConditionCompletions
-    .filter((completion) => completion.value.toLowerCase().includes(needle))
+    .filter((completion) => {
+      const value = completion.value.toLowerCase();
+      return value.includes(needle) && value !== needle;
+    })
     .slice(0, 8);
+}
+
+export type WhenHighlightToken = {
+  type:
+    | "invalid"
+    | "key"
+    | "operator"
+    | "paren"
+    | "string"
+    | "unknown"
+    | "whitespace";
+  value: string;
+};
+
+export function tokenizeWhenExpressionForHighlighting(
+  expression: string,
+): WhenHighlightToken[] {
+  const tokens: WhenHighlightToken[] = [];
+  let index = 0;
+
+  while (index < expression.length) {
+    const char = expression[index];
+    const whitespace = /^\s+/.exec(expression.slice(index));
+    if (whitespace) {
+      tokens.push({ type: "whitespace", value: whitespace[0] });
+      index += whitespace[0].length;
+      continue;
+    }
+
+    const operator = readHighlightOperator(expression, index);
+    if (operator) {
+      tokens.push({ type: "operator", value: operator });
+      index += operator.length;
+      continue;
+    }
+
+    if (char === "(" || char === ")") {
+      tokens.push({ type: "paren", value: char });
+      index += 1;
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      const [value, nextIndex, closed] = readHighlightString(
+        expression,
+        index,
+        char,
+      );
+      tokens.push({ type: closed ? "string" : "invalid", value });
+      index = nextIndex;
+      continue;
+    }
+
+    const identifier = /^[A-Za-z_][A-Za-z0-9_.-]*/.exec(
+      expression.slice(index),
+    );
+    if (identifier) {
+      tokens.push({
+        type: knownWhenConditionKeySet.has(identifier[0]) ? "key" : "unknown",
+        value: identifier[0],
+      });
+      index += identifier[0].length;
+      continue;
+    }
+
+    tokens.push({ type: "invalid", value: char });
+    index += 1;
+  }
+
+  return tokens;
+}
+
+function readHighlightOperator(
+  expression: string,
+  index: number,
+): string | null {
+  for (const operator of ["&&", "||", "==", "!=", "!"]) {
+    if (expression.startsWith(operator, index)) {
+      return operator;
+    }
+  }
+  return null;
+}
+
+function readHighlightString(
+  input: string,
+  start: number,
+  quote: string,
+): [string, number, boolean] {
+  let value = quote;
+  let index = start + 1;
+  while (index < input.length) {
+    const char = input[index];
+    value += char;
+    index += 1;
+    if (char === "\\" && index < input.length) {
+      value += input[index];
+      index += 1;
+      continue;
+    }
+    if (char === quote) {
+      return [value, index, true];
+    }
+  }
+
+  return [value, index, false];
+}
+
+export function normalizeWhenExpressionWhitespace(
+  expression: string | null | undefined,
+): string | undefined {
+  if (!expression?.trim()) {
+    return undefined;
+  }
+
+  let normalized = "";
+  let pendingWhitespace = false;
+  let index = 0;
+  while (index < expression.length) {
+    const char = expression[index];
+    if (/\s/.test(char)) {
+      pendingWhitespace = normalized.length > 0;
+      index += 1;
+      continue;
+    }
+
+    if (pendingWhitespace) {
+      normalized += " ";
+      pendingWhitespace = false;
+    }
+
+    if (char === "'" || char === '"') {
+      const [literal, nextIndex] = readStringLiteral(expression, index, char);
+      normalized += literal;
+      index = nextIndex;
+      continue;
+    }
+
+    normalized += char;
+    index += 1;
+  }
+
+  return normalized.trim() || undefined;
+}
+
+function readStringLiteral(
+  input: string,
+  start: number,
+  quote: string,
+): [string, number] {
+  let literal = quote;
+  let index = start + 1;
+  while (index < input.length) {
+    const char = input[index];
+    literal += char;
+    index += 1;
+    if (char === "\\" && index < input.length) {
+      literal += input[index];
+      index += 1;
+      continue;
+    }
+    if (char === quote) {
+      return [literal, index];
+    }
+  }
+
+  return [literal, index];
 }
 
 type Token =

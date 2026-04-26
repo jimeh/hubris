@@ -13,7 +13,11 @@ import {
   normalizeKeybindingForStorage,
 } from "./keys";
 import { stableStringifyJson } from "./json";
-import { evaluateWhenExpression, type KeybindingWhenContext } from "./when";
+import {
+  evaluateWhenExpression,
+  normalizeWhenExpressionWhitespace,
+  type KeybindingWhenContext,
+} from "./when";
 
 const RESERVED_KEYBINDINGS = new Set([
   "ctrl+f5",
@@ -213,6 +217,28 @@ export function disableDefaultShortcut(input: {
   return [...input.keybindings, disabledEntry];
 }
 
+export function replaceDefaultShortcut(input: {
+  args: JsonValue | undefined;
+  command: CommandId;
+  key: string;
+  keybindings: EditableKeybindingEntry[];
+  when: string;
+  originalWhen?: string | null;
+}): EditableKeybindingEntry[] {
+  const disabled = disableDefaultShortcut({
+    key: input.key,
+    keybindings: input.keybindings,
+    when: input.originalWhen,
+  });
+  return addUserShortcut({
+    args: input.args,
+    command: input.command,
+    key: input.key,
+    keybindings: disabled,
+    when: input.when,
+  });
+}
+
 export function disableCommandDefaults(
   keybindings: EditableKeybindingEntry[],
   command: CommandId,
@@ -400,7 +426,7 @@ function bindingFromUser(
 function groupActiveBindings(bindings: CommandShortcutBinding[]) {
   const result = new Map<string, CommandShortcutBinding[]>();
   for (const binding of bindings) {
-    const key = `${binding.key}\u0000${normalizeOptionalWhen(binding.when) ?? ""}`;
+    const key = `${binding.key}\u0000${normalizeWhenExpressionWhitespace(binding.when) ?? ""}`;
     result.set(key, [...(result.get(key) ?? []), binding]);
   }
   return result;
@@ -411,7 +437,7 @@ function commandArgsKey(binding: CommandShortcutBinding): string {
 }
 
 function defaultDisableKey(key: string, when: string | null | undefined) {
-  return `${normalizeKeybinding(key)}\u0000${normalizeOptionalWhen(when) ?? ""}`;
+  return `${normalizeKeybinding(key)}\u0000${normalizeWhenExpressionWhitespace(when) ?? ""}`;
 }
 
 function disablesDefaultBinding(
