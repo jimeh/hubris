@@ -63,6 +63,7 @@ export type CommandShortcutBinding = {
   formattedKey: string;
   key: string;
   source: "default" | "user";
+  storageKey: string;
   when?: string | null;
 };
 
@@ -188,23 +189,45 @@ export function removeUserShortcut(
   return keybindings.filter((_, index) => index !== entryIndex);
 }
 
+export function disableDefaultShortcut(input: {
+  key: string;
+  keybindings: EditableKeybindingEntry[];
+  when?: string | null;
+}): EditableKeybindingEntry[] {
+  const disabledEntry = {
+    disabled: true,
+    key: normalizeKeybindingForStorage(input.key),
+    when: normalizeOptionalWhen(input.when),
+  };
+  if (
+    input.keybindings.some(
+      (entry) =>
+        entry.disabled &&
+        defaultDisableKey(entry.key, entry.when) ===
+          defaultDisableKey(disabledEntry.key, disabledEntry.when),
+    )
+  ) {
+    return input.keybindings;
+  }
+
+  return [...input.keybindings, disabledEntry];
+}
+
 export function disableCommandDefaults(
   keybindings: EditableKeybindingEntry[],
   command: CommandId,
 ): EditableKeybindingEntry[] {
-  const additions = defaultKeybindings
+  return defaultKeybindings
     .filter((binding) => binding.command === command)
-    .filter(
-      (binding) =>
-        !keybindings.some((entry) => disablesDefaultBinding(entry, binding)),
-    )
-    .map((binding) => ({
-      disabled: true,
-      key: normalizeKeybindingForStorage(binding.key),
-      when: normalizeOptionalWhen(binding.when),
-    }));
-
-  return [...keybindings, ...additions];
+    .reduce(
+      (current, binding) =>
+        disableDefaultShortcut({
+          key: binding.key,
+          keybindings: current,
+          when: binding.when,
+        }),
+      keybindings,
+    );
 }
 
 export function resetCommandKeybindings(
@@ -349,6 +372,7 @@ function bindingFromDefault(
     formattedKey: formatKeybinding(key),
     key,
     source: "default",
+    storageKey: binding.key,
     when: binding.when,
   };
 }
@@ -368,6 +392,7 @@ function bindingFromUser(
     formattedKey: formatKeybinding(key),
     key,
     source: "user",
+    storageKey: binding.key,
     when: binding.when,
   };
 }

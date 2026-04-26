@@ -229,6 +229,44 @@ describe("KeyboardShortcuts", () => {
     expect(mocks.executeCommand).not.toHaveBeenCalled();
   });
 
+  it("does not dispatch exact shortcut conflicts", () => {
+    useKeybindingsStore.setState({
+      registry: {
+        bindings: [
+          {
+            command: "tab.newTerminal",
+            key: "ctrl+1",
+            source: "user",
+            when: "selectedWorktree",
+          },
+          {
+            command: "tab.newBrowser",
+            key: "ctrl+1",
+            source: "user",
+            when: "selectedWorktree",
+          },
+        ],
+        conflicts: [
+          {
+            bindings: [],
+            key: "ctrl+1\u0000selectedWorktree",
+          },
+        ],
+      },
+    });
+    render(<KeyboardShortcuts />);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        code: "Digit1",
+        ctrlKey: true,
+        key: "1",
+      }),
+    );
+
+    expect(mocks.executeCommand).not.toHaveBeenCalled();
+  });
+
   it("starts the worktree history switcher through the command runtime", () => {
     useKeybindingsStore.setState({
       registry: {

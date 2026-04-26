@@ -238,6 +238,30 @@ describe("keybinding registry", () => {
     expect(binding?.command).toBe("tab.newBrowser");
   });
 
+  it("does not resolve exact active conflicts", () => {
+    const registry = buildKeybindingRegistry([
+      {
+        command: "tab.newTerminal",
+        key: "ctrl+1",
+        when: "selectedWorktree",
+      },
+      {
+        command: "tab.newBrowser",
+        key: "ctrl+1",
+        when: "selectedWorktree",
+      },
+    ]);
+
+    expect(registry.conflicts).toHaveLength(1);
+    expect(
+      resolveKeybinding({
+        context,
+        key: "ctrl+1",
+        registry,
+      }),
+    ).toBeNull();
+  });
+
   it("matches command args independent of object key order", () => {
     const registry = buildKeybindingRegistry([
       {

@@ -31,6 +31,10 @@ function seedKeybindings(keybindings: KeybindingEntry[] = []) {
 
 describe("KeyboardShortcutsSettings", () => {
   beforeEach(() => {
+    Object.defineProperty(window.navigator, "platform", {
+      configurable: true,
+      value: "Linux x86_64",
+    });
     resetKeybindingsStoreForTests();
   });
 
@@ -174,6 +178,59 @@ describe("KeyboardShortcutsSettings", () => {
     );
 
     expect(screen.getByRole("dialog")).toHaveTextContent("Record Shortcut");
+  });
+
+  it("clears an existing user shortcut from the recorder", async () => {
+    const user = userEvent.setup();
+    const replaceUserKeybindings = seedKeybindings([
+      {
+        command: "tab.newTerminal",
+        disabled: false,
+        key: "ctrl+1",
+      },
+    ]);
+    render(<KeyboardShortcutsSettings />);
+
+    await user.type(
+      screen.getByPlaceholderText("Search commands..."),
+      "New Terminal",
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /Edit shortcut Ctrl\+1 for New Terminal Tab/,
+      }),
+    );
+    fireEvent.keyDown(window, { key: "Backspace" });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(replaceUserKeybindings).toHaveBeenCalledWith([]);
+  });
+
+  it("disables a default shortcut from the recorder", async () => {
+    const user = userEvent.setup();
+    const replaceUserKeybindings = seedKeybindings();
+    render(<KeyboardShortcutsSettings />);
+
+    await user.type(
+      screen.getByPlaceholderText("Search commands..."),
+      "Switch Worktree Mode",
+    );
+    const row = screen.getAllByTestId("keybinding-row:worktree.setUiMode")[0];
+    await user.click(
+      within(row).getByRole("button", {
+        name: /Edit shortcut .* for Switch Worktree Mode/,
+      }),
+    );
+    fireEvent.keyDown(window, { key: "Delete" });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(replaceUserKeybindings).toHaveBeenCalledWith([
+      expect.objectContaining({
+        disabled: true,
+        key: "mod+e",
+        when: expect.any(String),
+      }),
+    ]);
   });
 
   it("preserves default shortcut args and when conditions when rebinding", async () => {

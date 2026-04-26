@@ -106,6 +106,10 @@ export function resolveKeybinding(input: {
     return null;
   }
 
+  if (hasExactActiveConflict(matches)) {
+    return null;
+  }
+
   return matches.sort(compareKeybindingSpecificity)[0] ?? null;
 }
 
@@ -237,6 +241,25 @@ function bindingPrecedenceKey(
   binding: Pick<KeybindingDefinition, "key" | "when">,
 ): string {
   return `${binding.key}\u0000${binding.when ?? ""}`;
+}
+
+function commandArgsKey(
+  binding: Pick<KeybindingDefinition, "args" | "command">,
+): string {
+  return `${binding.command ?? ""}\u0000${stableStringifyJson(binding.args ?? null)}`;
+}
+
+function hasExactActiveConflict(bindings: KeybindingDefinition[]): boolean {
+  const groups = new Map<string, Set<string>>();
+
+  for (const binding of bindings) {
+    const precedenceKey = bindingPrecedenceKey(binding);
+    const signatures = groups.get(precedenceKey) ?? new Set<string>();
+    signatures.add(commandArgsKey(binding));
+    groups.set(precedenceKey, signatures);
+  }
+
+  return [...groups.values()].some((signatures) => signatures.size > 1);
 }
 
 function findConflicts(bindings: KeybindingDefinition[]): KeybindingConflict[] {

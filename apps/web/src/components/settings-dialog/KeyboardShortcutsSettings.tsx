@@ -47,6 +47,7 @@ import {
   addUserShortcut,
   buildCommandShortcutRows,
   disableCommandDefaults,
+  disableDefaultShortcut,
   isReservedKeybinding,
   parseArgsText,
   removeUserShortcut,
@@ -97,6 +98,7 @@ type RecordingTarget = {
   command: CommandId;
   disableDefaults: boolean;
   entryIndex?: number;
+  key?: string;
   when?: string | null;
 };
 
@@ -485,6 +487,7 @@ function CommandShortcutRowView({
       command: command.id,
       disableDefaults: binding.source === "default",
       entryIndex: binding.entryIndex,
+      key: binding.storageKey,
       when: binding.when,
     });
   }
@@ -641,6 +644,7 @@ function KeyboardShortcutsSettingsInner({
     if (!recordingTarget) {
       return;
     }
+    const target = recordingTarget;
 
     function handleKeyDown(event: KeyboardEvent): void {
       event.preventDefault();
@@ -651,6 +655,26 @@ function KeyboardShortcutsSettingsInner({
         return;
       }
       if (key === "backspace" || key === "delete") {
+        const entryIndex = target.entryIndex;
+        if (entryIndex !== undefined) {
+          setDraft((current) => removeUserShortcut(current, entryIndex));
+          setRecordingTarget(null);
+          return;
+        }
+
+        const defaultKey = target.key;
+        if (target.disableDefaults && defaultKey) {
+          setDraft((current) =>
+            disableDefaultShortcut({
+              key: defaultKey,
+              keybindings: current,
+              when: target.when,
+            }),
+          );
+          setRecordingTarget(null);
+          return;
+        }
+
         setRecordedKey("");
         setRecordingError(null);
         return;
