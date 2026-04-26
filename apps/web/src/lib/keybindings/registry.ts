@@ -1,11 +1,8 @@
 import { getCommandDefinition, type CommandId } from "@/lib/commands";
 import { defaultKeybindings, type KeybindingDefinition } from "./defaults";
-import {
-  formatKeybinding,
-  getPlatformFlags,
-  normalizeKeybinding,
-} from "./keys";
+import { formatKeybinding, normalizeKeybinding } from "./keys";
 import { stableStringifyJson } from "./json";
+import { KEYBINDING_VALIDATION_CONTEXT } from "./validation";
 import {
   evaluateWhenExpression,
   normalizeWhenExpressionWhitespace,
@@ -29,22 +26,6 @@ export type KeybindingRegistry = {
   bindings: KeybindingDefinition[];
   conflicts: KeybindingConflict[];
 };
-
-const validationContext = {
-  activeTabPreview: false,
-  activeTabType: "terminal",
-  browserFocus: false,
-  commandPaletteOpen: false,
-  dialogOpen: false,
-  editorFocus: false,
-  focusedPane: true,
-  gitStatusFocus: false,
-  inputFocus: false,
-  ...getPlatformFlags(),
-  selectedProject: true,
-  selectedWorktree: true,
-  terminalFocus: false,
-} satisfies KeybindingWhenContext;
 
 export function buildKeybindingRegistry(
   userKeybindings: UserKeybindingEntry[],
@@ -154,7 +135,7 @@ function normalizeDefinition<TId extends CommandId>(
 
 function hasValidWhenExpression(binding: KeybindingDefinition): boolean {
   try {
-    evaluateWhenExpression(binding.when, validationContext);
+    evaluateWhenExpression(binding.when, KEYBINDING_VALIDATION_CONTEXT);
     return true;
   } catch {
     return false;

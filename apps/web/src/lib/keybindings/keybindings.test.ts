@@ -97,6 +97,30 @@ describe("keybinding keys", () => {
     ).toBe("alt+p");
   });
 
+  it("ignores modifier-only key events", () => {
+    expect(
+      keybindingFromEvent({
+        altKey: false,
+        code: "MetaLeft",
+        ctrlKey: false,
+        key: "Meta",
+        metaKey: true,
+        shiftKey: false,
+      } as KeyboardEvent),
+    ).toBeNull();
+
+    expect(
+      keybindingFromEvent({
+        altKey: false,
+        code: "ControlLeft",
+        ctrlKey: true,
+        key: "Control",
+        metaKey: false,
+        shiftKey: false,
+      } as KeyboardEvent),
+    ).toBeNull();
+  });
+
   it("formats shortcut labels", () => {
     expect(formatKeybinding("ctrl+shift+p")).toContain("P");
   });

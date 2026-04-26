@@ -10,9 +10,10 @@ export function getKeybindingWhenContext(target: EventTarget | null) {
   const activeTabType = commandContext.activeTab?.type ?? null;
   const terminalFocus =
     activeTabType === "terminal" && isTerminalElement(element);
-  const browserFocus = activeTabType === "browser" && !inputFocus;
+  const browserFocus = activeTabType === "browser" && isBrowserElement(element);
   const editorFocus =
-    (activeTabType === "file" || activeTabType === "git_diff") && !inputFocus;
+    (activeTabType === "file" || activeTabType === "git_diff") &&
+    isEditorElement(element);
   const commandUi = useCommandUiStore.getState();
 
   return {
@@ -23,7 +24,7 @@ export function getKeybindingWhenContext(target: EventTarget | null) {
     dialogOpen: commandUi.dialog !== null,
     editorFocus,
     focusedPane: commandContext.focusedPaneId !== null,
-    gitStatusFocus: element?.closest("[data-git-status]") !== null,
+    gitStatusFocus: element?.closest("[data-git-status]") != null,
     inputFocus,
     ...getPlatformFlags(),
     selectedProject: commandContext.selectedProject !== null,
@@ -36,8 +37,16 @@ function isTerminalElement(element: Element | null): boolean {
   return (
     element?.closest(
       ".terminal-wrapper, .terminal-container, .xterm, .xterm-helper-textarea",
-    ) !== null
+    ) != null
   );
+}
+
+function isBrowserElement(element: Element | null): boolean {
+  return element?.closest("[data-browser-content]") != null;
+}
+
+function isEditorElement(element: Element | null): boolean {
+  return element?.closest(".monaco-editor") != null;
 }
 
 export function isEditableElement(element: Element | null): boolean {

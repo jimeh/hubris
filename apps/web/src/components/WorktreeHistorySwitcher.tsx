@@ -6,6 +6,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { executeCommand } from "@/lib/commands";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useWorktreeHistorySwitcherStore } from "@/lib/stores/worktreeHistorySwitcher";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
@@ -28,6 +29,7 @@ export default function WorktreeHistorySwitcher() {
   const selectIndex = useWorktreeHistorySwitcherStore(
     (state) => state.selectIndex,
   );
+  const commit = useWorktreeHistorySwitcherStore((state) => state.commit);
   const projects = useProjectStore((state) => state.projects);
   const worktreesByProject = useWorktreeStore(
     (state) => state.worktreesByProject,
@@ -91,7 +93,18 @@ export default function WorktreeHistorySwitcher() {
                   selected && "bg-accent text-accent-foreground",
                 )}
                 onMouseMove={() => selectIndex(index)}
-                onClick={() => selectIndex(index)}
+                onClick={() => {
+                  selectIndex(index);
+                  const worktreeId = commit();
+                  if (!worktreeId) {
+                    return;
+                  }
+                  void executeCommand({
+                    args: { worktreeId },
+                    id: "worktree.select",
+                    source: "keyboard-shortcut",
+                  });
+                }}
                 type="button"
               >
                 <GitBranch className="h-4 w-4" />

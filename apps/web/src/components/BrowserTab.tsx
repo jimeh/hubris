@@ -491,7 +491,7 @@ export default function BrowserTab({ tab, visible }: Props) {
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex h-full flex-col bg-background" data-browser-tab>
       <form
         className="flex items-center gap-2 border-b px-3 py-2"
         noValidate
@@ -588,13 +588,18 @@ export default function BrowserTab({ tab, visible }: Props) {
 
       <div className="relative min-h-0 flex-1">
         {isDesktop ? (
-          <div ref={hostRef} className="absolute inset-0 bg-background" />
+          <div
+            ref={hostRef}
+            className="absolute inset-0 bg-background"
+            data-browser-content
+          />
         ) : (
           <iframe
             key={iframeKey}
             title={tab.label || tab.url}
             src={tab.url}
             className="absolute inset-0 h-full w-full border-0 bg-background"
+            data-browser-content
             onLoad={() => {
               if (!session?.loading) {
                 return;

@@ -1,10 +1,19 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeHistorySwitcher from "./WorktreeHistorySwitcher";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useWorktreeHistorySwitcherStore } from "@/lib/stores/worktreeHistorySwitcher";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
+
+const mocks = vi.hoisted(() => ({
+  executeCommand: vi.fn(),
+}));
+
+vi.mock("@/lib/commands", () => ({
+  executeCommand: mocks.executeCommand,
+}));
 
 vi.mock("@/components/ui/command", () => ({
   CommandDialog: ({
@@ -58,6 +67,7 @@ function makeWorktree(id: string, projectId: string, name: string) {
 
 describe("WorktreeHistorySwitcher", () => {
   beforeEach(() => {
+    mocks.executeCommand.mockReset();
     useWorktreeHistorySwitcherStore.getState().cancel();
     useProjectStore.setState({
       projects: [makeProject("p1", "Hubris"), makeProject("p2", "Dotfiles")],
@@ -81,5 +91,21 @@ describe("WorktreeHistorySwitcher", () => {
     expect(screen.getByText("feature")).toBeInTheDocument();
     expect(screen.getByText("Dotfiles • feature")).toBeInTheDocument();
     expect(screen.getByText("Current")).toBeInTheDocument();
+  });
+
+  it("commits the clicked worktree", async () => {
+    const user = userEvent.setup();
+    useWorktreeHistorySwitcherStore.getState().start(["w1", "w2"], "back");
+
+    render(<WorktreeHistorySwitcher />);
+
+    await user.click(screen.getByRole("button", { name: /feature/i }));
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith({
+      args: { worktreeId: "w2" },
+      id: "worktree.select",
+      source: "keyboard-shortcut",
+    });
+    expect(useWorktreeHistorySwitcherStore.getState().open).toBe(false);
   });
 });

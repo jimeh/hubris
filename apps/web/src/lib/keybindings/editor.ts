@@ -8,15 +8,14 @@ import type { JsonValue, KeybindingEntry } from "@/lib/contracts/sse.generated";
 import { defaultKeybindings, type KeybindingDefinition } from "./defaults";
 import {
   formatKeybinding,
-  getPlatformFlags,
   normalizeKeybinding,
   normalizeKeybindingForStorage,
 } from "./keys";
 import { stableStringifyJson } from "./json";
+import { KEYBINDING_VALIDATION_CONTEXT } from "./validation";
 import {
   evaluateWhenExpression,
   normalizeWhenExpressionWhitespace,
-  type KeybindingWhenContext,
 } from "./when";
 
 const RESERVED_KEYBINDINGS = new Set([
@@ -40,23 +39,6 @@ const RESERVED_KEYBINDINGS = new Set([
   "meta+t",
   "meta+w",
 ]);
-
-// Keep this permissive sample in sync with getKeybindingWhenContext().
-const VALIDATION_CONTEXT = {
-  activeTabPreview: false,
-  activeTabType: "terminal",
-  browserFocus: false,
-  commandPaletteOpen: false,
-  dialogOpen: false,
-  editorFocus: false,
-  focusedPane: true,
-  gitStatusFocus: false,
-  inputFocus: false,
-  ...getPlatformFlags(),
-  selectedProject: true,
-  selectedWorktree: true,
-  terminalFocus: false,
-} satisfies KeybindingWhenContext;
 
 export type EditableKeybindingEntry = KeybindingEntry;
 
@@ -310,7 +292,7 @@ export function validateKeybindingDraft(
     try {
       normalizeKeybinding(binding.key);
       if (binding.when) {
-        evaluateWhenExpression(binding.when, VALIDATION_CONTEXT);
+        evaluateWhenExpression(binding.when, KEYBINDING_VALIDATION_CONTEXT);
       }
       if (binding.args !== undefined && binding.args !== null) {
         assertJsonValueWithoutNull(binding.args);

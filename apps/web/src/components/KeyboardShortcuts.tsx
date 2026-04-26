@@ -24,6 +24,19 @@ function isCtrlTab(event: KeyboardEvent): boolean {
   );
 }
 
+function shouldBlockHistorySwitcher(input: {
+  context: ReturnType<typeof getKeybindingWhenContext>;
+  target: Element | null;
+}): boolean {
+  return (
+    input.context.commandPaletteOpen ||
+    input.context.dialogOpen ||
+    (isPlainEditableElement(input.target) &&
+      !input.context.terminalFocus &&
+      input.context.activeTabType !== "browser")
+  );
+}
+
 export default function KeyboardShortcuts() {
   const registry = useKeybindingsStore((state) => state.registry);
   const sendKeybindingsToShell = useSettingsStore(
@@ -54,6 +67,9 @@ export default function KeyboardShortcuts() {
       }
 
       const key = keybindingFromEvent(event);
+      if (!key) {
+        return;
+      }
       if (RESERVED_BROWSER_KEYS.has(normalizeKeybinding(key))) {
         return;
       }
@@ -70,13 +86,7 @@ export default function KeyboardShortcuts() {
 
       if (binding.command === "worktree.showHistorySwitcher") {
         const target = event.target instanceof Element ? event.target : null;
-        if (
-          context.commandPaletteOpen ||
-          context.dialogOpen ||
-          (isPlainEditableElement(target) &&
-            !context.terminalFocus &&
-            context.activeTabType !== "browser")
-        ) {
+        if (shouldBlockHistorySwitcher({ context, target })) {
           return;
         }
       }

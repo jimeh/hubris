@@ -166,11 +166,16 @@ export function keybindingFromEvent(
     "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
   > &
     Partial<Pick<KeyboardEvent, "code">>,
-): string {
+): string | null {
   const macPlatform = isMacPlatform();
+  const code = keyCodeFromEvent(event);
+  if (MODIFIER_ALIASES[code]) {
+    return null;
+  }
+
   return serializeStorageKeybinding({
     alt: event.altKey,
-    code: keyCodeFromEvent(event),
+    code,
     ctrl: macPlatform ? event.ctrlKey : false,
     meta: macPlatform ? false : event.metaKey,
     mod: macPlatform ? event.metaKey : event.ctrlKey,

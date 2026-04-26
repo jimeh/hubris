@@ -61,11 +61,8 @@ import {
   type CommandShortcutRow,
   type EditableKeybindingEntry,
 } from "@/lib/keybindings/editor";
-import {
-  formatKeybinding,
-  getPlatformFlags,
-  keybindingFromEvent,
-} from "@/lib/keybindings/keys";
+import { formatKeybinding, keybindingFromEvent } from "@/lib/keybindings/keys";
+import { KEYBINDING_VALIDATION_CONTEXT } from "@/lib/keybindings/validation";
 import {
   completeWhenExpression,
   evaluateWhenExpression,
@@ -79,22 +76,6 @@ import type {
   KeybindingsStatus,
 } from "@/lib/contracts/sse.generated";
 import { cn } from "@/lib/utils";
-
-const VALIDATION_CONTEXT = {
-  activeTabPreview: false,
-  activeTabType: "terminal",
-  browserFocus: false,
-  commandPaletteOpen: false,
-  dialogOpen: false,
-  editorFocus: false,
-  focusedPane: true,
-  gitStatusFocus: false,
-  inputFocus: false,
-  ...getPlatformFlags(),
-  selectedProject: true,
-  selectedWorktree: true,
-  terminalFocus: false,
-};
 
 type RecordingTarget = {
   args?: JsonValue | null;
@@ -173,7 +154,7 @@ function ShortcutAdvancedPanel({
     try {
       const nextWhen = when.trim();
       if (nextWhen) {
-        evaluateWhenExpression(nextWhen, VALIDATION_CONTEXT);
+        evaluateWhenExpression(nextWhen, KEYBINDING_VALIDATION_CONTEXT);
       }
       const args = structuredArgs
         ? fieldValuesToArgs(argFields, argValues)
@@ -757,6 +738,9 @@ function KeyboardShortcutsSettingsInner({
       }
 
       const next = keybindingFromEvent(event);
+      if (!next) {
+        return;
+      }
       if (isReservedKeybinding(next)) {
         setRecordingError("That shortcut is reserved by the browser.");
         return;
