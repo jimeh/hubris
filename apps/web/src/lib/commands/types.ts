@@ -29,6 +29,7 @@ export type CommandId =
   | "worktree.select"
   | "worktree.selectNext"
   | "worktree.selectPrevious"
+  | "worktree.showHistorySwitcher"
   | "worktree.setUiMode";
 
 export type CommandArgsById = {
@@ -96,6 +97,9 @@ export type CommandArgsById = {
   "worktree.select": { worktreeId?: string } | undefined;
   "worktree.selectNext": undefined;
   "worktree.selectPrevious": undefined;
+  "worktree.showHistorySwitcher":
+    | { direction?: "back" | "forward" }
+    | undefined;
   "worktree.setUiMode":
     | {
         projectId?: string;

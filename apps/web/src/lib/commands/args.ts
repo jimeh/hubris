@@ -52,6 +52,11 @@ const worktreeModeOptions = [
   { label: "Cycle", value: "cycle" },
 ] as const;
 
+const worktreeHistoryDirectionOptions = [
+  { label: "Back", value: "back" },
+  { label: "Forward", value: "forward" },
+] as const;
+
 const commandArgFields = {
   "app.openSettings": [
     {
@@ -137,6 +142,14 @@ const commandArgFields = {
     stringField("worktreeId", "Worktree ID"),
   ],
   "worktree.select": [stringField("worktreeId", "Worktree ID")],
+  "worktree.showHistorySwitcher": [
+    {
+      key: "direction",
+      label: "Direction",
+      options: worktreeHistoryDirectionOptions,
+      type: "select",
+    },
+  ],
   "worktree.setUiMode": [
     stringField("projectId", "Project ID"),
     {

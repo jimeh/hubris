@@ -75,6 +75,20 @@ export const defaultKeybindings = [
     when: WORKBENCH_SAFE,
   },
   {
+    args: { direction: "back" },
+    command: "worktree.showHistorySwitcher",
+    key: "ctrl+tab",
+    source: "default",
+    when: "selectedWorktree && !commandPaletteOpen && !dialogOpen",
+  },
+  {
+    args: { direction: "forward" },
+    command: "worktree.showHistorySwitcher",
+    key: "ctrl+shift+tab",
+    source: "default",
+    when: "selectedWorktree && !commandPaletteOpen && !dialogOpen",
+  },
+  {
     command: "worktree.navigateBack",
     key: "mod+[",
     source: "default",

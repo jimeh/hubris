@@ -325,6 +325,16 @@ describe("default keybindings", () => {
     expect(defaultKeybindings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          args: { direction: "back" },
+          command: "worktree.showHistorySwitcher",
+          key: "ctrl+tab",
+        }),
+        expect.objectContaining({
+          args: { direction: "forward" },
+          command: "worktree.showHistorySwitcher",
+          key: "ctrl+shift+tab",
+        }),
+        expect.objectContaining({
           command: "worktree.navigateBack",
           key: "mod+[",
         }),

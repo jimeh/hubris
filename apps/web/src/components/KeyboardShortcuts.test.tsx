@@ -3,8 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import KeyboardShortcuts from "./KeyboardShortcuts";
 import { useKeybindingsStore } from "@/lib/stores/keybindings";
 import { useSettingsStore } from "@/lib/stores/settings";
+import { useWorktreeHistorySwitcherStore } from "@/lib/stores/worktreeHistorySwitcher";
 
 const mocks = vi.hoisted(() => ({
+  commandContext: {
+    activeTab: { id: "tab-1", preview: false, type: "terminal" },
+  } as {
+    activeTab: { id: string; preview: boolean; type: string };
+  },
+  commandUiState: {
+    dialog: null as { type: string } | null,
+    paletteOpen: false,
+  },
   executeCommand: vi.fn(),
 }));
 
@@ -18,7 +28,7 @@ function setNavigatorPlatform(platform: string): void {
 vi.mock("@/lib/commands", () => ({
   executeCommand: mocks.executeCommand,
   getCommandContextSnapshot: () => ({
-    activeTab: { id: "tab-1", preview: false, type: "terminal" },
+    activeTab: mocks.commandContext.activeTab,
     focusedPaneId: "pane-1",
     projects: [],
     selectedProject: { id: "project-1" },
@@ -32,16 +42,20 @@ vi.mock("@/lib/commands", () => ({
 
 vi.mock("@/lib/stores/commandUi", () => ({
   useCommandUiStore: {
-    getState: () => ({
-      dialog: null,
-      paletteOpen: false,
-    }),
+    getState: () => mocks.commandUiState,
   },
 }));
 
 describe("KeyboardShortcuts", () => {
   beforeEach(() => {
     mocks.executeCommand.mockReset();
+    mocks.commandContext.activeTab = {
+      id: "tab-1",
+      preview: false,
+      type: "terminal",
+    };
+    mocks.commandUiState.dialog = null;
+    mocks.commandUiState.paletteOpen = false;
     useKeybindingsStore.setState({
       registry: {
         bindings: [
@@ -70,6 +84,7 @@ describe("KeyboardShortcuts", () => {
         },
       },
     }));
+    useWorktreeHistorySwitcherStore.getState().cancel();
   });
 
   afterEach(() => {
@@ -208,6 +223,325 @@ describe("KeyboardShortcuts", () => {
       new KeyboardEvent("keydown", {
         key: "R",
         metaKey: true,
+      }),
+    );
+
+    expect(mocks.executeCommand).not.toHaveBeenCalled();
+  });
+
+  it("starts the worktree history switcher through the command runtime", () => {
+    useKeybindingsStore.setState({
+      registry: {
+        bindings: [
+          {
+            args: { direction: "back" },
+            command: "worktree.showHistorySwitcher",
+            key: "ctrl+tab",
+            source: "default",
+            when: "selectedWorktree",
+          },
+        ],
+        conflicts: [],
+      },
+    });
+    render(<KeyboardShortcuts />);
+
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Tab",
+      ctrlKey: true,
+      key: "Tab",
+    });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(mocks.executeCommand).toHaveBeenCalledWith({
+      args: { direction: "back" },
+      id: "worktree.showHistorySwitcher",
+      source: "keyboard-shortcut",
+    });
+  });
+
+  it("starts the worktree history switcher when a browser tab is active", () => {
+    mocks.commandContext.activeTab = {
+      id: "tab-1",
+      preview: false,
+      type: "browser",
+    };
+    useKeybindingsStore.setState({
+      registry: {
+        bindings: [
+          {
+            args: { direction: "back" },
+            command: "worktree.showHistorySwitcher",
+            key: "ctrl+tab",
+            source: "default",
+            when: "selectedWorktree",
+          },
+        ],
+        conflicts: [],
+      },
+    });
+    render(<KeyboardShortcuts />);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        code: "Tab",
+        ctrlKey: true,
+        key: "Tab",
+      }),
+    );
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith({
+      args: { direction: "back" },
+      id: "worktree.showHistorySwitcher",
+      source: "keyboard-shortcut",
+    });
+  });
+
+  it("starts the worktree history switcher from the browser address field", () => {
+    mocks.commandContext.activeTab = {
+      id: "tab-1",
+      preview: false,
+      type: "browser",
+    };
+    useKeybindingsStore.setState({
+      registry: {
+        bindings: [
+          {
+            args: { direction: "back" },
+            command: "worktree.showHistorySwitcher",
+            key: "ctrl+tab",
+            source: "default",
+            when: "selectedWorktree",
+          },
+        ],
+        conflicts: [],
+      },
+    });
+    const input = document.createElement("input");
+    input.name = "browser-url";
+    document.body.append(input);
+    input.focus();
+    render(<KeyboardShortcuts />);
+
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        code: "Tab",
+        ctrlKey: true,
+        key: "Tab",
+      }),
+    );
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith({
+      args: { direction: "back" },
+      id: "worktree.showHistorySwitcher",
+      source: "keyboard-shortcut",
+    });
+  });
+
+  it("starts the worktree history switcher while terminal input is focused by default", () => {
+    useKeybindingsStore.setState({
+      registry: {
+        bindings: [
+          {
+            args: { direction: "back" },
+            command: "worktree.showHistorySwitcher",
+            key: "ctrl+tab",
+            source: "default",
+            when: "selectedWorktree",
+          },
+        ],
+        conflicts: [],
+      },
+    });
+    const textarea = document.createElement("textarea");
+    textarea.className = "xterm-helper-textarea";
+    document.body.append(textarea);
+    textarea.focus();
+    render(<KeyboardShortcuts />);
+
+    textarea.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        code: "Tab",
+        ctrlKey: true,
+        key: "Tab",
+      }),
+    );
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith({
+      args: { direction: "back" },
+      id: "worktree.showHistorySwitcher",
+      source: "keyboard-shortcut",
+    });
+  });
+
+  it("captures the worktree history switcher before terminal handlers stop propagation", () => {
+    useKeybindingsStore.setState({
+      registry: {
+        bindings: [
+          {
+            args: { direction: "back" },
+            command: "worktree.showHistorySwitcher",
+            key: "ctrl+tab",
+            source: "default",
+            when: "selectedWorktree",
+          },
+        ],
+        conflicts: [],
+      },
+    });
+    const textarea = document.createElement("textarea");
+    textarea.className = "xterm-helper-textarea";
+    textarea.addEventListener("keydown", (event) => event.stopPropagation());
+    document.body.append(textarea);
+    textarea.focus();
+    render(<KeyboardShortcuts />);
+
+    textarea.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        code: "Tab",
+        ctrlKey: true,
+        key: "Tab",
+      }),
+    );
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith({
+      args: { direction: "back" },
+      id: "worktree.showHistorySwitcher",
+      source: "keyboard-shortcut",
+    });
+  });
+
+  it("cycles an open worktree history switcher while Ctrl is held", () => {
+    useWorktreeHistorySwitcherStore
+      .getState()
+      .start(["w1", "w2", "w3"], "back");
+    render(<KeyboardShortcuts />);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        code: "Tab",
+        ctrlKey: true,
+        key: "Tab",
+      }),
+    );
+    expect(useWorktreeHistorySwitcherStore.getState().selectedIndex).toBe(2);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        code: "Tab",
+        ctrlKey: true,
+        key: "Tab",
+        shiftKey: true,
+      }),
+    );
+    expect(useWorktreeHistorySwitcherStore.getState().selectedIndex).toBe(1);
+  });
+
+  it("commits the selected worktree when Ctrl is released", () => {
+    useWorktreeHistorySwitcherStore.getState().start(["w1", "w2"], "back");
+    render(<KeyboardShortcuts />);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keyup", {
+        key: "Control",
+      }),
+    );
+
+    expect(mocks.executeCommand).toHaveBeenCalledWith({
+      args: { worktreeId: "w2" },
+      id: "worktree.select",
+      source: "keyboard-shortcut",
+    });
+    expect(useWorktreeHistorySwitcherStore.getState().open).toBe(false);
+  });
+
+  it("cancels the worktree history switcher with Escape", () => {
+    useWorktreeHistorySwitcherStore.getState().start(["w1", "w2"], "back");
+    render(<KeyboardShortcuts />);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+      }),
+    );
+
+    expect(useWorktreeHistorySwitcherStore.getState().open).toBe(false);
+    expect(mocks.executeCommand).not.toHaveBeenCalled();
+  });
+
+  it("does not start the worktree history switcher in terminal passthrough mode", () => {
+    useKeybindingsStore.setState({
+      registry: {
+        bindings: [
+          {
+            args: { direction: "back" },
+            command: "worktree.showHistorySwitcher",
+            key: "ctrl+tab",
+            source: "default",
+            when: "selectedWorktree",
+          },
+        ],
+        conflicts: [],
+      },
+    });
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        terminal: {
+          ...state.settings.terminal,
+          sendKeybindingsToShell: true,
+        },
+      },
+    }));
+    const textarea = document.createElement("textarea");
+    textarea.className = "xterm-helper-textarea";
+    document.body.append(textarea);
+    textarea.focus();
+    render(<KeyboardShortcuts />);
+
+    textarea.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        code: "Tab",
+        ctrlKey: true,
+        key: "Tab",
+      }),
+    );
+
+    expect(mocks.executeCommand).not.toHaveBeenCalled();
+  });
+
+  it("does not start the worktree history switcher over command UI", () => {
+    mocks.commandUiState.paletteOpen = true;
+    useKeybindingsStore.setState({
+      registry: {
+        bindings: [
+          {
+            args: { direction: "back" },
+            command: "worktree.showHistorySwitcher",
+            key: "ctrl+tab",
+            source: "default",
+            when: "selectedWorktree",
+          },
+        ],
+        conflicts: [],
+      },
+    });
+    render(<KeyboardShortcuts />);
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        code: "Tab",
+        ctrlKey: true,
+        key: "Tab",
       }),
     );
 

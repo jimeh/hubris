@@ -43,6 +43,7 @@ const DISPLAY_KEYS: Record<string, string> = {
   left: "Left",
   right: "Right",
   space: "Space",
+  tab: "Tab",
   up: "Up",
 };
 

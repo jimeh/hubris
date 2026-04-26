@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Globe,
+  History,
   LayoutPanelTop,
   Monitor,
   PanelRight,
@@ -21,6 +22,10 @@ import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useTabStore } from "@/lib/stores/tabs";
+import {
+  getCurrentWorktreeHistoryItems,
+  useWorktreeHistorySwitcherStore,
+} from "@/lib/stores/worktreeHistorySwitcher";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type {
   CommandAvailability,
@@ -754,6 +759,31 @@ export const commandRegistry = {
     },
     keywords: ["worktree", "forward", "history"],
     title: "Go Forward in Worktree History",
+  }),
+  "worktree.showHistorySwitcher": defineCommand({
+    async execute(_context, args) {
+      const switcher = useWorktreeHistorySwitcherStore.getState();
+      if (switcher.open) {
+        switcher.cycle(args?.direction ?? "back");
+        return success();
+      }
+
+      const started = switcher.start(
+        getCurrentWorktreeHistoryItems(),
+        args?.direction ?? "back",
+      );
+      return started ? success() : cancelled();
+    },
+    group: "Worktrees",
+    icon: History,
+    id: "worktree.showHistorySwitcher",
+    isAvailable() {
+      return getCurrentWorktreeHistoryItems().length > 1
+        ? enabled()
+        : disabled("No recent worktree in history");
+    },
+    keywords: ["worktree", "history", "recent", "switcher"],
+    title: "Show Recent Worktree Switcher",
   }),
   "worktree.remove": defineCommand({
     async execute(context, args) {

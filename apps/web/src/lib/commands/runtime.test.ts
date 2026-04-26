@@ -5,6 +5,7 @@ import { resetBootstrapForTests } from "@/lib/bootstrap";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useTabStore } from "@/lib/stores/tabs";
+import { useWorktreeHistorySwitcherStore } from "@/lib/stores/worktreeHistorySwitcher";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import { commandIds, getCommandDefinition } from "./registry";
 import { executeCommand, getCommandAvailability } from "./runtime";
@@ -101,6 +102,7 @@ describe("command runtime", () => {
   beforeEach(() => {
     localStorage.clear();
     resetBootstrapForTests();
+    useWorktreeHistorySwitcherStore.getState().cancel();
     vi.restoreAllMocks();
   });
 
@@ -116,6 +118,7 @@ describe("command runtime", () => {
         "worktree.navigateForward",
         "worktree.selectNext",
         "worktree.selectPrevious",
+        "worktree.showHistorySwitcher",
         "tab.newTerminal",
         "settings.openSection",
       ]),
@@ -290,6 +293,43 @@ describe("command runtime", () => {
       navigationBackIds: [],
       navigationForwardIds: [worktreeOne.id],
       selectedWorktreeId: worktreeTwo.id,
+    });
+  });
+
+  it("opens the recent worktree switcher without selecting immediately", async () => {
+    const { worktreeOne, worktreeTwo } = seedContext();
+    useWorktreeStore.setState({
+      navigationBackIds: [worktreeTwo.id],
+      selectedWorktreeId: worktreeOne.id,
+    });
+
+    expect(getCommandAvailability("worktree.showHistorySwitcher")).toEqual({
+      enabled: true,
+      reason: undefined,
+    });
+
+    await expect(
+      executeCommand({
+        args: { direction: "back" },
+        id: "worktree.showHistorySwitcher",
+        source: "keyboard-shortcut",
+      }),
+    ).resolves.toEqual({ status: "success" });
+
+    expect(useWorktreeHistorySwitcherStore.getState()).toMatchObject({
+      items: [worktreeOne.id, worktreeTwo.id],
+      open: true,
+      selectedIndex: 1,
+    });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(worktreeOne.id);
+  });
+
+  it("keeps the recent worktree switcher unavailable without MRU history", () => {
+    seedContext();
+
+    expect(getCommandAvailability("worktree.showHistorySwitcher")).toEqual({
+      enabled: false,
+      reason: "No recent worktree in history",
     });
   });
 

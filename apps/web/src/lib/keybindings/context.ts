@@ -66,3 +66,27 @@ export function isEditableElement(element: Element | null): boolean {
     ) !== null
   );
 }
+
+export function isPlainEditableElement(element: Element | null): boolean {
+  if (!element) {
+    return false;
+  }
+
+  if (element.closest(".monaco-editor, .terminal-wrapper, .xterm")) {
+    return false;
+  }
+
+  if (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement
+  ) {
+    return true;
+  }
+
+  return (
+    element instanceof HTMLElement &&
+    (element.isContentEditable ||
+      element.closest("[contenteditable='true']") !== null)
+  );
+}

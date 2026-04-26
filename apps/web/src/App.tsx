@@ -29,6 +29,7 @@ import SettingsStatusNotice from "@/components/SettingsStatusNotice";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import ToastViewport from "@/components/ToastViewport";
 import VscodeWorkbenchPane from "@/components/VscodeWorkbenchPane";
+import WorktreeHistorySwitcher from "@/components/WorktreeHistorySwitcher";
 import WorktreeView from "@/components/WorktreeView";
 import { Button } from "@/components/ui/button";
 import { executeCommand } from "@/lib/commands";
@@ -435,6 +436,7 @@ export default function App() {
           </div>
           <CommandPalette />
           <CommandDialogs />
+          <WorktreeHistorySwitcher />
           <KeyboardShortcuts />
           <ToastViewport />
         </SidebarInset>
