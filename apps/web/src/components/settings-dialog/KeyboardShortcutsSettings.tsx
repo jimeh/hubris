@@ -720,6 +720,8 @@ function KeyboardShortcutsSettingsInner({
         if (target.disableDefaults && defaultKey) {
           setDraft((current) =>
             disableDefaultShortcut({
+              args: target.args,
+              command: target.command,
               key: defaultKey,
               keybindings: current,
               when: target.when,

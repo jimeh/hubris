@@ -293,6 +293,7 @@ describe("keybinding registry", () => {
   it("lets user disabled entries remove matching defaults", () => {
     const registry = buildKeybindingRegistry([
       {
+        command: "tab.newTerminal",
         disabled: true,
         key: "mod+t",
         when: "selectedWorktree && (!inputFocus || terminalFocus) && !browserFocus && !editorFocus && !commandPaletteOpen && !dialogOpen",
@@ -304,6 +305,38 @@ describe("keybinding registry", () => {
         (binding) => binding.command === "tab.newTerminal",
       ),
     ).toBe(false);
+  });
+
+  it("matches disabled defaults by command and args", () => {
+    const registry = buildKeybindingRegistry([
+      {
+        command: "tab.newBrowser",
+        disabled: true,
+        key: "mod+t",
+        when: "selectedWorktree && (!inputFocus || terminalFocus) && !browserFocus && !editorFocus && !commandPaletteOpen && !dialogOpen",
+      },
+    ]);
+
+    expect(
+      registry.bindings.some(
+        (binding) => binding.command === "tab.newTerminal",
+      ),
+    ).toBe(true);
+
+    const argsRegistry = buildKeybindingRegistry([
+      {
+        command: "worktree.setUiMode",
+        disabled: true,
+        key: "mod+e",
+        when: "selectedWorktree && (!inputFocus || terminalFocus) && !browserFocus && !editorFocus && !commandPaletteOpen && !dialogOpen",
+      },
+    ]);
+
+    expect(
+      argsRegistry.bindings.some(
+        (binding) => binding.command === "worktree.setUiMode",
+      ),
+    ).toBe(true);
   });
 
   it("prefers more specific contextual matches", () => {
@@ -375,6 +408,30 @@ describe("keybinding registry", () => {
         registry,
       }),
     ).toBeNull();
+  });
+
+  it("does not report duplicate identical bindings as conflicts", () => {
+    const registry = buildKeybindingRegistry([
+      {
+        command: "tab.newTerminal",
+        key: "ctrl+1",
+        when: "selectedWorktree",
+      },
+      {
+        command: "tab.newTerminal",
+        key: "ctrl+1",
+        when: "selectedWorktree",
+      },
+    ]);
+
+    expect(registry.conflicts).toHaveLength(0);
+    expect(
+      resolveKeybinding({
+        context,
+        key: "ctrl+1",
+        registry,
+      })?.command,
+    ).toBe("tab.newTerminal");
   });
 
   it("matches command args independent of object key order", () => {

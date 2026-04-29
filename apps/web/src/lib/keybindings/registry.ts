@@ -38,11 +38,11 @@ export function buildKeybindingRegistry(
   const disabledDefaultKeys = new Set(
     normalizedUser
       .filter((binding) => binding.disabled)
-      .map((binding) => bindingPrecedenceKey(binding)),
+      .map((binding) => bindingIdentityKey(binding)),
   );
   const bindings = [
     ...normalizedDefaults.filter(
-      (binding) => !disabledDefaultKeys.has(bindingPrecedenceKey(binding)),
+      (binding) => !disabledDefaultKeys.has(bindingIdentityKey(binding)),
     ),
     ...normalizedUser.filter((binding) => !binding.disabled && binding.command),
   ].sort(compareKeybindings);
@@ -234,6 +234,12 @@ function commandArgsKey(
   return `${binding.command ?? ""}\u0000${stableStringifyJson(binding.args ?? null)}`;
 }
 
+function bindingIdentityKey(
+  binding: Pick<KeybindingDefinition, "args" | "command" | "key" | "when">,
+): string {
+  return `${bindingPrecedenceKey(binding)}\u0000${commandArgsKey(binding)}`;
+}
+
 function hasExactActiveConflict(bindings: KeybindingDefinition[]): boolean {
   const groups = new Map<string, Set<string>>();
 
@@ -255,7 +261,10 @@ function findConflicts(bindings: KeybindingDefinition[]): KeybindingConflict[] {
   }
 
   return [...grouped.entries()]
-    .filter(([, entries]) => entries.length > 1)
+    .filter(
+      ([, entries]) =>
+        new Set(entries.map((entry) => commandArgsKey(entry))).size > 1,
+    )
     .map(([key, entries]) => ({ bindings: entries, key }));
 }
 

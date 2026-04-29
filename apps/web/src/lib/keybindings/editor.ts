@@ -88,7 +88,14 @@ export function buildCommandShortcutRows(
       );
       const activeDefaults = defaultBindings.filter(
         (binding) =>
-          !disabledDefaults.has(defaultDisableKey(binding.key, binding.when)),
+          !disabledDefaults.has(
+            defaultDisableKey(
+              binding.key,
+              binding.when,
+              binding.command,
+              binding.args,
+            ),
+          ),
       );
       const userBindings = userByCommand.get(commandId) ?? [];
       const searchText = [
@@ -176,11 +183,15 @@ export function removeUserShortcut(
 }
 
 export function disableDefaultShortcut(input: {
+  args?: JsonValue | null;
+  command: CommandId;
   key: string;
   keybindings: EditableKeybindingEntry[];
   when?: string | null;
 }): EditableKeybindingEntry[] {
   const disabledEntry = {
+    args: input.args ?? undefined,
+    command: input.command,
     disabled: true,
     key: normalizeKeybindingForStorage(input.key),
     when: normalizeOptionalWhen(input.when),
@@ -189,8 +200,13 @@ export function disableDefaultShortcut(input: {
     input.keybindings.some(
       (entry) =>
         entry.disabled &&
-        defaultDisableKey(entry.key, entry.when) ===
-          defaultDisableKey(disabledEntry.key, disabledEntry.when),
+        defaultDisableKey(entry.key, entry.when, entry.command, entry.args) ===
+          defaultDisableKey(
+            disabledEntry.key,
+            disabledEntry.when,
+            disabledEntry.command,
+            disabledEntry.args,
+          ),
     )
   ) {
     return input.keybindings;
@@ -208,6 +224,8 @@ export function replaceDefaultShortcut(input: {
   originalWhen?: string | null;
 }): EditableKeybindingEntry[] {
   const disabled = disableDefaultShortcut({
+    args: input.args,
+    command: input.command,
     key: input.key,
     keybindings: input.keybindings,
     when: input.originalWhen,
@@ -230,6 +248,8 @@ export function disableCommandDefaults(
     .reduce(
       (current, binding) =>
         disableDefaultShortcut({
+          args: "args" in binding ? binding.args : undefined,
+          command: binding.command,
           key: binding.key,
           keybindings: current,
           when: binding.when,
@@ -278,7 +298,16 @@ export function validateKeybindingDraft(
   const disabledDefaults = collectDisabledDefaultKeys(keybindings, errors);
 
   for (const binding of defaultKeybindings) {
-    if (disabledDefaults.has(defaultDisableKey(binding.key, binding.when))) {
+    if (
+      disabledDefaults.has(
+        defaultDisableKey(
+          binding.key,
+          binding.when,
+          binding.command,
+          "args" in binding ? binding.args : undefined,
+        ),
+      )
+    ) {
       continue;
     }
     try {
@@ -394,7 +423,7 @@ function bindingFromUser(
   }
   const key = normalizeKeybinding(binding.key);
   return {
-    args: binding.args,
+    args: binding.args ?? undefined,
     command: binding.command,
     entryIndex,
     formattedKey: formatKeybinding(key),
@@ -418,8 +447,18 @@ function commandArgsKey(binding: CommandShortcutBinding): string {
   return `${binding.command}\u0000${stableStringifyJson(binding.args ?? null)}`;
 }
 
-function defaultDisableKey(key: string, when: string | null | undefined) {
-  return `${normalizeKeybinding(key)}\u0000${normalizeWhenExpressionWhitespace(when) ?? ""}`;
+function defaultDisableKey(
+  key: string,
+  when: string | null | undefined,
+  command?: string | null,
+  args?: JsonValue | null,
+) {
+  return [
+    normalizeKeybinding(key),
+    normalizeWhenExpressionWhitespace(when) ?? "",
+    command ?? "",
+    stableStringifyJson(args ?? null),
+  ].join("\u0000");
 }
 
 function disablesDefaultBinding(
@@ -431,8 +470,13 @@ function disablesDefaultBinding(
   }
   try {
     return (
-      defaultDisableKey(entry.key, entry.when) ===
-      defaultDisableKey(binding.key, binding.when)
+      defaultDisableKey(entry.key, entry.when, entry.command, entry.args) ===
+      defaultDisableKey(
+        binding.key,
+        binding.when,
+        binding.command,
+        binding.args,
+      )
     );
   } catch {
     return false;
@@ -449,7 +493,14 @@ function collectDisabledDefaultKeys(
       continue;
     }
     try {
-      disabledDefaults.add(defaultDisableKey(binding.key, binding.when));
+      disabledDefaults.add(
+        defaultDisableKey(
+          binding.key,
+          binding.when,
+          binding.command,
+          "args" in binding ? binding.args : undefined,
+        ),
+      );
     } catch (error) {
       errors?.push(errorMessage(error));
     }
