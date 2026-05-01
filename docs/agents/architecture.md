@@ -42,6 +42,12 @@ reconciliation — drift corrects on reconnect.
   emitting REST/SSE updates. See
   `docs/agents/codex-app-server-GUI-best-practices.md` before changing chat
   protocol handling or UI behavior.
+- Codex app-server process lifetime is independent from individual chat
+  conversations. Target one initialized app-server process per Hubris host
+  session, with conversation-specific thread streams managed through
+  `thread/resume` and `thread/unsubscribe`. See
+  `docs/agents/codex-app-server-lifecycle-best-practices.md` before changing
+  chat lifecycle behavior.
 
 ## Frontend (React / Vite / Tailwind v4)
 

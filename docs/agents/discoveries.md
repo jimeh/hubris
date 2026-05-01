@@ -146,6 +146,11 @@ but too specific for the root `AGENTS.md` map.
   conversation state separate from raw app-server JSON-RPC messages, normalize
   protocol events into app events first, and treat server requests as pending UI
   actions that must receive exactly one response.
+- Codex app-server should be host-scoped, not chat-scoped. Use
+  `docs/agents/codex-app-server-lifecycle-best-practices.md` before changing
+  runtime lifecycle: keep one initialized app-server process alive for the host
+  session, manage idle chats with `thread/unsubscribe`, and resume them with
+  `thread/resume`.
 - Zustand selectors used through `useSyncExternalStore` consumers must return
   stable references. Derive filtered/sorted chat sidebar lists outside the
   selector or memoize them, or React can hit the "getSnapshot should be cached"

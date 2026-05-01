@@ -139,6 +139,13 @@
 
 ## Codex Chat Runtime
 
+- **App-server lifecycle is host-scoped, thread streams are
+  conversation-scoped**: do not spawn one `codex app-server` child process per
+  chat. Keep one initialized app-server process for the Hubris host session,
+  multiplex provider threads through it, and release idle conversations with
+  `thread/unsubscribe` instead of process shutdown. Use
+  `docs/agents/codex-app-server-lifecycle-best-practices.md` as the reference
+  for start/stop, resume, unsubscribe, and crash behavior.
 - **Normalize app-server protocol before persistence or SSE**:
   `codex app-server` JSON-RPC is a transport protocol, not a Hubris UI model.
   Route raw client responses, server requests, server notifications, and errors

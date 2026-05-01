@@ -8,6 +8,7 @@ chat tab into a durable, high-quality Codex GUI.
 ## Inputs
 
 - `docs/agents/codex-app-server-GUI-best-practices.md`
+- `docs/agents/codex-app-server-lifecycle-best-practices.md`
 - `apps/server/src/chat.rs`
 - `apps/server/src/api/chats.rs`
 - `apps/server/src/events.rs`
@@ -24,8 +25,9 @@ Hubris already has the right outer shape:
 
 - Chat is a first-class tab type.
 - Conversations and transcript messages are persisted in SQLite.
-- `codex app-server --listen stdio://` is owned by a backend runtime keyed by
-  conversation id.
+- `codex app-server --listen stdio://` is owned by backend runtime code, but the
+  current implementation still effectively scopes one child process/runtime to
+  one conversation.
 - The frontend renders backend-authoritative chat detail, not browser-local
   history.
 - REST handles discrete actions and lazy detail fetches.
@@ -39,14 +41,19 @@ collapses most app-server protocol into a small transcript projection:
 `user message`, `assistant message`, `reasoning text`, `run status`, and
 `runtime status`. Best-practice Codex GUIs need a richer normalized event model
 for turns, items, tool activity, pending requests, approvals, plans, diffs,
-context usage, warnings, replay, and process ownership.
+context usage, warnings, replay, process ownership, and thread stream ownership.
 
 ## Core Design Direction
 
 Keep the existing v1 architecture and make it deeper rather than broader:
 
 - Hubris remains the source of truth for conversation rendering.
-- `codex app-server` stays behind a Hubris-owned normalization boundary.
+- `codex app-server` stays behind a Hubris-owned lifecycle and normalization
+  boundary.
+- Hubris should move to one app-server process per host session, with many Codex
+  threads/chats multiplexed through that process.
+- Conversation visibility should control thread stream ownership and
+  `thread/unsubscribe` / `thread/resume`, not app-server process lifetime.
 - Assistant text, reasoning, work activity, and requests become separate UI
   concepts.
 - The chat store becomes normalized and optimized for streaming updates.
@@ -100,25 +107,64 @@ to `AssistantTransport`, define the ownership boundary first:
 - Keep Codex app-server JSON-RPC hidden behind the Hubris backend normalizer in
   either model.
 
+## App-Server Lifecycle Direction
+
+The lifecycle guide changes the runtime target from "one app-server process per
+conversation" to "one app-server process per host session, many thread streams."
+This should become part of the early implementation work, because it affects
+runtime state, pending request ownership, resume semantics, and how events are
+routed to conversations.
+
+Target behavior:
+
+- Start and initialize one app-server process for the Hubris host session,
+  either at backend activation or on first Codex UI/API use.
+- Keep the app-server process alive until host shutdown, explicit restart,
+  incompatible config change, fatal protocol state, or parent process exit.
+- Do not stop the process just because a chat tab is idle or hidden.
+- Track each conversation's provider thread id, resume state, stream owner, and
+  thread runtime status separately from the process lifecycle.
+- Use `thread/unsubscribe` to release inactive thread streams.
+- Use `thread/resume` to reattach a conversation when a user opens it, sends a
+  turn, answers a pending request, or recovers from process restart.
+- Deduplicate concurrent `thread/resume` calls per conversation.
+- Keep only a bounded number of inactive owner streams loaded; use the lifecycle
+  guide defaults as starting points: 60 minutes inactive unsubscribe, four
+  inactive streams retained, and 15 seconds retry delay after unsubscribe
+  failure.
+- Preserve actionable waiting states such as approvals and structured input
+  after unsubscribe.
+- On app-server crash, mark live conversations `needs_resume`, stale any
+  transport-owned pending requests, preserve transcript/activity state, and
+  avoid tight auto-restart loops.
+
+This does not conflict with possible future per-chat UI transports. A per-chat
+WebSocket or AssistantTransport connection can still attach to Hubris state, but
+it should not imply one Codex process per chat.
+
 ## Gap Analysis
 
-| Area               | Current behavior                                                            | Best-practice target                                                                                                    | Impact                                                                      |
-| ------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Protocol admission | `handle_provider_notification` switches directly on a small set of methods. | Classify every app-server message as response, request, notification, lifecycle, item, stream, warning, or unsupported. | Avoids dropped events and confusing UI states when app-server adds methods. |
-| Server requests    | Approval and user-input requests are auto-declined as unsupported.          | Persist pending requests, show focused UI, respond exactly once, and reconcile resolution.                              | Required for full-access workflows, command approvals, and MCP elicitation. |
-| Tool activity      | Command, file, tool, and output events are mostly ignored.                  | Render tool/work activity as expandable rows, not assistant prose.                                                      | Users need to see what Codex is doing without polluting the final answer.   |
-| Turns and items    | `chat_runs` and `chat_messages` approximate one active turn.                | Persist provider turn ids and item ids with stable normalized item records.                                             | Enables replay, ordering, request correlation, and richer rendering.        |
-| Reasoning          | Summary deltas append to `reasoning_text` on assistant messages.            | Store reasoning as structured per-turn or per-item activity, with collapse state in UI.                                 | Avoids losing or misplacing thinking/progress output.                       |
-| Assistant text     | Agent message deltas append to one assistant message.                       | Continue this projection, but link it to provider item id and final item payload.                                       | Preserves transcript while allowing item-level reconciliation.              |
-| Plans              | Plan events are not modeled.                                                | Persist plan state and show current plan as a progress widget or timeline item.                                         | Makes long-running turns understandable.                                    |
-| Diffs              | Diff events are not modeled.                                                | Persist summarized diff metadata and link to worktree diff views.                                                       | Helps users review code changes from the chat timeline.                     |
-| Context usage      | Token/context events are not modeled.                                       | Store latest context usage per conversation/runtime and expose a calm meter.                                            | Helps users understand context pressure without noisy rows.                 |
-| Errors             | Errors set run/message/runtime failure state, preserving some text.         | Distinguish protocol errors, runtime exits, turn failures, warnings, and request failures.                              | Improves recovery and avoids hiding partial useful output.                  |
-| Replay             | Non-terminal persisted runs are reconciled narrowly.                        | Add explicit replay/reconciliation state and item-level idempotency.                                                    | Makes reloads and second browser sessions trustworthy.                      |
-| SSE shape          | Transcript updates are message-centric.                                     | Add normalized turn, item, activity, request, plan, diff, and context events.                                           | Keeps all clients convergent without polling.                               |
-| Frontend store     | Detail stores nested message arrays; each delta rewrites a detail object.   | Normalize by conversation, message, item, activity, request, and run ids.                                               | Reduces render blast radius during streaming.                               |
-| Rendering          | Directly renders every message in a scroll area.                            | Timeline rows subscribe narrowly and support calm streaming, auto-follow, and eventual virtualization.                  | Prevents slowdowns in long chats.                                           |
-| Composer           | Send/cancel, model, effort, permission exist.                               | Add pending request actions, stale request handling, and capability-aware disabled states.                              | Makes interaction safe while Codex waits for input.                         |
+| Area               | Current behavior                                                             | Best-practice target                                                                                                    | Impact                                                                      |
+| ------------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Runtime ownership  | One child app-server is effectively scoped to one active conversation.       | One initialized app-server process per host session, multiplexing multiple provider threads.                            | Avoids unnecessary processes and matches app-server lifecycle guidance.     |
+| Idle management    | Idle policy focuses on shutting down per-chat runtimes.                      | Release inactive thread streams with `thread/unsubscribe`; keep process alive.                                          | Reduces cold starts and keeps app/server state coherent.                    |
+| Resume state       | Resume is mostly tied to restarting a per-chat runtime.                      | Track `needs_resume`, `resuming`, and `resumed` per conversation/thread stream.                                         | Makes hidden tabs, second windows, and process restarts predictable.        |
+| Initialization     | Each spawned process is initialized as part of per-conversation runtime use. | Initialize once per host process and expose process-level `starting`, `initializing`, `ready`, `fatal`, `stopped`.      | Separates host failure from individual chat failure.                        |
+| Protocol admission | `handle_provider_notification` switches directly on a small set of methods.  | Classify every app-server message as response, request, notification, lifecycle, item, stream, warning, or unsupported. | Avoids dropped events and confusing UI states when app-server adds methods. |
+| Server requests    | Approval and user-input requests are auto-declined as unsupported.           | Persist pending requests, show focused UI, respond exactly once, and reconcile resolution.                              | Required for full-access workflows, command approvals, and MCP elicitation. |
+| Tool activity      | Command, file, tool, and output events are mostly ignored.                   | Render tool/work activity as expandable rows, not assistant prose.                                                      | Users need to see what Codex is doing without polluting the final answer.   |
+| Turns and items    | `chat_runs` and `chat_messages` approximate one active turn.                 | Persist provider turn ids and item ids with stable normalized item records.                                             | Enables replay, ordering, request correlation, and richer rendering.        |
+| Reasoning          | Summary deltas append to `reasoning_text` on assistant messages.             | Store reasoning as structured per-turn or per-item activity, with collapse state in UI.                                 | Avoids losing or misplacing thinking/progress output.                       |
+| Assistant text     | Agent message deltas append to one assistant message.                        | Continue this projection, but link it to provider item id and final item payload.                                       | Preserves transcript while allowing item-level reconciliation.              |
+| Plans              | Plan events are not modeled.                                                 | Persist plan state and show current plan as a progress widget or timeline item.                                         | Makes long-running turns understandable.                                    |
+| Diffs              | Diff events are not modeled.                                                 | Persist summarized diff metadata and link to worktree diff views.                                                       | Helps users review code changes from the chat timeline.                     |
+| Context usage      | Token/context events are not modeled.                                        | Store latest context usage per conversation/runtime and expose a calm meter.                                            | Helps users understand context pressure without noisy rows.                 |
+| Errors             | Errors set run/message/runtime failure state, preserving some text.          | Distinguish protocol errors, runtime exits, turn failures, warnings, and request failures.                              | Improves recovery and avoids hiding partial useful output.                  |
+| Replay             | Non-terminal persisted runs are reconciled narrowly.                         | Add explicit replay/reconciliation state and item-level idempotency.                                                    | Makes reloads and second browser sessions trustworthy.                      |
+| SSE shape          | Transcript updates are message-centric.                                      | Add normalized turn, item, activity, request, plan, diff, and context events.                                           | Keeps all clients convergent without polling.                               |
+| Frontend store     | Detail stores nested message arrays; each delta rewrites a detail object.    | Normalize by conversation, message, item, activity, request, and run ids.                                               | Reduces render blast radius during streaming.                               |
+| Rendering          | Directly renders every message in a scroll area.                             | Timeline rows subscribe narrowly and support calm streaming, auto-follow, and eventual virtualization.                  | Prevents slowdowns in long chats.                                           |
+| Composer           | Send/cancel, model, effort, permission exist.                                | Add pending request actions, stale request handling, and capability-aware disabled states.                              | Makes interaction safe while Codex waits for input.                         |
 
 ## Target Backend Model
 
@@ -129,12 +175,19 @@ current UI source of truth.
 ### Existing Tables To Keep
 
 - `chat_conversations`: conversation identity, tab linkage, latest run/error,
-  selected model/effort/permissions, provider thread id.
+  selected model/effort/permissions, provider thread id, resume state, stream
+  ownership hints, and last known thread runtime status.
 - `chat_messages`: durable transcript projection for user and assistant text.
 - `chat_runs`: high-level turn/run state used by summaries and runtime badges.
 
 ### New Tables To Add
 
+- `chat_app_server_instances`: optional persisted diagnostics for host-scoped
+  app-server restarts, versions, fatal errors, and last startup metadata. The
+  live process handle remains in memory.
+- `chat_thread_streams`: per-conversation stream state keyed by provider thread
+  id, including resume state, owner token, last subscribe/resume/unsubscribe
+  attempt, inactive deadline, and last runtime status.
 - `chat_turns`: one provider turn per user send, with provider turn id, status,
   timestamps, user message id, assistant message id, and reconciliation state.
 - `chat_items`: normalized app-server items keyed by provider item id when
@@ -163,10 +216,13 @@ current UI source of truth.
 - Persist assistant transcript deltas with a short backend debounce, but keep
   item/activity deltas separate from assistant prose.
 - Persist pending requests before responding to or surfacing them.
-- Mark pending requests stale when the owning runtime exits, a new runtime
-  starts without reconciliation, or the turn becomes terminal.
+- Mark pending requests stale when the app-server process exits, stream
+  ownership is lost, a new process starts without reconciliation, or the turn
+  becomes terminal.
 - Never require a live Codex process to display transcript, activity history,
   request history, plans, diffs, or context usage.
+- Never kill app-server merely to make an inactive conversation idle. Idle chat
+  state is represented by thread unsubscribe/resume state.
 
 ## Target SSE and REST Contracts
 
@@ -175,8 +231,9 @@ should remain lazy per open conversation tab.
 
 ### Snapshot Additions
 
+- Host app-server lifecycle summary.
 - Conversation summaries, unchanged.
-- Runtime summaries, unchanged.
+- Thread stream/runtime summaries by conversation.
 - Active turn summaries for conversations with live or non-terminal runs.
 - Pending request summaries for visible conversations.
 - Context usage summaries for sidebar/runtime badges.
@@ -184,6 +241,8 @@ should remain lazy per open conversation tab.
 ### New Incremental Events
 
 - `chat_turn_updated`
+- `chat_app_server_updated`
+- `chat_thread_stream_updated`
 - `chat_item_started`
 - `chat_item_updated`
 - `chat_item_completed`
@@ -206,10 +265,16 @@ should remain lazy per open conversation tab.
 - `POST /api/chats/{conversation_id}/requests/{request_id}/resolve`
 - `GET /api/chats/{conversation_id}/activity/{item_id}`
 - `GET /api/chats/{conversation_id}/diff-summary`
+- `POST /api/chats/{conversation_id}/resume`
+- `POST /api/chats/{conversation_id}/unsubscribe`
+- `POST /api/codex-app-server/restart`
 
 The existing `GET /api/chats/{conversation_id}` can include enough timeline data
 for v2, but adding narrower endpoints keeps initial tab load small once activity
 and diff details grow.
+
+Resume and unsubscribe can stay backend-internal at first. Expose REST endpoints
+only when the UI needs explicit retry/reconnect controls or diagnostics.
 
 ## Target Frontend Store Shape
 
@@ -220,8 +285,10 @@ Recommended normalized shape:
 
 ```ts
 type ChatStore = {
+  appServerStatus: CodexAppServerStatus;
   conversationsById: Record<string, ChatConversationSummary>;
   runtimesByConversationId: Record<string, ChatRuntimeStatus>;
+  threadStreamsByConversationId: Record<string, ChatThreadStreamStatus>;
   loadedConversationIds: Record<string, true>;
   dirtyConversationIds: Record<string, true>;
 
@@ -313,17 +380,24 @@ Apply the project React guidance deliberately:
 
 ## Phased Work Plan
 
-### Phase 0: Protocol Inventory And Test Harness
+### Phase 0: Protocol And Lifecycle Inventory
 
-Goal: make app-server behavior observable and testable before expanding the UI.
+Goal: make app-server protocol and lifecycle behavior observable and testable
+before expanding the UI.
 
 Backend work:
 
 - Add a narrow Codex protocol normalizer module with explicit method
   classification.
+- Add a host-scoped app-server lifecycle model that separates process state from
+  thread stream state, even before the current runtime is fully migrated.
 - Add a compatibility table for current and legacy app-server method names.
 - Add fixture-driven parser tests using captured JSON-RPC lines.
-- Add a fake app-server stream harness for runtime tests.
+- Add fixture coverage for `initialize`, `thread/start`, `thread/resume`,
+  `thread/unsubscribe`, server requests, notifications, closed transport, and
+  malformed lines.
+- Add a fake app-server stream harness for runtime tests, including multiple
+  concurrent provider thread ids through one transport.
 - Add debug logging that names normalized event kinds without dumping large
   payloads by default.
 
@@ -337,9 +411,53 @@ Verification:
 - Unit tests prove server requests with both `id` and `method` are classified as
   requests, not responses.
 - Unit tests prove unsupported methods become explicit ignored/debug events.
+- Unit tests prove lifecycle state distinguishes process readiness from per
+  conversation resume state.
 - Existing chat send/stream tests continue passing.
 
-### Phase 1: Normalize Turns, Items, And Assistant Text
+### Phase 1: Shared App-Server Runtime And Thread Streams
+
+Goal: replace per-conversation app-server child processes with one initialized
+host-scoped app-server and per-conversation thread stream state.
+
+Backend work:
+
+- Introduce an app-server manager owned by the chat service or app state.
+- Spawn `codex app-server --listen stdio://` once per host session or on first
+  Codex use.
+- Send `initialize` before user-visible requests and expose `starting`,
+  `initializing`, `ready`, `fatal`, and `stopped` states.
+- Route JSON-RPC responses by request id through the shared connection.
+- Route server notifications and requests by provider thread id, turn id, item
+  id, or pending request metadata to the owning conversation.
+- Track per-conversation stream state: `needs_resume`, `resuming`, `resumed`,
+  owner token, last runtime status, inactive deadline, and unsubscribe retry.
+- Start new conversations with `thread/start` through the shared manager.
+- Resume existing conversations with deduplicated `thread/resume`.
+- Release inactive non-visible streams with `thread/unsubscribe` instead of
+  killing the app-server process.
+- Mark live streams `needs_resume` after app-server crash or restart.
+- Preserve current transcript rendering and send/interrupt behavior while the
+  runtime ownership changes.
+
+Frontend work:
+
+- Add app-server lifecycle and per-thread stream status to chat store contracts.
+- Show process-level fatal/initializing state separately from per-chat running
+  state where needed.
+- Keep the current chat tab UI otherwise stable.
+
+Verification:
+
+- Rust tests for lazy/eager app-server startup and single initialization.
+- Rust tests for multiple conversations sharing one fake app-server transport.
+- Rust tests for concurrent resume deduplication.
+- Rust tests for inactive `thread/unsubscribe` and retry-on-failure behavior.
+- Rust tests for process crash marking live conversations `needs_resume`.
+- Existing chat send, stream, interrupt, model list, and settings tests still
+  pass.
+
+### Phase 2: Normalize Turns, Items, And Assistant Text
 
 Goal: preserve current user-visible behavior while introducing stable provider
 turn and item records.
@@ -366,7 +484,7 @@ Verification:
 - Runtime tests for duplicate/out-of-order item completion where practical.
 - Vitest tests for unchanged transcript rendering.
 
-### Phase 2: Store Normalization And SSE Batching
+### Phase 3: Store Normalization And SSE Batching
 
 Goal: reduce render blast radius before adding more high-volume streams.
 
@@ -391,7 +509,7 @@ Verification:
 - Browser check with a long streaming response and React Profiler sampling.
 - Confirm no `getSnapshot should be cached` warnings.
 
-### Phase 3: Work Activity Rows
+### Phase 4: Work Activity Rows
 
 Goal: show what Codex is doing without mixing tool output into the response.
 
@@ -417,7 +535,7 @@ Verification:
 - Component tests for collapsed/expanded activity rows.
 - Browser test that command output does not appear inside assistant prose.
 
-### Phase 4: Pending Requests, Approvals, And User Input
+### Phase 5: Pending Requests, Approvals, And User Input
 
 Goal: stop auto-declining app-server requests and make Codex interaction safe.
 
@@ -428,8 +546,8 @@ Backend work:
 - Support resolving approval requests through REST.
 - Support resolving structured user input requests through REST.
 - Enforce exactly-once response semantics.
-- Mark requests stale when runtime ownership changes or the turn becomes
-  terminal.
+- Mark requests stale when app-server ownership changes, stream ownership is
+  lost, or the turn becomes terminal.
 - Reconcile `serverRequest/resolved` notifications when app-server emits them.
 
 Frontend work:
@@ -446,7 +564,7 @@ Verification:
 - Component tests for approval cards and stale states.
 - Browser test approving a command that needs elevated permissions.
 
-### Phase 5: Plans, Diffs, And Context Usage
+### Phase 6: Plans, Diffs, And Context Usage
 
 Goal: expose higher-level Codex progress signals.
 
@@ -470,7 +588,7 @@ Verification:
 - Component tests for plan update replacement and context meter updates.
 - Browser test that plan updates do not cause scroll jumps.
 
-### Phase 6: Replay, Resume, And Multi-View Convergence
+### Phase 7: Replay, Resume, And Multi-View Convergence
 
 Goal: make reloads, secondary browsers, and process restarts feel coherent.
 
@@ -481,7 +599,8 @@ Backend work:
   `thread/read(includeTurns=true)` where possible.
 - Rebuild transcript projection from normalized items when needed.
 - Mark irreconcilable active work interrupted without deleting partial content.
-- Ensure pending requests from dead runtimes become stale.
+- Ensure pending requests from dead app-server processes or lost stream owners
+  become stale.
 
 Frontend work:
 
@@ -495,7 +614,7 @@ Verification:
   reconciliation.
 - Two-client browser test for convergence while a turn is streaming.
 
-### Phase 7: Timeline Polish And Long-Chat Performance
+### Phase 8: Timeline Polish And Long-Chat Performance
 
 Goal: make the UI feel like a purpose-built Codex GUI.
 
@@ -522,20 +641,26 @@ Verification:
 
 ## Recommended First Slice
 
-Start with phases 0 through 2 before adding visible feature complexity:
+Start with phases 0 through 3 before adding visible feature complexity:
 
 1. Introduce a protocol normalizer and fixture tests.
-2. Add turn/item persistence while keeping current transcript rendering.
-3. Normalize the frontend chat store and batch streaming deltas.
+2. Move from per-conversation app-server processes to one host-scoped app-server
+   with per-thread stream state.
+3. Add turn/item persistence while keeping current transcript rendering.
+4. Normalize the frontend chat store and batch streaming deltas.
 
 This sequence reduces architectural risk. It also prevents the UI work in later
-phases from being built on a message-only store that will need another rewrite
-as soon as tool activity and approvals arrive.
+phases from being built on per-chat process ownership or a message-only store
+that will need another rewrite as soon as tool activity and approvals arrive.
 
 ## Non-Goals For The Next Iteration
 
 - Do not replace the Hubris transcript source of truth with assistant-ui state.
-- Do not add a second live-update transport for chat.
+- Do not add a second live-update transport for chat unless it is a deliberate
+  AssistantTransport/per-chat transport migration with a documented ownership
+  boundary.
+- Do not keep or add one Codex app-server process per conversation.
+- Do not use process shutdown as normal chat idle management.
 - Do not build a generic multi-provider framework before Codex is solid.
 - Do not render raw JSON-RPC payloads in normal chat rows.
 - Do not persist every raw app-server event indefinitely.
@@ -547,9 +672,14 @@ as soon as tool activity and approvals arrive.
 Backend:
 
 - Protocol classification for responses, requests, notifications, and unknowns.
+- Host-scoped app-server startup, initialize, fatal, stopped, and restart
+  states.
+- Multiple conversations multiplexed through one app-server process.
+- Thread stream resume, unsubscribe, inactive limits, retry, and `needs_resume`
+  state.
 - Persistence for turns, items, activities, requests, plans, diffs, and context.
-- Runtime serialization during startup, shutdown, send, interrupt, and request
-  resolution.
+- Shared transport serialization during startup, shutdown, send, interrupt,
+  resume, unsubscribe, and request resolution.
 - Process death mid-stream with partial output preserved.
 - Reconciliation of non-terminal turns after restart.
 - SSE snapshots and incremental events for all normalized state.
@@ -573,7 +703,10 @@ End-to-end:
 - Trigger an approval, approve/deny once, and continue the turn.
 - Reload during a running turn and reconcile correctly.
 - Open a second browser and observe the same live timeline state.
-- Let the runtime idle out, then send a follow-up and resume transparently.
+- Open two chats, send turns through one shared app-server process, and verify
+  events route to the correct conversation.
+- Let an inactive thread unsubscribe while app-server remains alive, then send a
+  follow-up and resume transparently.
 
 Finish feature phases with the relevant touched suites and then:
 
