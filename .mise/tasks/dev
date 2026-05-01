@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-#MISE description="Run backend + default web dev servers"
+#MISE description="Run backend + web dev servers via portless"
 set -euo pipefail
 
-WEB_TASK="${1:-dev:web}"
+WEB_TASK="${1:-dev:web:portless}"
 TMP_DIR="${HUBRIS_DEV_TMP:-$(pwd)/tmp}"
 mkdir -p "$TMP_DIR"
 

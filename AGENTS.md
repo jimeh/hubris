@@ -7,7 +7,8 @@ persistent PTY sessions.
 
 ```sh
 mise run setup     # install all deps
-mise run dev       # backend + web dev servers
+mise run dev       # backend + web dev servers via portless URL
+mise run dev:raw   # backend + web dev servers without portless
 mise run dev:desktop  # Electron desktop app in dev mode
 mise run build:desktop  # Electron desktop app bundle
 mise run build:desktop:macos-arm64  # target-specific desktop bundle

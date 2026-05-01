@@ -5,6 +5,7 @@ bun = "latest"
 zig = "latest"
 cargo-binstall = "latest"
 "npm:gitnexus" = "latest"
+portless = "latest"
 
 [tasks.build]
 depends = ["build:web", "build:server"]
@@ -82,6 +83,18 @@ sources = [
 [tasks."dev:web"]
 run = "bun run --filter hubris-web dev"
 description = "Run web dev server"
+
+[tasks."dev:web:portless"]
+run = "PORTLESS_PORT=${PORTLESS_PORT:-1355} portless run bun run --filter hubris-web dev"
+description = "Run web dev server behind portless"
+
+[tasks."dev:raw"]
+run = ".mise/tasks/dev dev:web"
+description = "Run backend + web dev servers without portless"
+
+[tasks."dev:portless"]
+run = ".mise/tasks/dev dev:web:portless"
+description = "Run backend + web dev servers behind portless"
 
 [tasks."dev:desktop"]
 run = ".mise/tasks/dev-desktop"

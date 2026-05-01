@@ -87,6 +87,7 @@ export default defineConfig(async () => {
     process.env.PORT || process.env.HUBRIS_PORT || "3001",
     10,
   );
+  const host = process.env.HOST;
 
   return {
     plugins: [react(), tailwindcss(), devInstancePlugin()],
@@ -104,7 +105,7 @@ export default defineConfig(async () => {
     },
     server: {
       // allowedHosts: ["localhost", "127.0.0.1", "0.0.0.0", "noct"],
-      // host: true,
+      host,
       port,
       hmr: isDesktopDev
         ? {
