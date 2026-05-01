@@ -7,8 +7,8 @@ persistent PTY sessions.
 
 ```sh
 mise run setup     # install all deps
-mise run dev       # backend + web dev servers via portless URL
-mise run dev:raw   # backend + web dev servers without portless
+mise run dev       # server + web dev processes via portless URL
+mise run dev:raw   # server + web dev processes without portless
 mise run dev:desktop  # Electron desktop app in dev mode
 mise run build:desktop  # Electron desktop app bundle
 mise run build:desktop:macos-arm64  # target-specific desktop bundle
@@ -17,16 +17,21 @@ mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
 mise run test      # web tests + cargo test
 mise run generate  # run all code generators
+mise run hooks:install  # install Husky-managed pre-commit checks
 ```
 
-Sub-tasks: `check:backend`, `check:web`, `format:backend`, `format:web`. `lint`
-is an alias for `check`.
+Sub-tasks: `check:server`, `check:web`, `format:server`, `format:web`. `lint` is
+an alias for `check`.
 
 Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (frontend).
 
 **IMPORTANT: Always run `mise run check` before committing or opening PRs.** CI
 runs the same checks — format (`cargo fmt`, `prettier`), lint (`clippy`,
-`eslint`), and type check (`tsc`).
+`eslint`), and type check (`tsc`). `mise run setup` installs Husky-managed Git
+hooks, and the pre-commit hook runs lint-staged checks against staged files. Use
+`HUBRIS_PRECOMMIT_FULL=1 git commit ...` to force the full check lane from the
+hook, or Git's `--no-verify` only when you have already run the relevant checks
+manually.
 
 **IMPORTANT: The frontend uses bun, NOT npm or pnpm.** All frontend commands
 must use `bun`. Install dependencies from the repo root with `bun install`, and
@@ -37,7 +42,7 @@ or `pnpm-lock.yaml`.
 **IMPORTANT: The backend SQLite state DB uses `sqlx` offline metadata.** After
 changing backend SQL queries or `apps/server/migrations/`, run
 `mise run sqlx:prepare` and commit the resulting `.sqlx/` metadata. Backend
-checks enforce this through `mise run check:backend`.
+checks enforce this through `mise run check:server`.
 
 ## Domain Concepts
 
@@ -256,7 +261,7 @@ checks enforce this through `mise run check:backend`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (8630 symbols, 19779
+This project is indexed by GitNexus as **hubris** (8627 symbols, 19780
 relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 
