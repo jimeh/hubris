@@ -36,6 +36,12 @@ reconciliation — drift corrects on reconnect.
 - Git status: `GET /api/projects/{id}/worktrees/{wt_id}/git-status` uses
   `git2`/libgit2 (not CLI) to read staged/unstaged/ahead-of-source info.
   `source_ref` on worktrees tracks the branch it was created from.
+- Codex chat uses a Hubris-owned runtime/model layer over `codex app-server`
+  JSON-RPC. Backend code should normalize app-server protocol messages into
+  conversation, turn, message, activity, request, and runtime state before
+  emitting REST/SSE updates. See
+  `docs/agents/codex-app-server-GUI-best-practices.md` before changing chat
+  protocol handling or UI behavior.
 
 ## Frontend (React / Vite / Tailwind v4)
 
@@ -56,6 +62,10 @@ reconciliation — drift corrects on reconnect.
   runtime-only UI state (draft address, loading/error flags, iframe reload key)
   lives in `src/lib/stores/browserTabs.ts`. Web uses an `iframe`; desktop uses
   an Electron bridge-backed `WebContentsView`.
+- Codex chat tabs render backend-authoritative chat state. Assistant text,
+  reasoning, tool/work activity, approvals, errors, and runtime status should be
+  fed from normalized Hubris state, not raw app-server messages or local-only
+  component state.
 - Terminal connection state machine lives in
   `components/terminal/useTerminalConnection.ts`
 - Theme engine: native Hubris theme definitions in `src/lib/theme/builtin.ts`,

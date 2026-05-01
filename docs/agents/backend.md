@@ -137,6 +137,27 @@
 - **deleteProject tolerates 404**: Project may already be gone (other browser
   removed it).
 
+## Codex Chat Runtime
+
+- **Normalize app-server protocol before persistence or SSE**:
+  `codex app-server` JSON-RPC is a transport protocol, not a Hubris UI model.
+  Route raw client responses, server requests, server notifications, and errors
+  through a small normalization layer before mutating chat messages, activities,
+  runs, or runtime state. Use
+  `docs/agents/codex-app-server-GUI-best-practices.md` as the reference for
+  method classification and UI responsibility.
+- **Server requests are not responses**: app-server can send messages with both
+  `id` and `method`. Those are server-initiated requests that need exactly one
+  JSON-RPC response, not replies to Hubris client requests. Keep them as pending
+  request state until resolved or explicitly declined.
+- **Do not treat tool output as assistant prose**: command/file/tool output
+  deltas belong to work/activity rows or debug output, while
+  `item/agentMessage/delta` is the assistant answer stream. Reasoning streams
+  belong in reasoning/progress state and must stay separate from answer text.
+- **Preserve partial content on failure**: provider errors, app-server process
+  exits, and turn failures should finalize run/error state without deleting
+  already-streamed assistant text, reasoning summaries, or tool activity.
+
 ## Symlinks
 
 - **File editor/diff symlinks may target only the worktree or repo root**:

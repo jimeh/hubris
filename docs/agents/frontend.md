@@ -74,6 +74,26 @@
   `apps/web/src/components/commands/CommandDialogs.tsx` instead of rebuilding
   modal state in the triggering component.
 
+## Codex Chat UI
+
+- **Render normalized Hubris chat state, not raw app-server messages**:
+  assistant-ui can provide view primitives, but Hubris stores and backend/SSE
+  state own the conversation, messages, runtime status, errors, pending
+  requests, and replay behavior. Use
+  `docs/agents/codex-app-server-GUI-best-practices.md` before adding new Codex
+  chat UI surfaces.
+- **Keep response, reasoning, and work activity separate**:
+  `item/agentMessage/delta` is answer text; reasoning streams belong in a
+  collapsed thinking/progress surface; command/file/tool output belongs in
+  activity rows or expandable detail, not the assistant response bubble.
+- **Pending requests need focused UI near the composer**: approvals, permission
+  prompts, structured user input, and MCP elicitations should stay attached to
+  conversation state, survive rerenders, disable only unsafe controls, and
+  resolve exactly once.
+- **Favor calm streaming updates**: batch or debounce high-volume deltas,
+  collapse noisy lifecycle rows, preserve partial content on failure, and avoid
+  layout shifts while Codex is working.
+
 ## Explorer
 
 - **Explorer refresh UI should be stale-while-revalidate**: watcher-driven

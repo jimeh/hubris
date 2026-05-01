@@ -105,6 +105,11 @@ checks enforce this through `mise run check:server`.
   in focused components under `apps/web/src/components/settings-dialog/`, with
   backend-authoritative state coming from stores/contracts rather than ad hoc
   local orchestration.
+- **Codex chat is protocol-normalized before UI rendering**: when changing Codex
+  chat/app-server behavior, use
+  `docs/agents/codex-app-server-GUI-best-practices.md` as the protocol and UI
+  normalization reference. Do not render raw JSON-RPC events directly into the
+  timeline.
 
 ## Detail Docs
 
@@ -119,6 +124,9 @@ checks enforce this through `mise run check:server`.
 - [Desktop](docs/agents/desktop.md) — Electron build, dev workflow, auth
 - [Dev Environment](docs/agents/dev-environment.md) — mise tasks, hot reload,
   socket activation
+- [Codex App Server GUI Best Practices](docs/agents/codex-app-server-GUI-best-practices.md)
+  — Codex `app-server` JSON-RPC normalization, chat UI state, server requests,
+  tool activity, reasoning, and replay guidance
 - [Discoveries](docs/agents/discoveries.md) — accumulated project gotchas and
   non-obvious findings
 

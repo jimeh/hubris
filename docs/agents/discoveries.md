@@ -141,6 +141,11 @@ but too specific for the root `AGENTS.md` map.
 - Git status views should not key rows by bare `path` alone. The same path can
   appear more than once in a rendered section/tree, so React keys need section
   or index context to avoid duplicate-key crashes.
+- Codex chat UI work should start from
+  `docs/agents/codex-app-server-GUI-best-practices.md`. Keep Hubris-owned
+  conversation state separate from raw app-server JSON-RPC messages, normalize
+  protocol events into app events first, and treat server requests as pending UI
+  actions that must receive exactly one response.
 - Zustand selectors used through `useSyncExternalStore` consumers must return
   stable references. Derive filtered/sorted chat sidebar lists outside the
   selector or memoize them, or React can hit the "getSnapshot should be cached"
