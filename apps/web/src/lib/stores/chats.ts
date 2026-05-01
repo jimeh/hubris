@@ -8,6 +8,7 @@ import {
   type ChatConversationSummary as ApiChatConversationSummary,
   type ChatModelOption as ApiChatModelOption,
   type ChatRuntimeStatus as ApiChatRuntimeStatus,
+  type ChatThreadStreamStatus as ApiChatThreadStreamStatus,
 } from "@/lib/api";
 import { getEventClient, type SseEventData } from "@/lib/events";
 import { useTabStore } from "@/lib/stores/tabs";
@@ -15,10 +16,12 @@ import type {
   ChatConversationDetail,
   ChatConversationSettingsPatch,
   ChatConversationSummary,
+  ChatAppServerStatus,
   ChatMessage,
   ChatModelOption,
   ChatRuntimeStatus,
   ChatRun,
+  ChatThreadStreamStatus,
 } from "@/lib/types";
 
 type ConversationDetailState = {
@@ -29,8 +32,10 @@ type ConversationDetailState = {
 };
 
 type ChatStoreState = {
+  appServerStatus: ChatAppServerStatus | null;
   conversationsById: Record<string, ChatConversationSummary>;
   runtimesByConversationId: Record<string, ChatRuntimeStatus>;
+  threadStreamsByConversationId: Record<string, ChatThreadStreamStatus>;
   detailsByConversationId: Record<string, ConversationDetailState>;
   modelOptions: ChatModelOption[];
   modelOptionsStatus: "idle" | "loading" | "loaded" | "error";
@@ -71,6 +76,14 @@ function indexRuntimes(
 ): Record<string, ChatRuntimeStatus> {
   return Object.fromEntries(
     runtimes.map((runtime) => [runtime.conversationId, runtime]),
+  );
+}
+
+function indexThreadStreams(
+  streams: readonly ApiChatThreadStreamStatus[] = [],
+): Record<string, ChatThreadStreamStatus> {
+  return Object.fromEntries(
+    streams.map((stream) => [stream.conversationId, stream]),
   );
 }
 
@@ -233,8 +246,10 @@ async function loadConversation(
 }
 
 export const useChatStore = create<ChatStoreState>((set, get) => ({
+  appServerStatus: null,
   conversationsById: {},
   runtimesByConversationId: {},
+  threadStreamsByConversationId: {},
   detailsByConversationId: {},
   modelOptions: [],
   modelOptionsStatus: "idle",
@@ -351,6 +366,25 @@ function handleRuntimeEvent(data: SseEventData<"chat_runtime_updated">): void {
   }));
 }
 
+function handleAppServerEvent(
+  data: SseEventData<"chat_app_server_updated">,
+): void {
+  useChatStore.setState({
+    appServerStatus: data.app_server,
+  });
+}
+
+function handleThreadStreamEvent(
+  data: SseEventData<"chat_thread_stream_updated">,
+): void {
+  useChatStore.setState((state) => ({
+    threadStreamsByConversationId: {
+      ...state.threadStreamsByConversationId,
+      [data.stream.conversationId]: data.stream,
+    },
+  }));
+}
+
 function handleMessageUpdated(
   data: SseEventData<"chat_message_updated">,
 ): void {
@@ -433,8 +467,12 @@ export function initializeChatStore(): void {
     events.on("snapshot", (data) => {
       const nextConversations = indexConversations(data.chat_conversations);
       useChatStore.setState((state) => ({
+        appServerStatus: data.chat_app_server ?? null,
         conversationsById: nextConversations,
         runtimesByConversationId: indexRuntimes(data.chat_runtimes),
+        threadStreamsByConversationId: indexThreadStreams(
+          data.chat_thread_streams,
+        ),
         detailsByConversationId: Object.fromEntries(
           Object.entries(state.detailsByConversationId).filter(
             ([conversationId]) => conversationId in nextConversations,
@@ -445,6 +483,8 @@ export function initializeChatStore(): void {
     events.on("chat_conversation_created", handleConversationEvent),
     events.on("chat_conversation_updated", handleConversationEvent),
     events.on("chat_runtime_updated", handleRuntimeEvent),
+    events.on("chat_app_server_updated", handleAppServerEvent),
+    events.on("chat_thread_stream_updated", handleThreadStreamEvent),
     events.on("chat_message_updated", handleMessageUpdated),
     events.on("chat_message_delta", handleMessageDelta),
     events.on("chat_run_updated", handleRunUpdated),
@@ -458,8 +498,10 @@ export function resetChatStoreForTests(): void {
   eventUnsubscribers = [];
   initialized = false;
   useChatStore.setState({
+    appServerStatus: null,
     conversationsById: {},
     runtimesByConversationId: {},
+    threadStreamsByConversationId: {},
     detailsByConversationId: {},
     modelOptions: [],
     modelOptionsStatus: "idle",

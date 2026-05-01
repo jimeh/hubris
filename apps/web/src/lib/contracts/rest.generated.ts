@@ -917,6 +917,24 @@ export interface components {
       darkTheme?: string | null;
       lightTheme?: string | null;
     };
+    /**
+     * @description Shared Codex app-server process lifecycle pushed over SSE.
+     * @enum {string}
+     */
+    ChatAppServerLifecycle:
+      | "stopped"
+      | "starting"
+      | "initializing"
+      | "ready"
+      | "stopping"
+      | "fatal";
+    /** @description Host-scoped Codex app-server status. */
+    ChatAppServerStatus: {
+      lastError?: string | null;
+      lifecycle: components["schemas"]["ChatAppServerLifecycle"];
+      /** Format: int64 */
+      updatedAt: number;
+    };
     /** @description Full chat detail payload used to hydrate an open chat tab. */
     ChatConversationDetail: {
       conversation: components["schemas"]["ChatConversationSummary"];
@@ -1082,6 +1100,32 @@ export interface components {
     ChatSettingsPatch: {
       /** Format: int32 */
       idleTimeoutMinutes?: number | null;
+    };
+    /**
+     * @description Per-conversation Codex thread stream resume state.
+     * @enum {string}
+     */
+    ChatThreadStreamResumeState:
+      | "not_started"
+      | "needs_resume"
+      | "resuming"
+      | "resumed";
+    /** @description Live stream status for one Codex thread. */
+    ChatThreadStreamStatus: {
+      activeMessageId?: string | null;
+      activeRunId?: string | null;
+      conversationId: string;
+      /** Format: int64 */
+      inactiveDeadlineAt?: number | null;
+      lastError?: string | null;
+      lifecycle: components["schemas"]["ChatRuntimeLifecycle"];
+      projectId: string;
+      providerThreadId?: string | null;
+      resumeState: components["schemas"]["ChatThreadStreamResumeState"];
+      sessionId: string;
+      /** Format: int64 */
+      updatedAt: number;
+      worktreeId: string;
     };
     ClientControlMessage: {
       /** Format: int32 */

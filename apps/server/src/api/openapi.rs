@@ -48,10 +48,11 @@ use crate::api::worktrees::{
     Worktree, WorktreeGitPathActionRequest, WorktreeGitStatusResponse,
 };
 use crate::chat::{
-    ChatConversationDetail, ChatConversationSettingsPatch, ChatConversationSummary, ChatMessage,
-    ChatMessageRole, ChatMessageStatus, ChatModelOption, ChatModelReasoningEffortOption,
-    ChatPermissionMode, ChatProvider, ChatReasoningEffort, ChatRun, ChatRunStatus,
-    ChatRuntimeLifecycle, ChatRuntimeStatus, ChatSettings,
+    ChatAppServerLifecycle, ChatAppServerStatus, ChatConversationDetail,
+    ChatConversationSettingsPatch, ChatConversationSummary, ChatMessage, ChatMessageRole,
+    ChatMessageStatus, ChatModelOption, ChatModelReasoningEffortOption, ChatPermissionMode,
+    ChatProvider, ChatReasoningEffort, ChatRun, ChatRunStatus, ChatRuntimeLifecycle,
+    ChatRuntimeStatus, ChatSettings, ChatThreadStreamResumeState, ChatThreadStreamStatus,
 };
 use crate::tab::{
     GitDiffScope, TabInfo, TabPaneSplitAxis, WorktreePaneNode, WorktreePaneTabs, WorktreeTabLayout,
@@ -220,6 +221,10 @@ use crate::tab::{
             ChatMessageStatus,
             ChatRunStatus,
             ChatRuntimeLifecycle,
+            ChatAppServerLifecycle,
+            ChatAppServerStatus,
+            ChatThreadStreamResumeState,
+            ChatThreadStreamStatus,
             ChatModelReasoningEffortOption,
             ChatModelOption,
             ChatConversationSettingsPatch,

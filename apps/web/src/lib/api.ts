@@ -187,6 +187,8 @@ export type ChatConversationSummary =
 export type ChatConversationDetail =
   components["schemas"]["ChatConversationDetail"];
 export type ChatRuntimeStatus = components["schemas"]["ChatRuntimeStatus"];
+export type ChatThreadStreamStatus =
+  components["schemas"]["ChatThreadStreamStatus"];
 export type ChatModelOption = components["schemas"]["ChatModelOption"];
 export type ChatPermissionMode = components["schemas"]["ChatPermissionMode"];
 export type ChatConversationSettingsPatch =

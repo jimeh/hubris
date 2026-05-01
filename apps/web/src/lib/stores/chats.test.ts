@@ -128,6 +128,11 @@ describe("chat store", () => {
     initializeChatStore();
 
     mockEvents.emit("snapshot", {
+      chat_app_server: {
+        lifecycle: "ready",
+        lastError: null,
+        updatedAt: 10,
+      },
       chat_conversations: [conversation],
       chat_runtimes: [
         {
@@ -143,6 +148,22 @@ describe("chat store", () => {
           updatedAt: 10,
         },
       ],
+      chat_thread_streams: [
+        {
+          conversationId: "chat-1",
+          sessionId: "default",
+          projectId: "project-1",
+          worktreeId: "worktree-1",
+          resumeState: "resumed",
+          lifecycle: "ready",
+          activeRunId: null,
+          activeMessageId: null,
+          providerThreadId: "thread-1",
+          inactiveDeadlineAt: null,
+          lastError: null,
+          updatedAt: 10,
+        },
+      ],
     });
 
     expect(useChatStore.getState().conversationsById["chat-1"]?.title).toBe(
@@ -151,6 +172,11 @@ describe("chat store", () => {
     expect(
       useChatStore.getState().runtimesByConversationId["chat-1"]?.lifecycle,
     ).toBe("ready");
+    expect(useChatStore.getState().appServerStatus?.lifecycle).toBe("ready");
+    expect(
+      useChatStore.getState().threadStreamsByConversationId["chat-1"]
+        ?.resumeState,
+    ).toBe("resumed");
   });
 
   it("loads conversation detail, applies deltas, and syncs open tab labels", async () => {

@@ -2899,6 +2899,36 @@
           }
         }
       },
+      "ChatAppServerLifecycle": {
+        "type": "string",
+        "description": "Shared Codex app-server process lifecycle pushed over SSE.",
+        "enum": [
+          "stopped",
+          "starting",
+          "initializing",
+          "ready",
+          "stopping",
+          "fatal"
+        ]
+      },
+      "ChatAppServerStatus": {
+        "type": "object",
+        "description": "Host-scoped Codex app-server status.",
+        "required": ["lifecycle", "updatedAt"],
+        "properties": {
+          "lastError": {
+            "type": ["string", "null"]
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/ChatAppServerLifecycle"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "ChatConversationDetail": {
         "type": "object",
         "description": "Full chat detail payload used to hydrate an open chat tab.",
@@ -3299,6 +3329,66 @@
             "type": ["integer", "null"],
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "ChatThreadStreamResumeState": {
+        "type": "string",
+        "description": "Per-conversation Codex thread stream resume state.",
+        "enum": ["not_started", "needs_resume", "resuming", "resumed"]
+      },
+      "ChatThreadStreamStatus": {
+        "type": "object",
+        "description": "Live stream status for one Codex thread.",
+        "required": [
+          "conversationId",
+          "sessionId",
+          "projectId",
+          "worktreeId",
+          "resumeState",
+          "lifecycle",
+          "updatedAt"
+        ],
+        "properties": {
+          "activeMessageId": {
+            "type": ["string", "null"]
+          },
+          "activeRunId": {
+            "type": ["string", "null"]
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "inactiveDeadlineAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "lastError": {
+            "type": ["string", "null"]
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/ChatRuntimeLifecycle"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "providerThreadId": {
+            "type": ["string", "null"]
+          },
+          "resumeState": {
+            "$ref": "#/components/schemas/ChatThreadStreamResumeState"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "worktreeId": {
+            "type": "string"
           }
         }
       },

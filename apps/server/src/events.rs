@@ -12,7 +12,10 @@ use crate::api::settings::{Settings, SettingsState, SettingsStatus};
 use crate::api::tasks::{TaskInvocationStatus, TaskRemoved, TaskUpdated};
 use crate::api::vscode::VscodeStatus;
 use crate::api::worktrees::Worktree;
-use crate::chat::{ChatConversationSummary, ChatMessage, ChatRun, ChatRuntimeStatus};
+use crate::chat::{
+    ChatAppServerStatus, ChatConversationSummary, ChatMessage, ChatRun, ChatRuntimeStatus,
+    ChatThreadStreamStatus,
+};
 use crate::tab::{TabInfo, WorktreeTabLayout, WorktreeTabLayoutState};
 use crate::worktree_state::WorktreeRestoreState;
 
@@ -30,11 +33,13 @@ pub enum EventKind {
         tabs: Vec<TabInfo>,
         tab_layouts: HashMap<String, WorktreeTabLayout>,
         worktree_restore_state: HashMap<String, WorktreeRestoreState>,
+        chat_app_server: ChatAppServerStatus,
         chat_conversations: Vec<ChatConversationSummary>,
         chat_runtimes: Vec<ChatRuntimeStatus>,
+        chat_thread_streams: Vec<ChatThreadStreamStatus>,
         projects: Vec<Project>,
         worktrees: HashMap<String, Vec<Worktree>>,
-        project_errors: HashMap<String, String>,
+        project_errors: Box<HashMap<String, String>>,
         settings: Box<Settings>,
         settings_generation: String,
         settings_status: SettingsStatus,
@@ -129,6 +134,13 @@ pub enum EventKind {
         session_id: String,
         runtime: ChatRuntimeStatus,
     },
+    #[serde(rename = "chat_app_server_updated")]
+    ChatAppServerUpdated { app_server: ChatAppServerStatus },
+    #[serde(rename = "chat_thread_stream_updated")]
+    ChatThreadStreamUpdated {
+        session_id: String,
+        stream: ChatThreadStreamStatus,
+    },
     #[serde(rename = "chat_message_delta")]
     ChatMessageDelta {
         session_id: String,
@@ -179,6 +191,8 @@ impl EventKind {
             EventKind::ChatConversationCreated { .. } => "chat_conversation_created",
             EventKind::ChatConversationUpdated { .. } => "chat_conversation_updated",
             EventKind::ChatRuntimeUpdated { .. } => "chat_runtime_updated",
+            EventKind::ChatAppServerUpdated { .. } => "chat_app_server_updated",
+            EventKind::ChatThreadStreamUpdated { .. } => "chat_thread_stream_updated",
             EventKind::ChatMessageDelta { .. } => "chat_message_delta",
             EventKind::ChatMessageUpdated { .. } => "chat_message_updated",
             EventKind::ChatRunUpdated { .. } => "chat_run_updated",
@@ -272,11 +286,17 @@ mod tests {
                 tabs: vec![],
                 tab_layouts: HashMap::new(),
                 worktree_restore_state: HashMap::new(),
+                chat_app_server: ChatAppServerStatus {
+                    lifecycle: crate::chat::ChatAppServerLifecycle::Stopped,
+                    last_error: None,
+                    updated_at: 0,
+                },
                 chat_conversations: vec![],
                 chat_runtimes: vec![],
+                chat_thread_streams: vec![],
                 projects: vec![],
                 worktrees: HashMap::new(),
-                project_errors: HashMap::new(),
+                project_errors: Box::new(HashMap::new()),
                 settings: Box::new(Settings::default()),
                 settings_generation: "0".to_string(),
                 settings_status: SettingsStatus::ok(),

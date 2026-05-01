@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::http::StatusCode;
@@ -23,12 +25,16 @@ use crate::settings_manager::SettingsManager;
 mod lifecycle;
 mod protocol;
 
-use lifecycle::{AppServerLifecycle, ThreadStreamLifecycle};
+use lifecycle::{
+    AppServerLifecycle, AppServerProcessState, ThreadStreamLifecycle, ThreadStreamResumeState,
+};
 use protocol::ParsedLine;
 
 pub const DEFAULT_CHAT_TITLE: &str = "New Chat";
 const DEFAULT_IDLE_TIMEOUT_MINUTES: u32 = 5;
 const CHAT_DB_MAX_CONNECTIONS: u32 = 1;
+const MAX_INACTIVE_THREAD_STREAMS: usize = 4;
+const UNSUBSCRIBE_RETRY_DELAY: Duration = Duration::from_secs(15);
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -295,6 +301,64 @@ pub struct ChatRuntimeStatus {
     pub updated_at: u64,
 }
 
+/// Shared Codex app-server process lifecycle pushed over SSE.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatAppServerLifecycle {
+    Stopped,
+    Starting,
+    Initializing,
+    Ready,
+    Stopping,
+    Fatal,
+}
+
+/// Host-scoped Codex app-server status.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatAppServerStatus {
+    pub lifecycle: ChatAppServerLifecycle,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[ts(type = "number")]
+    pub updated_at: u64,
+}
+
+/// Per-conversation Codex thread stream resume state.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatThreadStreamResumeState {
+    NotStarted,
+    NeedsResume,
+    Resuming,
+    Resumed,
+}
+
+/// Live stream status for one Codex thread.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatThreadStreamStatus {
+    pub conversation_id: String,
+    pub session_id: String,
+    pub project_id: String,
+    pub worktree_id: String,
+    pub resume_state: ChatThreadStreamResumeState,
+    pub lifecycle: ChatRuntimeLifecycle,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_message_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub inactive_deadline_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[ts(type = "number")]
+    pub updated_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatCreateOptions {
@@ -365,7 +429,6 @@ impl From<sqlx::Error> for ChatServiceError {
 
 #[derive(Debug, Clone)]
 struct RuntimeEntry {
-    client: Arc<CodexAppServerClient>,
     state: Arc<Mutex<RuntimeState>>,
 }
 
@@ -374,6 +437,7 @@ struct RuntimeState {
     session_id: String,
     project_id: String,
     worktree_id: String,
+    worktree_path: String,
     provider_thread_id: Option<String>,
     active_run_id: Option<String>,
     active_message_id: Option<String>,
@@ -382,11 +446,12 @@ struct RuntimeState {
     active_reasoning_summary_index: Option<u64>,
     stream_lifecycle: ThreadStreamLifecycle,
     idle_generation: u64,
-    shutting_down: bool,
+    inactive_deadline_at: Option<u64>,
+    last_error: Option<String>,
 }
 
 impl RuntimeState {
-    fn new(conversation: &ChatConversationSummary) -> Self {
+    fn new(conversation: &ChatConversationSummary, worktree_path: &str) -> Self {
         let mut stream_lifecycle = ThreadStreamLifecycle::default();
         if conversation.provider_thread_id.is_some() {
             stream_lifecycle.mark_needs_resume();
@@ -396,6 +461,7 @@ impl RuntimeState {
             session_id: conversation.session_id.clone(),
             project_id: conversation.project_id.clone(),
             worktree_id: conversation.worktree_id.clone(),
+            worktree_path: worktree_path.to_string(),
             provider_thread_id: conversation.provider_thread_id.clone(),
             active_run_id: None,
             active_message_id: None,
@@ -404,7 +470,8 @@ impl RuntimeState {
             active_reasoning_summary_index: None,
             stream_lifecycle,
             idle_generation: 0,
-            shutting_down: false,
+            inactive_deadline_at: None,
+            last_error: None,
         }
     }
 }
@@ -415,14 +482,42 @@ enum CodexStreamEvent {
         id: Value,
         method: String,
         params: Value,
+        thread_id: Option<String>,
     },
     Notification {
         method: String,
         params: Value,
+        thread_id: Option<String>,
     },
     Closed {
         reason: String,
     },
+}
+
+type CodexAppServerFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+type CodexAppServerConnectionRef = Arc<dyn CodexAppServerConnection>;
+type CodexAppServerFactory = Arc<
+    dyn Fn() -> CodexAppServerFuture<'static, Result<CodexAppServerConnectionRef, ChatServiceError>>
+        + Send
+        + Sync,
+>;
+
+trait CodexAppServerConnection: Send + Sync {
+    fn request<'a>(
+        &'a self,
+        method: &'a str,
+        params: Value,
+    ) -> CodexAppServerFuture<'a, Result<Value, ChatServiceError>>;
+
+    fn respond_result<'a>(
+        &'a self,
+        id: Value,
+        result: Value,
+    ) -> CodexAppServerFuture<'a, Result<(), ChatServiceError>>;
+
+    fn subscribe(&self) -> broadcast::Receiver<CodexStreamEvent>;
+
+    fn lifecycle_state<'a>(&'a self) -> CodexAppServerFuture<'a, AppServerProcessState>;
 }
 
 type PendingResponseTx = oneshot::Sender<Result<Value, ChatServiceError>>;
@@ -528,9 +623,13 @@ impl CodexAppServerClient {
                                     thread_id = thread_id.as_deref().unwrap_or(""),
                                     "codex app-server server request"
                                 );
-                                let _ = client
-                                    .stream_events
-                                    .send(CodexStreamEvent::ServerRequest { id, method, params });
+                                let _ =
+                                    client.stream_events.send(CodexStreamEvent::ServerRequest {
+                                        id,
+                                        method,
+                                        params,
+                                        thread_id,
+                                    });
                             }
                             ParsedLine::Notification {
                                 method,
@@ -543,9 +642,11 @@ impl CodexAppServerClient {
                                     thread_id = thread_id.as_deref().unwrap_or(""),
                                     "codex app-server notification"
                                 );
-                                let _ = client
-                                    .stream_events
-                                    .send(CodexStreamEvent::Notification { method, params });
+                                let _ = client.stream_events.send(CodexStreamEvent::Notification {
+                                    method,
+                                    params,
+                                    thread_id,
+                                });
                             }
                             ParsedLine::Response {
                                 id,
@@ -715,6 +816,147 @@ impl CodexAppServerClient {
         let mut lifecycle = self.lifecycle.lock().await;
         lifecycle.mark_stopped();
     }
+
+    async fn lifecycle_state(&self) -> AppServerProcessState {
+        self.lifecycle.lock().await.state()
+    }
+}
+
+impl CodexAppServerConnection for CodexAppServerClient {
+    fn request<'a>(
+        &'a self,
+        method: &'a str,
+        params: Value,
+    ) -> CodexAppServerFuture<'a, Result<Value, ChatServiceError>> {
+        Box::pin(async move { CodexAppServerClient::request(self, method, params).await })
+    }
+
+    fn respond_result<'a>(
+        &'a self,
+        id: Value,
+        result: Value,
+    ) -> CodexAppServerFuture<'a, Result<(), ChatServiceError>> {
+        Box::pin(async move { CodexAppServerClient::respond_result(self, id, result).await })
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<CodexStreamEvent> {
+        CodexAppServerClient::subscribe(self)
+    }
+
+    fn lifecycle_state<'a>(&'a self) -> CodexAppServerFuture<'a, AppServerProcessState> {
+        Box::pin(async move { CodexAppServerClient::lifecycle_state(self).await })
+    }
+}
+
+struct CodexAppServerManager {
+    client: Mutex<Option<CodexAppServerConnectionRef>>,
+    startup_lock: Mutex<()>,
+    lifecycle: Mutex<AppServerLifecycle>,
+    last_error: Mutex<Option<String>>,
+    factory: CodexAppServerFactory,
+}
+
+impl CodexAppServerManager {
+    fn new() -> Self {
+        Self {
+            client: Mutex::new(None),
+            startup_lock: Mutex::new(()),
+            lifecycle: Mutex::new(AppServerLifecycle::default()),
+            last_error: Mutex::new(None),
+            factory: Arc::new(|| {
+                Box::pin(async {
+                    CodexAppServerClient::spawn()
+                        .await
+                        .map(|client| client as CodexAppServerConnectionRef)
+                })
+            }),
+        }
+    }
+
+    #[cfg(test)]
+    fn new_for_tests(factory: CodexAppServerFactory) -> Self {
+        Self {
+            client: Mutex::new(None),
+            startup_lock: Mutex::new(()),
+            lifecycle: Mutex::new(AppServerLifecycle::default()),
+            last_error: Mutex::new(None),
+            factory,
+        }
+    }
+
+    async fn ensure_client(&self) -> Result<CodexAppServerConnectionRef, ChatServiceError> {
+        if let Some(existing) = self.client.lock().await.as_ref().cloned() {
+            return Ok(existing);
+        }
+
+        let _startup_guard = self.startup_lock.lock().await;
+        if let Some(existing) = self.client.lock().await.as_ref().cloned() {
+            return Ok(existing);
+        }
+
+        {
+            let mut lifecycle = self.lifecycle.lock().await;
+            lifecycle.mark_starting();
+        }
+        *self.last_error.lock().await = None;
+
+        match (self.factory)().await {
+            Ok(next_client) => {
+                {
+                    let mut lifecycle = self.lifecycle.lock().await;
+                    lifecycle.mark_ready();
+                }
+                *self.client.lock().await = Some(next_client.clone());
+                Ok(next_client)
+            }
+            Err(error) => {
+                {
+                    let mut lifecycle = self.lifecycle.lock().await;
+                    lifecycle.mark_fatal();
+                }
+                *self.last_error.lock().await = Some(error.message.clone());
+                Err(error)
+            }
+        }
+    }
+
+    async fn request(&self, method: &str, params: Value) -> Result<Value, ChatServiceError> {
+        let client = self.ensure_client().await?;
+        client.request(method, params).await
+    }
+
+    async fn respond_result(&self, id: Value, result: Value) -> Result<(), ChatServiceError> {
+        let Some(client) = self.client.lock().await.as_ref().cloned() else {
+            return Err(ChatServiceError::new(
+                StatusCode::BAD_GATEWAY,
+                "codex app-server is not running",
+            ));
+        };
+        client.respond_result(id, result).await
+    }
+
+    async fn mark_fatal(&self, reason: String) {
+        {
+            let mut lifecycle = self.lifecycle.lock().await;
+            lifecycle.mark_fatal();
+        }
+        *self.last_error.lock().await = Some(reason);
+        *self.client.lock().await = None;
+    }
+
+    async fn status(&self) -> ChatAppServerStatus {
+        let client = self.client.lock().await.as_ref().cloned();
+        let lifecycle = if let Some(client) = client {
+            chat_app_server_lifecycle_from_process(client.lifecycle_state().await)
+        } else {
+            chat_app_server_lifecycle_from_process(self.lifecycle.lock().await.state())
+        };
+        ChatAppServerStatus {
+            lifecycle,
+            last_error: self.last_error.lock().await.clone(),
+            updated_at: now_ms(),
+        }
+    }
 }
 
 #[derive(Debug, FromRow)]
@@ -769,8 +1011,11 @@ pub struct ChatService {
     pool: SqlitePool,
     events: Arc<crate::events::EventBus>,
     settings: Arc<SettingsManager>,
+    app_server: Arc<CodexAppServerManager>,
     runtimes: DashMap<String, RuntimeEntry>,
+    thread_to_conversation: DashMap<String, String>,
     op_locks: DashMap<String, Arc<Mutex<()>>>,
+    app_event_loop_started: AtomicBool,
 }
 
 impl ChatService {
@@ -795,8 +1040,11 @@ impl ChatService {
             pool,
             events,
             settings,
+            app_server: Arc::new(CodexAppServerManager::new()),
             runtimes: DashMap::new(),
+            thread_to_conversation: DashMap::new(),
             op_locks: DashMap::new(),
+            app_event_loop_started: AtomicBool::new(false),
         })
     }
 
@@ -1048,7 +1296,35 @@ impl ChatService {
         if let Some(runtime) = self.runtimes.get(conversation_id) {
             let mut state = runtime.state.lock().await;
             state.idle_generation = state.idle_generation.saturating_add(1);
+            state.inactive_deadline_at = None;
         }
+    }
+
+    /// Return the shared Codex app-server process status.
+    pub async fn app_server_status(&self) -> ChatAppServerStatus {
+        self.app_server.status().await
+    }
+
+    /// List live thread stream summaries visible to a session.
+    pub async fn list_thread_stream_statuses(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<ChatThreadStreamStatus>, ChatServiceError> {
+        let mut statuses = Vec::new();
+        for runtime in &self.runtimes {
+            let state = runtime.state.lock().await.clone();
+            if state.session_id != session_id {
+                continue;
+            }
+            statuses.push(thread_stream_status_from_state(runtime.key(), state, None));
+        }
+        statuses.sort_by(|left, right| {
+            left.updated_at
+                .cmp(&right.updated_at)
+                .reverse()
+                .then_with(|| left.conversation_id.cmp(&right.conversation_id))
+        });
+        Ok(statuses)
     }
 
     /// List live runtime summaries visible to a session.
@@ -1071,7 +1347,7 @@ impl ChatService {
                 active_run_id: state.active_run_id.clone(),
                 active_message_id: state.active_message_id.clone(),
                 provider_thread_id: state.provider_thread_id.clone(),
-                last_error: None,
+                last_error: state.last_error.clone(),
                 updated_at: now_ms(),
             });
         }
@@ -1086,12 +1362,10 @@ impl ChatService {
 
     /// List Codex models available to the current app-server installation.
     pub async fn list_models(&self) -> Result<Vec<ChatModelOption>, ChatServiceError> {
-        let client = CodexAppServerClient::spawn().await?;
-        let response = client
+        let response = self
+            .app_server
             .request("model/list", json!({ "includeHidden": false }))
-            .await;
-        client.shutdown().await;
-        let response = response?;
+            .await?;
 
         let models = response
             .get("data")
@@ -1190,52 +1464,29 @@ impl ChatService {
             state.lifecycle = ChatRuntimeLifecycle::Running;
             state.active_reasoning_summary_index = None;
             state.active_error = None;
-            state.shutting_down = false;
+            state.last_error = None;
+            state.inactive_deadline_at = None;
             state.idle_generation = state.idle_generation.saturating_add(1);
         }
-        self.emit_runtime_status(conversation_id, &runtime.state, None)
+        self.emit_thread_stream_status(conversation_id, &runtime.state, None)
             .await;
 
-        let mut turn_params = serde_json::Map::new();
-        turn_params.insert(
-            "threadId".to_string(),
-            Value::String(
-                runtime
-                    .state
-                    .lock()
-                    .await
-                    .provider_thread_id
-                    .clone()
-                    .ok_or_else(|| {
-                        ChatServiceError::new(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "chat runtime missing thread id",
-                        )
-                    })?,
-            ),
-        );
-        turn_params.insert(
-            "input".to_string(),
-            json!([
-                {
-                    "type": "text",
-                    "text": text,
-                }
-            ]),
-        );
-        if let Some(model) = normalize_model_ref(conversation.selected_model.as_deref()) {
-            turn_params.insert("model".to_string(), Value::String(model.to_string()));
-        }
-        if let Some(effort) = conversation.selected_effort {
-            turn_params.insert(
-                "effort".to_string(),
-                Value::String(effort.as_str().to_string()),
-            );
-        }
-        apply_turn_permission_mode(&mut turn_params, conversation.selected_permission_mode);
+        let thread_id = runtime
+            .state
+            .lock()
+            .await
+            .provider_thread_id
+            .clone()
+            .ok_or_else(|| {
+                ChatServiceError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "chat runtime missing thread id",
+                )
+            })?;
+        let turn_params = build_turn_start_params(&thread_id, worktree_path, &text, &conversation);
 
-        let turn_response = runtime
-            .client
+        let turn_response = self
+            .app_server
             .request("turn/start", Value::Object(turn_params))
             .await?;
         let provider_turn_id = extract_turn_id(&turn_response);
@@ -1273,8 +1524,7 @@ impl ChatService {
             .ok_or_else(|| {
                 ChatServiceError::new(StatusCode::CONFLICT, "chat runtime missing thread id")
             })?;
-        runtime
-            .client
+        self.app_server
             .request("turn/interrupt", json!({ "threadId": thread_id }))
             .await?;
         Ok(())
@@ -1286,32 +1536,43 @@ impl ChatService {
         conversation: &ChatConversationSummary,
         worktree_path: &str,
     ) -> Result<RuntimeEntry, ChatServiceError> {
-        if let Some(existing) = self.runtimes.get(conversation_id) {
-            let runtime = existing.clone();
-            {
-                let mut state = runtime.state.lock().await;
-                state.idle_generation = state.idle_generation.saturating_add(1);
-                state.shutting_down = false;
-                if state.provider_thread_id.is_some() {
-                    state.stream_lifecycle.mark_resumed();
-                }
-            }
+        let runtime = if let Some(existing) = self.runtimes.get(conversation_id) {
+            existing.clone()
+        } else {
+            let runtime = RuntimeEntry {
+                state: Arc::new(Mutex::new(RuntimeState::new(conversation, worktree_path))),
+            };
+            self.runtimes
+                .insert(conversation_id.to_string(), runtime.clone());
+            runtime
+        };
+
+        let client = self.app_server.ensure_client().await?;
+        self.ensure_provider_event_loop(client);
+        self.emit_app_server_status().await;
+
+        let already_resumed = {
+            let mut state = runtime.state.lock().await;
+            state.worktree_path = worktree_path.to_string();
+            state.idle_generation = state.idle_generation.saturating_add(1);
+            state.inactive_deadline_at = None;
+            matches!(
+                state.stream_lifecycle.resume_state(),
+                ThreadStreamResumeState::Resumed
+            ) && state.provider_thread_id.is_some()
+        };
+        if already_resumed {
             return Ok(runtime);
         }
 
-        let client = CodexAppServerClient::spawn().await?;
-        let runtime_state = Arc::new(Mutex::new(RuntimeState::new(conversation)));
-        let runtime = RuntimeEntry {
-            client: client.clone(),
-            state: runtime_state.clone(),
-        };
-        self.runtimes
-            .insert(conversation_id.to_string(), runtime.clone());
-        self.spawn_provider_event_loop(conversation_id.to_string(), runtime.clone());
         {
             let mut state = runtime.state.lock().await;
             state.stream_lifecycle.mark_resuming();
+            state.lifecycle = ChatRuntimeLifecycle::Starting;
+            state.last_error = None;
         }
+        self.emit_thread_stream_status(conversation_id, &runtime.state, None)
+            .await;
 
         let resume_or_start = if let Some(provider_thread_id) = &conversation.provider_thread_id {
             let mut params = serde_json::Map::new();
@@ -1319,8 +1580,10 @@ impl ChatService {
                 "threadId".to_string(),
                 Value::String(provider_thread_id.clone()),
             );
+            params.insert("cwd".to_string(), Value::String(worktree_path.to_string()));
             apply_thread_permission_mode(&mut params, conversation.selected_permission_mode);
-            let result = client
+            let result = self
+                .app_server
                 .request("thread/resume", Value::Object(params))
                 .await?;
             if has_blank_model_field(&result) {
@@ -1330,7 +1593,7 @@ impl ChatService {
                     "resumed codex thread has blank model; starting a replacement thread"
                 );
                 start_provider_thread(
-                    &client,
+                    &self.app_server,
                     worktree_path,
                     conversation.selected_model.as_deref(),
                     conversation.selected_permission_mode,
@@ -1344,7 +1607,7 @@ impl ChatService {
             }
         } else {
             start_provider_thread(
-                &client,
+                &self.app_server,
                 worktree_path,
                 conversation.selected_model.as_deref(),
                 conversation.selected_permission_mode,
@@ -1358,9 +1621,12 @@ impl ChatService {
             state.provider_thread_id = Some(provider_thread_id.clone());
             state.lifecycle = ChatRuntimeLifecycle::Ready;
             state.stream_lifecycle.mark_resumed();
-            state.shutting_down = false;
+            state.inactive_deadline_at = None;
+            state.last_error = None;
             state.idle_generation = state.idle_generation.saturating_add(1);
         }
+        self.thread_to_conversation
+            .insert(provider_thread_id.clone(), conversation_id.to_string());
 
         self.persist_provider_thread_id(conversation_id, &provider_thread_id)
             .await?;
@@ -1370,36 +1636,71 @@ impl ChatService {
             extract_reasoning_effort(&thread_response),
         )
         .await?;
-        self.emit_runtime_status(conversation_id, &runtime.state, None)
+        self.emit_thread_stream_status(conversation_id, &runtime.state, None)
             .await;
         self.reconcile_inflight_run_if_needed(conversation_id, &runtime, worktree_path)
             .await?;
         Ok(runtime)
     }
 
-    fn spawn_provider_event_loop(self: &Arc<Self>, conversation_id: String, runtime: RuntimeEntry) {
+    fn ensure_provider_event_loop(self: &Arc<Self>, client: CodexAppServerConnectionRef) {
+        if self.app_event_loop_started.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
         let service = self.clone();
         tokio::spawn(async move {
-            let mut rx = runtime.client.subscribe();
+            let mut rx = client.subscribe();
             loop {
                 match rx.recv().await {
-                    Ok(CodexStreamEvent::ServerRequest { id, method, params }) => {
-                        let response = match service
-                            .handle_provider_request(&conversation_id, &runtime, &method, params)
+                    Ok(CodexStreamEvent::ServerRequest {
+                        id,
+                        method,
+                        params,
+                        thread_id,
+                    }) => {
+                        let response = if let Some((conversation_id, runtime)) = service
+                            .runtime_for_provider_event(thread_id.as_deref(), &params)
                             .await
                         {
-                            Ok(result) => runtime.client.respond_result(id, result).await,
-                            Err(error) => Err(error),
+                            match service
+                                .handle_provider_request(
+                                    &conversation_id,
+                                    &runtime,
+                                    &method,
+                                    params,
+                                )
+                                .await
+                            {
+                                Ok(result) => service.app_server.respond_result(id, result).await,
+                                Err(error) => Err(error),
+                            }
+                        } else {
+                            tracing::warn!(
+                                method,
+                                "unroutable codex app-server request; declining"
+                            );
+                            service
+                                .app_server
+                                .respond_result(id, json!({ "decision": "decline" }))
+                                .await
                         };
                         if let Err(error) = response {
-                            tracing::warn!(
-                                conversation_id,
-                                method,
-                                "chat provider request failed: {error}"
-                            );
+                            tracing::warn!(method, "chat provider request failed: {error}");
                         }
                     }
-                    Ok(CodexStreamEvent::Notification { method, params }) => {
+                    Ok(CodexStreamEvent::Notification {
+                        method,
+                        params,
+                        thread_id,
+                    }) => {
+                        let Some((conversation_id, runtime)) = service
+                            .runtime_for_provider_event(thread_id.as_deref(), &params)
+                            .await
+                        else {
+                            tracing::warn!(method, "unroutable codex app-server notification");
+                            continue;
+                        };
                         if let Err(error) = service
                             .handle_provider_notification(
                                 &conversation_id,
@@ -1416,16 +1717,68 @@ impl ChatService {
                         }
                     }
                     Ok(CodexStreamEvent::Closed { reason }) => {
-                        let _ = service
-                            .handle_provider_closed(&conversation_id, &runtime, reason)
-                            .await;
+                        service
+                            .app_event_loop_started
+                            .store(false, Ordering::Release);
+                        let _ = service.handle_provider_closed(reason).await;
                         break;
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(broadcast::error::RecvError::Closed) => break,
+                    Err(broadcast::error::RecvError::Closed) => {
+                        service
+                            .app_event_loop_started
+                            .store(false, Ordering::Release);
+                        break;
+                    }
                 }
             }
         });
+    }
+
+    async fn runtime_for_provider_event(
+        &self,
+        thread_id: Option<&str>,
+        params: &Value,
+    ) -> Option<(String, RuntimeEntry)> {
+        let extracted_thread_id = extract_provider_thread_id(params);
+        let thread_id = thread_id.or(extracted_thread_id.as_deref());
+        if let Some(thread_id) = thread_id
+            && let Some(conversation_id) = self.thread_to_conversation.get(thread_id)
+            && let Some(runtime) = self.runtimes.get(conversation_id.value())
+        {
+            return Some((conversation_id.value().clone(), runtime.clone()));
+        }
+
+        let runtimes = self
+            .runtimes
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect::<Vec<_>>();
+        if let Some(thread_id) = thread_id {
+            for (conversation_id, runtime) in &runtimes {
+                let state = runtime.state.lock().await;
+                if state.provider_thread_id.as_deref() == Some(thread_id) {
+                    self.thread_to_conversation
+                        .insert(thread_id.to_string(), conversation_id.clone());
+                    return Some((conversation_id.clone(), runtime.clone()));
+                }
+            }
+        }
+
+        let mut active = Vec::new();
+        for (conversation_id, runtime) in runtimes {
+            let state = runtime.state.lock().await;
+            if state.active_run_id.is_some()
+                || matches!(state.lifecycle, ChatRuntimeLifecycle::Running)
+            {
+                active.push((conversation_id, runtime.clone()));
+            }
+        }
+        if active.len() == 1 {
+            active.into_iter().next()
+        } else {
+            None
+        }
     }
 
     async fn handle_provider_request(
@@ -1447,9 +1800,14 @@ impl ChatService {
         {
             let mut state = runtime.state.lock().await;
             state.active_error = Some(error_message.clone());
+            state.last_error = Some(error_message.clone());
         }
-        self.emit_runtime_status(conversation_id, &runtime.state, Some(error_message.clone()))
-            .await;
+        self.emit_thread_stream_status(
+            conversation_id,
+            &runtime.state,
+            Some(error_message.clone()),
+        )
+        .await;
         tracing::warn!(conversation_id, method, "{error_message}");
 
         Ok(json!({ "decision": "decline" }))
@@ -1471,9 +1829,14 @@ impl ChatService {
                 {
                     let mut state = runtime.state.lock().await;
                     state.active_error = Some(error_message.clone());
+                    state.last_error = Some(error_message.clone());
                 }
-                self.emit_runtime_status(conversation_id, &runtime.state, Some(error_message))
-                    .await;
+                self.emit_thread_stream_status(
+                    conversation_id,
+                    &runtime.state,
+                    Some(error_message),
+                )
+                .await;
             }
             "item/reasoning/summaryTextDelta" => {
                 let delta = params
@@ -1678,9 +2041,10 @@ impl ChatService {
                         });
                     }
                 }
-                self.emit_runtime_status(conversation_id, &runtime.state, None)
+                self.emit_thread_stream_status(conversation_id, &runtime.state, None)
                     .await;
-                self.schedule_idle_shutdown(conversation_id.to_string(), generation);
+                self.schedule_idle_unsubscribe(conversation_id.to_string(), generation);
+                self.enforce_inactive_stream_limit().await;
             }
             _ => {}
         }
@@ -1689,32 +2053,32 @@ impl ChatService {
 
     async fn handle_provider_closed(
         self: &Arc<Self>,
-        conversation_id: &str,
-        runtime: &RuntimeEntry,
         reason: String,
     ) -> Result<(), ChatServiceError> {
-        let (run_id, message_id, session_id, was_shutting_down) = {
-            let mut state = runtime.state.lock().await;
-            let session_id = state.session_id.clone();
-            let was_shutting_down = state.shutting_down;
-            state.lifecycle = if was_shutting_down {
-                ChatRuntimeLifecycle::Stopped
-            } else {
-                ChatRuntimeLifecycle::Failed
+        self.app_server.mark_fatal(reason.clone()).await;
+        self.emit_app_server_status().await;
+        let runtimes = self
+            .runtimes
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect::<Vec<_>>();
+        for (conversation_id, runtime) in runtimes {
+            let (run_id, message_id, session_id) = {
+                let mut state = runtime.state.lock().await;
+                state.lifecycle = ChatRuntimeLifecycle::Failed;
+                state.stream_lifecycle.mark_process_lost();
+                state.active_reasoning_summary_index = None;
+                state.inactive_deadline_at = None;
+                state.last_error = Some(reason.clone());
+                (
+                    state.active_run_id.take(),
+                    state.active_message_id.take(),
+                    state.session_id.clone(),
+                )
             };
-            state.stream_lifecycle.mark_process_lost();
-            state.active_reasoning_summary_index = None;
-            (
-                state.active_run_id.take(),
-                state.active_message_id.take(),
-                session_id,
-                was_shutting_down,
-            )
-        };
-        if !was_shutting_down {
             if let Some(message_id) = message_id {
                 self.finalize_assistant_message(
-                    conversation_id,
+                    &conversation_id,
                     &message_id,
                     "",
                     ChatMessageStatus::Failed,
@@ -1724,7 +2088,7 @@ impl ChatService {
             if let Some(run_id) = run_id {
                 let run = self
                     .finalize_run(
-                        conversation_id,
+                        &conversation_id,
                         &run_id,
                         ChatRunStatus::Failed,
                         Some(reason.clone()),
@@ -1732,36 +2096,18 @@ impl ChatService {
                     .await?;
                 self.events.emit(EventKind::ChatRunUpdated {
                     session_id: session_id.clone(),
-                    conversation_id: conversation_id.to_string(),
+                    conversation_id: conversation_id.clone(),
                     run,
                 });
-                let _ = self.emit_conversation_updated(conversation_id).await?;
+                let _ = self.emit_conversation_updated(&conversation_id).await?;
             }
+            self.emit_thread_stream_status(&conversation_id, &runtime.state, Some(reason.clone()))
+                .await;
         }
-        self.runtimes.remove(conversation_id);
-        self.events.emit(EventKind::ChatRuntimeUpdated {
-            session_id,
-            runtime: ChatRuntimeStatus {
-                conversation_id: conversation_id.to_string(),
-                session_id: runtime.state.lock().await.session_id.clone(),
-                project_id: runtime.state.lock().await.project_id.clone(),
-                worktree_id: runtime.state.lock().await.worktree_id.clone(),
-                lifecycle: if was_shutting_down {
-                    ChatRuntimeLifecycle::Stopped
-                } else {
-                    ChatRuntimeLifecycle::Failed
-                },
-                active_run_id: None,
-                active_message_id: None,
-                provider_thread_id: runtime.state.lock().await.provider_thread_id.clone(),
-                last_error: (!was_shutting_down).then_some(reason),
-                updated_at: now_ms(),
-            },
-        });
         Ok(())
     }
 
-    fn schedule_idle_shutdown(self: &Arc<Self>, conversation_id: String, generation: u64) {
+    fn schedule_idle_unsubscribe(self: &Arc<Self>, conversation_id: String, generation: u64) {
         let service = self.clone();
         tokio::spawn(async move {
             let minutes = service
@@ -1772,38 +2118,141 @@ impl ChatService {
                 .chat
                 .idle_timeout_minutes;
             let timeout = Duration::from_secs(u64::from(minutes) * 60);
-            tokio::time::sleep(timeout).await;
-            let should_stop = if let Some(runtime) = service.runtimes.get(&conversation_id) {
-                let state = runtime.state.lock().await;
-                state.active_run_id.is_none()
-                    && !state.shutting_down
-                    && state.idle_generation == generation
-            } else {
-                false
-            };
-            if should_stop {
-                let _ = service.stop_runtime(&conversation_id).await;
-            }
+            service
+                .schedule_unsubscribe_after(conversation_id, generation, timeout)
+                .await;
         });
     }
 
-    async fn stop_runtime(&self, conversation_id: &str) -> Result<(), ChatServiceError> {
-        let Some(runtime) = self
-            .runtimes
-            .get(conversation_id)
-            .map(|entry| entry.clone())
-        else {
+    fn schedule_unsubscribe_retry(self: &Arc<Self>, conversation_id: String, generation: u64) {
+        let service = self.clone();
+        tokio::spawn(async move {
+            service
+                .schedule_unsubscribe_after(conversation_id, generation, UNSUBSCRIBE_RETRY_DELAY)
+                .await;
+        });
+    }
+
+    async fn schedule_unsubscribe_after(
+        self: Arc<Self>,
+        conversation_id: String,
+        generation: u64,
+        timeout: Duration,
+    ) {
+        let deadline = now_ms().saturating_add(timeout.as_millis() as u64);
+        if let Some(runtime) = self.runtimes.get(&conversation_id) {
+            let mut state = runtime.state.lock().await;
+            if state.idle_generation == generation {
+                state.inactive_deadline_at = Some(deadline);
+            }
+        }
+        tokio::time::sleep(timeout).await;
+        let should_unsubscribe = if let Some(runtime) = self.runtimes.get(&conversation_id) {
+            let state = runtime.state.lock().await;
+            state.active_run_id.is_none()
+                && state.idle_generation == generation
+                && state.provider_thread_id.is_some()
+                && matches!(
+                    state.stream_lifecycle.resume_state(),
+                    ThreadStreamResumeState::Resumed
+                )
+        } else {
+            false
+        };
+        if should_unsubscribe {
+            let _ = self.unsubscribe_runtime(&conversation_id).await;
+        }
+    }
+
+    async fn unsubscribe_runtime(
+        self: &Arc<Self>,
+        conversation_id: &str,
+    ) -> Result<(), ChatServiceError> {
+        let runtime = {
+            self.runtimes
+                .get(conversation_id)
+                .map(|entry| entry.value().clone())
+        };
+        let Some(runtime) = runtime else {
             return Ok(());
         };
-        {
+        let provider_thread_id = {
             let mut state = runtime.state.lock().await;
+            let provider_thread_id = state.provider_thread_id.clone();
             state.lifecycle = ChatRuntimeLifecycle::Stopping;
-            state.shutting_down = true;
-        }
-        self.emit_runtime_status(conversation_id, &runtime.state, None)
+            state.inactive_deadline_at = None;
+            provider_thread_id
+        };
+        self.emit_thread_stream_status(conversation_id, &runtime.state, None)
             .await;
-        runtime.client.shutdown().await;
+        let Some(provider_thread_id) = provider_thread_id else {
+            return Ok(());
+        };
+        match self
+            .app_server
+            .request(
+                "thread/unsubscribe",
+                json!({ "threadId": provider_thread_id }),
+            )
+            .await
+        {
+            Ok(_) => {
+                {
+                    let mut state = runtime.state.lock().await;
+                    state.lifecycle = ChatRuntimeLifecycle::Stopped;
+                    state.stream_lifecycle.mark_needs_resume();
+                    state.inactive_deadline_at = None;
+                    state.last_error = None;
+                }
+                self.emit_thread_stream_status(conversation_id, &runtime.state, None)
+                    .await;
+            }
+            Err(error) => {
+                let retry_at = now_ms().saturating_add(UNSUBSCRIBE_RETRY_DELAY.as_millis() as u64);
+                let generation = {
+                    let mut state = runtime.state.lock().await;
+                    state.lifecycle = ChatRuntimeLifecycle::Ready;
+                    state.inactive_deadline_at = Some(retry_at);
+                    state.last_error = Some(error.message.clone());
+                    state.idle_generation = state.idle_generation.saturating_add(1);
+                    state.idle_generation
+                };
+                self.emit_thread_stream_status(
+                    conversation_id,
+                    &runtime.state,
+                    Some(error.message),
+                )
+                .await;
+                self.schedule_unsubscribe_retry(conversation_id.to_string(), generation);
+            }
+        }
         Ok(())
+    }
+
+    async fn enforce_inactive_stream_limit(self: &Arc<Self>) {
+        let runtimes = self
+            .runtimes
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect::<Vec<_>>();
+        let mut inactive = Vec::new();
+        for (conversation_id, runtime) in runtimes {
+            let state = runtime.state.lock().await;
+            if state.active_run_id.is_none()
+                && matches!(state.lifecycle, ChatRuntimeLifecycle::Ready)
+                && matches!(
+                    state.stream_lifecycle.resume_state(),
+                    ThreadStreamResumeState::Resumed
+                )
+            {
+                inactive.push((state.idle_generation, conversation_id));
+            }
+        }
+        inactive.sort_by_key(|(generation, _)| *generation);
+        let overflow = inactive.len().saturating_sub(MAX_INACTIVE_THREAD_STREAMS);
+        for (_, conversation_id) in inactive.into_iter().take(overflow) {
+            let _ = self.unsubscribe_runtime(&conversation_id).await;
+        }
     }
 
     async fn reconcile_inflight_run_if_needed(
@@ -1847,8 +2296,8 @@ impl ChatService {
             .await?;
             return Ok(());
         };
-        let result = runtime
-            .client
+        let result = self
+            .app_server
             .request(
                 "thread/read",
                 json!({
@@ -2411,25 +2860,39 @@ impl ChatService {
         .map(message_from_row))
     }
 
-    async fn emit_runtime_status(
+    async fn emit_app_server_status(&self) {
+        self.events.emit(EventKind::ChatAppServerUpdated {
+            app_server: self.app_server.status().await,
+        });
+    }
+
+    async fn emit_thread_stream_status(
         &self,
         conversation_id: &str,
         runtime_state: &Arc<Mutex<RuntimeState>>,
         last_error: Option<String>,
     ) {
         let state = runtime_state.lock().await.clone();
+        self.events.emit(EventKind::ChatThreadStreamUpdated {
+            session_id: state.session_id.clone(),
+            stream: thread_stream_status_from_state(
+                conversation_id,
+                state.clone(),
+                last_error.clone(),
+            ),
+        });
         self.events.emit(EventKind::ChatRuntimeUpdated {
             session_id: state.session_id.clone(),
             runtime: ChatRuntimeStatus {
                 conversation_id: conversation_id.to_string(),
-                session_id: state.session_id,
-                project_id: state.project_id,
-                worktree_id: state.worktree_id,
+                session_id: state.session_id.clone(),
+                project_id: state.project_id.clone(),
+                worktree_id: state.worktree_id.clone(),
                 lifecycle: state.lifecycle,
-                active_run_id: state.active_run_id,
-                active_message_id: state.active_message_id,
-                provider_thread_id: state.provider_thread_id,
-                last_error,
+                active_run_id: state.active_run_id.clone(),
+                active_message_id: state.active_message_id.clone(),
+                provider_thread_id: state.provider_thread_id.clone(),
+                last_error: last_error.or(state.last_error),
                 updated_at: now_ms(),
             },
         });
@@ -2480,6 +2943,51 @@ fn conversation_from_row(row: ConversationRow) -> ChatConversationSummary {
         last_run_state: parse_run_status(&row.last_run_state),
         last_error: row.last_error,
         revision: row.revision.max(0) as u64,
+    }
+}
+
+fn chat_app_server_lifecycle_from_process(state: AppServerProcessState) -> ChatAppServerLifecycle {
+    match state {
+        AppServerProcessState::Stopped => ChatAppServerLifecycle::Stopped,
+        AppServerProcessState::Starting => ChatAppServerLifecycle::Starting,
+        AppServerProcessState::Initializing => ChatAppServerLifecycle::Initializing,
+        AppServerProcessState::Ready => ChatAppServerLifecycle::Ready,
+        AppServerProcessState::Stopping => ChatAppServerLifecycle::Stopping,
+        AppServerProcessState::Fatal => ChatAppServerLifecycle::Fatal,
+    }
+}
+
+fn chat_thread_resume_state_from_lifecycle(
+    state: ThreadStreamResumeState,
+) -> ChatThreadStreamResumeState {
+    match state {
+        ThreadStreamResumeState::NotStarted => ChatThreadStreamResumeState::NotStarted,
+        ThreadStreamResumeState::NeedsResume => ChatThreadStreamResumeState::NeedsResume,
+        ThreadStreamResumeState::Resuming => ChatThreadStreamResumeState::Resuming,
+        ThreadStreamResumeState::Resumed => ChatThreadStreamResumeState::Resumed,
+    }
+}
+
+fn thread_stream_status_from_state(
+    conversation_id: &str,
+    state: RuntimeState,
+    last_error: Option<String>,
+) -> ChatThreadStreamStatus {
+    ChatThreadStreamStatus {
+        conversation_id: conversation_id.to_string(),
+        session_id: state.session_id,
+        project_id: state.project_id,
+        worktree_id: state.worktree_id,
+        resume_state: chat_thread_resume_state_from_lifecycle(
+            state.stream_lifecycle.resume_state(),
+        ),
+        lifecycle: state.lifecycle,
+        active_run_id: state.active_run_id,
+        active_message_id: state.active_message_id,
+        provider_thread_id: state.provider_thread_id,
+        inactive_deadline_at: state.inactive_deadline_at,
+        last_error: last_error.or(state.last_error),
+        updated_at: now_ms(),
     }
 }
 
@@ -2597,6 +3105,37 @@ fn extract_turn_id(value: &Value) -> Option<String> {
         .or_else(|| value.get("id").and_then(Value::as_str).map(str::to_string))
 }
 
+fn extract_provider_thread_id(value: &Value) -> Option<String> {
+    value
+        .get("threadId")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            value
+                .get("thread_id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            value
+                .pointer("/thread/id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            value
+                .pointer("/turn/threadId")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            value
+                .pointer("/item/threadId")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+}
+
 fn extract_model(value: &Value) -> Option<String> {
     value
         .get("model")
@@ -2668,18 +3207,13 @@ fn apply_turn_permission_mode(
 }
 
 async fn start_provider_thread(
-    client: &Arc<CodexAppServerClient>,
+    app_server: &Arc<CodexAppServerManager>,
     worktree_path: &str,
     selected_model: Option<&str>,
     permission_mode: Option<ChatPermissionMode>,
 ) -> Result<(String, Value), ChatServiceError> {
-    let mut params = serde_json::Map::new();
-    params.insert("cwd".to_string(), Value::String(worktree_path.to_string()));
-    if let Some(model) = normalize_model_ref(selected_model) {
-        params.insert("model".to_string(), Value::String(model.to_string()));
-    }
-    apply_thread_permission_mode(&mut params, permission_mode);
-    let result = client
+    let params = build_thread_start_params(worktree_path, selected_model, permission_mode);
+    let result = app_server
         .request("thread/start", Value::Object(params))
         .await?;
     let thread_id = extract_thread_id(&result).ok_or_else(|| {
@@ -2689,6 +3223,51 @@ async fn start_provider_thread(
         )
     })?;
     Ok((thread_id, result))
+}
+
+fn build_thread_start_params(
+    worktree_path: &str,
+    selected_model: Option<&str>,
+    permission_mode: Option<ChatPermissionMode>,
+) -> serde_json::Map<String, Value> {
+    let mut params = serde_json::Map::new();
+    params.insert("cwd".to_string(), Value::String(worktree_path.to_string()));
+    if let Some(model) = normalize_model_ref(selected_model) {
+        params.insert("model".to_string(), Value::String(model.to_string()));
+    }
+    apply_thread_permission_mode(&mut params, permission_mode);
+    params
+}
+
+fn build_turn_start_params(
+    thread_id: &str,
+    worktree_path: &str,
+    text: &str,
+    conversation: &ChatConversationSummary,
+) -> serde_json::Map<String, Value> {
+    let mut params = serde_json::Map::new();
+    params.insert("cwd".to_string(), Value::String(worktree_path.to_string()));
+    params.insert("threadId".to_string(), Value::String(thread_id.to_string()));
+    params.insert(
+        "input".to_string(),
+        json!([
+            {
+                "type": "text",
+                "text": text,
+            }
+        ]),
+    );
+    if let Some(model) = normalize_model_ref(conversation.selected_model.as_deref()) {
+        params.insert("model".to_string(), Value::String(model.to_string()));
+    }
+    if let Some(effort) = conversation.selected_effort {
+        params.insert(
+            "effort".to_string(),
+            Value::String(effort.as_str().to_string()),
+        );
+    }
+    apply_turn_permission_mode(&mut params, conversation.selected_permission_mode);
+    params
 }
 
 fn has_blank_model_field(value: &Value) -> bool {
@@ -2785,6 +3364,29 @@ fn model_option_from_value(value: &Value) -> Option<ChatModelOption> {
 mod tests {
     use super::*;
 
+    fn test_conversation() -> ChatConversationSummary {
+        ChatConversationSummary {
+            id: "chat-1".to_string(),
+            session_id: "default".to_string(),
+            project_id: "project-1".to_string(),
+            worktree_id: "worktree-1".to_string(),
+            provider: ChatProvider::Codex,
+            provider_thread_id: Some("thread-1".to_string()),
+            title: DEFAULT_CHAT_TITLE.to_string(),
+            created_at: 0,
+            updated_at: 0,
+            last_activity_at: 0,
+            last_message_at: None,
+            open_tab_id: None,
+            selected_model: None,
+            selected_effort: None,
+            selected_permission_mode: None,
+            last_run_state: ChatRunStatus::Completed,
+            last_error: None,
+            revision: 0,
+        }
+    }
+
     #[test]
     fn extract_model_ignores_blank_values() {
         assert_eq!(extract_model(&json!({ "model": "" })), None);
@@ -2827,5 +3429,147 @@ mod tests {
             extract_error_message(&json!("plain failure")),
             Some("plain failure".to_string()),
         );
+    }
+
+    #[test]
+    fn thread_start_params_include_absolute_worktree_cwd() {
+        let params = build_thread_start_params(
+            "/Users/me/project-worktree",
+            Some("gpt-5.5"),
+            Some(ChatPermissionMode::FullAccess),
+        );
+
+        assert_eq!(
+            params.get("cwd").and_then(Value::as_str),
+            Some("/Users/me/project-worktree"),
+        );
+        assert_eq!(params.get("model").and_then(Value::as_str), Some("gpt-5.5"));
+        assert_eq!(
+            params.get("sandbox").and_then(Value::as_str),
+            Some("danger-full-access"),
+        );
+    }
+
+    #[test]
+    fn turn_start_params_include_absolute_worktree_cwd() {
+        let mut conversation = test_conversation();
+        conversation.selected_model = Some("gpt-5.5".to_string());
+        conversation.selected_effort = Some(ChatReasoningEffort::High);
+        let params = build_turn_start_params(
+            "thread-1",
+            "/Users/me/other-worktree",
+            "Run tests",
+            &conversation,
+        );
+
+        assert_eq!(
+            params.get("cwd").and_then(Value::as_str),
+            Some("/Users/me/other-worktree"),
+        );
+        assert_eq!(
+            params.get("threadId").and_then(Value::as_str),
+            Some("thread-1"),
+        );
+        assert_eq!(params.get("model").and_then(Value::as_str), Some("gpt-5.5"));
+        assert_eq!(params.get("effort").and_then(Value::as_str), Some("high"));
+    }
+
+    #[test]
+    fn extracts_provider_thread_id_from_routing_payloads() {
+        assert_eq!(
+            extract_provider_thread_id(&json!({ "threadId": "thread-1" })),
+            Some("thread-1".to_string()),
+        );
+        assert_eq!(
+            extract_provider_thread_id(&json!({ "turn": { "threadId": "thread-2" } })),
+            Some("thread-2".to_string()),
+        );
+        assert_eq!(
+            extract_provider_thread_id(&json!({ "item": { "threadId": "thread-3" } })),
+            Some("thread-3".to_string()),
+        );
+    }
+
+    struct FakeCodexConnection {
+        requests: Arc<Mutex<Vec<(String, Value)>>>,
+        stream_events: broadcast::Sender<CodexStreamEvent>,
+    }
+
+    impl FakeCodexConnection {
+        fn new(requests: Arc<Mutex<Vec<(String, Value)>>>) -> Self {
+            let (stream_events, _) = broadcast::channel(16);
+            Self {
+                requests,
+                stream_events,
+            }
+        }
+    }
+
+    impl CodexAppServerConnection for FakeCodexConnection {
+        fn request<'a>(
+            &'a self,
+            method: &'a str,
+            params: Value,
+        ) -> CodexAppServerFuture<'a, Result<Value, ChatServiceError>> {
+            Box::pin(async move {
+                self.requests
+                    .lock()
+                    .await
+                    .push((method.to_string(), params));
+                Ok(json!({}))
+            })
+        }
+
+        fn respond_result<'a>(
+            &'a self,
+            _id: Value,
+            _result: Value,
+        ) -> CodexAppServerFuture<'a, Result<(), ChatServiceError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn subscribe(&self) -> broadcast::Receiver<CodexStreamEvent> {
+            self.stream_events.subscribe()
+        }
+
+        fn lifecycle_state<'a>(&'a self) -> CodexAppServerFuture<'a, AppServerProcessState> {
+            Box::pin(async { AppServerProcessState::Ready })
+        }
+    }
+
+    #[tokio::test]
+    async fn app_server_manager_serializes_injected_startup() {
+        let created = Arc::new(AtomicU64::new(0));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let factory: CodexAppServerFactory = Arc::new({
+            let created = created.clone();
+            let requests = requests.clone();
+            move || {
+                let created = created.clone();
+                let requests = requests.clone();
+                Box::pin(async move {
+                    created.fetch_add(1, Ordering::SeqCst);
+                    Ok(Arc::new(FakeCodexConnection::new(requests)) as CodexAppServerConnectionRef)
+                })
+            }
+        });
+        let manager = Arc::new(CodexAppServerManager::new_for_tests(factory));
+
+        let (models, thread) = tokio::join!(
+            manager.request("model/list", json!({ "includeHidden": false })),
+            manager.request("thread/start", json!({ "cwd": "/tmp/worktree" })),
+        );
+
+        assert!(models.is_ok());
+        assert!(thread.is_ok());
+        assert_eq!(created.load(Ordering::SeqCst), 1);
+
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().any(|(method, _)| method == "model/list"));
+        assert!(requests.iter().any(|(method, params)| {
+            method == "thread/start"
+                && params.get("cwd").and_then(Value::as_str) == Some("/tmp/worktree")
+        }));
     }
 }

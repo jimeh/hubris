@@ -22,6 +22,10 @@ impl Default for AppServerLifecycle {
 }
 
 impl AppServerLifecycle {
+    pub(super) fn state(&self) -> AppServerProcessState {
+        self.state
+    }
+
     pub(super) fn is_fatal(&self) -> bool {
         matches!(self.state, AppServerProcessState::Fatal)
     }
@@ -73,6 +77,10 @@ impl Default for ThreadStreamLifecycle {
 }
 
 impl ThreadStreamLifecycle {
+    pub(super) fn resume_state(&self) -> ThreadStreamResumeState {
+        self.resume_state
+    }
+
     pub(super) fn mark_needs_resume(&mut self) {
         self.resume_state = ThreadStreamResumeState::NeedsResume;
     }

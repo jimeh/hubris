@@ -104,6 +104,10 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
             session_id: event_session_id,
             ..
         }
+        | EventKind::ChatThreadStreamUpdated {
+            session_id: event_session_id,
+            ..
+        }
         | EventKind::ChatMessageDelta {
             session_id: event_session_id,
             ..
@@ -116,7 +120,7 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
             session_id: event_session_id,
             ..
         } => event_session_id == session_id,
-        EventKind::WorktreeTabLayoutUpdated { .. } => true,
+        EventKind::WorktreeTabLayoutUpdated { .. } | EventKind::ChatAppServerUpdated { .. } => true,
         EventKind::ProjectAdded(_)
         | EventKind::ProjectRemoved { .. }
         | EventKind::ProjectUpdated(_)
@@ -175,9 +179,15 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         .list_session_conversations(session_id)
         .await
         .unwrap_or_default();
+    let chat_app_server = state.chats.app_server_status().await;
     let chat_runtimes = state
         .chats
         .list_runtime_statuses(session_id)
+        .await
+        .unwrap_or_default();
+    let chat_thread_streams = state
+        .chats
+        .list_thread_stream_statuses(session_id)
         .await
         .unwrap_or_default();
     let vscode = state.vscode.status().await.into();
@@ -213,11 +223,13 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         tabs,
         tab_layouts,
         worktree_restore_state,
+        chat_app_server,
         chat_conversations,
         chat_runtimes,
+        chat_thread_streams,
         projects,
         worktrees,
-        project_errors,
+        project_errors: Box::new(project_errors),
         settings: Box::new(settings.settings),
         settings_generation: settings.generation,
         settings_status: settings.status,

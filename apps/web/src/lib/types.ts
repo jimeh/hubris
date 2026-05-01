@@ -41,6 +41,9 @@ export type ChatModelReasoningEffortOption =
 export type ChatPermissionMode = components["schemas"]["ChatPermissionMode"];
 export type ChatRun = components["schemas"]["ChatRun"];
 export type ChatRuntimeStatus = components["schemas"]["ChatRuntimeStatus"];
+export type ChatAppServerStatus = components["schemas"]["ChatAppServerStatus"];
+export type ChatThreadStreamStatus =
+  components["schemas"]["ChatThreadStreamStatus"];
 export type ChatMessageRole = components["schemas"]["ChatMessageRole"];
 export type ChatMessageStatus = components["schemas"]["ChatMessageStatus"];
 export type ChatReasoningEffort = components["schemas"]["ChatReasoningEffort"];
