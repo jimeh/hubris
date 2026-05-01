@@ -11,10 +11,7 @@ depends = ["build:web", "build:server"]
 description = "Build web app + server (release)"
 
 [tasks."build:web"]
-run = [
-  "bun install",
-  "bun run --filter hubris-web build",
-]
+run = ["bun install", "bun run --filter hubris-web build"]
 description = "Install deps and build web app"
 
 [tasks."build:server"]
@@ -107,10 +104,7 @@ run = [
 ]
 
 [tasks."check:web"]
-run = [
-  "bun run --filter hubris-web lint",
-  "bun run --filter hubris-web check",
-]
+run = ["bun run --filter hubris-web lint", "bun run --filter hubris-web check"]
 description = "Web lint + format check + type check"
 
 [tasks."check:markdown"]
@@ -158,9 +152,7 @@ description = "Run backend tests"
 
 [tasks."docker:test"]
 description = "Run backend + web tests in Linux via Docker"
-run = [
-  "docker build -f Dockerfile.test -t hubris-test .",
-  '''docker run --rm \
+run = ["docker build -f Dockerfile.test -t hubris-test .", '''docker run --rm \
     -v "$PWD:/work" \
     -v hubris-docker-test-cargo:/cargo \
     -v hubris-docker-test-target:/cargo-target \
@@ -172,26 +164,18 @@ run = [
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
     -w /work \
-    hubris-test''',
-]
+    hubris-test''']
 
 [tasks.test]
 description = "Run all tests"
-run = [
-  "mise run test:backend",
-  "mise run test:web",
-  "mise run test:desktop",
-]
+run = ["mise run test:backend", "mise run test:web", "mise run test:desktop"]
 
 [tasks."setup:web"]
 run = "bun install"
 description = "Install web dependencies"
 
 [tasks."setup:server"]
-run = [
-  "cargo fetch",
-  ".mise/tasks/ensure-sqlx-cli",
-]
+run = ["cargo fetch", ".mise/tasks/ensure-sqlx-cli"]
 description = "Fetch backend dependencies"
 
 [tasks."sqlx:prepare"]
@@ -208,7 +192,7 @@ description = "Install all dependencies"
 
 [tasks."gitnexus:analyze"]
 run = [
-  "mise x -- gitnexus analyze",
+  "mise x -- gitnexus analyze --no-stats",
   "git checkout CLAUDE.md",
   "mise format:markdown",
 ]
@@ -242,7 +226,4 @@ description = "Remove web build artifacts"
 
 [tasks.clean]
 description = "Remove build artifacts"
-run = [
-  "cargo clean",
-  "mise run clean:web",
-]
+run = ["cargo clean", "mise run clean:web"]
