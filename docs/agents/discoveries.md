@@ -155,3 +155,6 @@ but too specific for the root `AGENTS.md` map.
   `thread/start` and `thread/resume` take `sandbox: "danger-full-access"` style
   string enums, while `turn/start` takes object-shaped `sandboxPolicy` values
   like `{ type: "dangerFullAccess" }`.
+- Codex `app-server` server-initiated JSON-RPC requests carry both `id` and
+  `method`. Do not classify every message with `id` as a response, or Hubris
+  will drop approval/input requests and leave turns in confusing failed states.

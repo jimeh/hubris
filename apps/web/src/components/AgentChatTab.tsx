@@ -121,6 +121,52 @@ function resolveSelectedEffort(
   return model?.defaultReasoningEffort;
 }
 
+function assistantStatusLabel(
+  message: ChatMessage,
+  streaming: boolean,
+): string {
+  if (streaming) {
+    return "Responding";
+  }
+
+  if (message.status === "completed" && !message.contentText.trim()) {
+    return "No response";
+  }
+
+  switch (message.status) {
+    case "failed":
+      return "Response failed";
+    case "interrupted":
+      return "Response interrupted";
+    case "pending":
+      return "Pending";
+    default:
+      return "Response ready";
+  }
+}
+
+function assistantFallbackText(
+  message: ChatMessage,
+  streaming: boolean,
+): string {
+  if (streaming) {
+    return "Working...";
+  }
+
+  if (message.status === "completed" && !message.contentText.trim()) {
+    return "Codex completed without returning a response.";
+  }
+
+  switch (message.status) {
+    case "failed":
+      return "Codex stopped before returning a response.";
+    case "interrupted":
+      return "Response interrupted before Codex returned text.";
+    default:
+      return "";
+  }
+}
+
 function ThinkingBlock({
   message,
   streaming,
@@ -190,23 +236,45 @@ function AssistantTurn({
   message: ChatMessage;
   streaming: boolean;
 }) {
+  const failed = message.status === "failed";
+  const interrupted = message.status === "interrupted";
+  const fallbackText = assistantFallbackText(message, streaming);
+
   return (
     <div className="flex justify-start">
-      <div className="max-w-[min(46rem,92%)] space-y-3 rounded-2xl border bg-card px-4 py-3 shadow-xs">
+      <div
+        className={cn(
+          "max-w-[min(46rem,92%)] space-y-3 rounded-2xl border bg-card px-4 py-3 shadow-xs",
+          failed && "border-destructive/40",
+          interrupted && "border-muted-foreground/30",
+        )}
+      >
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <div
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary",
+              failed && "bg-destructive/10 text-destructive",
+              interrupted && "bg-muted text-muted-foreground",
+            )}
+          >
             <MessageSquareText className="h-3.5 w-3.5" />
           </div>
           <div>
             <div className="text-sm font-medium">Codex</div>
             <div className="text-xs text-muted-foreground">
-              {streaming ? "Responding" : "Response ready"}
+              {assistantStatusLabel(message, streaming)}
             </div>
           </div>
         </div>
         <ThinkingBlock message={message} streaming={streaming} />
-        <div className="whitespace-pre-wrap text-sm leading-6">
-          {message.contentText || (streaming ? "Working…" : "")}
+        <div
+          className={cn(
+            "whitespace-pre-wrap text-sm leading-6",
+            !message.contentText && fallbackText && "text-muted-foreground",
+            failed && "text-destructive",
+          )}
+        >
+          {message.contentText || fallbackText}
         </div>
       </div>
     </div>

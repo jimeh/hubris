@@ -371,6 +371,7 @@ struct RuntimeState {
     provider_thread_id: Option<String>,
     active_run_id: Option<String>,
     active_message_id: Option<String>,
+    active_error: Option<String>,
     lifecycle: ChatRuntimeLifecycle,
     active_reasoning_summary_index: Option<u64>,
     idle_generation: u64,
@@ -386,6 +387,7 @@ impl RuntimeState {
             provider_thread_id: conversation.provider_thread_id.clone(),
             active_run_id: None,
             active_message_id: None,
+            active_error: None,
             lifecycle: ChatRuntimeLifecycle::Starting,
             active_reasoning_summary_index: None,
             idle_generation: 0,
@@ -396,8 +398,18 @@ impl RuntimeState {
 
 #[derive(Debug, Clone)]
 enum CodexStreamEvent {
-    Notification { method: String, params: Value },
-    Closed { reason: String },
+    ServerRequest {
+        id: Value,
+        method: String,
+        params: Value,
+    },
+    Notification {
+        method: String,
+        params: Value,
+    },
+    Closed {
+        reason: String,
+    },
 }
 
 type PendingResponseTx = oneshot::Sender<Result<Value, ChatServiceError>>;
@@ -479,6 +491,24 @@ impl CodexAppServerClient {
                             }
                         };
 
+                        if let Some(method) = value.get("method").and_then(Value::as_str) {
+                            let params = value.get("params").cloned().unwrap_or(Value::Null);
+                            if let Some(id) = value.get("id") {
+                                let _ =
+                                    client.stream_events.send(CodexStreamEvent::ServerRequest {
+                                        id: id.clone(),
+                                        method: method.to_string(),
+                                        params,
+                                    });
+                            } else {
+                                let _ = client.stream_events.send(CodexStreamEvent::Notification {
+                                    method: method.to_string(),
+                                    params,
+                                });
+                            }
+                            continue;
+                        }
+
                         if let Some(id) = value.get("id").and_then(Value::as_u64) {
                             let mut pending = client.pending.lock().await;
                             if let Some(reply) = pending.remove(&id) {
@@ -495,17 +525,7 @@ impl CodexAppServerClient {
                                 };
                                 let _ = reply.send(result);
                             }
-                            continue;
                         }
-
-                        let Some(method) = value.get("method").and_then(Value::as_str) else {
-                            continue;
-                        };
-                        let params = value.get("params").cloned().unwrap_or(Value::Null);
-                        let _ = client.stream_events.send(CodexStreamEvent::Notification {
-                            method: method.to_string(),
-                            params,
-                        });
                     }
                     Ok(None) => {
                         let _ = client.stream_events.send(CodexStreamEvent::Closed {
@@ -591,6 +611,15 @@ impl CodexAppServerClient {
             "params": params,
         });
         self.write_payload(&payload).await
+    }
+
+    async fn respond_result(&self, id: Value, result: Value) -> Result<(), ChatServiceError> {
+        self.write_payload(&json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": result,
+        }))
+        .await
     }
 
     async fn write_payload(&self, payload: &Value) -> Result<(), ChatServiceError> {
@@ -1035,7 +1064,7 @@ impl ChatService {
             WHERE id = ?
             ",
         )
-        .bind(patch.selected_model)
+        .bind(normalize_model_override(patch.selected_model))
         .bind(
             patch
                 .selected_effort
@@ -1101,6 +1130,7 @@ impl ChatService {
             state.active_message_id = Some(assistant_message_id.clone());
             state.lifecycle = ChatRuntimeLifecycle::Running;
             state.active_reasoning_summary_index = None;
+            state.active_error = None;
             state.shutting_down = false;
             state.idle_generation = state.idle_generation.saturating_add(1);
         }
@@ -1134,8 +1164,8 @@ impl ChatService {
                 }
             ]),
         );
-        if let Some(model) = &conversation.selected_model {
-            turn_params.insert("model".to_string(), Value::String(model.clone()));
+        if let Some(model) = normalize_model_ref(conversation.selected_model.as_deref()) {
+            turn_params.insert("model".to_string(), Value::String(model.to_string()));
         }
         if let Some(effort) = conversation.selected_effort {
             turn_params.insert(
@@ -1227,29 +1257,33 @@ impl ChatService {
             let result = client
                 .request("thread/resume", Value::Object(params))
                 .await?;
-            (
-                extract_thread_id(&result).unwrap_or_else(|| provider_thread_id.clone()),
-                result,
-            )
-        } else {
-            let mut params = serde_json::Map::new();
-            params.insert("cwd".to_string(), Value::String(worktree_path.to_string()));
-            if let Some(model) = &conversation.selected_model {
-                params.insert("model".to_string(), Value::String(model.clone()));
+            if has_blank_model_field(&result) {
+                tracing::warn!(
+                    conversation_id,
+                    provider_thread_id,
+                    "resumed codex thread has blank model; starting a replacement thread"
+                );
+                start_provider_thread(
+                    &client,
+                    worktree_path,
+                    conversation.selected_model.as_deref(),
+                    conversation.selected_permission_mode,
+                )
+                .await?
+            } else {
+                (
+                    extract_thread_id(&result).unwrap_or_else(|| provider_thread_id.clone()),
+                    result,
+                )
             }
-            apply_thread_permission_mode(&mut params, conversation.selected_permission_mode);
-            let result = client
-                .request("thread/start", Value::Object(params))
-                .await?;
-            (
-                extract_thread_id(&result).ok_or_else(|| {
-                    ChatServiceError::new(
-                        StatusCode::BAD_GATEWAY,
-                        "codex app-server did not return a thread id",
-                    )
-                })?,
-                result,
+        } else {
+            start_provider_thread(
+                &client,
+                worktree_path,
+                conversation.selected_model.as_deref(),
+                conversation.selected_permission_mode,
             )
+            .await?
         };
         let (provider_thread_id, thread_response) = resume_or_start;
 
@@ -1282,6 +1316,22 @@ impl ChatService {
             let mut rx = runtime.client.subscribe();
             loop {
                 match rx.recv().await {
+                    Ok(CodexStreamEvent::ServerRequest { id, method, params }) => {
+                        let response = match service
+                            .handle_provider_request(&conversation_id, &runtime, &method, params)
+                            .await
+                        {
+                            Ok(result) => runtime.client.respond_result(id, result).await,
+                            Err(error) => Err(error),
+                        };
+                        if let Err(error) = response {
+                            tracing::warn!(
+                                conversation_id,
+                                method,
+                                "chat provider request failed: {error}"
+                            );
+                        }
+                    }
                     Ok(CodexStreamEvent::Notification { method, params }) => {
                         if let Err(error) = service
                             .handle_provider_notification(
@@ -1311,6 +1361,33 @@ impl ChatService {
         });
     }
 
+    async fn handle_provider_request(
+        self: &Arc<Self>,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        method: &str,
+        _params: Value,
+    ) -> Result<Value, ChatServiceError> {
+        let error_message = match method {
+            "item/commandExecution/requestApproval"
+            | "item/fileChange/requestApproval"
+            | "item/tool/requestUserInput" => {
+                format!("{method} is not supported in Hubris chat yet")
+            }
+            _ => format!("unsupported codex app-server request: {method}"),
+        };
+
+        {
+            let mut state = runtime.state.lock().await;
+            state.active_error = Some(error_message.clone());
+        }
+        self.emit_runtime_status(conversation_id, &runtime.state, Some(error_message.clone()))
+            .await;
+        tracing::warn!(conversation_id, method, "{error_message}");
+
+        Ok(json!({ "decision": "decline" }))
+    }
+
     async fn handle_provider_notification(
         self: &Arc<Self>,
         conversation_id: &str,
@@ -1319,6 +1396,18 @@ impl ChatService {
         params: Value,
     ) -> Result<(), ChatServiceError> {
         match method {
+            "error" => {
+                let error_message = params
+                    .get("error")
+                    .and_then(extract_error_message)
+                    .unwrap_or_else(|| "codex turn failed".to_string());
+                {
+                    let mut state = runtime.state.lock().await;
+                    state.active_error = Some(error_message.clone());
+                }
+                self.emit_runtime_status(conversation_id, &runtime.state, Some(error_message))
+                    .await;
+            }
             "item/reasoning/summaryTextDelta" => {
                 let delta = params
                     .get("delta")
@@ -1376,6 +1465,20 @@ impl ChatService {
                 let Some(message_id) = message_id else {
                     return Ok(());
                 };
+                if is_commentary_phase(&params) {
+                    let Some(message) = self
+                        .append_message_reasoning_delta(conversation_id, &message_id, &delta)
+                        .await?
+                    else {
+                        return Ok(());
+                    };
+                    self.events.emit(EventKind::ChatMessageUpdated {
+                        session_id,
+                        conversation_id: conversation_id.to_string(),
+                        message,
+                    });
+                    return Ok(());
+                }
                 self.append_message_delta(conversation_id, &message_id, &delta)
                     .await?;
                 if let Some(summary) = self.get_conversation_summary(conversation_id).await? {
@@ -1399,13 +1502,33 @@ impl ChatService {
                 if let Some(text) = item.get("text").and_then(Value::as_str) {
                     let message_id = { runtime.state.lock().await.active_message_id.clone() };
                     if let Some(message_id) = message_id {
-                        self.replace_message_content(
-                            conversation_id,
-                            &message_id,
-                            text,
-                            ChatMessageStatus::Streaming,
-                        )
-                        .await?;
+                        if is_commentary_phase(&item) {
+                            let message = self
+                                .replace_message_reasoning(
+                                    conversation_id,
+                                    &message_id,
+                                    text,
+                                    ChatMessageStatus::Streaming,
+                                )
+                                .await?;
+                            if let Some(summary) =
+                                self.get_conversation_summary(conversation_id).await?
+                            {
+                                self.events.emit(EventKind::ChatMessageUpdated {
+                                    session_id: summary.session_id,
+                                    conversation_id: conversation_id.to_string(),
+                                    message,
+                                });
+                            }
+                        } else {
+                            self.replace_message_content(
+                                conversation_id,
+                                &message_id,
+                                text,
+                                ChatMessageStatus::Streaming,
+                            )
+                            .await?;
+                        }
                     }
                 }
             }
@@ -1415,25 +1538,38 @@ impl ChatService {
                     .and_then(|turn| turn.get("status"))
                     .and_then(Value::as_str)
                     .unwrap_or("completed");
-                let (run_id, message_id, session_id, generation) = {
+                let (run_id, message_id, session_id, generation, active_error) = {
                     let mut state = runtime.state.lock().await;
                     state.lifecycle = ChatRuntimeLifecycle::Ready;
                     state.active_reasoning_summary_index = None;
                     state.idle_generation = state.idle_generation.saturating_add(1);
                     let generation = state.idle_generation;
+                    let active_error = state.active_error.take();
                     (
                         state.active_run_id.take(),
                         state.active_message_id.take(),
                         state.session_id.clone(),
                         generation,
+                        active_error,
                     )
                 };
-                let run_status = parse_turn_status(status);
+                let mut run_status = parse_turn_status(status);
                 if let Some(run_id) = run_id {
+                    let error_message = params
+                        .get("turn")
+                        .and_then(|turn| turn.get("error"))
+                        .and_then(extract_error_message)
+                        .or(active_error);
                     let final_text = params
                         .get("turn")
                         .and_then(extract_turn_text)
                         .unwrap_or_default();
+                    if matches!(run_status, ChatRunStatus::Completed)
+                        && error_message.is_some()
+                        && final_text.is_empty()
+                    {
+                        run_status = ChatRunStatus::Failed;
+                    }
                     let message_status = match run_status {
                         ChatRunStatus::Completed => ChatMessageStatus::Completed,
                         ChatRunStatus::Interrupted => ChatMessageStatus::Interrupted,
@@ -1454,7 +1590,7 @@ impl ChatService {
                         None
                     };
                     let run = self
-                        .finalize_run(conversation_id, &run_id, run_status, None)
+                        .finalize_run(conversation_id, &run_id, run_status, error_message.clone())
                         .await?;
                     if let Some(message) = finalized_message {
                         self.events.emit(EventKind::ChatMessageUpdated {
@@ -1736,7 +1872,7 @@ impl ChatService {
             WHERE id = ?
             ",
         )
-        .bind(selected_model)
+        .bind(normalize_model_override(selected_model))
         .bind(selected_effort.map(|value| value.as_str().to_string()))
         .bind(now)
         .bind(now)
@@ -2035,6 +2171,38 @@ impl ChatService {
         Ok(())
     }
 
+    async fn replace_message_reasoning(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+        text: &str,
+        status: ChatMessageStatus,
+    ) -> Result<ChatMessage, ChatServiceError> {
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_messages
+            SET reasoning_text = ?, updated_at_ms = ?, status = ?
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(text)
+        .bind(now)
+        .bind(status.as_str())
+        .bind(message_id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        self.get_message_by_id(conversation_id, Some(message_id))
+            .await?
+            .ok_or_else(|| {
+                ChatServiceError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "chat message missing after reasoning update",
+                )
+            })
+    }
+
     async fn finalize_assistant_message(
         &self,
         conversation_id: &str,
@@ -2235,7 +2403,7 @@ fn conversation_from_row(row: ConversationRow) -> ChatConversationSummary {
         last_activity_at: row.last_activity_at_ms.max(0) as u64,
         last_message_at: row.last_message_at_ms.map(|value| value.max(0) as u64),
         open_tab_id: row.open_tab_id,
-        selected_model: row.selected_model,
+        selected_model: normalize_model_override(row.selected_model),
         selected_effort: row.selected_effort.as_deref().map(parse_reasoning_effort),
         selected_permission_mode: row
             .selected_permission_mode
@@ -2365,7 +2533,29 @@ fn extract_model(value: &Value) -> Option<String> {
     value
         .get("model")
         .and_then(Value::as_str)
-        .map(str::to_string)
+        .and_then(|model| normalize_model_ref(Some(model)).map(str::to_string))
+}
+
+fn normalize_model_override(value: Option<String>) -> Option<String> {
+    value.and_then(|model| {
+        let trimmed = model.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn normalize_model_ref(value: Option<&str>) -> Option<&str> {
+    value.and_then(|model| {
+        let trimmed = model.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(model)
+        }
+    })
 }
 
 fn extract_reasoning_effort(value: &Value) -> Option<ChatReasoningEffort> {
@@ -2407,6 +2597,67 @@ fn apply_turn_permission_mode(
             }),
         );
     }
+}
+
+async fn start_provider_thread(
+    client: &Arc<CodexAppServerClient>,
+    worktree_path: &str,
+    selected_model: Option<&str>,
+    permission_mode: Option<ChatPermissionMode>,
+) -> Result<(String, Value), ChatServiceError> {
+    let mut params = serde_json::Map::new();
+    params.insert("cwd".to_string(), Value::String(worktree_path.to_string()));
+    if let Some(model) = normalize_model_ref(selected_model) {
+        params.insert("model".to_string(), Value::String(model.to_string()));
+    }
+    apply_thread_permission_mode(&mut params, permission_mode);
+    let result = client
+        .request("thread/start", Value::Object(params))
+        .await?;
+    let thread_id = extract_thread_id(&result).ok_or_else(|| {
+        ChatServiceError::new(
+            StatusCode::BAD_GATEWAY,
+            "codex app-server did not return a thread id",
+        )
+    })?;
+    Ok((thread_id, result))
+}
+
+fn has_blank_model_field(value: &Value) -> bool {
+    value
+        .get("model")
+        .and_then(Value::as_str)
+        .is_some_and(|model| model.trim().is_empty())
+}
+
+fn is_commentary_phase(value: &Value) -> bool {
+    value.get("phase").and_then(Value::as_str) == Some("commentary")
+        || value.pointer("/item/phase").and_then(Value::as_str) == Some("commentary")
+}
+
+fn extract_error_message(value: &Value) -> Option<String> {
+    if let Some(message) = value.as_str() {
+        let message = message.trim();
+        if !message.is_empty() {
+            return Some(message.to_string());
+        }
+    }
+
+    let message = value
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|message| !message.is_empty())?;
+    let details = value
+        .get("additionalDetails")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|details| !details.is_empty());
+
+    Some(match details {
+        Some(details) => format!("{message}: {details}"),
+        None => message.to_string(),
+    })
 }
 
 fn extract_turn_text(turn: &Value) -> Option<String> {
@@ -2460,4 +2711,53 @@ fn model_option_from_value(value: &Value) -> Option<ChatModelOption> {
         ),
         supported_reasoning_efforts,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_model_ignores_blank_values() {
+        assert_eq!(extract_model(&json!({ "model": "" })), None);
+        assert_eq!(extract_model(&json!({ "model": "   " })), None);
+        assert_eq!(
+            extract_model(&json!({ "model": "gpt-5.5" })),
+            Some("gpt-5.5".to_string()),
+        );
+    }
+
+    #[test]
+    fn normalize_model_override_trims_and_drops_empty_values() {
+        assert_eq!(normalize_model_override(None), None);
+        assert_eq!(normalize_model_override(Some(String::new())), None);
+        assert_eq!(normalize_model_override(Some("  ".to_string())), None);
+        assert_eq!(
+            normalize_model_override(Some("  gpt-5.5  ".to_string())),
+            Some("gpt-5.5".to_string()),
+        );
+    }
+
+    #[test]
+    fn has_blank_model_field_detects_broken_thread_resume() {
+        assert!(has_blank_model_field(&json!({ "model": "" })));
+        assert!(has_blank_model_field(&json!({ "model": "  " })));
+        assert!(!has_blank_model_field(&json!({ "model": "gpt-5.5" })));
+        assert!(!has_blank_model_field(&json!({})));
+    }
+
+    #[test]
+    fn extract_error_message_formats_app_server_errors() {
+        assert_eq!(
+            extract_error_message(&json!({
+                "message": "request failed",
+                "additionalDetails": "bad model"
+            })),
+            Some("request failed: bad model".to_string()),
+        );
+        assert_eq!(
+            extract_error_message(&json!("plain failure")),
+            Some("plain failure".to_string()),
+        );
+    }
 }
