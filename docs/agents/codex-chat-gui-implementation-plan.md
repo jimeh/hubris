@@ -457,6 +457,32 @@ Verification:
 - Existing chat send, stream, interrupt, model list, and settings tests still
   pass.
 
+### Phase 1.5: Event Routing Hardening
+
+Goal: make sparse app-server events safe before normalized turns/items and
+approval UI depend on them.
+
+Backend work:
+
+- Extract route hints for provider thread id, turn id, item id, and server
+  request id from app-server requests and notifications.
+- Keep in-memory route indexes for thread, turn, item, and pending server
+  request ids, scoped by the current app-server owner generation.
+- Route events by thread id, then turn id, then item id, then pending request
+  metadata, with single-active-stream fallback only for legacy events.
+- Ignore and warn on unroutable multi-stream events instead of mutating an
+  arbitrary transcript.
+- Clear route indexes on app-server loss and clear pending request routes when
+  app-server reports request resolution or the turn completes.
+
+Verification:
+
+- Rust tests for route-hint extraction from common payload shapes.
+- Rust tests for multi-stream routing by turn id, item id, pending request id,
+  stale owner generation, explicit thread-id precedence, and legacy single
+  active fallback.
+- Existing Phase 1 chat runtime tests still pass.
+
 ### Phase 2: Normalize Turns, Items, And Assistant Text
 
 Goal: preserve current user-visible behavior while introducing stable provider

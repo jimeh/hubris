@@ -28,7 +28,7 @@ mod protocol;
 use lifecycle::{
     AppServerLifecycle, AppServerProcessState, ThreadStreamLifecycle, ThreadStreamResumeState,
 };
-use protocol::ParsedLine;
+use protocol::{ParsedLine, RouteHints};
 
 pub const DEFAULT_CHAT_TITLE: &str = "New Chat";
 const DEFAULT_IDLE_TIMEOUT_MINUTES: u32 = 5;
@@ -445,6 +445,7 @@ struct RuntimeState {
     lifecycle: ChatRuntimeLifecycle,
     active_reasoning_summary_index: Option<u64>,
     stream_lifecycle: ThreadStreamLifecycle,
+    owner_generation: u64,
     idle_generation: u64,
     inactive_deadline_at: Option<u64>,
     last_error: Option<String>,
@@ -469,11 +470,26 @@ impl RuntimeState {
             lifecycle: ChatRuntimeLifecycle::Starting,
             active_reasoning_summary_index: None,
             stream_lifecycle,
+            owner_generation: 0,
             idle_generation: 0,
             inactive_deadline_at: None,
             last_error: None,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct RouteEntry {
+    conversation_id: String,
+    owner_generation: u64,
+}
+
+#[derive(Debug, Clone)]
+struct PendingServerRequestRoute {
+    route: RouteEntry,
+    method: String,
+    turn_id: Option<String>,
+    item_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -483,11 +499,13 @@ enum CodexStreamEvent {
         method: String,
         params: Value,
         thread_id: Option<String>,
+        route_hints: RouteHints,
     },
     Notification {
         method: String,
         params: Value,
         thread_id: Option<String>,
+        route_hints: RouteHints,
     },
     Closed {
         reason: String,
@@ -617,6 +635,7 @@ impl CodexAppServerClient {
                                 method_kind,
                                 params,
                                 thread_id,
+                                route_hints,
                             } => {
                                 tracing::trace!(
                                     method = method_kind.name(),
@@ -629,6 +648,7 @@ impl CodexAppServerClient {
                                         method,
                                         params,
                                         thread_id,
+                                        route_hints,
                                     });
                             }
                             ParsedLine::Notification {
@@ -636,6 +656,7 @@ impl CodexAppServerClient {
                                 method_kind,
                                 params,
                                 thread_id,
+                                route_hints,
                             } => {
                                 tracing::trace!(
                                     method = method_kind.name(),
@@ -646,6 +667,7 @@ impl CodexAppServerClient {
                                     method,
                                     params,
                                     thread_id,
+                                    route_hints,
                                 });
                             }
                             ParsedLine::Response {
@@ -1013,8 +1035,12 @@ pub struct ChatService {
     settings: Arc<SettingsManager>,
     app_server: Arc<CodexAppServerManager>,
     runtimes: DashMap<String, RuntimeEntry>,
-    thread_to_conversation: DashMap<String, String>,
+    thread_to_conversation: DashMap<String, RouteEntry>,
+    turn_to_conversation: DashMap<String, RouteEntry>,
+    item_to_conversation: DashMap<String, RouteEntry>,
+    server_request_to_conversation: DashMap<String, PendingServerRequestRoute>,
     op_locks: DashMap<String, Arc<Mutex<()>>>,
+    stream_owner_generation: AtomicU64,
     app_event_loop_started: AtomicBool,
 }
 
@@ -1043,7 +1069,11 @@ impl ChatService {
             app_server: Arc::new(CodexAppServerManager::new()),
             runtimes: DashMap::new(),
             thread_to_conversation: DashMap::new(),
+            turn_to_conversation: DashMap::new(),
+            item_to_conversation: DashMap::new(),
+            server_request_to_conversation: DashMap::new(),
             op_locks: DashMap::new(),
+            stream_owner_generation: AtomicU64::new(1),
             app_event_loop_started: AtomicBool::new(false),
         })
     }
@@ -1490,6 +1520,10 @@ impl ChatService {
             .request("turn/start", Value::Object(turn_params))
             .await?;
         let provider_turn_id = extract_turn_id(&turn_response);
+        if let Some(provider_turn_id) = provider_turn_id.as_deref() {
+            self.register_turn_route(conversation_id, &runtime, provider_turn_id)
+                .await;
+        }
         self.attach_turn_to_run(
             conversation_id,
             &run_id,
@@ -1618,6 +1652,7 @@ impl ChatService {
 
         {
             let mut state = runtime.state.lock().await;
+            state.owner_generation = self.stream_owner_generation.load(Ordering::Acquire);
             state.provider_thread_id = Some(provider_thread_id.clone());
             state.lifecycle = ChatRuntimeLifecycle::Ready;
             state.stream_lifecycle.mark_resumed();
@@ -1625,8 +1660,8 @@ impl ChatService {
             state.last_error = None;
             state.idle_generation = state.idle_generation.saturating_add(1);
         }
-        self.thread_to_conversation
-            .insert(provider_thread_id.clone(), conversation_id.to_string());
+        self.register_provider_thread_route(conversation_id, &runtime, &provider_thread_id)
+            .await;
 
         self.persist_provider_thread_id(conversation_id, &provider_thread_id)
             .await?;
@@ -1658,11 +1693,25 @@ impl ChatService {
                         method,
                         params,
                         thread_id,
+                        mut route_hints,
                     }) => {
-                        let response = if let Some((conversation_id, runtime)) = service
-                            .runtime_for_provider_event(thread_id.as_deref(), &params)
-                            .await
+                        if route_hints.thread_id.is_none() {
+                            route_hints.thread_id = thread_id;
+                        }
+                        let response = if let Some((conversation_id, runtime)) =
+                            service.runtime_for_provider_event(&route_hints).await
                         {
+                            service
+                                .register_route_hints(&conversation_id, &runtime, &route_hints)
+                                .await;
+                            service
+                                .register_pending_server_request(
+                                    &conversation_id,
+                                    &runtime,
+                                    &method,
+                                    &route_hints,
+                                )
+                                .await;
                             match service
                                 .handle_provider_request(
                                     &conversation_id,
@@ -1693,14 +1742,20 @@ impl ChatService {
                         method,
                         params,
                         thread_id,
+                        mut route_hints,
                     }) => {
-                        let Some((conversation_id, runtime)) = service
-                            .runtime_for_provider_event(thread_id.as_deref(), &params)
-                            .await
+                        if route_hints.thread_id.is_none() {
+                            route_hints.thread_id = thread_id;
+                        }
+                        let Some((conversation_id, runtime)) =
+                            service.runtime_for_provider_event(&route_hints).await
                         else {
                             tracing::warn!(method, "unroutable codex app-server notification");
                             continue;
                         };
+                        service
+                            .register_route_hints(&conversation_id, &runtime, &route_hints)
+                            .await;
                         if let Err(error) = service
                             .handle_provider_notification(
                                 &conversation_id,
@@ -1737,16 +1792,34 @@ impl ChatService {
 
     async fn runtime_for_provider_event(
         &self,
-        thread_id: Option<&str>,
-        params: &Value,
+        route_hints: &RouteHints,
     ) -> Option<(String, RuntimeEntry)> {
-        let extracted_thread_id = extract_provider_thread_id(params);
-        let thread_id = thread_id.or(extracted_thread_id.as_deref());
-        if let Some(thread_id) = thread_id
-            && let Some(conversation_id) = self.thread_to_conversation.get(thread_id)
-            && let Some(runtime) = self.runtimes.get(conversation_id.value())
+        if let Some(thread_id) = route_hints.thread_id.as_deref()
+            && let Some(runtime) = self
+                .runtime_for_route_entry(self.thread_to_conversation.get(thread_id).as_deref())
+                .await
         {
-            return Some((conversation_id.value().clone(), runtime.clone()));
+            return Some(runtime);
+        }
+        if let Some(turn_id) = route_hints.turn_id.as_deref()
+            && let Some(runtime) = self
+                .runtime_for_route_entry(self.turn_to_conversation.get(turn_id).as_deref())
+                .await
+        {
+            return Some(runtime);
+        }
+        if let Some(item_id) = route_hints.item_id.as_deref()
+            && let Some(runtime) = self
+                .runtime_for_route_entry(self.item_to_conversation.get(item_id).as_deref())
+                .await
+        {
+            return Some(runtime);
+        }
+        if let Some(request_id) = route_hints.request_id.as_deref()
+            && let Some(route) = self.server_request_to_conversation.get(request_id)
+            && let Some(runtime) = self.runtime_for_route_entry(Some(&route.route)).await
+        {
+            return Some(runtime);
         }
 
         let runtimes = self
@@ -1754,15 +1827,28 @@ impl ChatService {
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect::<Vec<_>>();
-        if let Some(thread_id) = thread_id {
+        if let Some(thread_id) = route_hints.thread_id.as_deref() {
             for (conversation_id, runtime) in &runtimes {
                 let state = runtime.state.lock().await;
                 if state.provider_thread_id.as_deref() == Some(thread_id) {
-                    self.thread_to_conversation
-                        .insert(thread_id.to_string(), conversation_id.clone());
+                    self.thread_to_conversation.insert(
+                        thread_id.to_string(),
+                        RouteEntry {
+                            conversation_id: conversation_id.clone(),
+                            owner_generation: state.owner_generation,
+                        },
+                    );
                     return Some((conversation_id.clone(), runtime.clone()));
                 }
             }
+        }
+
+        if route_hints.thread_id.is_some()
+            || route_hints.turn_id.is_some()
+            || route_hints.item_id.is_some()
+            || route_hints.request_id.is_some()
+        {
+            return None;
         }
 
         let mut active = Vec::new();
@@ -1779,6 +1865,149 @@ impl ChatService {
         } else {
             None
         }
+    }
+
+    async fn runtime_for_route_entry(
+        &self,
+        route: Option<&RouteEntry>,
+    ) -> Option<(String, RuntimeEntry)> {
+        let route = route?;
+        let runtime = self
+            .runtimes
+            .get(&route.conversation_id)
+            .map(|entry| entry.value().clone())?;
+        let state = runtime.state.lock().await;
+        if state.owner_generation != route.owner_generation {
+            return None;
+        }
+        drop(state);
+        Some((route.conversation_id.clone(), runtime))
+    }
+
+    async fn register_provider_thread_route(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        thread_id: &str,
+    ) {
+        let owner_generation = runtime.state.lock().await.owner_generation;
+        self.thread_to_conversation.insert(
+            thread_id.to_string(),
+            RouteEntry {
+                conversation_id: conversation_id.to_string(),
+                owner_generation,
+            },
+        );
+    }
+
+    async fn register_turn_route(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        turn_id: &str,
+    ) {
+        let owner_generation = runtime.state.lock().await.owner_generation;
+        self.turn_to_conversation.insert(
+            turn_id.to_string(),
+            RouteEntry {
+                conversation_id: conversation_id.to_string(),
+                owner_generation,
+            },
+        );
+    }
+
+    async fn register_item_route(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        item_id: &str,
+    ) {
+        let owner_generation = runtime.state.lock().await.owner_generation;
+        self.item_to_conversation.insert(
+            item_id.to_string(),
+            RouteEntry {
+                conversation_id: conversation_id.to_string(),
+                owner_generation,
+            },
+        );
+    }
+
+    async fn register_route_hints(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        route_hints: &RouteHints,
+    ) {
+        if let Some(thread_id) = route_hints.thread_id.as_deref() {
+            self.register_provider_thread_route(conversation_id, runtime, thread_id)
+                .await;
+        }
+        if let Some(turn_id) = route_hints.turn_id.as_deref() {
+            self.register_turn_route(conversation_id, runtime, turn_id)
+                .await;
+        }
+        if let Some(item_id) = route_hints.item_id.as_deref() {
+            self.register_item_route(conversation_id, runtime, item_id)
+                .await;
+        }
+    }
+
+    async fn register_pending_server_request(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        method: &str,
+        route_hints: &RouteHints,
+    ) {
+        let Some(request_id) = route_hints.request_id.as_deref() else {
+            return;
+        };
+        let owner_generation = runtime.state.lock().await.owner_generation;
+        self.server_request_to_conversation.insert(
+            request_id.to_string(),
+            PendingServerRequestRoute {
+                route: RouteEntry {
+                    conversation_id: conversation_id.to_string(),
+                    owner_generation,
+                },
+                method: method.to_string(),
+                turn_id: route_hints.turn_id.clone(),
+                item_id: route_hints.item_id.clone(),
+            },
+        );
+    }
+
+    fn clear_pending_server_request(&self, request_id: &str) {
+        if let Some((_, route)) = self.server_request_to_conversation.remove(request_id) {
+            tracing::trace!(
+                request_id,
+                method = route.method,
+                turn_id = route.turn_id.as_deref().unwrap_or(""),
+                item_id = route.item_id.as_deref().unwrap_or(""),
+                "cleared codex app-server request route"
+            );
+        }
+    }
+
+    fn clear_pending_server_requests_for_conversation(&self, conversation_id: &str) {
+        let request_ids = self
+            .server_request_to_conversation
+            .iter()
+            .filter_map(|entry| {
+                (entry.value().route.conversation_id == conversation_id)
+                    .then(|| entry.key().clone())
+            })
+            .collect::<Vec<_>>();
+        for request_id in request_ids {
+            self.server_request_to_conversation.remove(&request_id);
+        }
+    }
+
+    fn clear_route_indexes(&self) {
+        self.thread_to_conversation.clear();
+        self.turn_to_conversation.clear();
+        self.item_to_conversation.clear();
+        self.server_request_to_conversation.clear();
     }
 
     async fn handle_provider_request(
@@ -1837,6 +2066,12 @@ impl ChatService {
                     Some(error_message),
                 )
                 .await;
+            }
+            "serverRequest/resolved" => {
+                let route_hints = RouteHints::from_value(&params);
+                if let Some(request_id) = route_hints.request_id.as_deref() {
+                    self.clear_pending_server_request(request_id);
+                }
             }
             "item/reasoning/summaryTextDelta" => {
                 let delta = params
@@ -2043,6 +2278,7 @@ impl ChatService {
                 }
                 self.emit_thread_stream_status(conversation_id, &runtime.state, None)
                     .await;
+                self.clear_pending_server_requests_for_conversation(conversation_id);
                 self.schedule_idle_unsubscribe(conversation_id.to_string(), generation);
                 self.enforce_inactive_stream_limit().await;
             }
@@ -2055,6 +2291,8 @@ impl ChatService {
         self: &Arc<Self>,
         reason: String,
     ) -> Result<(), ChatServiceError> {
+        self.stream_owner_generation.fetch_add(1, Ordering::AcqRel);
+        self.clear_route_indexes();
         self.app_server.mark_fatal(reason.clone()).await;
         self.emit_app_server_status().await;
         let runtimes = self
@@ -3105,37 +3343,6 @@ fn extract_turn_id(value: &Value) -> Option<String> {
         .or_else(|| value.get("id").and_then(Value::as_str).map(str::to_string))
 }
 
-fn extract_provider_thread_id(value: &Value) -> Option<String> {
-    value
-        .get("threadId")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or_else(|| {
-            value
-                .get("thread_id")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .or_else(|| {
-            value
-                .pointer("/thread/id")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .or_else(|| {
-            value
-                .pointer("/turn/threadId")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .or_else(|| {
-            value
-                .pointer("/item/threadId")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-}
-
 fn extract_model(value: &Value) -> Option<String> {
     value
         .get("model")
@@ -3387,6 +3594,90 @@ mod tests {
         }
     }
 
+    async fn test_service() -> Arc<ChatService> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let tmp = tempfile::TempDir::new().unwrap();
+        let settings = SettingsManager::new(tmp.path().join("settings.toml"))
+            .await
+            .unwrap();
+        Arc::new(ChatService {
+            pool,
+            events: Arc::new(crate::events::EventBus::new()),
+            settings: Arc::new(settings),
+            app_server: Arc::new(CodexAppServerManager::new_for_tests(Arc::new(|| {
+                Box::pin(async {
+                    Err(ChatServiceError::new(
+                        StatusCode::BAD_GATEWAY,
+                        "test app-server factory should not be used",
+                    ))
+                })
+            }))),
+            runtimes: DashMap::new(),
+            thread_to_conversation: DashMap::new(),
+            turn_to_conversation: DashMap::new(),
+            item_to_conversation: DashMap::new(),
+            server_request_to_conversation: DashMap::new(),
+            op_locks: DashMap::new(),
+            stream_owner_generation: AtomicU64::new(1),
+            app_event_loop_started: AtomicBool::new(false),
+        })
+    }
+
+    fn route_hints(
+        thread_id: Option<&str>,
+        turn_id: Option<&str>,
+        item_id: Option<&str>,
+        request_id: Option<&str>,
+    ) -> RouteHints {
+        RouteHints {
+            thread_id: thread_id.map(str::to_string),
+            turn_id: turn_id.map(str::to_string),
+            item_id: item_id.map(str::to_string),
+            request_id: request_id.map(str::to_string),
+        }
+    }
+
+    async fn insert_test_runtime(
+        service: &Arc<ChatService>,
+        conversation_id: &str,
+        provider_thread_id: &str,
+        active: bool,
+        owner_generation: u64,
+    ) -> RuntimeEntry {
+        let mut conversation = test_conversation();
+        conversation.id = conversation_id.to_string();
+        conversation.provider_thread_id = Some(provider_thread_id.to_string());
+        let runtime = RuntimeEntry {
+            state: Arc::new(Mutex::new(RuntimeState::new(
+                &conversation,
+                "/tmp/worktree",
+            ))),
+        };
+        {
+            let mut state = runtime.state.lock().await;
+            state.owner_generation = owner_generation;
+            state.provider_thread_id = Some(provider_thread_id.to_string());
+            state.stream_lifecycle.mark_resumed();
+            state.lifecycle = if active {
+                state.active_run_id = Some(format!("run-{conversation_id}"));
+                ChatRuntimeLifecycle::Running
+            } else {
+                ChatRuntimeLifecycle::Ready
+            };
+        }
+        service
+            .runtimes
+            .insert(conversation_id.to_string(), runtime.clone());
+        service
+            .register_provider_thread_route(conversation_id, &runtime, provider_thread_id)
+            .await;
+        runtime
+    }
+
     #[test]
     fn extract_model_ignores_blank_values() {
         assert_eq!(extract_model(&json!({ "model": "" })), None);
@@ -3474,20 +3765,165 @@ mod tests {
         assert_eq!(params.get("effort").and_then(Value::as_str), Some("high"));
     }
 
-    #[test]
-    fn extracts_provider_thread_id_from_routing_payloads() {
-        assert_eq!(
-            extract_provider_thread_id(&json!({ "threadId": "thread-1" })),
-            Some("thread-1".to_string()),
+    #[tokio::test]
+    async fn routes_notification_by_turn_id_with_multiple_active_streams() {
+        let service = test_service().await;
+        let runtime_a = insert_test_runtime(&service, "chat-a", "thread-a", true, 1).await;
+        let runtime_b = insert_test_runtime(&service, "chat-b", "thread-b", true, 1).await;
+        service
+            .register_turn_route("chat-a", &runtime_a, "turn-a")
+            .await;
+        service
+            .register_turn_route("chat-b", &runtime_b, "turn-b")
+            .await;
+
+        let (conversation_id, _) = service
+            .runtime_for_provider_event(&route_hints(None, Some("turn-b"), None, None))
+            .await
+            .expect("turn route should resolve");
+
+        assert_eq!(conversation_id, "chat-b");
+    }
+
+    #[tokio::test]
+    async fn routes_server_request_by_item_id_and_records_pending_request() {
+        let service = test_service().await;
+        let runtime_a = insert_test_runtime(&service, "chat-a", "thread-a", true, 1).await;
+        let _runtime_b = insert_test_runtime(&service, "chat-b", "thread-b", true, 1).await;
+        service
+            .register_item_route("chat-a", &runtime_a, "item-a")
+            .await;
+
+        let hints = route_hints(None, None, Some("item-a"), Some("request-a"));
+        let (conversation_id, runtime) = service
+            .runtime_for_provider_event(&hints)
+            .await
+            .expect("item route should resolve");
+        service
+            .register_pending_server_request(
+                &conversation_id,
+                &runtime,
+                "item/commandExecution/requestApproval",
+                &hints,
+            )
+            .await;
+
+        let (conversation_id, _) = service
+            .runtime_for_provider_event(&route_hints(None, None, None, Some("request-a")))
+            .await
+            .expect("pending request route should resolve");
+
+        assert_eq!(conversation_id, "chat-a");
+        let pending = service
+            .server_request_to_conversation
+            .get("request-a")
+            .expect("request route should be recorded");
+        assert_eq!(pending.method, "item/commandExecution/requestApproval");
+        assert_eq!(pending.item_id.as_deref(), Some("item-a"));
+    }
+
+    #[tokio::test]
+    async fn server_request_resolved_clears_pending_request_route() {
+        let service = test_service().await;
+        let runtime = insert_test_runtime(&service, "chat-a", "thread-a", true, 1).await;
+        let hints = route_hints(None, Some("turn-a"), None, Some("request-a"));
+        service
+            .register_pending_server_request(
+                "chat-a",
+                &runtime,
+                "item/tool/requestUserInput",
+                &hints,
+            )
+            .await;
+
+        service
+            .handle_provider_notification(
+                "chat-a",
+                &runtime,
+                "serverRequest/resolved",
+                json!({ "requestId": "request-a" }),
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !service
+                .server_request_to_conversation
+                .contains_key("request-a")
         );
-        assert_eq!(
-            extract_provider_thread_id(&json!({ "turn": { "threadId": "thread-2" } })),
-            Some("thread-2".to_string()),
+    }
+
+    #[tokio::test]
+    async fn unroutable_multi_stream_event_has_no_fallback() {
+        let service = test_service().await;
+        insert_test_runtime(&service, "chat-a", "thread-a", true, 1).await;
+        insert_test_runtime(&service, "chat-b", "thread-b", true, 1).await;
+
+        assert!(
+            service
+                .runtime_for_provider_event(&RouteHints::default())
+                .await
+                .is_none()
         );
-        assert_eq!(
-            extract_provider_thread_id(&json!({ "item": { "threadId": "thread-3" } })),
-            Some("thread-3".to_string()),
+    }
+
+    #[tokio::test]
+    async fn stale_owner_route_entries_are_ignored() {
+        let service = test_service().await;
+        insert_test_runtime(&service, "chat-a", "thread-a", true, 2).await;
+        service.turn_to_conversation.insert(
+            "turn-a".to_string(),
+            RouteEntry {
+                conversation_id: "chat-a".to_string(),
+                owner_generation: 1,
+            },
         );
+
+        assert!(
+            service
+                .runtime_for_provider_event(&route_hints(None, Some("turn-a"), None, None))
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn thread_id_route_takes_precedence_over_turn_id_route() {
+        let service = test_service().await;
+        let runtime_a = insert_test_runtime(&service, "chat-a", "thread-a", true, 1).await;
+        let runtime_b = insert_test_runtime(&service, "chat-b", "thread-b", true, 1).await;
+        service
+            .register_turn_route("chat-b", &runtime_b, "turn-shared")
+            .await;
+        service
+            .register_provider_thread_route("chat-a", &runtime_a, "thread-a")
+            .await;
+
+        let (conversation_id, _) = service
+            .runtime_for_provider_event(&route_hints(
+                Some("thread-a"),
+                Some("turn-shared"),
+                None,
+                None,
+            ))
+            .await
+            .expect("thread route should win");
+
+        assert_eq!(conversation_id, "chat-a");
+    }
+
+    #[tokio::test]
+    async fn single_active_stream_fallback_still_routes_legacy_events() {
+        let service = test_service().await;
+        insert_test_runtime(&service, "chat-a", "thread-a", true, 1).await;
+        insert_test_runtime(&service, "chat-b", "thread-b", false, 1).await;
+
+        let (conversation_id, _) = service
+            .runtime_for_provider_event(&RouteHints::default())
+            .await
+            .expect("single active stream should be fallback");
+
+        assert_eq!(conversation_id, "chat-a");
     }
 
     struct FakeCodexConnection {

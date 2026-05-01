@@ -30,12 +30,14 @@ pub(super) enum ParsedLine {
         method_kind: AppServerMethod,
         params: Value,
         thread_id: Option<String>,
+        route_hints: RouteHints,
     },
     Notification {
         method: String,
         method_kind: AppServerMethod,
         params: Value,
         thread_id: Option<String>,
+        route_hints: RouteHints,
     },
     Malformed {
         reason: String,
@@ -43,6 +45,30 @@ pub(super) enum ParsedLine {
     Unsupported {
         reason: String,
     },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct RouteHints {
+    pub(super) thread_id: Option<String>,
+    pub(super) turn_id: Option<String>,
+    pub(super) item_id: Option<String>,
+    pub(super) request_id: Option<String>,
+}
+
+impl RouteHints {
+    pub(super) fn from_value(params: &Value) -> Self {
+        Self {
+            thread_id: extract_thread_id(params),
+            turn_id: extract_turn_id(params),
+            item_id: extract_item_id(params),
+            request_id: extract_request_id(params),
+        }
+    }
+
+    fn with_request_id(mut self, id: &Value) -> Self {
+        self.request_id = value_to_route_id(id).or(self.request_id);
+        self
+    }
 }
 
 pub(super) fn parse_jsonrpc_line(line: &str) -> ParsedLine {
@@ -64,14 +90,17 @@ pub(super) fn parse_jsonrpc_line(line: &str) -> ParsedLine {
     if let Some(method) = object.get("method").and_then(Value::as_str) {
         let params = object.get("params").cloned().unwrap_or(Value::Null);
         let method_kind = classify_method(method);
-        let thread_id = extract_thread_id(&params);
+        let route_hints = RouteHints::from_value(&params);
+        let thread_id = route_hints.thread_id.clone();
         if let Some(id) = object.get("id") {
+            let route_hints = route_hints.with_request_id(id);
             return ParsedLine::ServerRequest {
                 id: id.clone(),
                 method: method.to_string(),
                 method_kind,
                 params,
                 thread_id,
+                route_hints,
             };
         }
 
@@ -80,6 +109,7 @@ pub(super) fn parse_jsonrpc_line(line: &str) -> ParsedLine {
             method_kind,
             params,
             thread_id,
+            route_hints,
         };
     }
 
@@ -182,6 +212,55 @@ fn extract_thread_id(value: &Value) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn extract_turn_id(value: &Value) -> Option<String> {
+    value
+        .get("turnId")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("turn_id").and_then(Value::as_str))
+        .or_else(|| value.pointer("/turn/id").and_then(Value::as_str))
+        .or_else(|| value.pointer("/item/turnId").and_then(Value::as_str))
+        .or_else(|| value.pointer("/item/turn/id").and_then(Value::as_str))
+        .map(ToOwned::to_owned)
+}
+
+fn extract_item_id(value: &Value) -> Option<String> {
+    value
+        .get("itemId")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("item_id").and_then(Value::as_str))
+        .or_else(|| value.pointer("/item/id").and_then(Value::as_str))
+        .map(ToOwned::to_owned)
+}
+
+fn extract_request_id(value: &Value) -> Option<String> {
+    value
+        .get("requestId")
+        .and_then(value_to_route_id)
+        .or_else(|| value.get("request_id").and_then(value_to_route_id))
+        .or_else(|| value.pointer("/request/id").and_then(value_to_route_id))
+        .or_else(|| {
+            value
+                .pointer("/serverRequest/id")
+                .and_then(value_to_route_id)
+        })
+        .or_else(|| {
+            value
+                .pointer("/serverRequest/requestId")
+                .and_then(value_to_route_id)
+        })
+        .or_else(|| value.pointer("/item/requestId").and_then(value_to_route_id))
+}
+
+fn value_to_route_id(value: &Value) -> Option<String> {
+    if let Some(value) = value.as_str() {
+        return Some(value.to_string());
+    }
+    if value.is_number() || value.is_boolean() {
+        return Some(value.to_string());
+    }
+    None
+}
+
 fn extract_error_message(value: &Value) -> Option<String> {
     value
         .get("message")
@@ -237,6 +316,7 @@ mod tests {
                 method,
                 method_kind,
                 thread_id,
+                route_hints,
                 ..
             } => {
                 assert_eq!(id, json!("req-1"));
@@ -246,6 +326,7 @@ mod tests {
                     AppServerMethod::CurrentRequest("item/tool/requestUserInput")
                 );
                 assert_eq!(thread_id.as_deref(), Some("thread-a"));
+                assert_eq!(route_hints.request_id.as_deref(), Some("req-1"));
             }
             other => panic!("unexpected parsed line: {other:?}"),
         }
@@ -254,12 +335,13 @@ mod tests {
     #[test]
     fn parses_notification() {
         match parse_jsonrpc_line(
-            r#"{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"delta":"hi","threadId":"thread-b"}}"#,
+            r#"{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"delta":"hi","threadId":"thread-b","turnId":"turn-b","itemId":"item-b"}}"#,
         ) {
             ParsedLine::Notification {
                 method,
                 method_kind,
                 thread_id,
+                route_hints,
                 ..
             } => {
                 assert_eq!(method, "item/agentMessage/delta");
@@ -268,9 +350,46 @@ mod tests {
                     AppServerMethod::Current("item/agentMessage/delta")
                 );
                 assert_eq!(thread_id.as_deref(), Some("thread-b"));
+                assert_eq!(route_hints.thread_id.as_deref(), Some("thread-b"));
+                assert_eq!(route_hints.turn_id.as_deref(), Some("turn-b"));
+                assert_eq!(route_hints.item_id.as_deref(), Some("item-b"));
             }
             other => panic!("unexpected parsed line: {other:?}"),
         }
+    }
+
+    #[test]
+    fn extracts_route_hints_from_common_payload_shapes() {
+        let hints = RouteHints::from_value(&json!({
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "itemId": "item-1",
+            "requestId": "request-1"
+        }));
+        assert_eq!(hints.thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(hints.turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(hints.item_id.as_deref(), Some("item-1"));
+        assert_eq!(hints.request_id.as_deref(), Some("request-1"));
+
+        let hints = RouteHints::from_value(&json!({
+            "thread": { "id": "thread-2" },
+            "turn": { "id": "turn-2", "threadId": "thread-3" },
+            "item": {
+                "id": "item-2",
+                "turnId": "turn-3",
+                "threadId": "thread-4",
+                "requestId": 42
+            }
+        }));
+        assert_eq!(hints.thread_id.as_deref(), Some("thread-2"));
+        assert_eq!(hints.turn_id.as_deref(), Some("turn-2"));
+        assert_eq!(hints.item_id.as_deref(), Some("item-2"));
+        assert_eq!(hints.request_id.as_deref(), Some("42"));
+
+        let hints = RouteHints::from_value(&json!({
+            "serverRequest": { "requestId": "request-2" }
+        }));
+        assert_eq!(hints.request_id.as_deref(), Some("request-2"));
     }
 
     #[test]
