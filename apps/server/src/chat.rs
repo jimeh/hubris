@@ -20,6 +20,12 @@ use utoipa::ToSchema;
 use crate::events::EventKind;
 use crate::settings_manager::SettingsManager;
 
+mod lifecycle;
+mod protocol;
+
+use lifecycle::{AppServerLifecycle, ThreadStreamLifecycle};
+use protocol::ParsedLine;
+
 pub const DEFAULT_CHAT_TITLE: &str = "New Chat";
 const DEFAULT_IDLE_TIMEOUT_MINUTES: u32 = 5;
 const CHAT_DB_MAX_CONNECTIONS: u32 = 1;
@@ -374,12 +380,18 @@ struct RuntimeState {
     active_error: Option<String>,
     lifecycle: ChatRuntimeLifecycle,
     active_reasoning_summary_index: Option<u64>,
+    stream_lifecycle: ThreadStreamLifecycle,
     idle_generation: u64,
     shutting_down: bool,
 }
 
 impl RuntimeState {
     fn new(conversation: &ChatConversationSummary) -> Self {
+        let mut stream_lifecycle = ThreadStreamLifecycle::default();
+        if conversation.provider_thread_id.is_some() {
+            stream_lifecycle.mark_needs_resume();
+        }
+
         Self {
             session_id: conversation.session_id.clone(),
             project_id: conversation.project_id.clone(),
@@ -390,6 +402,7 @@ impl RuntimeState {
             active_error: None,
             lifecycle: ChatRuntimeLifecycle::Starting,
             active_reasoning_summary_index: None,
+            stream_lifecycle,
             idle_generation: 0,
             shutting_down: false,
         }
@@ -422,10 +435,14 @@ struct CodexAppServerClient {
     next_id: AtomicU64,
     pending: Arc<Mutex<PendingResponses>>,
     stream_events: broadcast::Sender<CodexStreamEvent>,
+    lifecycle: Arc<Mutex<AppServerLifecycle>>,
 }
 
 impl CodexAppServerClient {
     async fn spawn() -> Result<Arc<Self>, ChatServiceError> {
+        let mut initial_lifecycle = AppServerLifecycle::default();
+        initial_lifecycle.mark_starting();
+        let lifecycle = Arc::new(Mutex::new(initial_lifecycle));
         let mut child = Command::new("codex")
             .args(["app-server", "--listen", "stdio://"])
             .stdin(std::process::Stdio::piped())
@@ -465,11 +482,26 @@ impl CodexAppServerClient {
             next_id: AtomicU64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
             stream_events,
+            lifecycle,
         });
 
         Self::spawn_stdout_reader(client.clone(), stdout);
         Self::spawn_stderr_reader(stderr);
-        client.initialize().await?;
+        {
+            let mut lifecycle = client.lifecycle.lock().await;
+            lifecycle.mark_initializing();
+        }
+        if let Err(error) = client.initialize().await {
+            let mut lifecycle = client.lifecycle.lock().await;
+            lifecycle.mark_fatal();
+            drop(lifecycle);
+            client.shutdown().await;
+            return Err(error);
+        }
+        {
+            let mut lifecycle = client.lifecycle.lock().await;
+            lifecycle.mark_ready();
+        }
         Ok(client)
     }
 
@@ -483,47 +515,61 @@ impl CodexAppServerClient {
                             continue;
                         }
 
-                        let value: Value = match serde_json::from_str(&line) {
-                            Ok(value) => value,
-                            Err(error) => {
-                                tracing::warn!("invalid codex app-server json: {error}");
-                                continue;
+                        match protocol::parse_jsonrpc_line(&line) {
+                            ParsedLine::ServerRequest {
+                                id,
+                                method,
+                                method_kind,
+                                params,
+                                thread_id,
+                            } => {
+                                tracing::trace!(
+                                    method = method_kind.name(),
+                                    thread_id = thread_id.as_deref().unwrap_or(""),
+                                    "codex app-server server request"
+                                );
+                                let _ = client
+                                    .stream_events
+                                    .send(CodexStreamEvent::ServerRequest { id, method, params });
                             }
-                        };
-
-                        if let Some(method) = value.get("method").and_then(Value::as_str) {
-                            let params = value.get("params").cloned().unwrap_or(Value::Null);
-                            if let Some(id) = value.get("id") {
-                                let _ =
-                                    client.stream_events.send(CodexStreamEvent::ServerRequest {
-                                        id: id.clone(),
-                                        method: method.to_string(),
-                                        params,
-                                    });
-                            } else {
-                                let _ = client.stream_events.send(CodexStreamEvent::Notification {
-                                    method: method.to_string(),
-                                    params,
-                                });
+                            ParsedLine::Notification {
+                                method,
+                                method_kind,
+                                params,
+                                thread_id,
+                            } => {
+                                tracing::trace!(
+                                    method = method_kind.name(),
+                                    thread_id = thread_id.as_deref().unwrap_or(""),
+                                    "codex app-server notification"
+                                );
+                                let _ = client
+                                    .stream_events
+                                    .send(CodexStreamEvent::Notification { method, params });
                             }
-                            continue;
-                        }
-
-                        if let Some(id) = value.get("id").and_then(Value::as_u64) {
-                            let mut pending = client.pending.lock().await;
-                            if let Some(reply) = pending.remove(&id) {
-                                let result = if let Some(error) = value.get("error") {
-                                    Err(ChatServiceError::new(
-                                        StatusCode::BAD_GATEWAY,
-                                        error
-                                            .get("message")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("codex app-server request failed"),
-                                    ))
-                                } else {
-                                    Ok(value.get("result").cloned().unwrap_or(Value::Null))
-                                };
-                                let _ = reply.send(result);
+                            ParsedLine::Response {
+                                id,
+                                result,
+                                error_message,
+                            } => {
+                                let mut pending = client.pending.lock().await;
+                                if let Some(reply) = pending.remove(&id) {
+                                    let result = if let Some(message) = error_message {
+                                        Err(ChatServiceError::new(StatusCode::BAD_GATEWAY, message))
+                                    } else {
+                                        Ok(result)
+                                    };
+                                    let _ = reply.send(result);
+                                }
+                            }
+                            ParsedLine::Malformed { reason } => {
+                                tracing::warn!(reason, "invalid codex app-server JSON-RPC line");
+                            }
+                            ParsedLine::Unsupported { reason } => {
+                                tracing::warn!(
+                                    reason,
+                                    "unsupported codex app-server JSON-RPC message"
+                                );
                             }
                         }
                     }
@@ -652,9 +698,22 @@ impl CodexAppServerClient {
     }
 
     async fn shutdown(&self) {
+        let was_fatal = {
+            let mut lifecycle = self.lifecycle.lock().await;
+            let was_fatal = lifecycle.is_fatal();
+            if !was_fatal {
+                lifecycle.mark_stopping();
+            }
+            was_fatal
+        };
         let mut child = self.child.lock().await;
         let _ = child.kill().await;
         let _ = child.wait().await;
+        if was_fatal {
+            return;
+        }
+        let mut lifecycle = self.lifecycle.lock().await;
+        lifecycle.mark_stopped();
     }
 }
 
@@ -1233,6 +1292,9 @@ impl ChatService {
                 let mut state = runtime.state.lock().await;
                 state.idle_generation = state.idle_generation.saturating_add(1);
                 state.shutting_down = false;
+                if state.provider_thread_id.is_some() {
+                    state.stream_lifecycle.mark_resumed();
+                }
             }
             return Ok(runtime);
         }
@@ -1246,6 +1308,10 @@ impl ChatService {
         self.runtimes
             .insert(conversation_id.to_string(), runtime.clone());
         self.spawn_provider_event_loop(conversation_id.to_string(), runtime.clone());
+        {
+            let mut state = runtime.state.lock().await;
+            state.stream_lifecycle.mark_resuming();
+        }
 
         let resume_or_start = if let Some(provider_thread_id) = &conversation.provider_thread_id {
             let mut params = serde_json::Map::new();
@@ -1291,6 +1357,7 @@ impl ChatService {
             let mut state = runtime.state.lock().await;
             state.provider_thread_id = Some(provider_thread_id.clone());
             state.lifecycle = ChatRuntimeLifecycle::Ready;
+            state.stream_lifecycle.mark_resumed();
             state.shutting_down = false;
             state.idle_generation = state.idle_generation.saturating_add(1);
         }
@@ -1635,6 +1702,7 @@ impl ChatService {
             } else {
                 ChatRuntimeLifecycle::Failed
             };
+            state.stream_lifecycle.mark_process_lost();
             state.active_reasoning_summary_index = None;
             (
                 state.active_run_id.take(),
