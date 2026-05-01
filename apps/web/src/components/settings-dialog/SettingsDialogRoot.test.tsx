@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetSettingsStoreForTests } from "@/lib/stores/settings";
@@ -10,6 +10,10 @@ vi.mock("./AppearanceSettings", () => ({
 
 vi.mock("./TerminalSettings", () => ({
   default: () => <div>Terminal section</div>,
+}));
+
+vi.mock("./KeyboardShortcutsSettings", () => ({
+  default: () => <div>Keyboard Shortcuts section</div>,
 }));
 
 vi.mock("./VscodeSettings", () => ({
@@ -46,6 +50,11 @@ describe("SettingsDialogRoot", () => {
     expect(
       screen.getByRole("link", { current: "page", name: "Terminal" }),
     ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Keyboard Shortcuts" }),
+    );
+    expect(screen.getByText("Keyboard Shortcuts section")).toBeInTheDocument();
   });
 
   it("keeps the mobile select navigation working", async () => {
@@ -58,6 +67,24 @@ describe("SettingsDialogRoot", () => {
 
     expect(screen.getByText("VS Code section")).toBeInTheDocument();
     expect(screen.getByRole("combobox")).toHaveTextContent("VS Code");
+  });
+
+  it("closes from the sidebar back button", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+
+    render(<SettingsDialogRoot open onOpenChange={onOpenChange} />);
+
+    const sidebar = document.querySelector('[data-sidebar="header"]');
+    expect(sidebar).not.toBeNull();
+
+    await user.click(
+      within(sidebar as HTMLElement).getByRole("button", {
+        name: "Close settings",
+      }),
+    );
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("resets to the requested section when reopened from a command", async () => {
@@ -82,6 +109,25 @@ describe("SettingsDialogRoot", () => {
     expect(screen.getByText("VS Code section")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { current: "page", name: "VS Code" }),
+    ).toBeInTheDocument();
+  });
+
+  it("reopens to the last selected section", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <SettingsDialogRoot open onOpenChange={onOpenChange} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Terminal" }));
+    expect(screen.getByText("Terminal section")).toBeInTheDocument();
+
+    rerender(<SettingsDialogRoot open={false} onOpenChange={onOpenChange} />);
+    rerender(<SettingsDialogRoot open onOpenChange={onOpenChange} />);
+
+    expect(screen.getByText("Terminal section")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { current: "page", name: "Terminal" }),
     ).toBeInTheDocument();
   });
 });

@@ -17,6 +17,7 @@ export type CommandDialogIntent =
       worktreeId: string;
       forceDelete?: boolean;
     }
+  | { type: "select-worktree" }
   | { type: "rename-terminal-tab"; tabId: string }
   | { type: "settings"; section?: SectionName }
   | { type: "close-dirty-tab"; tabId: string };

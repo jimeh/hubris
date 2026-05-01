@@ -11,6 +11,9 @@ use crate::api::files::{
     WorktreeFileContentResponse, WorktreeFileEntry, WorktreeFileKind, WorktreeGitDiffParams,
     WorktreeGitDiffResponse, WriteWorktreeFileContentRequest, WriteWorktreeFileContentResponse,
 };
+use crate::api::keybindings::{
+    KeybindingEntry, KeybindingsState, KeybindingsStatus, KeybindingsStatusKind,
+};
 use crate::api::processes::{
     ManagedProcessExitInfo, ManagedProcessLifecycleStateValue, ManagedProcessStatus,
 };
@@ -105,6 +108,8 @@ use crate::tab::{
         crate::api::settings::get_settings,
         crate::api::settings::put_settings,
         crate::api::settings::patch_settings,
+        crate::api::keybindings::get_keybindings,
+        crate::api::keybindings::put_keybindings,
         crate::api::editor_themes::list_editor_themes,
         crate::api::editor_themes::get_editor_theme,
         crate::api::editor_themes::upload_editor_theme,
@@ -200,6 +205,10 @@ use crate::tab::{
             SettingsStatusKind,
             SettingsStatus,
             SettingsState,
+            KeybindingEntry,
+            KeybindingsStatusKind,
+            KeybindingsStatus,
+            KeybindingsState,
             SystemInfo,
             EditorThemeEntry,
             VscodeThemeJson,

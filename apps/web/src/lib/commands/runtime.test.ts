@@ -2,9 +2,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiStatusError } from "@/lib/api";
 import { resetBootstrapForTests } from "@/lib/bootstrap";
+import {
+  resetAppSidebarStoreForTests,
+  useAppSidebarStore,
+} from "@/lib/stores/appSidebar";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useTabStore } from "@/lib/stores/tabs";
+import { useWorktreeHistorySwitcherStore } from "@/lib/stores/worktreeHistorySwitcher";
+import {
+  resetWorktreeRightSidebarStoreForTests,
+  useWorktreeRightSidebarStore,
+} from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import { commandIds, getCommandDefinition } from "./registry";
 import { executeCommand, getCommandAvailability } from "./runtime";
@@ -15,12 +24,12 @@ vi.mock("sonner", () => ({
   },
 }));
 
-function makeProject(id: string, name: string) {
+function makeProject(id: string, name: string, position = 1) {
   return {
     id,
     name,
     path: `/tmp/${id}`,
-    position: 1,
+    position,
   };
 }
 
@@ -64,8 +73,8 @@ function makeTerminalTab(id: string, worktreeId: string, paneId = "pane-1") {
 }
 
 function seedContext() {
-  const projectOne = makeProject("p1", "Alpha");
-  const projectTwo = makeProject("p2", "Beta");
+  const projectOne = makeProject("p1", "Alpha", 1);
+  const projectTwo = makeProject("p2", "Beta", 2);
   const worktreeOne = makeWorktree("w1", "p1", "local", {
     is_local: true,
   });
@@ -101,6 +110,9 @@ describe("command runtime", () => {
   beforeEach(() => {
     localStorage.clear();
     resetBootstrapForTests();
+    resetAppSidebarStoreForTests();
+    resetWorktreeRightSidebarStoreForTests();
+    useWorktreeHistorySwitcherStore.getState().cancel();
     vi.restoreAllMocks();
   });
 
@@ -108,8 +120,17 @@ describe("command runtime", () => {
     expect(commandIds()).toEqual(
       expect.arrayContaining([
         "project.add",
+        "app.toggleLeftSidebar",
+        "app.toggleRightSidebar",
+        "project.selectNext",
+        "project.selectPrevious",
         "worktree.create",
         "worktree.import",
+        "worktree.navigateBack",
+        "worktree.navigateForward",
+        "worktree.selectNext",
+        "worktree.selectPrevious",
+        "worktree.showHistorySwitcher",
         "tab.newTerminal",
         "settings.openSection",
       ]),
@@ -134,6 +155,31 @@ describe("command runtime", () => {
       enabled: true,
       reason: undefined,
     });
+  });
+
+  it("toggles the registered left sidebar controller", async () => {
+    const toggle = vi.fn();
+    useAppSidebarStore.getState().setController({ toggle });
+
+    await expect(
+      executeCommand({ id: "app.toggleLeftSidebar", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("toggles the right sidebar for the current viewport", async () => {
+    const store = useWorktreeRightSidebarStore;
+    store.setState({ desktopOpen: true, isMobileViewport: false });
+
+    await expect(
+      executeCommand({ id: "app.toggleRightSidebar", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(store.getState().desktopOpen).toBe(false);
+
+    store.setState({ isMobileViewport: true, mobileOpen: false });
+    await executeCommand({ id: "app.toggleRightSidebar", source: "system" });
+    expect(store.getState().mobileOpen).toBe(true);
   });
 
   it("lets explicit args override derived context during execution", async () => {
@@ -187,6 +233,196 @@ describe("command runtime", () => {
 
     expect(result).toEqual({ status: "success" });
     expect(importSpy).toHaveBeenCalledWith(projectTwo.id, "/tmp/imported");
+  });
+
+  it("switches to the next and previous project local worktree", async () => {
+    const { projectTwo, worktreeOne, worktreeTwo } = seedContext();
+    const projectTwoLocal = makeWorktree("w2-local", projectTwo.id, "local", {
+      is_local: true,
+      position: 1,
+    });
+    useWorktreeStore.setState({
+      worktreesByProject: {
+        p1: [worktreeOne],
+        p2: [
+          projectTwoLocal,
+          {
+            ...worktreeTwo,
+            position: 2,
+          },
+        ],
+      },
+    });
+
+    await expect(
+      executeCommand({ id: "project.selectNext", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(
+      projectTwoLocal.id,
+    );
+
+    await expect(
+      executeCommand({ id: "project.selectPrevious", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(worktreeOne.id);
+  });
+
+  it("switches to worktrees across projects in sidebar order", async () => {
+    const { projectOne, projectTwo, worktreeOne, worktreeTwo } = seedContext();
+    const feature = makeWorktree("w1-feature", projectOne.id, "feature", {
+      position: 2,
+    });
+    const release = makeWorktree("w1-release", projectOne.id, "release", {
+      position: 3,
+    });
+    useWorktreeStore.setState({
+      selectedWorktreeId: worktreeOne.id,
+      worktreesByProject: {
+        [projectOne.id]: [worktreeOne, feature, release],
+        [projectTwo.id]: [worktreeTwo],
+      },
+    });
+
+    await expect(
+      executeCommand({ id: "worktree.selectPrevious", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(worktreeTwo.id);
+
+    await expect(
+      executeCommand({ id: "worktree.selectNext", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(worktreeOne.id);
+
+    await expect(
+      executeCommand({ id: "worktree.selectNext", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(feature.id);
+  });
+
+  it("opens the worktree picker when switching without a target", async () => {
+    seedContext();
+
+    await expect(
+      executeCommand({ id: "worktree.select", source: "system" }),
+    ).resolves.toEqual({ status: "cancelled" });
+    expect(useCommandUiStore.getState().dialog).toEqual({
+      type: "select-worktree",
+    });
+  });
+
+  it("navigates worktree history through commands", async () => {
+    const { worktreeOne, worktreeTwo } = seedContext();
+    useWorktreeStore.setState({
+      navigationBackIds: [worktreeTwo.id],
+      navigationForwardIds: [],
+      selectedWorktreeId: worktreeOne.id,
+    });
+
+    expect(getCommandAvailability("worktree.navigateBack")).toEqual({
+      enabled: true,
+      reason: undefined,
+    });
+
+    await expect(
+      executeCommand({ id: "worktree.navigateBack", source: "system" }),
+    ).resolves.toEqual({ status: "success" });
+    expect(useWorktreeStore.getState()).toMatchObject({
+      navigationBackIds: [],
+      navigationForwardIds: [worktreeOne.id],
+      selectedWorktreeId: worktreeTwo.id,
+    });
+  });
+
+  it("opens the recent worktree switcher without selecting immediately", async () => {
+    const { worktreeOne, worktreeTwo } = seedContext();
+    useWorktreeStore.setState({
+      navigationBackIds: [worktreeTwo.id],
+      selectedWorktreeId: worktreeOne.id,
+    });
+
+    expect(getCommandAvailability("worktree.showHistorySwitcher")).toEqual({
+      enabled: true,
+      reason: undefined,
+    });
+
+    await expect(
+      executeCommand({
+        args: { direction: "back" },
+        id: "worktree.showHistorySwitcher",
+        source: "keyboard-shortcut",
+      }),
+    ).resolves.toEqual({ status: "success" });
+
+    expect(useWorktreeHistorySwitcherStore.getState()).toMatchObject({
+      items: [worktreeOne.id, worktreeTwo.id],
+      open: true,
+      selectedIndex: 1,
+    });
+    expect(useWorktreeStore.getState().selectedWorktreeId).toBe(worktreeOne.id);
+  });
+
+  it("keeps the recent worktree switcher unavailable without MRU history", () => {
+    seedContext();
+
+    expect(getCommandAvailability("worktree.showHistorySwitcher")).toEqual({
+      enabled: false,
+      reason: "No recent worktree in history",
+    });
+  });
+
+  it("cycles the current worktree UI mode", async () => {
+    const { projectOne, worktreeOne } = seedContext();
+    const updateSpy = vi
+      .spyOn(useWorktreeStore.getState(), "updateUiMode")
+      .mockResolvedValue(undefined);
+
+    expect(
+      getCommandAvailability("worktree.setUiMode", { uiMode: "cycle" }),
+    ).toEqual({
+      enabled: true,
+      reason: undefined,
+    });
+
+    await expect(
+      executeCommand({
+        args: { uiMode: "cycle" },
+        id: "worktree.setUiMode",
+        source: "keyboard-shortcut",
+      }),
+    ).resolves.toEqual({ status: "success" });
+
+    expect(updateSpy).toHaveBeenCalledWith(
+      projectOne.id,
+      worktreeOne.id,
+      "vscode",
+    );
+  });
+
+  it("cycles VS Code worktrees back to Hubris mode", async () => {
+    const { projectOne, worktreeOne } = seedContext();
+    useWorktreeStore.setState({
+      selectedWorktreeId: worktreeOne.id,
+      worktreesByProject: {
+        [projectOne.id]: [{ ...worktreeOne, ui_mode: "vscode" }],
+      },
+    });
+    const updateSpy = vi
+      .spyOn(useWorktreeStore.getState(), "updateUiMode")
+      .mockResolvedValue(undefined);
+
+    await expect(
+      executeCommand({
+        args: { uiMode: "cycle" },
+        id: "worktree.setUiMode",
+        source: "keyboard-shortcut",
+      }),
+    ).resolves.toEqual({ status: "success" });
+
+    expect(updateSpy).toHaveBeenCalledWith(
+      projectOne.id,
+      worktreeOne.id,
+      "hubris",
+    );
   });
 
   it("reopens project removal in force mode on 409 conflicts", async () => {

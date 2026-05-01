@@ -55,6 +55,7 @@ const DEFAULT_SETTINGS: Settings = {
     fontSize: 14,
     smartTabNaming: true,
     escapeSequenceTitles: true,
+    sendKeybindingsToShell: false,
     clientScrollbackRows: 10000,
     serverScrollbackBytes: 256 * 1024,
   },
@@ -271,6 +272,14 @@ function normalizeTerminalSettings(candidate: unknown): {
     changed = true;
   }
 
+  const sendKeybindingsToShell =
+    typeof source.sendKeybindingsToShell === "boolean"
+      ? source.sendKeybindingsToShell
+      : DEFAULT_SETTINGS.terminal.sendKeybindingsToShell;
+  if (sendKeybindingsToShell !== source.sendKeybindingsToShell) {
+    changed = true;
+  }
+
   const clientScrollbackRows = clampClientScrollbackRows(
     typeof source.clientScrollbackRows === "number"
       ? source.clientScrollbackRows
@@ -297,6 +306,7 @@ function normalizeTerminalSettings(candidate: unknown): {
       fontSize,
       smartTabNaming,
       escapeSequenceTitles,
+      sendKeybindingsToShell,
       clientScrollbackRows,
       serverScrollbackBytes,
     },
@@ -724,6 +734,7 @@ function equalTerminalSettings(
     left.fontSize === right.fontSize &&
     left.smartTabNaming === right.smartTabNaming &&
     left.escapeSequenceTitles === right.escapeSequenceTitles &&
+    left.sendKeybindingsToShell === right.sendKeybindingsToShell &&
     left.clientScrollbackRows === right.clientScrollbackRows &&
     left.serverScrollbackBytes === right.serverScrollbackBytes
   );

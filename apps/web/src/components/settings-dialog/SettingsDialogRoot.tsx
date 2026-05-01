@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Settings } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogTitle,
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui/sidebar";
 import AppearanceSettings from "./AppearanceSettings";
 import EditorSettings from "./EditorSettings";
+import KeyboardShortcutsSettings from "./KeyboardShortcutsSettings";
 import TerminalSettings from "./TerminalSettings";
 import VscodeSettings from "./VscodeSettings";
 import WorktreeSettings from "./WorktreeSettings";
@@ -42,31 +44,57 @@ import {
 } from "./sections";
 import SettingsStatusNotice from "@/components/SettingsStatusNotice";
 import { useSettingsStore } from "@/lib/stores/settings";
+import { cn } from "@/lib/utils";
 
 function SettingsDialogBody({
   initialSection = "Appearance",
+  onSectionChange,
   open,
   onOpenChange,
-}: SettingsDialogProps) {
+}: SettingsDialogProps & {
+  onSectionChange: (section: SectionName) => void;
+}) {
   const [activeSection, setActiveSection] =
     useState<SectionName>(initialSection);
   const settingsStatus = useSettingsStore((state) => state.status);
+  function selectSection(section: SectionName): void {
+    setActiveSection(section);
+    onSectionChange(section);
+  }
+
+  function handleOpenChange(nextOpen: boolean): void {
+    if (!nextOpen) {
+      onSectionChange(activeSection);
+    }
+    onOpenChange(nextOpen);
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-1rem)] max-w-[calc(100%-1rem)] overflow-hidden p-0 md:max-h-[500px] md:max-w-[700px] lg:max-w-[800px]">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        className="top-2 right-2 bottom-2 left-2 h-auto max-h-none w-auto max-w-none translate-x-0 translate-y-0 overflow-hidden p-0 sm:max-w-none"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <DialogDescription className="sr-only">
           Customize your settings here.
         </DialogDescription>
-        <SidebarProvider className="min-h-0 items-start overflow-hidden">
+        <SidebarProvider className="h-full min-h-0 items-start overflow-hidden">
           <Sidebar
             collapsible="none"
             className="hidden border-r border-sidebar-border md:flex"
           >
             <SidebarHeader className="h-12 justify-center gap-0 border-b border-sidebar-border px-4 py-0">
               <h2 className="flex items-center gap-2 text-base font-semibold">
-                <Settings className="h-4 w-4" />
+                <DialogClose asChild>
+                  <button
+                    type="button"
+                    aria-label="Close settings"
+                    className="rounded-xs text-muted-foreground transition-colors hover:text-foreground focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                </DialogClose>
                 <span>Settings</span>
               </h2>
             </SidebarHeader>
@@ -79,7 +107,7 @@ function SettingsDialogBody({
                         <SidebarMenuButton
                           isActive={activeSection === item.name}
                           className="data-[active=true]:bg-sidebar-primary data-[active=true]:text-sidebar-primary-foreground"
-                          onClick={() => setActiveSection(item.name)}
+                          onClick={() => selectSection(item.name)}
                         >
                           <item.icon className="h-4 w-4" />
                           <span>{item.name}</span>
@@ -91,10 +119,18 @@ function SettingsDialogBody({
               </SidebarGroup>
             </SidebarContent>
           </Sidebar>
-          <main className="flex h-[calc(100dvh-1rem)] flex-1 flex-col overflow-hidden md:h-[480px]">
+          <main className="flex h-full flex-1 flex-col overflow-hidden">
             <header className="flex h-12 shrink-0 items-center border-b px-3 pr-14 sm:px-4 md:pr-4">
               <div className="flex items-center gap-2 md:hidden">
-                <Settings className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <DialogClose asChild>
+                  <button
+                    type="button"
+                    aria-label="Close settings"
+                    className="rounded-xs text-muted-foreground transition-colors hover:text-foreground focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                </DialogClose>
                 <span className="text-sm font-medium">Settings</span>
               </div>
               <Breadcrumb className="hidden md:block">
@@ -109,9 +145,7 @@ function SettingsDialogBody({
               <div className="flex min-w-0 items-center gap-2">
                 <Select
                   value={activeSection}
-                  onValueChange={(value) =>
-                    setActiveSection(value as SectionName)
-                  }
+                  onValueChange={(value) => selectSection(value as SectionName)}
                 >
                   <SelectTrigger className="w-full min-w-0">
                     <SelectValue />
@@ -129,11 +163,21 @@ function SettingsDialogBody({
                 </Select>
               </div>
             </div>
-            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4">
+            <div
+              className={cn(
+                "flex flex-1 flex-col gap-4 p-3 sm:p-4",
+                activeSection === "Keyboard Shortcuts"
+                  ? "min-h-0 overflow-hidden"
+                  : "overflow-y-auto",
+              )}
+            >
               <SettingsStatusNotice status={settingsStatus} variant="dialog" />
               {activeSection === "Appearance" ? <AppearanceSettings /> : null}
               {activeSection === "Editor" ? <EditorSettings /> : null}
               {activeSection === "Terminal" ? <TerminalSettings /> : null}
+              {activeSection === "Keyboard Shortcuts" ? (
+                <KeyboardShortcutsSettings />
+              ) : null}
               {activeSection === "VS Code" ? <VscodeSettings /> : null}
               {activeSection === "Worktrees" ? <WorktreeSettings /> : null}
             </div>
@@ -145,13 +189,23 @@ function SettingsDialogBody({
 }
 
 export default function SettingsDialogRoot(props: SettingsDialogProps) {
-  const { initialSection = "Appearance", open } = props;
+  const { initialSection, open } = props;
+  const [rememberedSection, setRememberedSection] =
+    useState<SectionName>("Appearance");
+  const sectionToOpen = initialSection ?? rememberedSection;
 
   return (
     <SettingsDialogBody
-      key={open ? initialSection : "__closed__"}
+      key={
+        open
+          ? initialSection
+            ? `section:${initialSection}`
+            : "open"
+          : "__closed__"
+      }
       {...props}
-      initialSection={initialSection}
+      initialSection={sectionToOpen}
+      onSectionChange={setRememberedSection}
     />
   );
 }

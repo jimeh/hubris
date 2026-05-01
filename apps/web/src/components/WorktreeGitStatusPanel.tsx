@@ -1790,7 +1790,7 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
 
   return (
     <>
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea data-git-status className="min-h-0 flex-1">
         <div className="flex min-h-full flex-col gap-4 p-3">
           {loading && !status && showLoadingSkeleton ? (
             <>

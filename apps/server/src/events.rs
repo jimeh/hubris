@@ -5,6 +5,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 use ts_rs::TS;
 
+use crate::api::keybindings::{KeybindingsState, KeybindingsStatus};
 use crate::api::processes::ManagedProcessStatus;
 use crate::api::projects::Project;
 use crate::api::settings::{Settings, SettingsState, SettingsStatus};
@@ -34,6 +35,9 @@ pub enum EventKind {
         settings: Box<Settings>,
         settings_generation: String,
         settings_status: SettingsStatus,
+        keybindings: Box<Vec<crate::api::keybindings::KeybindingEntry>>,
+        keybindings_generation: String,
+        keybindings_status: KeybindingsStatus,
         vscode: Box<VscodeStatus>,
         managed_processes: Vec<ManagedProcessStatus>,
         tasks: Vec<TaskInvocationStatus>,
@@ -97,6 +101,8 @@ pub enum EventKind {
     },
     #[serde(rename = "settings_updated")]
     SettingsUpdated(SettingsState),
+    #[serde(rename = "keybindings_updated")]
+    KeybindingsUpdated(KeybindingsState),
     #[serde(rename = "vscode_updated")]
     VscodeUpdated(Box<VscodeStatus>),
     #[serde(rename = "managed_process_updated")]
@@ -127,6 +133,7 @@ impl EventKind {
             EventKind::WorktreeFilesUpdated { .. } => "worktree_files_updated",
             EventKind::WorktreeGitStatusUpdated { .. } => "worktree_git_status_updated",
             EventKind::SettingsUpdated(_) => "settings_updated",
+            EventKind::KeybindingsUpdated(_) => "keybindings_updated",
             EventKind::VscodeUpdated(_) => "vscode_updated",
             EventKind::ManagedProcessUpdated(_) => "managed_process_updated",
             EventKind::TaskUpdated(_) => "task_updated",
@@ -227,6 +234,9 @@ mod tests {
                 settings: Box::new(Settings::default()),
                 settings_generation: "0".to_string(),
                 settings_status: SettingsStatus::ok(),
+                keybindings: Box::new(vec![]),
+                keybindings_generation: "0".to_string(),
+                keybindings_status: KeybindingsStatus::ok(),
                 vscode: Box::new(VscodeStatus {
                     selected_runtime: crate::api::settings::VscodeRuntimeKind::VscodeCli,
                     code_server: crate::api::vscode::VscodeRuntimeStatus {

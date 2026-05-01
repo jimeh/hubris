@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
 import type { Worktree } from "@/lib/types";
-import { updateProjectWorktree } from "@/lib/api";
+import { deleteProjectWorktree, updateProjectWorktree } from "@/lib/api";
 import {
   initializeWorktreeStore,
   resetWorktreeStoreForTests,
@@ -271,6 +271,144 @@ describe("Worktree store", () => {
         (worktree) => worktree.id,
       ),
     ).toEqual(["local", "c", "a", "b"]);
+  });
+
+  it("tracks worktree back and forward navigation", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({
+            id: "local",
+            project_id: "p1",
+            name: "local",
+            is_local: true,
+            position: 1,
+          }),
+          makeWorktree({
+            id: "feature",
+            project_id: "p1",
+            name: "feature",
+            position: 2,
+          }),
+          makeWorktree({
+            id: "release",
+            project_id: "p1",
+            name: "release",
+            position: 3,
+          }),
+        ],
+      },
+      project_errors: {},
+    });
+
+    store.useWorktreeStore.getState().select("feature");
+    store.useWorktreeStore.getState().select("release");
+
+    expect(store.useWorktreeStore.getState()).toMatchObject({
+      navigationBackIds: ["feature", "local"],
+      navigationForwardIds: [],
+      selectedWorktreeId: "release",
+    });
+
+    store.useWorktreeStore.getState().navigateBack();
+    expect(store.useWorktreeStore.getState()).toMatchObject({
+      navigationBackIds: ["local"],
+      navigationForwardIds: ["release"],
+      selectedWorktreeId: "feature",
+    });
+
+    store.useWorktreeStore.getState().navigateForward();
+    expect(store.useWorktreeStore.getState()).toMatchObject({
+      navigationBackIds: ["feature", "local"],
+      navigationForwardIds: [],
+      selectedWorktreeId: "release",
+    });
+  });
+
+  it("prunes stale worktree navigation entries after updates", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({
+            id: "local",
+            project_id: "p1",
+            name: "local",
+            is_local: true,
+            position: 1,
+          }),
+          makeWorktree({
+            id: "feature",
+            project_id: "p1",
+            name: "feature",
+            position: 2,
+          }),
+        ],
+      },
+      project_errors: {},
+    });
+    store.useWorktreeStore.getState().select("feature");
+
+    mockEvents.emit("worktree_deleted", {
+      project_id: "p1",
+      worktree_id: "local",
+    });
+
+    expect(store.useWorktreeStore.getState()).toMatchObject({
+      navigationBackIds: [],
+      selectedWorktreeId: "feature",
+    });
+  });
+
+  it("restores navigation state when optimistic worktree remove fails", async () => {
+    vi.mocked(deleteProjectWorktree).mockRejectedValueOnce(
+      new Error("delete failed"),
+    );
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({
+            id: "local",
+            project_id: "p1",
+            name: "local",
+            is_local: true,
+            position: 1,
+          }),
+          makeWorktree({
+            id: "feature",
+            project_id: "p1",
+            name: "feature",
+            position: 2,
+          }),
+          makeWorktree({
+            id: "release",
+            project_id: "p1",
+            name: "release",
+            position: 3,
+          }),
+        ],
+      },
+      project_errors: {},
+    });
+    store.useWorktreeStore.getState().select("feature");
+    store.useWorktreeStore.getState().select("release");
+
+    await expect(
+      store.useWorktreeStore.getState().remove("p1", "release"),
+    ).rejects.toThrow("delete failed");
+
+    expect(store.useWorktreeStore.getState()).toMatchObject({
+      navigationBackIds: ["feature", "local"],
+      navigationForwardIds: [],
+      selectedWorktreeId: "release",
+    });
+    expect(
+      (store.useWorktreeStore.getState().worktreesByProject.p1 ?? []).map(
+        (worktree) => worktree.id,
+      ),
+    ).toEqual(["local", "feature", "release"]);
   });
 
   it("resetWorktreeStoreForTests unsubscribes SSE handlers", () => {

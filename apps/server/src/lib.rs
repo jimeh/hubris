@@ -5,6 +5,7 @@ mod frontend;
 mod fs_sync;
 pub mod git;
 pub mod instance_lock;
+mod keybindings_manager;
 pub mod process_manager;
 pub mod pty;
 mod settings_manager;
@@ -43,6 +44,7 @@ use api::files::{
     get_project_worktree_file_content, get_project_worktree_git_diff, list_files,
     list_project_worktree_files, put_project_worktree_file_content, rename_project_worktree_file,
 };
+use api::keybindings::{get_keybindings, put_keybindings};
 use api::openapi::{openapi_json, spec as openapi_spec_impl};
 use api::processes::{
     get_managed_process, list_managed_processes, restart_managed_process, start_managed_process,
@@ -419,6 +421,7 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
             "/settings",
             get(get_settings).put(put_settings).patch(patch_settings),
         )
+        .route("/keybindings", get(get_keybindings).put(put_keybindings))
         .route(
             "/editor-themes",
             get(list_editor_themes).post(upload_editor_theme),

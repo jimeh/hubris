@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 
 use crate::api::projects::Project;
 use crate::events::EventBus;
+use crate::keybindings_manager::KeybindingsManager;
 use crate::process_manager::ManagedProcessService;
 use crate::pty::live_tab::LiveTab;
 use crate::settings_manager::SettingsManager;
@@ -40,6 +41,7 @@ pub struct AppState {
     pub tasks: Arc<TaskService>,
     pub vscode: Arc<VscodeManager>,
     pub settings: Arc<SettingsManager>,
+    pub keybindings: Arc<KeybindingsManager>,
     pub worktree_files: Arc<WorktreeFilesService>,
 }
 
@@ -54,6 +56,12 @@ impl AppState {
                 .map_err(std::io::Error::other)?,
         );
         settings.start_sync(events.clone());
+        let keybindings = Arc::new(
+            KeybindingsManager::new(data_dir.join("keybindings.toml"))
+                .await
+                .map_err(std::io::Error::other)?,
+        );
+        keybindings.start_sync(events.clone());
         let processes = Arc::new(ManagedProcessService::new(events.clone()));
         let tasks = Arc::new(TaskService::new(events.clone()));
         let code_server = Arc::new(CodeServerManager::new(
@@ -96,6 +104,7 @@ impl AppState {
             tasks,
             vscode,
             settings,
+            keybindings,
             worktree_files: Arc::new(WorktreeFilesService::new(events.clone())),
         })
     }

@@ -1,7 +1,11 @@
 import {
+  ArrowLeft,
+  ArrowRight,
   Globe,
+  History,
   LayoutPanelTop,
   Monitor,
+  PanelLeft,
   PanelRight,
   PanelTop,
   Pencil,
@@ -14,14 +18,21 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ApiStatusError } from "@/lib/api";
+import { useAppSidebarStore } from "@/lib/stores/appSidebar";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
 import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useTabStore } from "@/lib/stores/tabs";
+import {
+  getCurrentWorktreeHistoryItems,
+  useWorktreeHistorySwitcherStore,
+} from "@/lib/stores/worktreeHistorySwitcher";
+import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type {
   CommandAvailability,
+  CommandContextSnapshot,
   CommandDefinition,
   CommandId,
   CommandResult,
@@ -86,6 +97,80 @@ function projectIdForWorktreeId(worktreeId: string): string | null {
   return worktree?.project_id ?? null;
 }
 
+function byPosition<T extends { id: string; position?: number }>(
+  left: T,
+  right: T,
+): number {
+  return (
+    (left.position ?? 0) - (right.position ?? 0) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function selectProjectWorktree(
+  context: CommandContextSnapshot,
+  direction: 1 | -1,
+): string | null {
+  const selectedProjectId = context.selectedProject?.id;
+  if (!selectedProjectId) {
+    return null;
+  }
+
+  const projects = [...context.projects]
+    .sort(byPosition)
+    .filter(
+      (project) => (context.worktreesByProject[project.id] ?? []).length > 0,
+    );
+  const currentIndex = projects.findIndex(
+    (project) => project.id === selectedProjectId,
+  );
+  if (projects.length < 2 || currentIndex < 0) {
+    return null;
+  }
+
+  const nextProject = projects.at(
+    (currentIndex + direction + projects.length) % projects.length,
+  );
+  if (!nextProject) {
+    return null;
+  }
+
+  const worktrees = [
+    ...(context.worktreesByProject[nextProject.id] ?? []),
+  ].sort(byPosition);
+  return (
+    (worktrees.find((worktree) => worktree.is_local) ?? worktrees[0])?.id ??
+    null
+  );
+}
+
+function selectSiblingWorktree(
+  context: CommandContextSnapshot,
+  direction: 1 | -1,
+): string | null {
+  if (!context.selectedWorktree) {
+    return null;
+  }
+
+  const worktrees = [...context.projects]
+    .sort(byPosition)
+    .flatMap((project) =>
+      [...(context.worktreesByProject[project.id] ?? [])].sort(byPosition),
+    );
+  const currentIndex = worktrees.findIndex(
+    (worktree) => worktree.id === context.selectedWorktree?.id,
+  );
+  if (worktrees.length < 2 || currentIndex < 0) {
+    return null;
+  }
+
+  return (
+    worktrees.at(
+      (currentIndex + direction + worktrees.length) % worktrees.length,
+    )?.id ?? null
+  );
+}
+
 async function saveDirtyTab(tabId: string): Promise<boolean> {
   const tab = useTabStore
     .getState()
@@ -116,6 +201,18 @@ async function saveDirtyTab(tabId: string): Promise<boolean> {
  * Stable frontend command registry used by the palette and direct UI triggers.
  */
 export const commandRegistry = {
+  "app.openCommandPalette": defineCommand({
+    async execute() {
+      useCommandUiStore.getState().openPalette();
+      return cancelled();
+    },
+    group: "App",
+    icon: Search,
+    id: "app.openCommandPalette",
+    isAvailable: () => enabled(),
+    keywords: ["commands", "palette"],
+    title: "Open Command Palette",
+  }),
   "app.openSettings": defineCommand({
     async execute(_context, args) {
       useCommandUiStore.getState().openDialog({
@@ -130,6 +227,39 @@ export const commandRegistry = {
     isAvailable: () => enabled(),
     keywords: ["preferences", "settings"],
     title: "Open Settings",
+  }),
+  "app.toggleLeftSidebar": defineCommand({
+    async execute() {
+      return useAppSidebarStore.getState().toggle()
+        ? success()
+        : { reason: "Sidebar is not ready", status: "unavailable" };
+    },
+    group: "App",
+    icon: PanelLeft,
+    id: "app.toggleLeftSidebar",
+    isAvailable: () =>
+      useAppSidebarStore.getState().controller
+        ? enabled()
+        : disabled("Sidebar is not ready"),
+    keywords: ["primary", "sidebar", "projects"],
+    title: "Toggle Left Sidebar",
+  }),
+  "app.toggleRightSidebar": defineCommand({
+    async execute() {
+      const rightSidebar = useWorktreeRightSidebarStore.getState();
+      if (rightSidebar.isMobileViewport) {
+        rightSidebar.setMobileOpen(!rightSidebar.mobileOpen);
+      } else {
+        rightSidebar.toggleDesktop();
+      }
+      return success();
+    },
+    group: "App",
+    icon: PanelRight,
+    id: "app.toggleRightSidebar",
+    isAvailable: () => enabled(),
+    keywords: ["file manager", "git", "right", "sidebar"],
+    title: "Toggle Right Sidebar",
   }),
   "pane.splitDown": defineCommand({
     async execute(context, args) {
@@ -301,6 +431,48 @@ export const commandRegistry = {
     },
     keywords: ["project", "rename"],
     title: "Rename Project",
+  }),
+  "project.selectNext": defineCommand({
+    async execute(context) {
+      const worktreeId = selectProjectWorktree(context, 1);
+      if (!worktreeId) {
+        return { reason: "No next project", status: "unavailable" };
+      }
+
+      useWorktreeStore.getState().select(worktreeId);
+      return success();
+    },
+    group: "Projects",
+    icon: Search,
+    id: "project.selectNext",
+    isAvailable(context) {
+      return selectProjectWorktree(context, 1)
+        ? enabled()
+        : disabled("No next project");
+    },
+    keywords: ["project", "next", "switch"],
+    title: "Switch to Next Project",
+  }),
+  "project.selectPrevious": defineCommand({
+    async execute(context) {
+      const worktreeId = selectProjectWorktree(context, -1);
+      if (!worktreeId) {
+        return { reason: "No previous project", status: "unavailable" };
+      }
+
+      useWorktreeStore.getState().select(worktreeId);
+      return success();
+    },
+    group: "Projects",
+    icon: Search,
+    id: "project.selectPrevious",
+    isAvailable(context) {
+      return selectProjectWorktree(context, -1)
+        ? enabled()
+        : disabled("No previous project");
+    },
+    keywords: ["project", "previous", "switch"],
+    title: "Switch to Previous Project",
   }),
   "settings.openSection": defineCommand({
     async execute(_context, args) {
@@ -592,6 +764,63 @@ export const commandRegistry = {
     keywords: ["worktree", "import"],
     title: "Import Worktree",
   }),
+  "worktree.navigateBack": defineCommand({
+    async execute() {
+      useWorktreeStore.getState().navigateBack();
+      return success();
+    },
+    group: "Worktrees",
+    icon: ArrowLeft,
+    id: "worktree.navigateBack",
+    isAvailable() {
+      return useWorktreeStore.getState().navigationBackIds.length > 0
+        ? enabled()
+        : disabled("No previous worktree in history");
+    },
+    keywords: ["worktree", "back", "history"],
+    title: "Go Back in Worktree History",
+  }),
+  "worktree.navigateForward": defineCommand({
+    async execute() {
+      useWorktreeStore.getState().navigateForward();
+      return success();
+    },
+    group: "Worktrees",
+    icon: ArrowRight,
+    id: "worktree.navigateForward",
+    isAvailable() {
+      return useWorktreeStore.getState().navigationForwardIds.length > 0
+        ? enabled()
+        : disabled("No next worktree in history");
+    },
+    keywords: ["worktree", "forward", "history"],
+    title: "Go Forward in Worktree History",
+  }),
+  "worktree.showHistorySwitcher": defineCommand({
+    async execute(_context, args) {
+      const switcher = useWorktreeHistorySwitcherStore.getState();
+      if (switcher.open) {
+        switcher.cycle(args?.direction ?? "back");
+        return success();
+      }
+
+      const started = switcher.start(
+        getCurrentWorktreeHistoryItems(),
+        args?.direction ?? "back",
+      );
+      return started ? success() : cancelled();
+    },
+    group: "Worktrees",
+    icon: History,
+    id: "worktree.showHistorySwitcher",
+    isAvailable() {
+      return getCurrentWorktreeHistoryItems().length > 1
+        ? enabled()
+        : disabled("No recent worktree in history");
+    },
+    keywords: ["worktree", "history", "recent", "switcher"],
+    title: "Show Recent Worktree Switcher",
+  }),
   "worktree.remove": defineCommand({
     async execute(context, args) {
       const worktreeId = resolveWorktreeId(
@@ -696,11 +925,16 @@ export const commandRegistry = {
   }),
   "worktree.select": defineCommand({
     async execute(context, args) {
-      const worktreeId = resolveWorktreeId(
-        args?.worktreeId,
-        context.selectedWorktree?.id ?? null,
-      );
-      if (!worktreeId) {
+      if (!args?.worktreeId) {
+        useCommandUiStore.getState().openDialog({ type: "select-worktree" });
+        return cancelled();
+      }
+
+      const worktreeId = resolveWorktreeId(args.worktreeId, null);
+      if (
+        !worktreeId ||
+        !context.worktrees.some((worktree) => worktree.id === worktreeId)
+      ) {
         return { reason: "No worktree selected", status: "unavailable" };
       }
 
@@ -711,14 +945,62 @@ export const commandRegistry = {
     icon: Search,
     id: "worktree.select",
     isAvailable(context, args) {
-      const worktreeId = resolveWorktreeId(
-        args?.worktreeId,
-        context.selectedWorktree?.id ?? null,
-      );
-      return worktreeId ? enabled() : disabled("No worktree available");
+      if (!args?.worktreeId) {
+        return context.worktrees.length > 0
+          ? enabled()
+          : disabled("No worktree available");
+      }
+
+      const worktreeId = resolveWorktreeId(args.worktreeId, null);
+      return worktreeId &&
+        context.worktrees.some((worktree) => worktree.id === worktreeId)
+        ? enabled()
+        : disabled("No worktree available");
     },
     keywords: ["worktree", "switch", "select"],
     title: "Switch Worktree",
+  }),
+  "worktree.selectNext": defineCommand({
+    async execute(context) {
+      const worktreeId = selectSiblingWorktree(context, 1);
+      if (!worktreeId) {
+        return { reason: "No next worktree", status: "unavailable" };
+      }
+
+      useWorktreeStore.getState().select(worktreeId);
+      return success();
+    },
+    group: "Worktrees",
+    icon: Search,
+    id: "worktree.selectNext",
+    isAvailable(context) {
+      return selectSiblingWorktree(context, 1)
+        ? enabled()
+        : disabled("No next worktree");
+    },
+    keywords: ["worktree", "next", "switch"],
+    title: "Switch to Next Worktree",
+  }),
+  "worktree.selectPrevious": defineCommand({
+    async execute(context) {
+      const worktreeId = selectSiblingWorktree(context, -1);
+      if (!worktreeId) {
+        return { reason: "No previous worktree", status: "unavailable" };
+      }
+
+      useWorktreeStore.getState().select(worktreeId);
+      return success();
+    },
+    group: "Worktrees",
+    icon: Search,
+    id: "worktree.selectPrevious",
+    isAvailable(context) {
+      return selectSiblingWorktree(context, -1)
+        ? enabled()
+        : disabled("No previous worktree");
+    },
+    keywords: ["worktree", "previous", "switch"],
+    title: "Switch to Previous Worktree",
   }),
   "worktree.setUiMode": defineCommand({
     async execute(context, args) {
@@ -736,9 +1018,16 @@ export const commandRegistry = {
         return { reason: "No worktree selected", status: "unavailable" };
       }
 
+      const nextUiMode =
+        uiMode === "cycle"
+          ? worktree?.ui_mode === "hubris"
+            ? "vscode"
+            : "hubris"
+          : uiMode;
+
       await useWorktreeStore
         .getState()
-        .updateUiMode(projectId, worktreeId, uiMode);
+        .updateUiMode(projectId, worktreeId, nextUiMode);
       return success();
     },
     group: "Worktrees",
@@ -752,6 +1041,10 @@ export const commandRegistry = {
       const worktree = findWorktreeById(context, worktreeId ?? undefined);
       if (!worktree || !args?.uiMode) {
         return disabled("Select a worktree first");
+      }
+
+      if (args.uiMode === "cycle") {
+        return enabled();
       }
 
       return worktree.ui_mode === args.uiMode

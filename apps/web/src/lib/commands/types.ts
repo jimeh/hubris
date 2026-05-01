@@ -3,12 +3,17 @@ import type { SectionName } from "@/components/settings-dialog/sections";
 import type { Project, Tab, Worktree } from "@/lib/types";
 
 export type CommandId =
+  | "app.openCommandPalette"
   | "app.openSettings"
+  | "app.toggleLeftSidebar"
+  | "app.toggleRightSidebar"
   | "pane.splitDown"
   | "pane.splitRight"
   | "project.add"
   | "project.remove"
   | "project.rename"
+  | "project.selectNext"
+  | "project.selectPrevious"
   | "settings.openSection"
   | "tab.close"
   | "tab.focus"
@@ -19,13 +24,21 @@ export type CommandId =
   | "tab.resetTerminalName"
   | "worktree.create"
   | "worktree.import"
+  | "worktree.navigateBack"
+  | "worktree.navigateForward"
   | "worktree.remove"
   | "worktree.rename"
   | "worktree.select"
+  | "worktree.selectNext"
+  | "worktree.selectPrevious"
+  | "worktree.showHistorySwitcher"
   | "worktree.setUiMode";
 
 export type CommandArgsById = {
+  "app.openCommandPalette": undefined;
   "app.openSettings": { section?: SectionName } | undefined;
+  "app.toggleLeftSidebar": undefined;
+  "app.toggleRightSidebar": undefined;
   "pane.splitDown":
     | { paneId?: string; projectId?: string; worktreeId?: string }
     | undefined;
@@ -37,6 +50,8 @@ export type CommandArgsById = {
     | { deleteManagedWorktrees?: boolean; force?: boolean; projectId?: string }
     | undefined;
   "project.rename": { name?: string; projectId?: string } | undefined;
+  "project.selectNext": undefined;
+  "project.selectPrevious": undefined;
   "settings.openSection": { section: SectionName };
   "tab.close":
     | {
@@ -66,6 +81,8 @@ export type CommandArgsById = {
         projectId?: string;
       }
     | undefined;
+  "worktree.navigateBack": undefined;
+  "worktree.navigateForward": undefined;
   "worktree.remove":
     | {
         force?: boolean;
@@ -82,10 +99,15 @@ export type CommandArgsById = {
       }
     | undefined;
   "worktree.select": { worktreeId?: string } | undefined;
+  "worktree.selectNext": undefined;
+  "worktree.selectPrevious": undefined;
+  "worktree.showHistorySwitcher":
+    | { direction?: "back" | "forward" }
+    | undefined;
   "worktree.setUiMode":
     | {
         projectId?: string;
-        uiMode?: Worktree["ui_mode"];
+        uiMode?: Worktree["ui_mode"] | "cycle";
         worktreeId?: string;
       }
     | undefined;
@@ -107,6 +129,7 @@ export type CommandSource =
   | "command-palette"
   | "context-menu"
   | "dialog"
+  | "keyboard-shortcut"
   | "system"
   | "tab-bar";
 
