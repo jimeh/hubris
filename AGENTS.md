@@ -127,6 +127,9 @@ checks enforce this through `mise run check:server`.
 - [Codex App Server GUI Best Practices](docs/agents/codex-app-server-GUI-best-practices.md)
   — Codex `app-server` JSON-RPC normalization, chat UI state, server requests,
   tool activity, reasoning, and replay guidance
+- [Codex Chat GUI Implementation Plan](docs/agents/codex-chat-gui-implementation-plan.md)
+  — phased roadmap for closing current Codex chat gaps across backend
+  normalization, persistence, SSE, frontend stores, and timeline UI
 - [Discoveries](docs/agents/discoveries.md) — accumulated project gotchas and
   non-obvious findings
 
