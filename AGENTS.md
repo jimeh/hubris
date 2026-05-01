@@ -3,12 +3,15 @@
 Terminal-based project manager: Rust/Axum backend with a React/Vite frontend and
 persistent PTY sessions.
 
+Use this file as the root map. Load the linked docs when a task touches that
+area instead of treating this file as the whole project manual.
+
 ## Build & Run
 
 ```sh
 mise run setup     # install all deps
-mise run dev       # backend + web dev servers via portless URL
-mise run dev:raw   # backend + web dev servers without portless
+mise run dev       # server + web dev processes via portless URL
+mise run dev:raw   # server + web dev processes without portless
 mise run dev:desktop  # Electron desktop app in dev mode
 mise run build:desktop  # Electron desktop app bundle
 mise run build:desktop:macos-arm64  # target-specific desktop bundle
@@ -17,16 +20,21 @@ mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
 mise run test      # web tests + cargo test
 mise run generate  # run all code generators
+mise run hooks:install  # install Husky-managed pre-commit checks
 ```
 
-Sub-tasks: `check:backend`, `check:web`, `format:backend`, `format:web`. `lint`
-is an alias for `check`.
+Sub-tasks: `check:server`, `check:web`, `format:server`, `format:web`. `lint` is
+an alias for `check`.
 
 Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (frontend).
 
 **IMPORTANT: Always run `mise run check` before committing or opening PRs.** CI
 runs the same checks — format (`cargo fmt`, `prettier`), lint (`clippy`,
-`eslint`), and type check (`tsc`).
+`eslint`), and type check (`tsc`). `mise run setup` installs Husky-managed Git
+hooks, and the pre-commit hook runs lint-staged checks against staged files. Use
+`HUBRIS_PRECOMMIT_FULL=1 git commit ...` to force the full check lane from the
+hook, or Git's `--no-verify` only when you have already run the relevant checks
+manually.
 
 **IMPORTANT: The frontend uses bun, NOT npm or pnpm.** All frontend commands
 must use `bun`. Install dependencies from the repo root with `bun install`, and
@@ -37,7 +45,7 @@ or `pnpm-lock.yaml`.
 **IMPORTANT: The backend SQLite state DB uses `sqlx` offline metadata.** After
 changing backend SQL queries or `apps/server/migrations/`, run
 `mise run sqlx:prepare` and commit the resulting `.sqlx/` metadata. Backend
-checks enforce this through `mise run check:backend`.
+checks enforce this through `mise run check:server`.
 
 ## Domain Concepts
 
@@ -111,152 +119,14 @@ checks enforce this through `mise run check:backend`.
 - [Desktop](docs/agents/desktop.md) — Electron build, dev workflow, auth
 - [Dev Environment](docs/agents/dev-environment.md) — mise tasks, hot reload,
   socket activation
-
-## Discoveries
-
-- Keep TypeScript pinned to 5.9.x for now. The workspace shares one TypeScript
-  version across `apps/web` and `apps/desktop`, and `openapi-typescript@7.13.0`
-  still declares a `^5.x` TypeScript peer.
-- `code-server` release handling needs two HTTP client modes: `/releases/latest`
-  must disable redirects so version parsing can read the `Location` header, but
-  release asset downloads must follow redirects or the extractor will read
-  GitHub's redirect response instead of the tarball.
-- In Unix process-management tests, shell redirection can create a PID/ready
-  file before the shell writes content. Poll for non-empty file contents rather
-  than mere file existence to avoid CI flakes.
-- `docker:test` should install only the tools it actually needs in image layers:
-  global `bun` via `mise` and a prebuilt `sccache` binary, with the base Rust
-  image providing `cargo`/`rustc`. Using `mise` for `sccache` hits GitHub API
-  rate limits in Docker builds. Persist project dependency state in named Docker
-  volumes for `CARGO_HOME`, `CARGO_TARGET_DIR`, `SCCACHE_DIR`, Bun cache, and
-  root `node_modules`.
-- Run `docker:test` containers as the host UID/GID after bootstrapping cache
-  volume ownership. Running the Linux test suite as `root` hides permission
-  failures and can invalidate filesystem-behavior tests.
-- Trust the Docker workspace by adding `/work` to `mise` `trusted_config_paths`;
-  that removes the need for per-run `mise trust` commands in the container
-  entrypoint.
-- Keep the Docker entrypoint minimal. For `docker:test`, it only needs cache
-  ownership bootstrap plus a plain `bun install --frozen-lockfile` before the
-  default `mise run test` command so a fresh root `node_modules` volume is
-  populated.
-- `apps/server/tests/terminal_ws.rs` needs a deterministic shell wrapper under a
-  shared test mutex. Real interactive shells can emit prompt/redraw bytes on
-  attach or resize, which makes PTY snapshot assertions flaky on Linux and
-  inside Docker.
-- Electron desktop packaging writes host-platform bundles to the repo-root
-  `dist/` directory via Forge `outDir`, while transient desktop build artifacts
-  under `apps/desktop/` (`node_modules`, `.vite`) stay ignored locally.
-- Electron desktop browser storage only survives restarts when the window uses a
-  `persist:` partition and `app.setPath("userData"/"sessionData", ...)` is set
-  before `app.whenReady()`. Keep `sessionData` under the shared native
-  `Hubris/sessionData` root and isolate dev/release with separate `persist:`
-  partition names.
-- Packaged Electron must keep a stable renderer origin without relying on a
-  fixed loopback port. Hubris now uses a handled
-  `https://desktop.internal.hubris.build` origin: Electron serves bundled
-  frontend assets on that origin, proxies `/api` and `/_hubris` to the loopback
-  Rust backend, redeems the one-time desktop bootstrap token itself, and seeds
-  cookies into the `https://desktop.internal.hubris.build` session jar.
-- Desktop no longer routes `/code` through Hubris’ Rust reverse proxy. Electron
-  resolves the live code-server upstream via the authenticated
-  `/_hubris/code-server/connection` endpoint, proxies `/code/*` directly, and
-  bridges same-origin WebSockets for code-server, terminal I/O, and Vite HMR in
-  preload/main-process code instead of rewriting browser-visible loopback URLs.
-- Electron desktop startup should only register the macOS `activate` handler
-  after the initial `whenReady()` bootstrap finishes, or guard window creation
-  with a single-flight helper. Registering `activate` too early can race the
-  first async window/runtime startup and spawn duplicate packaged runtimes.
-- Electron desktop now stays alive after the last window closes on all
-  platforms. Keep shutdown tied to explicit app quit paths, and use the
-  single-instance `second-instance` flow plus macOS `activate` to reopen or
-  recreate the main window without reinitializing backend/protocol state.
-- Desktop browser tabs must keep their `WebContentsView` lifecycle keyed to the
-  Hubris tab ID, not the current URL. Recreating the view on every URL/state
-  sync wipes browser history and defeats fast tab switching.
-- Desktop browser tabs should only destroy their `WebContentsView` on explicit
-  browser-tab close or full app quit. Renderer reloads and main-window
-  close/reopen need to detach and later reattach the existing views so Chromium
-  history survives within the running app session.
-- Web-mode browser tabs are direct iframes only. Do not add same-origin proxy
-  routing for localhost previews; that path breaks dev/release frontend behavior
-  and still cannot make arbitrary external sites embeddable.
-- Browser-tab iframe `onLoad` handlers should only clear loading/error state
-  when Hubris is actively waiting on a navigation. The initial `about:blank`
-  load can otherwise race and wipe renderer-owned validation errors.
-- Linux-only Rust paths still compile in CI even when local macOS checks look
-  clean. Keep `#[cfg(target_os = "linux")]` helpers self-contained with their
-  Linux-only imports and concrete type paths, especially around
-  `tokio::process::Command` and `CommandExt`.
-- Cross-target Rust builds now use `cargo zigbuild` for Linux targets and plain
-  `cargo build --target` for macOS targets. Off-macOS `*-apple-darwin` builds
-  still require `SDKROOT` plus the matching `CARGO_TARGET_<TRIPLE>_LINKER`
-  environment variable, while desktop packaging consumes explicit cross-built
-  runtimes through `HUBRIS_DESKTOP_RUNTIME_PATH`.
-- Linux desktop packaging is intentionally disabled for now. Keep cross-platform
-  desktop work focused on macOS zip builds, while `hubris-server` continues to
-  support Linux and macOS cross-build targets.
-- Sidebar row components used with Radix `asChild` wrappers must forward generic
-  HTML props like `className` and `onContextMenu` to their root DOM node.
-  Otherwise `SidebarMenuButton`/`ContextMenuTrigger` props stop at the custom
-  component boundary and row-level context menus never open.
-- The official VS Code CLI install path uses the same managed-process stop
-  semantics as `code-server`: once the runtime state is set to `Installing`, the
-  install task must not call a stop helper that waits for installs to finish, or
-  it deadlocks itself and the UI sits forever at the initial 5% preparing state.
-- `code serve-web` can reject stale `vscode-tkn` cookies with a plain
-  `403 Forbidden` after the runtime restarts and rotates its connection token.
-  In Hubris proxies, only treat a cookie/query token as valid when it matches
-  the current runtime token; otherwise upsert the current `?tkn=` so the browser
-  can mint a fresh cookie.
-- Electron/Node `fetch()` ignores a custom `Host` header. Desktop VS Code
-  runtime hosts therefore cannot proxy directly to the loopback runtime if the
-  upstream must see the public runtime host/origin; send desktop runtime traffic
-  through Hubris' Rust `/code/<runtime>` proxy and pass the public runtime
-  identity in explicit override headers instead.
-- Electron desktop dev should refresh backend/frontend loopback targets from the
-  shared `tmp/dev-<id>.*.json` files instead of assuming the first discovered
-  ports stay valid for the whole app session. Retrying proxied desktop dev
-  fetches once after refreshing those targets smooths over backend/frontend
-  restarts and avoids raw `fetch failed` noise in Electron.
-- Electron emits `will-frame-navigate` at runtime, but the current desktop
-  TypeScript typings do not expose that event on `WebContents`. Keep subframe
-  navigation guards behind a narrow typed cast instead of assuming the event is
-  unavailable.
-- Electron navigation events (`will-navigate`, `will-frame-navigate`,
-  `will-redirect`) must call `details.preventDefault()` on the original event
-  object. Destructuring `preventDefault` and invoking it unbound can crash the
-  desktop main process with `TypeError: Illegal invocation`.
-- Desktop VS Code worktrees now run in their own `WebContentsView` with a
-  dedicated preload that installs the WebSocket bridge in the page world. Keep
-  the VS Code proxy HTML pass-through; do not reintroduce VS Code-specific HTML
-  rewriting in `apps/desktop/src/protocol.ts`.
-- The main Hubris desktop window no longer relies on protocol HTML injection
-  either. Desktop runtime config and websocket patching now come from preload
-  `executeInMainWorld(...)` bootstrap, so frontend HTML should pass through
-  unchanged in both dev and packaged desktop modes.
-- Task-backed VS Code install APIs snapshot status immediately after enqueueing
-  work. In fast tests or CI, that snapshot can still be `Stopped` or already be
-  terminal even though install progress events were emitted correctly; assert on
-  the event stream or eventual state instead of assuming an intermediate
-  `Installing` snapshot.
-- Worktree split panes must keep terminal, browser, and Monaco-backed tab scenes
-  mounted in a worktree-level host. Reparenting those heavy tabs inside pane
-  subtrees causes terminal websocket reconnects, browser view churn, and blank
-  split panes during layout transitions.
-- The split-pane scene host should keep heavy tab scenes in a stable host order
-  independent of tab-strip reorders. Reordering Monaco-backed scenes in the DOM
-  can trigger editor lifecycle crashes during drag/drop even when tab identity
-  is otherwise stable.
-- Git status views should not key rows by bare `path` alone. The same path can
-  appear more than once in a rendered section/tree, so React keys need section
-  or index context to avoid duplicate-key crashes.
+- [Discoveries](docs/agents/discoveries.md) — accumulated project gotchas and
+  non-obvious findings
 
 <!-- gitnexus:start -->
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (8630 symbols, 19779
+This project is indexed by GitNexus as **hubris** (8627 symbols, 19780
 relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 

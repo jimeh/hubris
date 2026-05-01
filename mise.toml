@@ -66,11 +66,11 @@ description = "Build the Electron desktop app for macOS arm64"
 
 [tasks."dev:server"]
 run = "systemfd --no-pid -s http::0 -- mise watch --restart dev:server:raw"
-description = "Run backend dev server with hot reload"
+description = "Run server dev process with hot reload"
 
 [tasks."dev:server:raw"]
 run = "cd apps/server && cargo run --bin hubris-server"
-description = "Run backend dev server"
+description = "Run server dev process"
 hide = true
 sources = [
   "Cargo.toml",
@@ -90,11 +90,11 @@ description = "Run web dev server behind portless"
 
 [tasks."dev:raw"]
 run = ".mise/tasks/dev dev:web"
-description = "Run backend + web dev servers without portless"
+description = "Run server + web dev processes without portless"
 
 [tasks."dev:portless"]
 run = ".mise/tasks/dev dev:web:portless"
-description = "Run backend + web dev servers behind portless"
+description = "Run server + web dev processes behind portless"
 
 [tasks."dev:desktop"]
 run = ".mise/tasks/dev-desktop"
@@ -107,8 +107,8 @@ run = [
 ]
 description = "Desktop lint + type check"
 
-[tasks."check:backend"]
-description = "Rust format check + clippy"
+[tasks."check:server"]
+description = "Server Rust format check + clippy"
 run = [
   "cargo fmt --all --check",
   ".mise/tasks/sqlx-prepare-check",
@@ -126,14 +126,14 @@ description = "Markdown format check"
 
 [tasks.check]
 description = "Run all checks"
-depends = ["check:backend", "check:web", "check:desktop", "check:markdown"]
+depends = ["check:server", "check:web", "check:desktop", "check:markdown"]
 
 [tasks.lint]
 description = "Alias for check"
 depends = ["check"]
 
-[tasks."format:backend"]
-description = "Format Rust code"
+[tasks."format:server"]
+description = "Format server Rust code"
 run = "cargo fmt --all"
 
 [tasks."format:web"]
@@ -146,7 +146,7 @@ description = "Format Markdown files"
 
 [tasks.format]
 description = "Format all code"
-depends = ["format:backend", "format:web", "format:markdown"]
+depends = ["format:server", "format:web", "format:markdown"]
 
 [tasks."test:web"]
 run = [
@@ -159,12 +159,12 @@ description = "Run web tests"
 run = "bun run --filter hubris-desktop test"
 description = "Run desktop tests"
 
-[tasks."test:backend"]
+[tasks."test:server"]
 run = "cd apps/server && cargo test"
-description = "Run backend tests"
+description = "Run server tests"
 
 [tasks."docker:test"]
-description = "Run backend + web tests in Linux via Docker"
+description = "Run server + web tests in Linux via Docker"
 run = ["docker build -f Dockerfile.test -t hubris-test .", '''docker run --rm \
     -v "$PWD:/work" \
     -v hubris-docker-test-cargo:/cargo \
@@ -181,7 +181,7 @@ run = ["docker build -f Dockerfile.test -t hubris-test .", '''docker run --rm \
 
 [tasks.test]
 description = "Run all tests"
-run = ["mise run test:backend", "mise run test:web", "mise run test:desktop"]
+run = ["mise run test:server", "mise run test:web", "mise run test:desktop"]
 
 [tasks."setup:web"]
 run = "bun install"
@@ -189,7 +189,7 @@ description = "Install web dependencies"
 
 [tasks."setup:server"]
 run = ["cargo fetch", ".mise/tasks/ensure-sqlx-cli"]
-description = "Fetch backend dependencies"
+description = "Fetch server dependencies"
 
 [tasks."sqlx:prepare"]
 run = ".mise/tasks/sqlx-prepare"
@@ -199,8 +199,12 @@ description = "Refresh checked-in sqlx offline metadata"
 run = ".mise/tasks/sqlx-prepare-check"
 description = "Check sqlx offline metadata is current"
 
+[tasks."hooks:install"]
+run = "bun run prepare"
+description = "Install Husky-managed Git hooks"
+
 [tasks.setup]
-depends = ["setup:web", "setup:server"]
+run = ["mise run setup:web", "mise run setup:server", "mise run hooks:install"]
 description = "Install all dependencies"
 
 [tasks."gitnexus:analyze"]

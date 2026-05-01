@@ -1,5 +1,16 @@
 {
   "name": "hubris",
   "private": true,
-  "workspaces": ["apps/web", "apps/desktop"]
+  "workspaces": [
+    "apps/web",
+    "apps/desktop"
+  ],
+  "scripts": {
+    "prepare": "bun .husky/install.mjs",
+    "precommit": "lint-staged"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0"
+  }
 }
