@@ -19,44 +19,70 @@ chat tab into a durable, high-quality Codex GUI.
 - React performance guidance from `react-high-performance`
 - React architecture guidance from `vercel-react-best-practices`
 
+## Phase Status
+
+The implementation roadmap is now in its final polish phase:
+
+- Phase 0 completed: protocol parsing and lifecycle state are explicit.
+- Phase 1 completed: Codex uses a shared host-scoped app-server runtime with
+  per-conversation thread streams.
+- Phase 1.5 completed: sparse event routing is hardened by thread, turn, item,
+  and request metadata.
+- Phase 2 completed: turns and items are normalized behind the transcript
+  projection.
+- Phase 3 completed: the frontend chat store is normalized and batches hot SSE
+  updates.
+- Phase 4 completed: Codex work activity rows and output detail are persisted
+  and rendered separately from assistant prose.
+- Phase 5 completed: pending approvals/input are backend-authoritative and can
+  be resolved from any browser.
+- Phase 6 completed: plans, diff summaries, and context usage are persisted and
+  surfaced in the chat UI.
+- Phase 7 completed: replay/reconciliation state preserves partial work and
+  recovers non-terminal turns through `thread/read(includeTurns=true)`.
+- Phase 8 remains: timeline visual polish, row containment, scroll behavior,
+  keyboard handling, accessibility, and long-chat verification.
+
 ## Current Baseline
 
-Hubris already has the right outer shape:
+Hubris now has the core Codex GUI architecture in place:
 
 - Chat is a first-class tab type.
-- Conversations and transcript messages are persisted in SQLite.
-- `codex app-server --listen stdio://` is owned by backend runtime code, but the
-  current implementation still effectively scopes one child process/runtime to
-  one conversation.
-- The frontend renders backend-authoritative chat detail, not browser-local
-  history.
+- Conversations, transcript messages, turns, items, activity outputs, pending
+  requests, plans, diffs, context usage, and reconciliation state are persisted
+  in SQLite.
+- One shared `codex app-server --listen stdio://` process is owned by backend
+  runtime code, while per-conversation thread streams handle resume and
+  unsubscribe behavior.
+- The frontend renders backend-authoritative chat detail from normalized Zustand
+  state, not browser-local history.
 - REST handles discrete actions and lazy detail fetches.
-- The global SSE stream carries summaries, runtime status, message deltas,
-  message finalization, and run updates.
+- The global SSE stream carries summaries, runtime/process/thread state,
+  transcript deltas, activity updates, pending requests, plans, diffs, context
+  usage, and reconciliation updates.
 - The chat composer supports model, effort, and permission presets.
-- Reasoning summary text is stored separately from assistant response text.
+- Reasoning, work activity, approvals, plans, diffs, and reconciliation are
+  visually separate from assistant response text.
 
-The main gap is not the tab or lifecycle shell. The gap is that Hubris still
-collapses most app-server protocol into a small transcript projection:
-`user message`, `assistant message`, `reasoning text`, `run status`, and
-`runtime status`. Best-practice Codex GUIs need a richer normalized event model
-for turns, items, tool activity, pending requests, approvals, plans, diffs,
-context usage, warnings, replay, process ownership, and thread stream ownership.
+The remaining gap is no longer protocol or persistence depth. Phase 8 is about
+making the existing timeline feel purpose-built and resilient: calmer visual
+hierarchy, row containment, bottom-follow scroll behavior, keyboard shortcuts,
+accessibility labels, and long-chat verification.
 
 ## Core Design Direction
 
-Keep the existing v1 architecture and make it deeper rather than broader:
+Keep the completed architecture stable and polish it rather than broadening it:
 
 - Hubris remains the source of truth for conversation rendering.
 - `codex app-server` stays behind a Hubris-owned lifecycle and normalization
   boundary.
-- Hubris should move to one app-server process per host session, with many Codex
+- Hubris uses one app-server process per host session, with many Codex
   threads/chats multiplexed through that process.
 - Conversation visibility should control thread stream ownership and
   `thread/unsubscribe` / `thread/resume`, not app-server process lifetime.
 - Assistant text, reasoning, work activity, and requests become separate UI
   concepts.
-- The chat store becomes normalized and optimized for streaming updates.
+- The chat store is normalized and optimized for streaming updates.
 - Assistant UI primitives remain optional view helpers, never state owners.
 - The global SSE stream remains the live shared-state transport.
 - WebSockets remain unnecessary for the next iteration, but a deliberate
@@ -70,8 +96,7 @@ fits the near-term plan. Hubris owns the transcript, runtime, persistence, and
 SSE state; assistant-ui receives the user/assistant transcript projection plus
 `onNew` and `onCancel` callbacks.
 
-Keep assistant-ui usage constrained this way while phases 0 through 7 are in
-progress:
+Keep assistant-ui usage constrained this way after phases 0 through 7:
 
 - Use assistant-ui for the composer runtime bridge and any useful message
   primitives.
@@ -111,11 +136,10 @@ to `AssistantTransport`, define the ownership boundary first:
 
 The lifecycle guide changes the runtime target from "one app-server process per
 conversation" to "one app-server process per host session, many thread streams."
-This should become part of the early implementation work, because it affects
-runtime state, pending request ownership, resume semantics, and how events are
-routed to conversations.
+This is now the implemented runtime model. Future chat UI transports should
+attach to Hubris state without implying one Codex process per chat.
 
-Target behavior:
+Implemented target behavior:
 
 - Start and initialize one app-server process for the Hubris host session,
   either at backend activation or on first Codex UI/API use.
@@ -143,6 +167,13 @@ WebSocket or AssistantTransport connection can still attach to Hubris state, but
 it should not imply one Codex process per chat.
 
 ## Gap Analysis
+
+This table is retained as historical context for the work that shaped phases 0
+through 7. The rows for runtime ownership, idle management, resume state,
+protocol admission, server requests, tool activity, turns/items, plans, diffs,
+context usage, replay, SSE shape, and frontend store normalization are now
+implemented. The active Phase 8 gap is the rendering row: timeline polish,
+scroll stability, accessibility, and measured long-chat performance.
 
 | Area               | Current behavior                                                             | Best-practice target                                                                                                    | Impact                                                                      |
 | ------------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -382,6 +413,8 @@ Apply the project React guidance deliberately:
 
 ### Phase 0: Protocol And Lifecycle Inventory
 
+Status: completed.
+
 Goal: make app-server protocol and lifecycle behavior observable and testable
 before expanding the UI.
 
@@ -416,6 +449,8 @@ Verification:
 - Existing chat send/stream tests continue passing.
 
 ### Phase 1: Shared App-Server Runtime And Thread Streams
+
+Status: completed.
 
 Goal: replace per-conversation app-server child processes with one initialized
 host-scoped app-server and per-conversation thread stream state.
@@ -459,6 +494,8 @@ Verification:
 
 ### Phase 1.5: Event Routing Hardening
 
+Status: completed.
+
 Goal: make sparse app-server events safe before normalized turns/items and
 approval UI depend on them.
 
@@ -484,6 +521,8 @@ Verification:
 - Existing Phase 1 chat runtime tests still pass.
 
 ### Phase 2: Normalize Turns, Items, And Assistant Text
+
+Status: completed.
 
 Goal: preserve current user-visible behavior while introducing stable provider
 turn and item records.
@@ -512,6 +551,8 @@ Verification:
 
 ### Phase 3: Store Normalization And SSE Batching
 
+Status: completed.
+
 Goal: reduce render blast radius before adding more high-volume streams.
 
 Backend work:
@@ -536,6 +577,8 @@ Verification:
 - Confirm no `getSnapshot should be cached` warnings.
 
 ### Phase 4: Work Activity Rows
+
+Status: completed.
 
 Goal: show what Codex is doing without mixing tool output into the response.
 
@@ -562,6 +605,8 @@ Verification:
 - Browser test that command output does not appear inside assistant prose.
 
 ### Phase 5: Pending Requests, Approvals, And User Input
+
+Status: completed.
 
 Goal: stop auto-declining app-server requests and make Codex interaction safe.
 
@@ -592,6 +637,8 @@ Verification:
 
 ### Phase 6: Plans, Diffs, And Context Usage
 
+Status: completed.
+
 Goal: expose higher-level Codex progress signals.
 
 Backend work:
@@ -615,6 +662,8 @@ Verification:
 - Browser test that plan updates do not cause scroll jumps.
 
 ### Phase 7: Replay, Resume, And Multi-View Convergence
+
+Status: completed.
 
 Goal: make reloads, secondary browsers, and process restarts feel coherent.
 
@@ -642,28 +691,40 @@ Verification:
 
 ### Phase 8: Timeline Polish And Long-Chat Performance
 
+Status: in progress.
+
 Goal: make the UI feel like a purpose-built Codex GUI.
 
 Backend work:
 
-- Add compact summary fields where frontend currently derives expensive labels
-  from large payloads.
-- Add pagination or windowed detail fetches if transcript size requires it.
+- No backend work is expected for the containment-first Phase 8 slice.
+- Do not add migrations, generated contracts, pagination, or windowed fetches
+  unless browser traces prove the existing detail payload is the bottleneck.
 
 Frontend work:
 
 - Refine visual hierarchy using Hubris theme tokens.
-- Add markdown rendering only where needed and lazy-load heavy syntax support.
-- Add row containment and `content-visibility` for long transcripts.
-- Evaluate virtualization after row containment and normalized subscriptions.
+- Defer markdown rendering and syntax highlighting until there is measured need
+  and a deliberate dependency choice.
+- Add row containment and `content-visibility` for non-live long transcript
+  rows.
+- Preserve active streaming/request/activity rows without `content-visibility`
+  so live updates remain visible and measurable.
+- Add bottom-follow behavior that only scrolls when the user is already near the
+  bottom.
+- Evaluate virtualization only after row containment and normalized
+  subscriptions are measured and proven insufficient.
 - Add keyboard handling for approvals, composer focus, and cancel.
 - Add accessibility labels for status, request cards, and model controls.
 
 Verification:
 
 - Component tests for row variants.
+- Component tests for bottom-follow vs scrolled-up behavior.
+- Component tests for composer disabled/cancel behavior during request,
+  reconciliation, and active-run states.
 - Manual browser trace on a long conversation with streaming output.
-- Confirm bundle impact from any markdown/highlight dependencies.
+- Confirm no new markdown/highlight/virtualization dependency was added.
 
 ## Recommended First Slice
 

@@ -18,7 +18,17 @@ import {
   Terminal,
   Wrench,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   Collapsible,
@@ -75,6 +85,14 @@ import { cn } from "@/lib/utils";
 type Props = {
   tab: AgentChatTab;
   visible: boolean;
+};
+
+const AUTO_FOLLOW_THRESHOLD_PX = 96;
+
+const CONTAINED_TIMELINE_ROW_STYLE: CSSProperties = {
+  contain: "layout style paint",
+  containIntrinsicSize: "0 10rem",
+  contentVisibility: "auto",
 };
 
 const convertThreadMessage = (message: ThreadMessageLike) => message;
@@ -467,6 +485,135 @@ function contextUsageTitle(usage: ChatContextUsage | null): string {
   return lines.join("\n") || "Context usage has been updated.";
 }
 
+function timelineRowLabel(
+  kind: string,
+  status: string | null | undefined,
+): string {
+  return status ? `${kind}: ${status}` : kind;
+}
+
+function getScrollViewport(root: HTMLDivElement | null): HTMLElement | null {
+  return (
+    root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ??
+    null
+  );
+}
+
+function isNearScrollBottom(viewport: HTMLElement): boolean {
+  return (
+    viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <=
+    AUTO_FOLLOW_THRESHOLD_PX
+  );
+}
+
+function scrollToBottom(viewport: HTMLElement): void {
+  viewport.scrollTop = Math.max(
+    0,
+    viewport.scrollHeight - viewport.clientHeight,
+  );
+}
+
+function isInteractiveShortcutTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(
+      target.closest(
+        'button, input, textarea, select, [contenteditable="true"], [role="textbox"], [data-chat-ignore-shortcuts="true"]',
+      ),
+    )
+  );
+}
+
+function useTimelineAutoFollow(rowIds: readonly string[]): {
+  rootRef: RefObject<HTMLDivElement | null>;
+  contentRef: RefObject<HTMLDivElement | null>;
+} {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const shouldFollowRef = useRef(true);
+  const rafRef = useRef<number | null>(null);
+
+  const scheduleFollow = useCallback(() => {
+    if (!shouldFollowRef.current || rafRef.current !== null) {
+      return;
+    }
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null;
+      const viewport = getScrollViewport(rootRef.current);
+      if (viewport && shouldFollowRef.current) {
+        scrollToBottom(viewport);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    const viewport = getScrollViewport(rootRef.current);
+    if (!viewport) {
+      return;
+    }
+
+    shouldFollowRef.current = isNearScrollBottom(viewport);
+    const handleScroll = () => {
+      shouldFollowRef.current = isNearScrollBottom(viewport);
+    };
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      viewport.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
+  useEffect(() => {
+    scheduleFollow();
+    return () => {
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [rowIds, scheduleFollow]);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      scheduleFollow();
+    });
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+    };
+  }, [scheduleFollow]);
+
+  return { rootRef, contentRef };
+}
+
+function TimelineRowShell({
+  active = false,
+  children,
+  label,
+  side = "left",
+}: {
+  active?: boolean;
+  children: ReactNode;
+  label: string;
+  side?: "left" | "right";
+}) {
+  return (
+    <div
+      role="listitem"
+      aria-label={label}
+      data-testid="chat-timeline-row"
+      data-active={active ? "true" : "false"}
+      className={cn("flex", side === "right" ? "justify-end" : "justify-start")}
+      style={active ? undefined : CONTAINED_TIMELINE_ROW_STYLE}
+    >
+      {children}
+    </div>
+  );
+}
+
 function ActivityIcon({ item }: { item: ChatItem }) {
   const className = "h-3.5 w-3.5";
   if (item.kind === "command_execution") {
@@ -498,8 +645,11 @@ function ThinkingBlock({
       open={open}
       onOpenChange={(nextOpen) => setCollapsed(!nextOpen)}
     >
-      <div className="rounded-lg border bg-muted/35">
-        <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left">
+      <div className="rounded-lg border bg-muted/35" aria-label="Reasoning">
+        <CollapsibleTrigger
+          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+          aria-label={open ? "Collapse reasoning" : "Expand reasoning"}
+        >
           <div>
             <div className="text-xs font-medium text-foreground">Thinking</div>
             <div className="text-xs text-muted-foreground">
@@ -527,8 +677,11 @@ function ThinkingBlock({
 
 function UserTurn({ message }: { message: ChatMessage }) {
   return (
-    <div className="flex justify-end">
-      <div className="max-w-[min(42rem,82%)] rounded-2xl border bg-muted/30 px-4 py-3">
+    <TimelineRowShell
+      label={timelineRowLabel("User message", message.status)}
+      side="right"
+    >
+      <div className="max-w-[min(42rem,82%)] rounded-xl border bg-muted/30 px-4 py-3">
         <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
           You
         </div>
@@ -536,7 +689,7 @@ function UserTurn({ message }: { message: ChatMessage }) {
           {message.contentText}
         </div>
       </div>
-    </div>
+    </TimelineRowShell>
   );
 }
 
@@ -552,10 +705,13 @@ function AssistantTurn({
   const fallbackText = assistantFallbackText(message, streaming);
 
   return (
-    <div className="flex justify-start">
+    <TimelineRowShell
+      active={streaming}
+      label={timelineRowLabel("Codex response", message.status)}
+    >
       <div
         className={cn(
-          "max-w-[min(46rem,92%)] space-y-3 rounded-2xl border bg-card px-4 py-3 shadow-xs",
+          "max-w-[min(46rem,92%)] space-y-3 rounded-xl border bg-card px-4 py-3 shadow-xs",
           failed && "border-destructive/40",
           interrupted && "border-muted-foreground/30",
         )}
@@ -572,7 +728,7 @@ function AssistantTurn({
           </div>
           <div>
             <div className="text-sm font-medium">Codex</div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-xs text-muted-foreground" aria-live="polite">
               {assistantStatusLabel(message, streaming)}
             </div>
           </div>
@@ -588,7 +744,7 @@ function AssistantTurn({
           {message.contentText || fallbackText}
         </div>
       </div>
-    </div>
+    </TimelineRowShell>
   );
 }
 
@@ -620,10 +776,16 @@ function ChatHeader({
     modelOptionsError;
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+    <div
+      className="flex items-center justify-between gap-3 border-b px-4 py-3"
+      aria-label="Chat header"
+    >
       <div className="min-w-0">
         <div className="truncate text-sm font-medium">{label}</div>
-        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+        <div
+          className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"
+          aria-live="polite"
+        >
           {isRunActive ? (
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
           ) : null}
@@ -649,7 +811,11 @@ function ReconciliationBanner({ conversationId }: { conversationId: string }) {
   }
 
   return (
-    <div className="border-b bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+    <div
+      role="status"
+      aria-live="polite"
+      className="border-b bg-muted/30 px-4 py-2 text-xs text-muted-foreground"
+    >
       <div className="mx-auto max-w-3xl">{text}</div>
     </div>
   );
@@ -713,7 +879,10 @@ function ActivityRow({
   const hasOutputs = outputIds.length > 0;
 
   return (
-    <div className="flex justify-start">
+    <TimelineRowShell
+      active={running}
+      label={timelineRowLabel(activityLabel(item), item.status)}
+    >
       <Collapsible open={open} onOpenChange={setOpen}>
         <div
           className={cn(
@@ -774,7 +943,7 @@ function ActivityRow({
           </CollapsibleContent>
         </div>
       </Collapsible>
-    </div>
+    </TimelineRowShell>
   );
 }
 
@@ -820,6 +989,7 @@ function PendingRequestActions({
                 key={option}
                 size="xs"
                 disabled={disabled}
+                data-chat-pending-action="primary"
                 onClick={() => resolve("submit", { answers: [option] })}
               >
                 {option}
@@ -834,10 +1004,12 @@ function PendingRequestActions({
               disabled={disabled}
               onChange={(event) => setAnswer(event.target.value)}
               placeholder="Answer Codex"
+              aria-label="Answer Codex"
             />
             <Button
               size="xs"
               disabled={disabled || answer.trim().length === 0}
+              data-chat-pending-action="primary"
               onClick={() => resolve("submit", { answer: answer.trim() })}
             >
               Submit
@@ -863,7 +1035,12 @@ function PendingRequestActions({
   return (
     <div className={cn("flex flex-wrap gap-2", compact && "gap-1.5")}>
       {decisions.includes("accept") ? (
-        <Button size="xs" disabled={disabled} onClick={() => resolve("accept")}>
+        <Button
+          size="xs"
+          disabled={disabled}
+          data-chat-pending-action="primary"
+          onClick={() => resolve("accept")}
+        >
           Allow
         </Button>
       ) : null}
@@ -928,7 +1105,10 @@ function PendingRequestActions({
         </Button>
       ) : null}
       {resolving ? (
-        <span className="self-center text-xs text-muted-foreground">
+        <span
+          className="self-center text-xs text-muted-foreground"
+          aria-live="polite"
+        >
           Resolving…
         </span>
       ) : null}
@@ -953,6 +1133,8 @@ function PendingRequestCard({
 
   return (
     <div
+      role="group"
+      aria-label={requestKindLabel(request)}
       className={cn(
         "rounded-xl border bg-card px-3 py-3 text-sm shadow-xs",
         request.status === "stale" && "border-muted-foreground/30",
@@ -1016,11 +1198,14 @@ function PendingRequestRow({ requestId }: { requestId: string }) {
     return null;
   }
   return (
-    <div className="flex justify-start">
+    <TimelineRowShell
+      active={request.status === "pending" || request.status === "resolving"}
+      label={timelineRowLabel(requestKindLabel(request), request.status)}
+    >
       <div className="max-w-[min(46rem,92%)]">
         <PendingRequestCard request={request} />
       </div>
-    </div>
+    </TimelineRowShell>
   );
 }
 
@@ -1032,7 +1217,10 @@ function PlanRow({ planId }: { planId: string }) {
   const steps = parsePlanSteps(plan);
   const streaming = plan.status === "streaming";
   return (
-    <div className="flex justify-start">
+    <TimelineRowShell
+      active={streaming}
+      label={timelineRowLabel(planTitle(plan), plan.status)}
+    >
       <div className="max-w-[min(46rem,92%)] rounded-xl border bg-muted/25 px-3 py-3 text-sm">
         <div className="flex items-start gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -1086,7 +1274,7 @@ function PlanRow({ planId }: { planId: string }) {
           </div>
         </div>
       </div>
-    </div>
+    </TimelineRowShell>
   );
 }
 
@@ -1113,7 +1301,7 @@ function DiffSummaryRow({ diffId }: { diffId: string }) {
     });
   };
   return (
-    <div className="flex justify-start">
+    <TimelineRowShell label={timelineRowLabel("Diff summary", "ready")}>
       <div className="max-w-[min(46rem,92%)] rounded-xl border bg-muted/25 px-3 py-3 text-sm">
         <div className="flex items-start gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -1163,7 +1351,7 @@ function DiffSummaryRow({ diffId }: { diffId: string }) {
           </div>
         </div>
       </div>
-    </div>
+    </TimelineRowShell>
   );
 }
 
@@ -1198,32 +1386,44 @@ function ChatTranscript({ conversationId }: { conversationId: string }) {
   const timelineIds = useChatStore((state) =>
     selectChatTimelineIds(state, conversationId),
   );
+  const { rootRef, contentRef } = useTimelineAutoFollow(timelineIds);
 
   return (
-    <ScrollArea className="min-h-0 flex-1">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-4">
-        {timelineIds.length === 0 ? (
-          <div className="flex min-h-[28vh] flex-col items-center justify-center px-6 text-center">
-            <div className="rounded-full bg-primary/10 p-3 text-primary">
-              <MessageSquareText className="h-5 w-5" />
+    <div
+      ref={rootRef}
+      className="min-h-0 flex-1"
+      data-testid="chat-scroll-root"
+    >
+      <ScrollArea className="h-full">
+        <div
+          ref={contentRef}
+          role="list"
+          aria-label="Chat timeline"
+          className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-4"
+        >
+          {timelineIds.length === 0 ? (
+            <div className="flex min-h-[28vh] flex-col items-center justify-center px-6 text-center">
+              <div className="rounded-full bg-primary/10 p-3 text-primary">
+                <MessageSquareText className="h-5 w-5" />
+              </div>
+              <h3 className="mt-4 text-base font-medium">New Chat</h3>
+              <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                Ask Codex about this worktree. History comes from Hubris state,
+                while model and effort settings apply to future turns.
+              </p>
             </div>
-            <h3 className="mt-4 text-base font-medium">New Chat</h3>
-            <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              Ask Codex about this worktree. History comes from Hubris state,
-              while model and effort settings apply to future turns.
-            </p>
-          </div>
-        ) : (
-          timelineIds.map((rowId) => (
-            <ChatTimelineRow
-              key={rowId}
-              conversationId={conversationId}
-              rowId={rowId}
-            />
-          ))
-        )}
-      </div>
-    </ScrollArea>
+          ) : (
+            timelineIds.map((rowId) => (
+              <ChatTimelineRow
+                key={rowId}
+                conversationId={conversationId}
+                rowId={rowId}
+              />
+            ))
+          )}
+        </div>
+      </ScrollArea>
+    </div>
   );
 }
 
@@ -1271,6 +1471,11 @@ function ContextUsageMeter({ conversationId }: { conversationId: string }) {
       : null;
   return (
     <div
+      role="meter"
+      aria-label={contextUsageTitle(usage)}
+      aria-valuemin={percent != null ? 0 : undefined}
+      aria-valuemax={percent != null ? 100 : undefined}
+      aria-valuenow={percent != null ? Math.round(percent) : undefined}
       className="inline-flex h-8 items-center gap-2 rounded-md border bg-card px-2 text-xs text-muted-foreground"
       title={contextUsageTitle(usage)}
     >
@@ -1387,6 +1592,11 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
           : (permissionMode as ChatPermissionMode),
     });
   };
+  const sendDisabledReason = hasBlockingRequest
+    ? "Codex is waiting for approval or input."
+    : isReconciling
+      ? "Hubris is reconciling Codex thread state."
+      : undefined;
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -1395,6 +1605,8 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
           <PendingRequestPanel conversationId={conversationId} />
           <ComposerPrimitive.Root className="flex flex-col gap-3">
             <ComposerPrimitive.Input
+              aria-label="Message Codex"
+              data-chat-composer-input="true"
               className="min-h-14 max-h-40 w-full resize-none rounded-xl border bg-card px-3 py-2 text-sm outline-none ring-0 placeholder:text-muted-foreground focus-visible:border-ring"
               placeholder="Ask Codex about this worktree"
               submitMode="enter"
@@ -1405,7 +1617,11 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
                   value={selectedPermissionMode}
                   onValueChange={handlePermissionChange}
                 >
-                  <SelectTrigger size="sm" className="bg-card">
+                  <SelectTrigger
+                    size="sm"
+                    className="bg-card"
+                    aria-label="Codex permissions"
+                  >
                     <SelectValue placeholder="Permissions">
                       {permissionLabel(selectedPermissionMode)}
                     </SelectValue>
@@ -1421,7 +1637,11 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
                   value={selectedModel?.model}
                   onValueChange={handleModelChange}
                 >
-                  <SelectTrigger size="sm" className="bg-card">
+                  <SelectTrigger
+                    size="sm"
+                    className="bg-card"
+                    aria-label="Codex model"
+                  >
                     <SelectValue placeholder="Model" />
                   </SelectTrigger>
                   <SelectContent align="start">
@@ -1438,7 +1658,11 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
                   value={selectedEffort}
                   onValueChange={handleEffortChange}
                 >
-                  <SelectTrigger size="sm" className="bg-card">
+                  <SelectTrigger
+                    size="sm"
+                    className="bg-card"
+                    aria-label="Codex reasoning effort"
+                  >
                     <SelectValue placeholder="Effort" />
                   </SelectTrigger>
                   <SelectContent align="start">
@@ -1469,8 +1693,9 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
                   <ComposerPrimitive.Send
                     className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                     disabled={hasBlockingRequest || isReconciling}
+                    aria-disabled={hasBlockingRequest || isReconciling}
                     aria-label="Send message"
-                    title="Send message"
+                    title={sendDisabledReason ?? "Send message"}
                   >
                     <SendHorizontal className="h-4 w-4" />
                   </ComposerPrimitive.Send>
@@ -1485,8 +1710,22 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
 }
 
 export default function AgentChatTabView({ tab, visible }: Props) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const detailState = useChatStore((state) =>
     selectChatDetailState(state, tab.conversation_id),
+  );
+  const { hasBlockingRequest, isRunActive } = useChatStore(
+    useShallow((state) => {
+      const header = selectChatHeaderSlice(state, tab.conversation_id);
+      return {
+        hasBlockingRequest:
+          selectChatActivePendingRequestIds(state, tab.conversation_id).length >
+          0,
+        isRunActive:
+          isRuntimeRunning(header.runtime?.lifecycle) ||
+          header.hasStreamingMessage,
+      };
+    }),
   );
   const ensureConversationLoaded = useChatStore(
     (state) => state.ensureConversationLoaded,
@@ -1495,6 +1734,31 @@ export default function AgentChatTabView({ tab, visible }: Props) {
   const refreshConversation = useChatStore(
     (state) => state.refreshConversation,
   );
+  const interruptRun = useChatStore((state) => state.interruptRun);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    if (event.key === "/" && !isInteractiveShortcutTarget(event.target)) {
+      event.preventDefault();
+      rootRef.current
+        ?.querySelector<HTMLElement>('[data-chat-composer-input="true"]')
+        ?.focus();
+      return;
+    }
+    if (event.key === "Escape" && isRunActive) {
+      event.preventDefault();
+      void interruptRun(tab.conversation_id);
+      return;
+    }
+    if (event.altKey && event.key.toLowerCase() === "a" && hasBlockingRequest) {
+      event.preventDefault();
+      rootRef.current
+        ?.querySelector<HTMLElement>('[data-chat-pending-action="primary"]')
+        ?.focus();
+    }
+  };
 
   useEffect(() => {
     if (!visible) {
@@ -1522,7 +1786,14 @@ export default function AgentChatTabView({ tab, visible }: Props) {
   ]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div
+      ref={rootRef}
+      className="flex h-full min-h-0 flex-col bg-background"
+      data-testid="agent-chat-tab"
+      tabIndex={-1}
+      onKeyDown={handleKeyDown}
+      aria-label="Codex chat tab"
+    >
       <ChatHeader conversationId={tab.conversation_id} label={tab.label} />
       <ReconciliationBanner conversationId={tab.conversation_id} />
       <ChatTranscript conversationId={tab.conversation_id} />
