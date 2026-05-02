@@ -38,7 +38,7 @@ pub use access::{
 use access::{desktop_auth_middleware, desktop_bootstrap_handler};
 use api::chats::{
     get_chat, get_chat_activity, interrupt_chat, list_chat_models, list_project_worktree_chats,
-    patch_chat_settings, send_chat_message,
+    patch_chat_settings, resolve_chat_pending_request, send_chat_message,
 };
 use api::editor_themes::{
     delete_editor_theme, discover_editor_themes, get_editor_theme, import_extension_theme,
@@ -420,6 +420,10 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
             patch(patch_chat_settings),
         )
         .route("/chats/{conversation_id}/messages", post(send_chat_message))
+        .route(
+            "/chats/{conversation_id}/requests/{request_id}/resolve",
+            post(resolve_chat_pending_request),
+        )
         .route("/chats/{conversation_id}/interrupt", post(interrupt_chat))
         .route("/events", get(event_stream))
         .route("/terminal/ws", get(ws_handler))

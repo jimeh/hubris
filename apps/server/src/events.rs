@@ -13,8 +13,9 @@ use crate::api::tasks::{TaskInvocationStatus, TaskRemoved, TaskUpdated};
 use crate::api::vscode::VscodeStatus;
 use crate::api::worktrees::Worktree;
 use crate::chat::{
-    ChatAppServerStatus, ChatConversationSummary, ChatItem, ChatItemOutput, ChatMessage, ChatRun,
-    ChatRuntimeStatus, ChatThreadStreamStatus, ChatTurn,
+    ChatAppServerStatus, ChatConversationSummary, ChatItem, ChatItemOutput, ChatMessage,
+    ChatPendingRequest, ChatPendingRequestSummary, ChatRun, ChatRuntimeStatus,
+    ChatThreadStreamStatus, ChatTurn,
 };
 use crate::tab::{TabInfo, WorktreeTabLayout, WorktreeTabLayoutState};
 use crate::worktree_state::WorktreeRestoreState;
@@ -35,6 +36,7 @@ pub enum EventKind {
         worktree_restore_state: HashMap<String, WorktreeRestoreState>,
         chat_app_server: ChatAppServerStatus,
         chat_conversations: Vec<ChatConversationSummary>,
+        chat_pending_requests: Vec<ChatPendingRequestSummary>,
         chat_runtimes: Vec<ChatRuntimeStatus>,
         chat_thread_streams: Vec<ChatThreadStreamStatus>,
         projects: Vec<Project>,
@@ -186,6 +188,21 @@ pub enum EventKind {
         conversation_id: String,
         item: ChatItem,
     },
+    #[serde(rename = "chat_pending_request_created")]
+    ChatPendingRequestCreated {
+        session_id: String,
+        request: ChatPendingRequest,
+    },
+    #[serde(rename = "chat_pending_request_updated")]
+    ChatPendingRequestUpdated {
+        session_id: String,
+        request: ChatPendingRequest,
+    },
+    #[serde(rename = "chat_pending_request_resolved")]
+    ChatPendingRequestResolved {
+        session_id: String,
+        request: ChatPendingRequest,
+    },
 }
 
 impl EventKind {
@@ -225,6 +242,9 @@ impl EventKind {
             EventKind::ChatItemUpdated { .. } => "chat_item_updated",
             EventKind::ChatActivityDelta { .. } => "chat_activity_delta",
             EventKind::ChatActivityUpdated { .. } => "chat_activity_updated",
+            EventKind::ChatPendingRequestCreated { .. } => "chat_pending_request_created",
+            EventKind::ChatPendingRequestUpdated { .. } => "chat_pending_request_updated",
+            EventKind::ChatPendingRequestResolved { .. } => "chat_pending_request_resolved",
         }
     }
 }
@@ -321,6 +341,7 @@ mod tests {
                     updated_at: 0,
                 },
                 chat_conversations: vec![],
+                chat_pending_requests: vec![],
                 chat_runtimes: vec![],
                 chat_thread_streams: vec![],
                 projects: vec![],

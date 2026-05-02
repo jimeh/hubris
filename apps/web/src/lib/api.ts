@@ -187,6 +187,7 @@ export type ChatConversationSummary =
 export type ChatConversationDetail =
   components["schemas"]["ChatConversationDetail"];
 export type ChatActivityDetail = components["schemas"]["ChatActivityDetail"];
+export type ChatPendingRequest = components["schemas"]["ChatPendingRequest"];
 export type ChatRuntimeStatus = components["schemas"]["ChatRuntimeStatus"];
 export type ChatThreadStreamStatus =
   components["schemas"]["ChatThreadStreamStatus"];
@@ -195,6 +196,8 @@ export type ChatPermissionMode = components["schemas"]["ChatPermissionMode"];
 export type ChatConversationSettingsPatch =
   components["schemas"]["ChatConversationSettingsPatch"];
 type SendChatMessageRequest = components["schemas"]["SendChatMessageRequest"];
+export type ResolveChatPendingRequestRequest =
+  components["schemas"]["ResolveChatPendingRequestRequest"];
 
 export async function listProjectWorktreeStartPoints(
   projectId: string,
@@ -705,6 +708,26 @@ export async function interruptChat(conversationId: string): Promise<void> {
     const message = await readApiErrorMessage(res);
     throwStatusError(res.status, message ?? undefined);
   }
+}
+
+export async function resolveChatPendingRequest(
+  conversationId: string,
+  requestId: string,
+  request: ResolveChatPendingRequestRequest,
+): Promise<ChatPendingRequest> {
+  const res = await fetch(
+    `${BASE}/chats/${conversationId}/requests/${requestId}/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
 }
 
 export async function reorderTabs(

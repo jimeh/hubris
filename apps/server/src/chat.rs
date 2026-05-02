@@ -314,6 +314,14 @@ pub struct ChatConversationSummary {
     pub last_run_state: ChatRunStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    pub pending_request_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_pending_request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_pending_request_kind: Option<ChatPendingRequestKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_pending_request_status: Option<ChatPendingRequestStatus>,
+    pub has_pending_request_attention: bool,
     #[ts(type = "number")]
     pub revision: u64,
 }
@@ -444,6 +452,146 @@ pub struct ChatActivityDetail {
     pub outputs: Vec<ChatItemOutput>,
 }
 
+/// Persisted Codex server request kind.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatPendingRequestKind {
+    CommandApproval,
+    FileApproval,
+    PermissionApproval,
+    StructuredInput,
+    McpElicitation,
+    Unsupported,
+}
+
+impl ChatPendingRequestKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::CommandApproval => "command_approval",
+            Self::FileApproval => "file_approval",
+            Self::PermissionApproval => "permission_approval",
+            Self::StructuredInput => "structured_input",
+            Self::McpElicitation => "mcp_elicitation",
+            Self::Unsupported => "unsupported",
+        }
+    }
+}
+
+/// Persisted Codex server request lifecycle.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatPendingRequestStatus {
+    Pending,
+    Resolving,
+    Resolved,
+    Declined,
+    Cancelled,
+    Stale,
+    Failed,
+}
+
+impl ChatPendingRequestStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Resolving => "resolving",
+            Self::Resolved => "resolved",
+            Self::Declined => "declined",
+            Self::Cancelled => "cancelled",
+            Self::Stale => "stale",
+            Self::Failed => "failed",
+        }
+    }
+
+    fn is_attention(self) -> bool {
+        matches!(self, Self::Pending | Self::Resolving)
+    }
+}
+
+/// User-visible decision sent back to Codex for a pending request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ChatPendingRequestDecision {
+    Accept,
+    AcceptForSession,
+    Decline,
+    Cancel,
+    AcceptWithExecpolicyAmendment,
+    ApplyNetworkPolicyAmendment,
+    Submit,
+}
+
+impl ChatPendingRequestDecision {
+    fn terminal_status(&self) -> ChatPendingRequestStatus {
+        match self {
+            Self::Decline => ChatPendingRequestStatus::Declined,
+            Self::Cancel => ChatPendingRequestStatus::Cancelled,
+            _ => ChatPendingRequestStatus::Resolved,
+        }
+    }
+}
+
+/// Persisted Codex server request with enough state to render and answer it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPendingRequest {
+    pub id: String,
+    pub conversation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    pub provider_request_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_item_id: Option<String>,
+    pub method: String,
+    pub kind: ChatPendingRequestKind,
+    pub status: ChatPendingRequestStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<ChatPendingRequestDecision>,
+    pub payload_json: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[ts(type = "number")]
+    pub owner_generation: u64,
+    pub sequence: u32,
+    #[ts(type = "number")]
+    pub created_at: u64,
+    #[ts(type = "number")]
+    pub updated_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub resolved_at: Option<u64>,
+}
+
+/// Lightweight request state included in global SSE snapshots.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPendingRequestSummary {
+    pub id: String,
+    pub conversation_id: String,
+    pub kind: ChatPendingRequestKind,
+    pub status: ChatPendingRequestStatus,
+    pub method: String,
+    #[ts(type = "number")]
+    pub created_at: u64,
+    #[ts(type = "number")]
+    pub updated_at: u64,
+}
+
+/// Request body for resolving a pending Codex server request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveChatPendingRequestRequest {
+    pub decision: ChatPendingRequestDecision,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<Value>,
+}
+
 /// Full chat detail payload used to hydrate an open chat tab.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -452,6 +600,7 @@ pub struct ChatConversationDetail {
     pub messages: Vec<ChatMessage>,
     pub turns: Vec<ChatTurn>,
     pub items: Vec<ChatItem>,
+    pub pending_requests: Vec<ChatPendingRequest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_run: Option<ChatRun>,
 }
@@ -668,6 +817,24 @@ struct PendingServerRequestRoute {
     method: String,
     turn_id: Option<String>,
     item_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PendingServerResponder {
+    jsonrpc_id: Value,
+    conversation_id: String,
+    provider_request_id: String,
+    owner_generation: u64,
+}
+
+struct PersistProviderRequest {
+    jsonrpc_id: Value,
+    method: String,
+    params: Value,
+    route_hints: RouteHints,
+    status: ChatPendingRequestStatus,
+    decision: Option<ChatPendingRequestDecision>,
+    error_message: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1178,6 +1345,10 @@ struct ConversationRow {
     selected_permission_mode: Option<String>,
     last_run_state: String,
     last_error: Option<String>,
+    pending_request_count: i64,
+    latest_pending_request_id: Option<String>,
+    latest_pending_request_kind: Option<String>,
+    latest_pending_request_status: Option<String>,
     revision: i64,
 }
 
@@ -1258,6 +1429,40 @@ struct ItemOutputRow {
     updated_at_ms: i64,
 }
 
+#[derive(Debug, FromRow)]
+struct PendingRequestRow {
+    id: String,
+    conversation_id: String,
+    turn_id: Option<String>,
+    item_id: Option<String>,
+    provider_request_id: String,
+    provider_turn_id: Option<String>,
+    provider_item_id: Option<String>,
+    method: String,
+    kind: String,
+    status: String,
+    decision: Option<String>,
+    payload_json: String,
+    response_json: Option<String>,
+    error_message: Option<String>,
+    owner_generation: i64,
+    sequence: i64,
+    created_at_ms: i64,
+    updated_at_ms: i64,
+    resolved_at_ms: Option<i64>,
+}
+
+#[derive(Debug, FromRow)]
+struct PendingRequestSummaryRow {
+    id: String,
+    conversation_id: String,
+    method: String,
+    kind: String,
+    status: String,
+    created_at_ms: i64,
+    updated_at_ms: i64,
+}
+
 /// Backend owner for persisted conversations and live Codex runtimes.
 pub struct ChatService {
     pool: SqlitePool,
@@ -1269,6 +1474,7 @@ pub struct ChatService {
     turn_to_conversation: DashMap<String, RouteEntry>,
     item_to_conversation: DashMap<String, RouteEntry>,
     server_request_to_conversation: DashMap<String, PendingServerRequestRoute>,
+    pending_server_responders: DashMap<String, PendingServerResponder>,
     op_locks: DashMap<String, Arc<Mutex<()>>>,
     stream_owner_generation: AtomicU64,
     app_event_loop_started: AtomicBool,
@@ -1302,6 +1508,7 @@ impl ChatService {
             turn_to_conversation: DashMap::new(),
             item_to_conversation: DashMap::new(),
             server_request_to_conversation: DashMap::new(),
+            pending_server_responders: DashMap::new(),
             op_locks: DashMap::new(),
             stream_owner_generation: AtomicU64::new(1),
             app_event_loop_started: AtomicBool::new(false),
@@ -1367,7 +1574,38 @@ impl ChatService {
                 provider_thread_id, title, created_at_ms, updated_at_ms,
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
                 selected_model, selected_effort, selected_permission_mode,
-                last_run_state, last_error, revision
+                last_run_state, last_error,
+                (
+                    SELECT COUNT(*)
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                ) AS pending_request_count,
+                (
+                    SELECT id
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                    ORDER BY updated_at_ms DESC, sequence DESC, id DESC
+                    LIMIT 1
+                ) AS latest_pending_request_id,
+                (
+                    SELECT kind
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                    ORDER BY updated_at_ms DESC, sequence DESC, id DESC
+                    LIMIT 1
+                ) AS latest_pending_request_kind,
+                (
+                    SELECT status
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                    ORDER BY updated_at_ms DESC, sequence DESC, id DESC
+                    LIMIT 1
+                ) AS latest_pending_request_status,
+                revision
             FROM chat_conversations
             WHERE id = ?
             ",
@@ -1392,7 +1630,38 @@ impl ChatService {
                 provider_thread_id, title, created_at_ms, updated_at_ms,
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
                 selected_model, selected_effort, selected_permission_mode,
-                last_run_state, last_error, revision
+                last_run_state, last_error,
+                (
+                    SELECT COUNT(*)
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                ) AS pending_request_count,
+                (
+                    SELECT id
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                    ORDER BY updated_at_ms DESC, sequence DESC, id DESC
+                    LIMIT 1
+                ) AS latest_pending_request_id,
+                (
+                    SELECT kind
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                    ORDER BY updated_at_ms DESC, sequence DESC, id DESC
+                    LIMIT 1
+                ) AS latest_pending_request_kind,
+                (
+                    SELECT status
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                    ORDER BY updated_at_ms DESC, sequence DESC, id DESC
+                    LIMIT 1
+                ) AS latest_pending_request_status,
+                revision
             FROM chat_conversations
             WHERE project_id = ? AND worktree_id = ? AND session_id = ?
             ORDER BY updated_at_ms DESC, created_at_ms DESC, id DESC
@@ -1418,7 +1687,38 @@ impl ChatService {
                 provider_thread_id, title, created_at_ms, updated_at_ms,
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
                 selected_model, selected_effort, selected_permission_mode,
-                last_run_state, last_error, revision
+                last_run_state, last_error,
+                (
+                    SELECT COUNT(*)
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                ) AS pending_request_count,
+                (
+                    SELECT id
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                    ORDER BY updated_at_ms DESC, sequence DESC, id DESC
+                    LIMIT 1
+                ) AS latest_pending_request_id,
+                (
+                    SELECT kind
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                    ORDER BY updated_at_ms DESC, sequence DESC, id DESC
+                    LIMIT 1
+                ) AS latest_pending_request_kind,
+                (
+                    SELECT status
+                    FROM chat_pending_requests
+                    WHERE conversation_id = chat_conversations.id
+                        AND status IN ('pending', 'resolving')
+                    ORDER BY updated_at_ms DESC, sequence DESC, id DESC
+                    LIMIT 1
+                ) AS latest_pending_request_status,
+                revision
             FROM chat_conversations
             WHERE session_id = ?
             ORDER BY updated_at_ms DESC, created_at_ms DESC, id DESC
@@ -1428,6 +1728,34 @@ impl ChatService {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(conversation_from_row).collect())
+    }
+
+    /// List lightweight pending requests visible to a session.
+    pub async fn list_session_pending_request_summaries(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<ChatPendingRequestSummary>, ChatServiceError> {
+        let rows = sqlx::query_as::<_, PendingRequestSummaryRow>(
+            "
+            SELECT
+                request.id, request.conversation_id, request.method,
+                request.kind, request.status, request.created_at_ms,
+                request.updated_at_ms
+            FROM chat_pending_requests request
+            INNER JOIN chat_conversations conversation
+                ON conversation.id = request.conversation_id
+            WHERE conversation.session_id = ?
+                AND request.status IN ('pending', 'resolving')
+            ORDER BY request.updated_at_ms DESC, request.sequence DESC, request.id DESC
+            ",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(pending_request_summary_from_row)
+            .collect())
     }
 
     /// Fetch one conversation transcript plus latest run state.
@@ -1497,12 +1825,32 @@ impl ChatService {
         .bind(conversation_id)
         .fetch_all(&self.pool)
         .await?;
+        let pending_rows = sqlx::query_as::<_, PendingRequestRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, item_id, provider_request_id,
+                provider_turn_id, provider_item_id, method, kind, status,
+                decision, payload_json, response_json, error_message,
+                owner_generation, sequence, created_at_ms, updated_at_ms,
+                resolved_at_ms
+            FROM chat_pending_requests
+            WHERE conversation_id = ?
+            ORDER BY sequence ASC, created_at_ms ASC, id ASC
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(Some(ChatConversationDetail {
             conversation,
             messages: message_rows.into_iter().map(message_from_row).collect(),
             turns: turn_rows.into_iter().map(turn_from_row).collect(),
             items: item_rows.into_iter().map(item_from_row).collect(),
+            pending_requests: pending_rows
+                .into_iter()
+                .map(pending_request_from_row)
+                .collect(),
             latest_run: latest_run.map(run_from_row),
         }))
     }
@@ -2006,14 +2354,19 @@ impl ChatService {
                                 .await;
                             match service
                                 .handle_provider_request(
+                                    id.clone(),
                                     &conversation_id,
                                     &runtime,
                                     &method,
                                     params,
+                                    &route_hints,
                                 )
                                 .await
                             {
-                                Ok(result) => service.app_server.respond_result(id, result).await,
+                                Ok(Some(result)) => {
+                                    service.app_server.respond_result(id, result).await
+                                }
+                                Ok(None) => Ok(()),
                                 Err(error) => Err(error),
                             }
                         } else {
@@ -2279,19 +2632,9 @@ impl ChatService {
                 "cleared codex app-server request route"
             );
         }
-    }
-
-    fn clear_pending_server_requests_for_conversation(&self, conversation_id: &str) {
-        let request_ids = self
-            .server_request_to_conversation
-            .iter()
-            .filter_map(|entry| {
-                (entry.value().route.conversation_id == conversation_id)
-                    .then(|| entry.key().clone())
-            })
-            .collect::<Vec<_>>();
-        for request_id in request_ids {
-            self.server_request_to_conversation.remove(&request_id);
+        if let Some((_, responder)) = self.pending_server_responders.remove(request_id) {
+            self.pending_server_responders
+                .remove(&responder.provider_request_id);
         }
     }
 
@@ -2300,38 +2643,493 @@ impl ChatService {
         self.turn_to_conversation.clear();
         self.item_to_conversation.clear();
         self.server_request_to_conversation.clear();
+        self.pending_server_responders.clear();
+    }
+
+    async fn persist_provider_request(
+        self: &Arc<Self>,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        request: PersistProviderRequest,
+    ) -> Result<ChatPendingRequest, ChatServiceError> {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let provider_request_id = request
+            .route_hints
+            .request_id
+            .clone()
+            .unwrap_or_else(|| provider_request_id_from_jsonrpc_id(&request.jsonrpc_id));
+        let (owner_generation, provider_turn_id, provider_item_id) = {
+            let state = runtime.state.lock().await;
+            (
+                state.owner_generation,
+                request
+                    .route_hints
+                    .turn_id
+                    .clone()
+                    .or(state.active_turn_id.clone()),
+                request.route_hints.item_id.clone(),
+            )
+        };
+        let now = now_ms() as i64;
+        let next_sequence = sqlx::query(
+            "
+            SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+            FROM chat_pending_requests
+            WHERE conversation_id = ?
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_one(&self.pool)
+        .await?
+        .try_get::<i64, _>("next_sequence")
+        .unwrap_or(1);
+        let payload_json = compact_payload_json(&request.params);
+        let decision_text = request
+            .decision
+            .as_ref()
+            .map(pending_request_decision_as_str);
+        sqlx::query(
+            "
+            INSERT INTO chat_pending_requests (
+                id, conversation_id, turn_id, item_id, provider_request_id,
+                provider_turn_id, provider_item_id, method, kind, status,
+                decision, payload_json, response_json, error_message,
+                owner_generation, sequence, created_at_ms, updated_at_ms,
+                resolved_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+            ",
+        )
+        .bind(&request_id)
+        .bind(conversation_id)
+        .bind(request.route_hints.turn_id.as_deref())
+        .bind(request.route_hints.item_id.as_deref())
+        .bind(&provider_request_id)
+        .bind(provider_turn_id.as_deref())
+        .bind(provider_item_id.as_deref())
+        .bind(&request.method)
+        .bind(pending_request_kind_for_method(&request.method).as_str())
+        .bind(request.status.as_str())
+        .bind(decision_text)
+        .bind(payload_json)
+        .bind(&request.error_message)
+        .bind(owner_generation as i64)
+        .bind(next_sequence)
+        .bind(now)
+        .bind(now)
+        .bind(if request.status.is_attention() {
+            None
+        } else {
+            Some(now)
+        })
+        .execute(&self.pool)
+        .await?;
+
+        if request.status.is_attention() {
+            let responder = PendingServerResponder {
+                jsonrpc_id: request.jsonrpc_id,
+                conversation_id: conversation_id.to_string(),
+                provider_request_id: provider_request_id.clone(),
+                owner_generation,
+            };
+            self.pending_server_responders
+                .insert(request_id.clone(), responder.clone());
+            self.pending_server_responders
+                .insert(provider_request_id.clone(), responder);
+        }
+
+        self.get_pending_request_by_id(conversation_id, &request_id)
+            .await?
+            .ok_or_else(|| {
+                ChatServiceError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "pending request missing after insert",
+                )
+            })
+    }
+
+    async fn get_pending_request_by_id(
+        &self,
+        conversation_id: &str,
+        request_id: &str,
+    ) -> Result<Option<ChatPendingRequest>, ChatServiceError> {
+        let row = sqlx::query_as::<_, PendingRequestRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, item_id, provider_request_id,
+                provider_turn_id, provider_item_id, method, kind, status,
+                decision, payload_json, response_json, error_message,
+                owner_generation, sequence, created_at_ms, updated_at_ms,
+                resolved_at_ms
+            FROM chat_pending_requests
+            WHERE conversation_id = ? AND id = ?
+            ",
+        )
+        .bind(conversation_id)
+        .bind(request_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(pending_request_from_row))
+    }
+
+    async fn update_pending_request_terminal(
+        &self,
+        conversation_id: &str,
+        request_id: &str,
+        status: ChatPendingRequestStatus,
+        decision: Option<&ChatPendingRequestDecision>,
+        response: Option<&Value>,
+        error_message: Option<&str>,
+    ) -> Result<Option<ChatPendingRequest>, ChatServiceError> {
+        let now = now_ms() as i64;
+        let response_json = response.map(compact_payload_json);
+        sqlx::query(
+            "
+            UPDATE chat_pending_requests
+            SET status = ?, decision = COALESCE(?, decision),
+                response_json = COALESCE(?, response_json),
+                error_message = ?, updated_at_ms = ?, resolved_at_ms = ?
+            WHERE conversation_id = ? AND id = ?
+            ",
+        )
+        .bind(status.as_str())
+        .bind(decision.map(pending_request_decision_as_str))
+        .bind(response_json.as_deref())
+        .bind(error_message)
+        .bind(now)
+        .bind(now)
+        .bind(conversation_id)
+        .bind(request_id)
+        .execute(&self.pool)
+        .await?;
+        let request = self
+            .get_pending_request_by_id(conversation_id, request_id)
+            .await?;
+        if let Some(request) = request.as_ref() {
+            self.clear_pending_server_request(&request.provider_request_id);
+            self.pending_server_responders.remove(&request.id);
+        }
+        Ok(request)
+    }
+
+    async fn mark_pending_requests_stale_for_conversation(
+        &self,
+        conversation_id: &str,
+        reason: &str,
+    ) -> Result<(), ChatServiceError> {
+        let rows = sqlx::query_as::<_, PendingRequestRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, item_id, provider_request_id,
+                provider_turn_id, provider_item_id, method, kind, status,
+                decision, payload_json, response_json, error_message,
+                owner_generation, sequence, created_at_ms, updated_at_ms,
+                resolved_at_ms
+            FROM chat_pending_requests
+            WHERE conversation_id = ? AND status IN ('pending', 'resolving')
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_all(&self.pool)
+        .await?;
+        for row in rows {
+            if let Some(request) = self
+                .update_pending_request_terminal(
+                    conversation_id,
+                    &row.id,
+                    ChatPendingRequestStatus::Stale,
+                    None,
+                    None,
+                    Some(reason),
+                )
+                .await?
+            {
+                self.events.emit(EventKind::ChatPendingRequestUpdated {
+                    session_id: request_session_id(self, conversation_id).await?,
+                    request,
+                });
+            }
+        }
+        let _ = self.emit_conversation_updated(conversation_id).await?;
+        Ok(())
+    }
+
+    async fn reconcile_provider_request_resolved(
+        &self,
+        conversation_id: &str,
+        provider_request_id: &str,
+    ) -> Result<(), ChatServiceError> {
+        let row = sqlx::query_as::<_, PendingRequestRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, item_id, provider_request_id,
+                provider_turn_id, provider_item_id, method, kind, status,
+                decision, payload_json, response_json, error_message,
+                owner_generation, sequence, created_at_ms, updated_at_ms,
+                resolved_at_ms
+            FROM chat_pending_requests
+            WHERE conversation_id = ? AND provider_request_id = ?
+            ",
+        )
+        .bind(conversation_id)
+        .bind(provider_request_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(());
+        };
+        let status = parse_pending_request_status(&row.status);
+        if status.is_attention()
+            && let Some(request) = self
+                .update_pending_request_terminal(
+                    conversation_id,
+                    &row.id,
+                    ChatPendingRequestStatus::Resolved,
+                    None,
+                    None,
+                    None,
+                )
+                .await?
+        {
+            self.events.emit(EventKind::ChatPendingRequestResolved {
+                session_id: request_session_id(self, conversation_id).await?,
+                request,
+            });
+            let _ = self.emit_conversation_updated(conversation_id).await?;
+        }
+        Ok(())
+    }
+
+    /// Resolve one pending Codex server request from any browser client.
+    pub async fn resolve_pending_request(
+        self: &Arc<Self>,
+        conversation_id: &str,
+        request_id: &str,
+        resolution: ResolveChatPendingRequestRequest,
+    ) -> Result<ChatPendingRequest, ChatServiceError> {
+        let lock = self.operation_lock(conversation_id);
+        let _guard = lock.lock().await;
+        let Some(existing) = self
+            .get_pending_request_by_id(conversation_id, request_id)
+            .await?
+        else {
+            return Err(ChatServiceError::new(
+                StatusCode::NOT_FOUND,
+                "pending request not found",
+            ));
+        };
+        if !matches!(existing.status, ChatPendingRequestStatus::Pending) {
+            return Err(ChatServiceError::new(
+                StatusCode::CONFLICT,
+                "pending request has already been resolved",
+            ));
+        }
+        sqlx::query(
+            "
+            UPDATE chat_pending_requests
+            SET status = ?, updated_at_ms = ?
+            WHERE conversation_id = ? AND id = ? AND status = ?
+            ",
+        )
+        .bind(ChatPendingRequestStatus::Resolving.as_str())
+        .bind(now_ms() as i64)
+        .bind(conversation_id)
+        .bind(request_id)
+        .bind(ChatPendingRequestStatus::Pending.as_str())
+        .execute(&self.pool)
+        .await?;
+        if let Some(request) = self
+            .get_pending_request_by_id(conversation_id, request_id)
+            .await?
+        {
+            self.events.emit(EventKind::ChatPendingRequestUpdated {
+                session_id: request_session_id(self, conversation_id).await?,
+                request,
+            });
+        }
+
+        let responder = self
+            .pending_server_responders
+            .get(request_id)
+            .map(|entry| entry.value().clone())
+            .ok_or_else(|| {
+                ChatServiceError::new(
+                    StatusCode::CONFLICT,
+                    "codex request can no longer be answered",
+                )
+            });
+        let responder = match responder {
+            Ok(responder) => responder,
+            Err(error) => {
+                if let Some(request) = self
+                    .update_pending_request_terminal(
+                        conversation_id,
+                        request_id,
+                        ChatPendingRequestStatus::Stale,
+                        None,
+                        None,
+                        Some(&error.message),
+                    )
+                    .await?
+                {
+                    self.events.emit(EventKind::ChatPendingRequestUpdated {
+                        session_id: request_session_id(self, conversation_id).await?,
+                        request,
+                    });
+                }
+                return Err(error);
+            }
+        };
+        if responder.conversation_id != conversation_id {
+            return Err(ChatServiceError::new(
+                StatusCode::CONFLICT,
+                "pending request belongs to another conversation",
+            ));
+        }
+        let Some(runtime) = self
+            .runtimes
+            .get(conversation_id)
+            .map(|entry| entry.value().clone())
+        else {
+            self.mark_pending_requests_stale_for_conversation(
+                conversation_id,
+                "codex runtime is no longer available",
+            )
+            .await?;
+            return Err(ChatServiceError::new(
+                StatusCode::CONFLICT,
+                "codex runtime is no longer available",
+            ));
+        };
+        let owner_matches =
+            runtime.state.lock().await.owner_generation == responder.owner_generation;
+        if !owner_matches {
+            self.mark_pending_requests_stale_for_conversation(
+                conversation_id,
+                "codex stream ownership changed before the request was answered",
+            )
+            .await?;
+            return Err(ChatServiceError::new(
+                StatusCode::CONFLICT,
+                "codex request can no longer be answered",
+            ));
+        }
+
+        let response = provider_response_for_pending_request(&existing, &resolution)?;
+        let send_result = self
+            .app_server
+            .respond_result(responder.jsonrpc_id.clone(), response.clone())
+            .await;
+        match send_result {
+            Ok(()) => {
+                let status = resolution.decision.terminal_status();
+                let request = self
+                    .update_pending_request_terminal(
+                        conversation_id,
+                        request_id,
+                        status,
+                        Some(&resolution.decision),
+                        Some(&response),
+                        None,
+                    )
+                    .await?
+                    .ok_or_else(|| {
+                        ChatServiceError::new(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "pending request missing after resolution",
+                        )
+                    })?;
+                self.events.emit(EventKind::ChatPendingRequestResolved {
+                    session_id: request_session_id(self, conversation_id).await?,
+                    request: request.clone(),
+                });
+                let _ = self.emit_conversation_updated(conversation_id).await?;
+                Ok(request)
+            }
+            Err(error) => {
+                let request = self
+                    .update_pending_request_terminal(
+                        conversation_id,
+                        request_id,
+                        ChatPendingRequestStatus::Failed,
+                        Some(&resolution.decision),
+                        Some(&response),
+                        Some(&error.message),
+                    )
+                    .await?
+                    .ok_or_else(|| {
+                        ChatServiceError::new(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "pending request missing after failed resolution",
+                        )
+                    })?;
+                self.events.emit(EventKind::ChatPendingRequestUpdated {
+                    session_id: request_session_id(self, conversation_id).await?,
+                    request,
+                });
+                let _ = self.emit_conversation_updated(conversation_id).await?;
+                Err(error)
+            }
+        }
     }
 
     async fn handle_provider_request(
         self: &Arc<Self>,
+        jsonrpc_id: Value,
         conversation_id: &str,
         runtime: &RuntimeEntry,
         method: &str,
-        _params: Value,
-    ) -> Result<Value, ChatServiceError> {
-        let error_message = match method {
-            "item/commandExecution/requestApproval"
-            | "item/fileChange/requestApproval"
-            | "item/tool/requestUserInput" => {
-                format!("{method} is not supported in Hubris chat yet")
-            }
-            _ => format!("unsupported codex app-server request: {method}"),
-        };
-
-        {
-            let mut state = runtime.state.lock().await;
-            state.active_error = Some(error_message.clone());
-            state.last_error = Some(error_message.clone());
+        params: Value,
+        route_hints: &RouteHints,
+    ) -> Result<Option<Value>, ChatServiceError> {
+        let kind = pending_request_kind_for_method(method);
+        if matches!(kind, ChatPendingRequestKind::Unsupported) {
+            let request = self
+                .persist_provider_request(
+                    conversation_id,
+                    runtime,
+                    PersistProviderRequest {
+                        jsonrpc_id,
+                        method: method.to_string(),
+                        params,
+                        route_hints: route_hints.clone(),
+                        status: ChatPendingRequestStatus::Declined,
+                        decision: Some(ChatPendingRequestDecision::Decline),
+                        error_message: Some(format!(
+                            "unsupported codex app-server request: {method}"
+                        )),
+                    },
+                )
+                .await?;
+            self.events.emit(EventKind::ChatPendingRequestResolved {
+                session_id: request_session_id(self, conversation_id).await?,
+                request,
+            });
+            return Ok(Some(json!({ "decision": "decline" })));
         }
-        self.emit_thread_stream_status(
-            conversation_id,
-            &runtime.state,
-            Some(error_message.clone()),
-        )
-        .await;
-        tracing::warn!(conversation_id, method, "{error_message}");
 
-        Ok(json!({ "decision": "decline" }))
+        let request = self
+            .persist_provider_request(
+                conversation_id,
+                runtime,
+                PersistProviderRequest {
+                    jsonrpc_id,
+                    method: method.to_string(),
+                    params,
+                    route_hints: route_hints.clone(),
+                    status: ChatPendingRequestStatus::Pending,
+                    decision: None,
+                    error_message: None,
+                },
+            )
+            .await?;
+        self.events.emit(EventKind::ChatPendingRequestCreated {
+            session_id: request_session_id(self, conversation_id).await?,
+            request,
+        });
+        let _ = self.emit_conversation_updated(conversation_id).await?;
+        self.emit_thread_stream_status(conversation_id, &runtime.state, None)
+            .await;
+        Ok(None)
     }
 
     async fn handle_provider_notification(
@@ -2362,6 +3160,8 @@ impl ChatService {
             "serverRequest/resolved" => {
                 let route_hints = RouteHints::from_value(&params);
                 if let Some(request_id) = route_hints.request_id.as_deref() {
+                    self.reconcile_provider_request_resolved(conversation_id, request_id)
+                        .await?;
                     self.clear_pending_server_request(request_id);
                 }
             }
@@ -2757,7 +3557,11 @@ impl ChatService {
                 }
                 self.emit_thread_stream_status(conversation_id, &runtime.state, None)
                     .await;
-                self.clear_pending_server_requests_for_conversation(conversation_id);
+                self.mark_pending_requests_stale_for_conversation(
+                    conversation_id,
+                    "codex turn completed before this request was answered",
+                )
+                .await?;
                 self.schedule_idle_unsubscribe(conversation_id.to_string(), generation);
                 self.enforce_inactive_stream_limit().await;
             }
@@ -2836,6 +3640,11 @@ impl ChatService {
             }
             self.emit_thread_stream_status(&conversation_id, &runtime.state, Some(reason.clone()))
                 .await;
+            self.mark_pending_requests_stale_for_conversation(
+                &conversation_id,
+                "codex app-server exited before this request was answered",
+            )
+            .await?;
         }
         Ok(())
     }
@@ -2937,6 +3746,11 @@ impl ChatService {
                     state.inactive_deadline_at = None;
                     state.last_error = None;
                 }
+                self.mark_pending_requests_stale_for_conversation(
+                    conversation_id,
+                    "codex thread stream was unsubscribed before this request was answered",
+                )
+                .await?;
                 self.emit_thread_stream_status(conversation_id, &runtime.state, None)
                     .await;
             }
@@ -4176,6 +4990,17 @@ fn conversation_from_row(row: ConversationRow) -> ChatConversationSummary {
             .and_then(parse_permission_mode),
         last_run_state: parse_run_status(&row.last_run_state),
         last_error: row.last_error,
+        pending_request_count: row.pending_request_count.max(0) as u32,
+        latest_pending_request_id: row.latest_pending_request_id,
+        latest_pending_request_kind: row
+            .latest_pending_request_kind
+            .as_deref()
+            .map(parse_pending_request_kind),
+        latest_pending_request_status: row
+            .latest_pending_request_status
+            .as_deref()
+            .map(parse_pending_request_status),
+        has_pending_request_attention: row.pending_request_count > 0,
         revision: row.revision.max(0) as u64,
     }
 }
@@ -4230,6 +5055,190 @@ fn parse_provider(provider: &str) -> ChatProvider {
         "codex" => ChatProvider::Codex,
         _ => ChatProvider::Codex,
     }
+}
+
+fn provider_request_id_from_jsonrpc_id(id: &Value) -> String {
+    id.as_str()
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| id.to_string())
+}
+
+fn pending_request_kind_for_method(method: &str) -> ChatPendingRequestKind {
+    match method {
+        "item/commandExecution/requestApproval" => ChatPendingRequestKind::CommandApproval,
+        "item/fileChange/requestApproval" => ChatPendingRequestKind::FileApproval,
+        "item/permissions/requestApproval" => ChatPendingRequestKind::PermissionApproval,
+        "item/tool/requestUserInput" => ChatPendingRequestKind::StructuredInput,
+        "mcpServer/elicitation/request" => ChatPendingRequestKind::McpElicitation,
+        _ => ChatPendingRequestKind::Unsupported,
+    }
+}
+
+fn pending_request_decision_as_str(decision: &ChatPendingRequestDecision) -> &'static str {
+    match decision {
+        ChatPendingRequestDecision::Accept => "accept",
+        ChatPendingRequestDecision::AcceptForSession => "acceptForSession",
+        ChatPendingRequestDecision::Decline => "decline",
+        ChatPendingRequestDecision::Cancel => "cancel",
+        ChatPendingRequestDecision::AcceptWithExecpolicyAmendment => {
+            "acceptWithExecpolicyAmendment"
+        }
+        ChatPendingRequestDecision::ApplyNetworkPolicyAmendment => "applyNetworkPolicyAmendment",
+        ChatPendingRequestDecision::Submit => "submit",
+    }
+}
+
+fn compact_payload_json(value: &Value) -> String {
+    let mut text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string());
+    const MAX_LEN: usize = 64 * 1024;
+    if text.len() <= MAX_LEN {
+        return text;
+    }
+    text.truncate(MAX_LEN);
+    serde_json::to_string(&json!({
+        "truncated": true,
+        "prefix": text,
+    }))
+    .unwrap_or_else(|_| "{\"truncated\":true}".to_string())
+}
+
+fn pending_request_payload(request: &ChatPendingRequest) -> Value {
+    serde_json::from_str(&request.payload_json).unwrap_or(Value::Null)
+}
+
+fn provider_response_for_pending_request(
+    request: &ChatPendingRequest,
+    resolution: &ResolveChatPendingRequestRequest,
+) -> Result<Value, ChatServiceError> {
+    let payload = pending_request_payload(request);
+    let decision = &resolution.decision;
+    match request.kind {
+        ChatPendingRequestKind::PermissionApproval => {
+            if matches!(
+                decision,
+                ChatPendingRequestDecision::Decline | ChatPendingRequestDecision::Cancel
+            ) {
+                return Ok(json!({ "permissions": {}, "scope": "turn" }));
+            }
+            let permissions = resolution
+                .value
+                .clone()
+                .or_else(|| payload.get("permissions").cloned())
+                .unwrap_or_else(|| json!({}));
+            Ok(json!({ "permissions": permissions, "scope": "turn" }))
+        }
+        ChatPendingRequestKind::StructuredInput | ChatPendingRequestKind::McpElicitation => {
+            if matches!(decision, ChatPendingRequestDecision::Cancel) {
+                return Ok(json!({ "decision": "cancel" }));
+            }
+            if matches!(decision, ChatPendingRequestDecision::Decline) {
+                return Ok(json!({ "decision": "decline" }));
+            }
+            Ok(resolution
+                .value
+                .clone()
+                .unwrap_or_else(|| json!({ "answers": {} })))
+        }
+        _ => Ok(match decision {
+            ChatPendingRequestDecision::Accept => json!({ "decision": "accept" }),
+            ChatPendingRequestDecision::AcceptForSession => {
+                json!({ "decision": "acceptForSession" })
+            }
+            ChatPendingRequestDecision::Decline => json!({ "decision": "decline" }),
+            ChatPendingRequestDecision::Cancel => json!({ "decision": "cancel" }),
+            ChatPendingRequestDecision::AcceptWithExecpolicyAmendment => {
+                let value = resolution
+                    .value
+                    .clone()
+                    .or_else(|| payload.get("proposedExecpolicyAmendment").cloned())
+                    .ok_or_else(|| {
+                        ChatServiceError::new(
+                            StatusCode::BAD_REQUEST,
+                            "execpolicy amendment decision requires a value",
+                        )
+                    })?;
+                json!({
+                    "decision": {
+                        "acceptWithExecpolicyAmendment": value
+                    }
+                })
+            }
+            ChatPendingRequestDecision::ApplyNetworkPolicyAmendment => {
+                let value = resolution
+                    .value
+                    .clone()
+                    .or_else(|| payload.get("proposedNetworkPolicyAmendment").cloned())
+                    .or_else(|| payload.get("proposedNetworkPolicyAmendments").cloned())
+                    .ok_or_else(|| {
+                        ChatServiceError::new(
+                            StatusCode::BAD_REQUEST,
+                            "network policy amendment decision requires a value",
+                        )
+                    })?;
+                json!({
+                    "decision": {
+                        "applyNetworkPolicyAmendment": value
+                    }
+                })
+            }
+            ChatPendingRequestDecision::Submit => {
+                return Err(ChatServiceError::new(
+                    StatusCode::BAD_REQUEST,
+                    "submit is only valid for structured input requests",
+                ));
+            }
+        }),
+    }
+}
+
+async fn request_session_id(
+    service: &ChatService,
+    conversation_id: &str,
+) -> Result<String, ChatServiceError> {
+    service
+        .get_conversation_summary(conversation_id)
+        .await?
+        .map(|summary| summary.session_id)
+        .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))
+}
+
+fn parse_pending_request_kind(kind: &str) -> ChatPendingRequestKind {
+    match kind {
+        "command_approval" => ChatPendingRequestKind::CommandApproval,
+        "file_approval" => ChatPendingRequestKind::FileApproval,
+        "permission_approval" => ChatPendingRequestKind::PermissionApproval,
+        "structured_input" => ChatPendingRequestKind::StructuredInput,
+        "mcp_elicitation" => ChatPendingRequestKind::McpElicitation,
+        _ => ChatPendingRequestKind::Unsupported,
+    }
+}
+
+fn parse_pending_request_status(status: &str) -> ChatPendingRequestStatus {
+    match status {
+        "pending" => ChatPendingRequestStatus::Pending,
+        "resolving" => ChatPendingRequestStatus::Resolving,
+        "resolved" => ChatPendingRequestStatus::Resolved,
+        "declined" => ChatPendingRequestStatus::Declined,
+        "cancelled" => ChatPendingRequestStatus::Cancelled,
+        "stale" => ChatPendingRequestStatus::Stale,
+        "failed" => ChatPendingRequestStatus::Failed,
+        _ => ChatPendingRequestStatus::Failed,
+    }
+}
+
+fn parse_pending_request_decision(decision: Option<String>) -> Option<ChatPendingRequestDecision> {
+    decision.as_deref().map(|decision| match decision {
+        "accept" => ChatPendingRequestDecision::Accept,
+        "acceptForSession" => ChatPendingRequestDecision::AcceptForSession,
+        "decline" => ChatPendingRequestDecision::Decline,
+        "cancel" => ChatPendingRequestDecision::Cancel,
+        "acceptWithExecpolicyAmendment" => {
+            ChatPendingRequestDecision::AcceptWithExecpolicyAmendment
+        }
+        "applyNetworkPolicyAmendment" => ChatPendingRequestDecision::ApplyNetworkPolicyAmendment,
+        "submit" => ChatPendingRequestDecision::Submit,
+        _ => ChatPendingRequestDecision::Decline,
+    })
 }
 
 fn message_from_row(row: MessageRow) -> ChatMessage {
@@ -4313,6 +5322,42 @@ fn item_output_from_row(row: ItemOutputRow) -> ChatItemOutput {
         sequence: row.sequence.max(0) as u32,
         content_text: row.content_text,
         byte_count: row.byte_count.max(0) as u32,
+        created_at: row.created_at_ms.max(0) as u64,
+        updated_at: row.updated_at_ms.max(0) as u64,
+    }
+}
+
+fn pending_request_from_row(row: PendingRequestRow) -> ChatPendingRequest {
+    ChatPendingRequest {
+        id: row.id,
+        conversation_id: row.conversation_id,
+        turn_id: row.turn_id,
+        item_id: row.item_id,
+        provider_request_id: row.provider_request_id,
+        provider_turn_id: row.provider_turn_id,
+        provider_item_id: row.provider_item_id,
+        method: row.method,
+        kind: parse_pending_request_kind(&row.kind),
+        status: parse_pending_request_status(&row.status),
+        decision: parse_pending_request_decision(row.decision),
+        payload_json: row.payload_json,
+        response_json: row.response_json,
+        error_message: row.error_message,
+        owner_generation: row.owner_generation.max(0) as u64,
+        sequence: row.sequence.max(0) as u32,
+        created_at: row.created_at_ms.max(0) as u64,
+        updated_at: row.updated_at_ms.max(0) as u64,
+        resolved_at: row.resolved_at_ms.map(|value| value.max(0) as u64),
+    }
+}
+
+fn pending_request_summary_from_row(row: PendingRequestSummaryRow) -> ChatPendingRequestSummary {
+    ChatPendingRequestSummary {
+        id: row.id,
+        conversation_id: row.conversation_id,
+        kind: parse_pending_request_kind(&row.kind),
+        status: parse_pending_request_status(&row.status),
+        method: row.method,
         created_at: row.created_at_ms.max(0) as u64,
         updated_at: row.updated_at_ms.max(0) as u64,
     }
@@ -4861,6 +5906,11 @@ mod tests {
             selected_permission_mode: None,
             last_run_state: ChatRunStatus::Completed,
             last_error: None,
+            pending_request_count: 0,
+            latest_pending_request_id: None,
+            latest_pending_request_kind: None,
+            latest_pending_request_status: None,
+            has_pending_request_attention: false,
             revision: 0,
         }
     }
@@ -4893,6 +5943,7 @@ mod tests {
             turn_to_conversation: DashMap::new(),
             item_to_conversation: DashMap::new(),
             server_request_to_conversation: DashMap::new(),
+            pending_server_responders: DashMap::new(),
             op_locks: DashMap::new(),
             stream_owner_generation: AtomicU64::new(1),
             app_event_loop_started: AtomicBool::new(false),

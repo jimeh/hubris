@@ -2203,7 +2203,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(migration_count, 8);
+        assert_eq!(migration_count, 9);
     }
 
     #[tokio::test]
@@ -2216,7 +2216,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(migration_count, 8);
+        assert_eq!(migration_count, 9);
     }
 
     #[tokio::test]

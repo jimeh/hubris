@@ -5,6 +5,7 @@ import {
   interruptChat,
   listChatModels,
   patchChatSettings,
+  resolveChatPendingRequest,
   sendChatMessage,
   type ChatConversationSummary as ApiChatConversationSummary,
   type ChatModelOption as ApiChatModelOption,
@@ -23,6 +24,9 @@ import type {
   ChatItemOutput,
   ChatMessage,
   ChatModelOption,
+  ChatPendingRequest,
+  ChatPendingRequestDecision,
+  ChatPendingRequestSummary,
   ChatRun,
   ChatRuntimeStatus,
   ChatThreadStreamStatus,
@@ -56,6 +60,9 @@ type ChatStoreState = {
   outputIdsByItemId: Record<string, string[]>;
   outputsById: Record<string, ChatItemOutput>;
   activityDetailsByItemId: Record<string, ActivityDetailState>;
+  pendingRequestIdsByConversationId: Record<string, string[]>;
+  pendingRequestsById: Record<string, ChatPendingRequest>;
+  pendingRequestSummariesById: Record<string, ChatPendingRequestSummary>;
   latestRunByConversationId: Record<string, ChatRun | null>;
   modelOptions: ChatModelOption[];
   modelOptionsStatus: "idle" | "loading" | "loaded" | "error";
@@ -73,6 +80,12 @@ type ChatStoreState = {
   ) => Promise<ChatActivityDetail | null>;
   sendMessage: (conversationId: string, text: string) => Promise<void>;
   interruptRun: (conversationId: string) => Promise<void>;
+  resolvePendingRequest: (
+    conversationId: string,
+    requestId: string,
+    decision: ChatPendingRequestDecision,
+    value?: unknown,
+  ) => Promise<void>;
   updateConversationSettings: (
     conversationId: string,
     patch: ChatConversationSettingsPatch,
@@ -108,6 +121,13 @@ type ChatBatchEvent =
   | {
       type: "activity_updated";
       data: SseEventData<"chat_activity_updated">;
+    }
+  | {
+      type: "pending_request_updated";
+      data:
+        | SseEventData<"chat_pending_request_created">
+        | SseEventData<"chat_pending_request_updated">
+        | SseEventData<"chat_pending_request_resolved">;
     };
 
 const DEFAULT_DETAIL_STATE: ConversationDetailState = {
@@ -146,6 +166,12 @@ function indexThreadStreams(
   return Object.fromEntries(
     streams.map((stream) => [stream.conversationId, stream]),
   );
+}
+
+function indexPendingRequestSummaries(
+  requests: readonly ChatPendingRequestSummary[] = [],
+): Record<string, ChatPendingRequestSummary> {
+  return Object.fromEntries(requests.map((request) => [request.id, request]));
 }
 
 function normalizeModelOptions(
@@ -199,6 +225,17 @@ function sortOutputs(outputs: readonly ChatItemOutput[]): ChatItemOutput[] {
   });
 }
 
+function sortPendingRequests(
+  requests: readonly ChatPendingRequest[],
+): ChatPendingRequest[] {
+  return [...requests].sort((left, right) => {
+    if (left.sequence !== right.sequence) {
+      return left.sequence - right.sequence;
+    }
+    return left.createdAt - right.createdAt;
+  });
+}
+
 function mergeConversationIntoOpenTabs(
   conversation: ChatConversationSummary,
 ): void {
@@ -237,6 +274,13 @@ function itemIdsFromState(
   return state.itemIdsByConversationId[conversationId] ?? EMPTY_IDS;
 }
 
+function pendingRequestIdsFromState(
+  state: ChatStoreState,
+  conversationId: string,
+): readonly string[] {
+  return state.pendingRequestIdsByConversationId[conversationId] ?? EMPTY_IDS;
+}
+
 function timelineIdsFromState(
   state: ChatStoreState,
   conversationId: string,
@@ -258,6 +302,7 @@ function isActivityItem(item: ChatItem): boolean {
 function buildTimelineIds(
   messages: readonly ChatMessage[],
   items: readonly ChatItem[],
+  pendingRequests: readonly ChatPendingRequest[] = [],
 ): string[] {
   const rows = [
     ...messages.map((message) => ({
@@ -270,6 +315,12 @@ function buildTimelineIds(
       id: `activity:${item.id}`,
       createdAt: item.createdAt,
       sequence: item.sequence,
+      priority: 1,
+    })),
+    ...pendingRequests.map((request) => ({
+      id: `request:${request.id}`,
+      createdAt: request.createdAt,
+      sequence: request.sequence,
       priority: 1,
     })),
   ];
@@ -294,6 +345,10 @@ function timelineIdsForState(
   conversationId: string,
   messagesById: Record<string, ChatMessage> = state.messagesById,
   itemsById: Record<string, ChatItem> = state.itemsById,
+  pendingRequestsById: Record<
+    string,
+    ChatPendingRequest
+  > = state.pendingRequestsById,
 ): string[] {
   const messages = messageIdsFromState(state, conversationId)
     .map((messageId) => messagesById[messageId])
@@ -301,7 +356,10 @@ function timelineIdsForState(
   const items = itemIdsFromState(state, conversationId)
     .map((itemId) => itemsById[itemId])
     .filter((item): item is ChatItem => Boolean(item));
-  return buildTimelineIds(messages, items);
+  const pendingRequests = pendingRequestIdsFromState(state, conversationId)
+    .map((requestId) => pendingRequestsById[requestId])
+    .filter((request): request is ChatPendingRequest => Boolean(request));
+  return buildTimelineIds(messages, items, pendingRequests);
 }
 
 function denormalizeConversationDetail(
@@ -325,6 +383,9 @@ function denormalizeConversationDetail(
     items: itemIdsFromState(state, conversationId)
       .map((itemId) => state.itemsById[itemId])
       .filter((item): item is ChatItem => Boolean(item)),
+    pendingRequests: pendingRequestIdsFromState(state, conversationId)
+      .map((requestId) => state.pendingRequestsById[requestId])
+      .filter((request): request is ChatPendingRequest => Boolean(request)),
     latestRun: state.latestRunByConversationId[conversationId] ?? null,
   };
 }
@@ -374,7 +435,8 @@ function setDetail(
   const messages = sortMessages(detail.messages);
   const turns = sortTurns(detail.turns ?? []);
   const items = sortItems(detail.items ?? []);
-  const timelineIds = buildTimelineIds(messages, items);
+  const pendingRequests = sortPendingRequests(detail.pendingRequests ?? []);
+  const timelineIds = buildTimelineIds(messages, items, pendingRequests);
 
   useChatStore.setState((state) => ({
     conversationsById: {
@@ -408,6 +470,14 @@ function setDetail(
     itemsById: {
       ...state.itemsById,
       ...mapById(items),
+    },
+    pendingRequestIdsByConversationId: {
+      ...state.pendingRequestIdsByConversationId,
+      [conversationId]: pendingRequests.map((request) => request.id),
+    },
+    pendingRequestsById: {
+      ...state.pendingRequestsById,
+      ...mapById(pendingRequests),
     },
     timelineIdsByConversationId: {
       ...state.timelineIdsByConversationId,
@@ -629,6 +699,24 @@ export function selectChatItemOutput(
   return state.outputsById[outputId] ?? null;
 }
 
+export function selectChatPendingRequest(
+  state: ChatStoreState,
+  requestId: string,
+): ChatPendingRequest | null {
+  return state.pendingRequestsById[requestId] ?? null;
+}
+
+export function selectChatActivePendingRequestIds(
+  state: ChatStoreState,
+  conversationId: string,
+): readonly string[] {
+  const ids = pendingRequestIdsFromState(state, conversationId).filter((id) => {
+    const request = state.pendingRequestsById[id];
+    return request?.status === "pending" || request?.status === "resolving";
+  });
+  return ids.length > 0 ? ids : EMPTY_IDS;
+}
+
 export function selectChatActivityDetailState(
   state: ChatStoreState,
   itemId: string,
@@ -713,6 +801,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   outputIdsByItemId: {},
   outputsById: {},
   activityDetailsByItemId: {},
+  pendingRequestIdsByConversationId: {},
+  pendingRequestsById: {},
+  pendingRequestSummariesById: {},
   latestRunByConversationId: {},
   modelOptions: [],
   modelOptionsStatus: "idle",
@@ -775,6 +866,12 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   async interruptRun(conversationId) {
     await interruptChat(conversationId);
   },
+  async resolvePendingRequest(conversationId, requestId, decision, value) {
+    await resolveChatPendingRequest(conversationId, requestId, {
+      decision,
+      ...(value === undefined ? {} : { value }),
+    });
+  },
   async updateConversationSettings(conversationId, patch) {
     const summary = await patchChatSettings(conversationId, patch);
     handleConversationEvent({
@@ -793,6 +890,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         state.turnIdsByConversationId[conversationId] ?? [];
       const existingItemIds =
         state.itemIdsByConversationId[conversationId] ?? [];
+      const existingPendingRequestIds =
+        state.pendingRequestIdsByConversationId[conversationId] ?? [];
       const detailsByConversationId = { ...state.detailsByConversationId };
       const messageIdsByConversationId = {
         ...state.messageIdsByConversationId,
@@ -808,6 +907,10 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       const outputIdsByItemId = { ...state.outputIdsByItemId };
       const outputsById = { ...state.outputsById };
       const activityDetailsByItemId = { ...state.activityDetailsByItemId };
+      const pendingRequestIdsByConversationId = {
+        ...state.pendingRequestIdsByConversationId,
+      };
+      const pendingRequestsById = { ...state.pendingRequestsById };
       const latestRunByConversationId = { ...state.latestRunByConversationId };
       for (const messageId of existingMessageIds) {
         delete messagesById[messageId];
@@ -823,10 +926,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         delete activityDetailsByItemId[itemId];
         delete itemsById[itemId];
       }
+      for (const requestId of existingPendingRequestIds) {
+        delete pendingRequestsById[requestId];
+      }
       delete detailsByConversationId[conversationId];
       delete messageIdsByConversationId[conversationId];
       delete turnIdsByConversationId[conversationId];
       delete itemIdsByConversationId[conversationId];
+      delete pendingRequestIdsByConversationId[conversationId];
       delete timelineIdsByConversationId[conversationId];
       delete latestRunByConversationId[conversationId];
       return {
@@ -841,6 +948,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         outputIdsByItemId,
         outputsById,
         activityDetailsByItemId,
+        pendingRequestIdsByConversationId,
+        pendingRequestsById,
         latestRunByConversationId,
       };
     });
@@ -1104,6 +1213,71 @@ function applyItemUpdated(
   };
 }
 
+function applyPendingRequestUpdated(
+  state: ChatStoreState,
+  request: ChatPendingRequest,
+): ChatStoreState {
+  const conversationId = request.conversationId;
+  const pendingRequestSummariesById = {
+    ...state.pendingRequestSummariesById,
+    [request.id]: {
+      id: request.id,
+      conversationId,
+      kind: request.kind,
+      status: request.status,
+      method: request.method,
+      createdAt: request.createdAt,
+      updatedAt: request.updatedAt,
+    },
+  };
+  if (!isConversationLoaded(state, conversationId)) {
+    return markConversationDirtyInBatch(
+      {
+        ...state,
+        pendingRequestSummariesById,
+      },
+      conversationId,
+    );
+  }
+  const currentIds = pendingRequestIdsFromState(state, conversationId);
+  const pendingRequestsById = {
+    ...state.pendingRequestsById,
+    [request.id]: request,
+  };
+  const pendingRequestIdsByConversationId = {
+    ...state.pendingRequestIdsByConversationId,
+    [conversationId]: upsertSortedEntity(
+      currentIds,
+      pendingRequestsById,
+      request,
+      sortPendingRequests,
+    ),
+  };
+  const nextState = {
+    ...state,
+    pendingRequestSummariesById,
+    pendingRequestsById,
+    pendingRequestIdsByConversationId,
+  };
+  return {
+    ...nextState,
+    timelineIdsByConversationId: {
+      ...state.timelineIdsByConversationId,
+      [conversationId]: timelineIdsForState(
+        nextState,
+        conversationId,
+        state.messagesById,
+        state.itemsById,
+        pendingRequestsById,
+      ),
+    },
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [conversationId]: loadedDetailState(),
+    },
+  };
+}
+
 function applyActivityDelta(
   state: ChatStoreState,
   data: SseEventData<"chat_activity_delta">,
@@ -1186,6 +1360,8 @@ function applyQueuedChatEvents(
           event.data.conversation_id,
           event.data.item,
         );
+      case "pending_request_updated":
+        return applyPendingRequestUpdated(nextState, event.data.request);
     }
   }, state);
 }
@@ -1232,6 +1408,15 @@ function handleMessageDelta(data: SseEventData<"chat_message_delta">): void {
   enqueueChatEvent({ type: "message_delta", data });
 }
 
+function handlePendingRequestUpdated(
+  data:
+    | SseEventData<"chat_pending_request_created">
+    | SseEventData<"chat_pending_request_updated">
+    | SseEventData<"chat_pending_request_resolved">,
+): void {
+  enqueueChatEvent({ type: "pending_request_updated", data });
+}
+
 export function initializeChatStore(): void {
   if (initialized) {
     return;
@@ -1243,6 +1428,9 @@ export function initializeChatStore(): void {
     events.on("snapshot", (data) => {
       flushQueuedChatEvents();
       const nextConversations = indexConversations(data.chat_conversations);
+      const nextPendingRequestSummaries = indexPendingRequestSummaries(
+        data.chat_pending_requests,
+      );
       useChatStore.setState((state) => {
         const conversationIds = new Set(Object.keys(nextConversations));
         const messageIdsByConversationId = Object.fromEntries(
@@ -1270,6 +1458,14 @@ export function initializeChatStore(): void {
         );
         const turnIds = new Set(Object.values(turnIdsByConversationId).flat());
         const itemIds = new Set(Object.values(itemIdsByConversationId).flat());
+        const pendingRequestIdsByConversationId = Object.fromEntries(
+          Object.entries(state.pendingRequestIdsByConversationId).filter(
+            ([conversationId]) => conversationIds.has(conversationId),
+          ),
+        );
+        const pendingRequestIds = new Set(
+          Object.values(pendingRequestIdsByConversationId).flat(),
+        );
         const outputIdsByItemId = Object.fromEntries(
           Object.entries(state.outputIdsByItemId).filter(([itemId]) =>
             itemIds.has(itemId),
@@ -1319,6 +1515,13 @@ export function initializeChatStore(): void {
               itemIds.has(itemId),
             ),
           ),
+          pendingRequestIdsByConversationId,
+          pendingRequestsById: Object.fromEntries(
+            Object.entries(state.pendingRequestsById).filter(([requestId]) =>
+              pendingRequestIds.has(requestId),
+            ),
+          ),
+          pendingRequestSummariesById: nextPendingRequestSummaries,
           latestRunByConversationId: Object.fromEntries(
             Object.entries(state.latestRunByConversationId).filter(
               ([conversationId]) => conversationIds.has(conversationId),
@@ -1339,6 +1542,9 @@ export function initializeChatStore(): void {
     events.on("chat_item_updated", handleItemUpdated),
     events.on("chat_activity_delta", handleActivityDelta),
     events.on("chat_activity_updated", handleActivityUpdated),
+    events.on("chat_pending_request_created", handlePendingRequestUpdated),
+    events.on("chat_pending_request_updated", handlePendingRequestUpdated),
+    events.on("chat_pending_request_resolved", handlePendingRequestUpdated),
   ];
 }
 

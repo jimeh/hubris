@@ -159,7 +159,9 @@ pub(super) fn classify_method(method: &str) -> AppServerMethod {
         | "turn/completed" => AppServerMethod::Current(method_static(method)),
         "item/commandExecution/requestApproval"
         | "item/fileChange/requestApproval"
-        | "item/tool/requestUserInput" => AppServerMethod::CurrentRequest(method_static(method)),
+        | "item/permissions/requestApproval"
+        | "item/tool/requestUserInput"
+        | "mcpServer/elicitation/request" => AppServerMethod::CurrentRequest(method_static(method)),
         "initialize"
         | "thread/start"
         | "thread/resume"
@@ -195,7 +197,9 @@ fn method_static(method: &str) -> &'static str {
         "turn/completed" => "turn/completed",
         "item/commandExecution/requestApproval" => "item/commandExecution/requestApproval",
         "item/fileChange/requestApproval" => "item/fileChange/requestApproval",
+        "item/permissions/requestApproval" => "item/permissions/requestApproval",
         "item/tool/requestUserInput" => "item/tool/requestUserInput",
+        "mcpServer/elicitation/request" => "mcpServer/elicitation/request",
         "initialize" => "initialize",
         "thread/start" => "thread/start",
         "thread/resume" => "thread/resume",

@@ -221,6 +221,74 @@
         }
       }
     },
+    "/api/chats/{conversation_id}/requests/{request_id}/resolve": {
+      "post": {
+        "tags": ["crate::api::chats"],
+        "operationId": "resolve_chat_pending_request",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "description": "Pending request ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveChatPendingRequestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Resolved pending request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatPendingRequest"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pending request not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Pending request already resolved or stale",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/chats/{conversation_id}/settings": {
       "patch": {
         "tags": ["crate::api::chats"],
@@ -2996,7 +3064,13 @@
       "ChatConversationDetail": {
         "type": "object",
         "description": "Full chat detail payload used to hydrate an open chat tab.",
-        "required": ["conversation", "messages", "turns", "items"],
+        "required": [
+          "conversation",
+          "messages",
+          "turns",
+          "items",
+          "pendingRequests"
+        ],
         "properties": {
           "conversation": {
             "$ref": "#/components/schemas/ChatConversationSummary"
@@ -3021,6 +3095,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ChatMessage"
+            }
+          },
+          "pendingRequests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatPendingRequest"
             }
           },
           "turns": {
@@ -3074,6 +3154,8 @@
           "updatedAt",
           "lastActivityAt",
           "lastRunState",
+          "pendingRequestCount",
+          "hasPendingRequestAttention",
           "revision"
         ],
         "properties": {
@@ -3081,6 +3163,9 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "hasPendingRequestAttention": {
+            "type": "boolean"
           },
           "id": {
             "type": "string"
@@ -3101,8 +3186,36 @@
           "lastRunState": {
             "$ref": "#/components/schemas/ChatRunStatus"
           },
+          "latestPendingRequestId": {
+            "type": ["string", "null"]
+          },
+          "latestPendingRequestKind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatPendingRequestKind"
+              }
+            ]
+          },
+          "latestPendingRequestStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatPendingRequestStatus"
+              }
+            ]
+          },
           "openTabId": {
             "type": ["string", "null"]
+          },
+          "pendingRequestCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "projectId": {
             "type": "string"
@@ -3433,6 +3546,177 @@
           },
           "reasoningEffort": {
             "$ref": "#/components/schemas/ChatReasoningEffort"
+          }
+        }
+      },
+      "ChatPendingRequest": {
+        "type": "object",
+        "description": "Persisted Codex server request with enough state to render and answer it.",
+        "required": [
+          "id",
+          "conversationId",
+          "providerRequestId",
+          "method",
+          "kind",
+          "status",
+          "payloadJson",
+          "ownerGeneration",
+          "sequence",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "decision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatPendingRequestDecision"
+              }
+            ]
+          },
+          "errorMessage": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": ["string", "null"]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChatPendingRequestKind"
+          },
+          "method": {
+            "type": "string"
+          },
+          "ownerGeneration": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "payloadJson": {
+            "type": "string"
+          },
+          "providerItemId": {
+            "type": ["string", "null"]
+          },
+          "providerRequestId": {
+            "type": "string"
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "resolvedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "responseJson": {
+            "type": ["string", "null"]
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatPendingRequestStatus"
+          },
+          "turnId": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatPendingRequestDecision": {
+        "type": "string",
+        "description": "User-visible decision sent back to Codex for a pending request.",
+        "enum": [
+          "accept",
+          "acceptForSession",
+          "decline",
+          "cancel",
+          "acceptWithExecpolicyAmendment",
+          "applyNetworkPolicyAmendment",
+          "submit"
+        ]
+      },
+      "ChatPendingRequestKind": {
+        "type": "string",
+        "description": "Persisted Codex server request kind.",
+        "enum": [
+          "command_approval",
+          "file_approval",
+          "permission_approval",
+          "structured_input",
+          "mcp_elicitation",
+          "unsupported"
+        ]
+      },
+      "ChatPendingRequestStatus": {
+        "type": "string",
+        "description": "Persisted Codex server request lifecycle.",
+        "enum": [
+          "pending",
+          "resolving",
+          "resolved",
+          "declined",
+          "cancelled",
+          "stale",
+          "failed"
+        ]
+      },
+      "ChatPendingRequestSummary": {
+        "type": "object",
+        "description": "Lightweight request state included in global SSE snapshots.",
+        "required": [
+          "id",
+          "conversationId",
+          "kind",
+          "status",
+          "method",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChatPendingRequestKind"
+          },
+          "method": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatPendingRequestStatus"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -4430,6 +4714,17 @@
               "type": "string"
             }
           }
+        }
+      },
+      "ResolveChatPendingRequestRequest": {
+        "type": "object",
+        "description": "Request body for resolving a pending Codex server request.",
+        "required": ["decision"],
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/ChatPendingRequestDecision"
+          },
+          "value": {}
         }
       },
       "SendChatMessageRequest": {

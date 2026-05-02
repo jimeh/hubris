@@ -84,6 +84,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/chats/{conversation_id}/requests/{request_id}/resolve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["resolve_chat_pending_request"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/chats/{conversation_id}/settings": {
     parameters: {
       query?: never;
@@ -962,6 +978,7 @@ export interface components {
       items: components["schemas"]["ChatItem"][];
       latestRun?: null | components["schemas"]["ChatRun"];
       messages: components["schemas"]["ChatMessage"][];
+      pendingRequests: components["schemas"]["ChatPendingRequest"][];
       turns: components["schemas"]["ChatTurn"][];
     };
     /** @description Conversation-level model preferences that apply to future turns. */
@@ -976,6 +993,7 @@ export interface components {
     ChatConversationSummary: {
       /** Format: int64 */
       createdAt: number;
+      hasPendingRequestAttention: boolean;
       id: string;
       /** Format: int64 */
       lastActivityAt: number;
@@ -983,7 +1001,16 @@ export interface components {
       /** Format: int64 */
       lastMessageAt?: number | null;
       lastRunState: components["schemas"]["ChatRunStatus"];
+      latestPendingRequestId?: string | null;
+      latestPendingRequestKind?:
+        | null
+        | components["schemas"]["ChatPendingRequestKind"];
+      latestPendingRequestStatus?:
+        | null
+        | components["schemas"]["ChatPendingRequestStatus"];
       openTabId?: string | null;
+      /** Format: int32 */
+      pendingRequestCount: number;
       projectId: string;
       provider: components["schemas"]["ChatProvider"];
       providerThreadId?: string | null;
@@ -1109,6 +1136,80 @@ export interface components {
     ChatModelReasoningEffortOption: {
       description: string;
       reasoningEffort: components["schemas"]["ChatReasoningEffort"];
+    };
+    /** @description Persisted Codex server request with enough state to render and answer it. */
+    ChatPendingRequest: {
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      decision?: null | components["schemas"]["ChatPendingRequestDecision"];
+      errorMessage?: string | null;
+      id: string;
+      itemId?: string | null;
+      kind: components["schemas"]["ChatPendingRequestKind"];
+      method: string;
+      /** Format: int64 */
+      ownerGeneration: number;
+      payloadJson: string;
+      providerItemId?: string | null;
+      providerRequestId: string;
+      providerTurnId?: string | null;
+      /** Format: int64 */
+      resolvedAt?: number | null;
+      responseJson?: string | null;
+      /** Format: int32 */
+      sequence: number;
+      status: components["schemas"]["ChatPendingRequestStatus"];
+      turnId?: string | null;
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description User-visible decision sent back to Codex for a pending request.
+     * @enum {string}
+     */
+    ChatPendingRequestDecision:
+      | "accept"
+      | "acceptForSession"
+      | "decline"
+      | "cancel"
+      | "acceptWithExecpolicyAmendment"
+      | "applyNetworkPolicyAmendment"
+      | "submit";
+    /**
+     * @description Persisted Codex server request kind.
+     * @enum {string}
+     */
+    ChatPendingRequestKind:
+      | "command_approval"
+      | "file_approval"
+      | "permission_approval"
+      | "structured_input"
+      | "mcp_elicitation"
+      | "unsupported";
+    /**
+     * @description Persisted Codex server request lifecycle.
+     * @enum {string}
+     */
+    ChatPendingRequestStatus:
+      | "pending"
+      | "resolving"
+      | "resolved"
+      | "declined"
+      | "cancelled"
+      | "stale"
+      | "failed";
+    /** @description Lightweight request state included in global SSE snapshots. */
+    ChatPendingRequestSummary: {
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      kind: components["schemas"]["ChatPendingRequestKind"];
+      method: string;
+      status: components["schemas"]["ChatPendingRequestStatus"];
+      /** Format: int64 */
+      updatedAt: number;
     };
     /**
      * @description Explicit permissions preset override. `None` means use Codex defaults.
@@ -1501,6 +1602,11 @@ export interface components {
     };
     ReorderWorktreesRequest: {
       worktree_ids: string[];
+    };
+    /** @description Request body for resolving a pending Codex server request. */
+    ResolveChatPendingRequestRequest: {
+      decision: components["schemas"]["ChatPendingRequestDecision"];
+      value?: unknown;
     };
     SendChatMessageRequest: {
       text: string;
@@ -2175,6 +2281,53 @@ export interface operations {
       };
       /** @description Failed to start Codex runtime */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  resolve_chat_pending_request: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+        /** @description Pending request ID */
+        request_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ResolveChatPendingRequestRequest"];
+      };
+    };
+    responses: {
+      /** @description Resolved pending request */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatPendingRequest"];
+        };
+      };
+      /** @description Pending request not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Pending request already resolved or stale */
+      409: {
         headers: {
           [name: string]: unknown;
         };

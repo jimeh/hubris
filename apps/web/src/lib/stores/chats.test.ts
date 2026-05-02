@@ -88,6 +88,11 @@ const conversation = {
   openTabId: null,
   lastRunState: "completed" as const,
   lastError: null,
+  pendingRequestCount: 0,
+  latestPendingRequestId: null,
+  latestPendingRequestKind: null,
+  latestPendingRequestStatus: null,
+  hasPendingRequestAttention: false,
   revision: 1,
 };
 
@@ -145,6 +150,7 @@ const detail = {
       completedAt: null,
     },
   ],
+  pendingRequests: [],
   latestRun: {
     id: "run-1",
     conversationId: "chat-1",
@@ -185,6 +191,31 @@ const commandOutput = {
   byteCount: 12,
   createdAt: 12,
   updatedAt: 12,
+};
+
+const pendingRequest = {
+  id: "request-1",
+  conversationId: "chat-1",
+  turnId: "turn-local-1",
+  itemId: "item-command-1",
+  providerRequestId: "provider-request-1",
+  providerTurnId: "turn-1",
+  providerItemId: "provider-command-1",
+  method: "item/commandExecution/requestApproval",
+  kind: "command_approval" as const,
+  status: "pending" as const,
+  decision: null,
+  payloadJson: JSON.stringify({
+    command: ["cargo", "test"],
+    cwd: "/tmp/project",
+  }),
+  responseJson: null,
+  errorMessage: null,
+  ownerGeneration: 1,
+  sequence: 3,
+  createdAt: 13,
+  updatedAt: 13,
+  resolvedAt: null,
 };
 
 describe("chat store", () => {
@@ -406,6 +437,39 @@ describe("chat store", () => {
     expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
       "Hello",
     );
+  });
+
+  it("hydrates and applies pending request updates", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      pendingRequests: [pendingRequest],
+    });
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "message:message-1",
+      "request:request-1",
+    ]);
+    expect(
+      useChatStore.getState().pendingRequestsById["request-1"]?.status,
+    ).toBe("pending");
+
+    mockEvents.emit("chat_pending_request_resolved", {
+      session_id: "default",
+      request: {
+        ...pendingRequest,
+        status: "resolved",
+        decision: "accept",
+        updatedAt: 14,
+        resolvedAt: 14,
+      },
+    });
+    flushChatStoreSseBatchForTests();
+
+    expect(
+      useChatStore.getState().pendingRequestsById["request-1"]?.status,
+    ).toBe("resolved");
   });
 
   it("lazy-loads persisted activity output details", async () => {

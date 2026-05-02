@@ -8,7 +8,8 @@ use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::chat::{
     ChatActivityDetail, ChatConversationDetail, ChatConversationSettingsPatch,
-    ChatConversationSummary, ChatModelOption, ChatServiceError,
+    ChatConversationSummary, ChatModelOption, ChatPendingRequest, ChatServiceError,
+    ResolveChatPendingRequestRequest,
 };
 use crate::state::AppState;
 
@@ -259,4 +260,31 @@ pub async fn interrupt_chat(
         .await
         .map_err(map_chat_error)?;
     Ok(StatusCode::ACCEPTED)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/chats/{conversation_id}/requests/{request_id}/resolve",
+    request_body = ResolveChatPendingRequestRequest,
+    params(
+        ("conversation_id" = String, Path, description = "Conversation ID"),
+        ("request_id" = String, Path, description = "Pending request ID"),
+    ),
+    responses(
+        (status = 200, description = "Resolved pending request", body = ChatPendingRequest),
+        (status = 404, description = "Pending request not found", body = ApiErrorResponse),
+        (status = 409, description = "Pending request already resolved or stale", body = ApiErrorResponse),
+    ),
+)]
+pub async fn resolve_chat_pending_request(
+    State(state): State<AppState>,
+    Path((conversation_id, request_id)): Path<(String, String)>,
+    Json(request): Json<ResolveChatPendingRequestRequest>,
+) -> Result<Json<ChatPendingRequest>, (StatusCode, Json<ApiErrorResponse>)> {
+    let pending = state
+        .chats
+        .resolve_pending_request(&conversation_id, &request_id, request)
+        .await
+        .map_err(map_chat_error)?;
+    Ok(Json(pending))
 }
