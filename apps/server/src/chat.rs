@@ -269,6 +269,34 @@ impl ChatItemStatus {
     }
 }
 
+/// Backend-owned reconciliation lifecycle for replaying Codex thread state.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatReconciliationStatus {
+    #[default]
+    NotNeeded,
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+impl ChatReconciliationStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NotNeeded => "not_needed",
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+        }
+    }
+
+    fn is_active(self) -> bool {
+        matches!(self, Self::Pending | Self::Running)
+    }
+}
+
 /// In-memory runtime lifecycle state for a live Codex app-server process.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 #[serde(rename_all = "snake_case")]
@@ -314,6 +342,9 @@ pub struct ChatConversationSummary {
     pub last_run_state: ChatRunStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    pub last_reconciliation_state: ChatReconciliationStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_reconciliation_error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_used_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -399,6 +430,12 @@ pub struct ChatTurn {
     pub completed_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
+    pub reconciliation_status: ChatReconciliationStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub reconciled_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reconciliation_error: Option<String>,
     #[ts(type = "number")]
     pub created_at: u64,
     #[ts(type = "number")]
@@ -721,6 +758,31 @@ pub struct ChatPendingRequestSummary {
     pub updated_at: u64,
 }
 
+/// Latest replay/recovery state for one conversation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatReconciliation {
+    pub id: String,
+    pub conversation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_thread_id: Option<String>,
+    pub status: ChatReconciliationStatus,
+    pub reason: String,
+    #[ts(type = "number")]
+    pub started_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub finished_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[ts(type = "number")]
+    pub owner_generation: u64,
+    #[ts(type = "number")]
+    pub created_at: u64,
+    #[ts(type = "number")]
+    pub updated_at: u64,
+}
+
 /// Request body for resolving a pending Codex server request.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -743,6 +805,8 @@ pub struct ChatConversationDetail {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_usage: Option<ChatContextUsage>,
     pub pending_requests: Vec<ChatPendingRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_reconciliation: Option<ChatReconciliation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_run: Option<ChatRun>,
 }
@@ -1487,6 +1551,8 @@ struct ConversationRow {
     selected_permission_mode: Option<String>,
     last_run_state: String,
     last_error: Option<String>,
+    last_reconciliation_state: String,
+    last_reconciliation_error: Option<String>,
     context_used_tokens: Option<i64>,
     context_max_tokens: Option<i64>,
     context_percent_used: Option<f64>,
@@ -1539,6 +1605,9 @@ struct TurnRow {
     started_at_ms: i64,
     completed_at_ms: Option<i64>,
     error_message: Option<String>,
+    reconciliation_status: String,
+    reconciled_at_ms: Option<i64>,
+    reconciliation_error: Option<String>,
     created_at_ms: i64,
     updated_at_ms: i64,
 }
@@ -1659,6 +1728,21 @@ struct PendingRequestSummaryRow {
     updated_at_ms: i64,
 }
 
+#[derive(Debug, FromRow)]
+struct ReconciliationRow {
+    id: String,
+    conversation_id: String,
+    provider_thread_id: Option<String>,
+    status: String,
+    reason: String,
+    started_at_ms: i64,
+    finished_at_ms: Option<i64>,
+    error_message: Option<String>,
+    owner_generation: i64,
+    created_at_ms: i64,
+    updated_at_ms: i64,
+}
+
 /// Backend owner for persisted conversations and live Codex runtimes.
 pub struct ChatService {
     pool: SqlitePool,
@@ -1771,6 +1855,7 @@ impl ChatService {
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
                 selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error,
+                last_reconciliation_state, last_reconciliation_error,
                 (
                     SELECT used_tokens
                     FROM chat_context_usage
@@ -1851,6 +1936,7 @@ impl ChatService {
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
                 selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error,
+                last_reconciliation_state, last_reconciliation_error,
                 (
                     SELECT used_tokens
                     FROM chat_context_usage
@@ -1932,6 +2018,7 @@ impl ChatService {
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
                 selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error,
+                last_reconciliation_state, last_reconciliation_error,
                 (
                     SELECT used_tokens
                     FROM chat_context_usage
@@ -2051,6 +2138,40 @@ impl ChatService {
         Ok(rows.into_iter().map(context_usage_from_row).collect())
     }
 
+    /// List latest reconciliation summaries visible to a session.
+    pub async fn list_session_reconciliations(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<ChatReconciliation>, ChatServiceError> {
+        let rows = sqlx::query_as::<_, ReconciliationRow>(
+            "
+            SELECT
+                reconciliation.id, reconciliation.conversation_id,
+                reconciliation.provider_thread_id, reconciliation.status,
+                reconciliation.reason, reconciliation.started_at_ms,
+                reconciliation.finished_at_ms, reconciliation.error_message,
+                reconciliation.owner_generation, reconciliation.created_at_ms,
+                reconciliation.updated_at_ms
+            FROM chat_reconciliations reconciliation
+            INNER JOIN chat_conversations conversation
+                ON conversation.id = reconciliation.conversation_id
+            WHERE conversation.session_id = ?
+                AND reconciliation.id = (
+                    SELECT latest.id
+                    FROM chat_reconciliations latest
+                    WHERE latest.conversation_id = reconciliation.conversation_id
+                    ORDER BY latest.updated_at_ms DESC, latest.id DESC
+                    LIMIT 1
+                )
+            ORDER BY reconciliation.updated_at_ms DESC, reconciliation.id DESC
+            ",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(reconciliation_from_row).collect())
+    }
+
     /// Fetch one conversation transcript plus latest run state.
     pub async fn get_conversation_detail(
         &self,
@@ -2094,6 +2215,8 @@ impl ChatService {
                 id, conversation_id, run_id, user_message_id,
                 assistant_message_id, provider_turn_id, status,
                 started_at_ms, completed_at_ms, error_message,
+                reconciliation_status, reconciled_at_ms,
+                reconciliation_error,
                 created_at_ms, updated_at_ms
             FROM chat_turns
             WHERE conversation_id = ?
@@ -2178,6 +2301,21 @@ impl ChatService {
         .bind(conversation_id)
         .fetch_all(&self.pool)
         .await?;
+        let latest_reconciliation = sqlx::query_as::<_, ReconciliationRow>(
+            "
+            SELECT
+                id, conversation_id, provider_thread_id, status, reason,
+                started_at_ms, finished_at_ms, error_message,
+                owner_generation, created_at_ms, updated_at_ms
+            FROM chat_reconciliations
+            WHERE conversation_id = ?
+            ORDER BY updated_at_ms DESC, id DESC
+            LIMIT 1
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_optional(&self.pool)
+        .await?;
 
         Ok(Some(ChatConversationDetail {
             conversation,
@@ -2191,6 +2329,7 @@ impl ChatService {
                 .into_iter()
                 .map(pending_request_from_row)
                 .collect(),
+            latest_reconciliation: latest_reconciliation.map(reconciliation_from_row),
             latest_run: latest_run.map(run_from_row),
         }))
     }
@@ -2454,6 +2593,10 @@ impl ChatService {
         let run_id = uuid::Uuid::new_v4().to_string();
         let turn_id = uuid::Uuid::new_v4().to_string();
 
+        let runtime = self
+            .ensure_runtime(conversation_id, &conversation, worktree_path)
+            .await?;
+
         self.persist_run_start(
             &conversation,
             &user_message_id,
@@ -2463,10 +2606,6 @@ impl ChatService {
             &text,
         )
         .await?;
-
-        let runtime = self
-            .ensure_runtime(conversation_id, &conversation, worktree_path)
-            .await?;
         {
             let mut state = runtime.state.lock().await;
             state.active_run_id = Some(run_id.clone());
@@ -3960,7 +4099,7 @@ impl ChatService {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect::<Vec<_>>();
         for (conversation_id, runtime) in runtimes {
-            let (run_id, turn_id, message_id, session_id) = {
+            let (run_id, turn_id, message_id, provider_thread_id, owner_generation) = {
                 let mut state = runtime.state.lock().await;
                 state.lifecycle = ChatRuntimeLifecycle::Failed;
                 state.stream_lifecycle.mark_process_lost();
@@ -3971,48 +4110,25 @@ impl ChatService {
                     state.active_run_id.take(),
                     state.active_turn_id.take(),
                     state.active_message_id.take(),
-                    state.session_id.clone(),
+                    state.provider_thread_id.clone(),
+                    state.owner_generation,
                 )
             };
-            if let Some(message_id) = message_id {
-                self.finalize_assistant_message(
-                    &conversation_id,
-                    &message_id,
-                    "",
-                    ChatMessageStatus::Failed,
-                )
-                .await?;
-            }
-            if let Some(run_id) = run_id {
-                let run = self
-                    .finalize_run(
+            if run_id.is_some() || turn_id.is_some() || message_id.is_some() {
+                let reconciliation = self
+                    .mark_reconciliation_pending(
                         &conversation_id,
-                        &run_id,
-                        ChatRunStatus::Failed,
-                        Some(reason.clone()),
+                        provider_thread_id,
+                        "codex app-server exited before the active turn completed",
+                        owner_generation,
                     )
                     .await?;
-                self.events.emit(EventKind::ChatRunUpdated {
-                    session_id: session_id.clone(),
-                    conversation_id: conversation_id.clone(),
-                    run,
-                });
-                if let Some(turn_id) = turn_id.as_deref() {
-                    let turn = self
-                        .finalize_turn(
-                            &conversation_id,
-                            turn_id,
-                            ChatTurnStatus::Failed,
-                            Some(reason.clone()),
-                        )
-                        .await?;
-                    self.events.emit(EventKind::ChatTurnUpdated {
-                        session_id: session_id.clone(),
-                        conversation_id: conversation_id.clone(),
-                        turn,
+                if let Some(summary) = self.emit_conversation_updated(&conversation_id).await? {
+                    self.events.emit(EventKind::ChatReconciliationStarted {
+                        session_id: summary.session_id,
+                        reconciliation,
                     });
                 }
-                let _ = self.emit_conversation_updated(&conversation_id).await?;
             }
             self.emit_thread_stream_status(&conversation_id, &runtime.state, Some(reason.clone()))
                 .await;
@@ -4198,27 +4314,42 @@ impl ChatService {
         .bind(conversation_id)
         .fetch_optional(&self.pool)
         .await?;
-        let Some(run) = latest else {
+        let latest_reconciliation = self.latest_reconciliation(conversation_id).await?;
+        let needs_reconciliation = latest
+            .as_ref()
+            .map(|run| parse_run_status(&run.status))
+            .is_some_and(|status| {
+                !matches!(
+                    status,
+                    ChatRunStatus::Completed | ChatRunStatus::Interrupted | ChatRunStatus::Failed
+                )
+            })
+            || latest_reconciliation
+                .as_ref()
+                .is_some_and(|reconciliation| reconciliation.status.is_active());
+        if !needs_reconciliation {
             return Ok(());
         };
-        let status = parse_run_status(&run.status);
-        if matches!(
-            status,
-            ChatRunStatus::Completed | ChatRunStatus::Interrupted | ChatRunStatus::Failed
-        ) {
-            return Ok(());
-        }
         let provider_thread_id = runtime.state.lock().await.provider_thread_id.clone();
         let Some(provider_thread_id) = provider_thread_id else {
-            self.finalize_run(
-                conversation_id,
-                &run.id,
-                ChatRunStatus::Interrupted,
-                Some("chat runtime restarted before turn completed".to_string()),
-            )
-            .await?;
+            if let Some(run) = latest {
+                self.interrupt_uncertain_run(
+                    conversation_id,
+                    &run,
+                    "chat runtime restarted before turn completed",
+                )
+                .await?;
+            }
             return Ok(());
         };
+        let reconciliation = self
+            .start_reconciliation(
+                conversation_id,
+                Some(provider_thread_id.clone()),
+                "recovering Codex thread state",
+                runtime,
+            )
+            .await?;
         let result = self
             .app_server
             .request(
@@ -4229,23 +4360,298 @@ impl ChatService {
                 }),
             )
             .await;
-        if let Ok(result) = result
-            && let Some(text) = extract_thread_read_text(&result)
-        {
-            if let Some(message_id) = self.latest_assistant_message_id(conversation_id).await? {
-                self.finalize_assistant_message(
+        match result {
+            Ok(result) => {
+                self.apply_thread_read_replay(conversation_id, runtime, &result)
+                    .await?;
+                self.finish_reconciliation(
                     conversation_id,
-                    &message_id,
-                    &text,
-                    ChatMessageStatus::Completed,
+                    &reconciliation.id,
+                    ChatReconciliationStatus::Completed,
+                    None,
                 )
                 .await?;
             }
-            self.finalize_run(conversation_id, &run.id, ChatRunStatus::Completed, None)
+            Err(error) => {
+                if let Some(run) = latest.as_ref() {
+                    self.interrupt_uncertain_run(conversation_id, run, &error.message)
+                        .await?;
+                }
+                self.finish_reconciliation(
+                    conversation_id,
+                    &reconciliation.id,
+                    ChatReconciliationStatus::Failed,
+                    Some(error.message),
+                )
                 .await?;
-            let _ = self.emit_conversation_updated(conversation_id).await?;
-            return Ok(());
+            }
         }
+        Ok(())
+    }
+
+    async fn latest_reconciliation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<ChatReconciliation>, ChatServiceError> {
+        Ok(sqlx::query_as::<_, ReconciliationRow>(
+            "
+            SELECT
+                id, conversation_id, provider_thread_id, status, reason,
+                started_at_ms, finished_at_ms, error_message,
+                owner_generation, created_at_ms, updated_at_ms
+            FROM chat_reconciliations
+            WHERE conversation_id = ?
+            ORDER BY updated_at_ms DESC, id DESC
+            LIMIT 1
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(reconciliation_from_row))
+    }
+
+    async fn mark_reconciliation_pending(
+        &self,
+        conversation_id: &str,
+        provider_thread_id: Option<String>,
+        reason: &str,
+        owner_generation: u64,
+    ) -> Result<ChatReconciliation, ChatServiceError> {
+        let now = now_ms() as i64;
+        let existing = self.latest_reconciliation(conversation_id).await?;
+        let reconciliation_id = if let Some(existing) = existing
+            && existing.status.is_active()
+        {
+            existing.id
+        } else {
+            let id = uuid::Uuid::new_v4().to_string();
+            sqlx::query(
+                "
+                INSERT INTO chat_reconciliations (
+                    id, conversation_id, provider_thread_id, status, reason,
+                    started_at_ms, owner_generation, created_at_ms, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ",
+            )
+            .bind(&id)
+            .bind(conversation_id)
+            .bind(&provider_thread_id)
+            .bind(ChatReconciliationStatus::Pending.as_str())
+            .bind(reason)
+            .bind(now)
+            .bind(owner_generation as i64)
+            .bind(now)
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+            id
+        };
+        sqlx::query(
+            "
+            UPDATE chat_reconciliations
+            SET provider_thread_id = COALESCE(?, provider_thread_id),
+                status = ?, reason = ?, error_message = NULL,
+                owner_generation = ?, updated_at_ms = ?
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(&provider_thread_id)
+        .bind(ChatReconciliationStatus::Pending.as_str())
+        .bind(reason)
+        .bind(owner_generation as i64)
+        .bind(now)
+        .bind(&reconciliation_id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        self.update_conversation_reconciliation_state(
+            conversation_id,
+            ChatReconciliationStatus::Pending,
+            None,
+        )
+        .await?;
+        self.latest_reconciliation(conversation_id)
+            .await?
+            .ok_or_else(|| {
+                ChatServiceError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "chat reconciliation missing after pending update",
+                )
+            })
+    }
+
+    async fn start_reconciliation(
+        &self,
+        conversation_id: &str,
+        provider_thread_id: Option<String>,
+        reason: &str,
+        runtime: &RuntimeEntry,
+    ) -> Result<ChatReconciliation, ChatServiceError> {
+        let owner_generation = runtime.state.lock().await.owner_generation;
+        let pending = self
+            .mark_reconciliation_pending(
+                conversation_id,
+                provider_thread_id,
+                reason,
+                owner_generation,
+            )
+            .await?;
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_reconciliations
+            SET status = ?, started_at_ms = ?, finished_at_ms = NULL,
+                error_message = NULL, updated_at_ms = ?
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(ChatReconciliationStatus::Running.as_str())
+        .bind(now)
+        .bind(now)
+        .bind(&pending.id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        self.update_turn_reconciliation_state(
+            conversation_id,
+            ChatReconciliationStatus::Running,
+            None,
+        )
+        .await?;
+        self.update_conversation_reconciliation_state(
+            conversation_id,
+            ChatReconciliationStatus::Running,
+            None,
+        )
+        .await?;
+        let reconciliation = self.latest_reconciliation(conversation_id).await?.unwrap();
+        if let Some(summary) = self.get_conversation_summary(conversation_id).await? {
+            self.events.emit(EventKind::ChatReconciliationStarted {
+                session_id: summary.session_id,
+                reconciliation: reconciliation.clone(),
+            });
+        }
+        Ok(reconciliation)
+    }
+
+    async fn finish_reconciliation(
+        &self,
+        conversation_id: &str,
+        reconciliation_id: &str,
+        status: ChatReconciliationStatus,
+        error_message: Option<String>,
+    ) -> Result<(), ChatServiceError> {
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_reconciliations
+            SET status = ?, finished_at_ms = ?, error_message = ?,
+                updated_at_ms = ?
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(status.as_str())
+        .bind(now)
+        .bind(&error_message)
+        .bind(now)
+        .bind(reconciliation_id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        self.update_turn_reconciliation_state(conversation_id, status, error_message.clone())
+            .await?;
+        self.update_conversation_reconciliation_state(conversation_id, status, error_message)
+            .await?;
+        let Some(reconciliation) = self.latest_reconciliation(conversation_id).await? else {
+            return Ok(());
+        };
+        if let Some(summary) = self.emit_conversation_updated(conversation_id).await? {
+            match status {
+                ChatReconciliationStatus::Completed => {
+                    self.events.emit(EventKind::ChatReconciliationCompleted {
+                        session_id: summary.session_id,
+                        reconciliation,
+                    });
+                }
+                ChatReconciliationStatus::Failed => {
+                    self.events.emit(EventKind::ChatReconciliationFailed {
+                        session_id: summary.session_id,
+                        reconciliation,
+                    });
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    async fn update_conversation_reconciliation_state(
+        &self,
+        conversation_id: &str,
+        status: ChatReconciliationStatus,
+        error_message: Option<String>,
+    ) -> Result<(), ChatServiceError> {
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_conversations
+            SET last_reconciliation_state = ?,
+                last_reconciliation_error = ?,
+                updated_at_ms = ?,
+                last_activity_at_ms = ?,
+                revision = revision + 1
+            WHERE id = ?
+            ",
+        )
+        .bind(status.as_str())
+        .bind(error_message)
+        .bind(now)
+        .bind(now)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn update_turn_reconciliation_state(
+        &self,
+        conversation_id: &str,
+        status: ChatReconciliationStatus,
+        error_message: Option<String>,
+    ) -> Result<(), ChatServiceError> {
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_turns
+            SET reconciliation_status = ?,
+                reconciled_at_ms = CASE WHEN ? THEN ? ELSE reconciled_at_ms END,
+                reconciliation_error = ?,
+                updated_at_ms = ?
+            WHERE conversation_id = ?
+                AND status IN ('starting', 'running')
+            ",
+        )
+        .bind(status.as_str())
+        .bind(matches!(
+            status,
+            ChatReconciliationStatus::Completed | ChatReconciliationStatus::Failed
+        ))
+        .bind(now)
+        .bind(error_message)
+        .bind(now)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn interrupt_uncertain_run(
+        &self,
+        conversation_id: &str,
+        run: &RunRow,
+        reason: &str,
+    ) -> Result<(), ChatServiceError> {
         if let Some(message_id) = self.latest_assistant_message_id(conversation_id).await? {
             self.finalize_assistant_message(
                 conversation_id,
@@ -4259,11 +4665,348 @@ impl ChatService {
             conversation_id,
             &run.id,
             ChatRunStatus::Interrupted,
-            Some("chat runtime restarted before turn completed".to_string()),
+            Some(reason.to_string()),
         )
         .await?;
         let _ = self.emit_conversation_updated(conversation_id).await?;
         Ok(())
+    }
+
+    async fn apply_thread_read_replay(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        result: &Value,
+    ) -> Result<(), ChatServiceError> {
+        if let Some(usage) = result
+            .get("usage")
+            .or_else(|| result.get("tokenUsage"))
+            .or_else(|| result.pointer("/thread/usage"))
+            .or_else(|| result.pointer("/thread/tokenUsage"))
+        {
+            self.upsert_context_usage(conversation_id, runtime, usage)
+                .await?;
+        }
+
+        let mut replayed_turn = false;
+        for provider_turn in thread_read_turns(result) {
+            let provider_turn_id = extract_turn_id(&provider_turn);
+            let Some(turn) = self
+                .turn_for_provider_replay(conversation_id, provider_turn_id.as_deref())
+                .await?
+            else {
+                continue;
+            };
+            replayed_turn = true;
+            self.attach_provider_turn_replay(conversation_id, &turn, provider_turn_id.as_deref())
+                .await?;
+            if let Some(provider_turn_id) = provider_turn_id.as_deref() {
+                self.register_turn_route(conversation_id, runtime, provider_turn_id)
+                    .await;
+            }
+
+            let previous = {
+                let mut state = runtime.state.lock().await;
+                let previous = (
+                    state.active_turn_id.clone(),
+                    state.active_message_id.clone(),
+                    state.active_run_id.clone(),
+                );
+                state.active_turn_id = Some(turn.id.clone());
+                state.active_message_id = Some(turn.assistant_message_id.clone());
+                state.active_run_id = Some(turn.run_id.clone());
+                previous
+            };
+
+            for item in provider_turn_items(&provider_turn) {
+                let params = replay_item_params(&item, provider_turn_id.as_deref());
+                if is_plan_payload(&params) {
+                    continue;
+                }
+                let kind = item_kind_from_params(&params);
+                let status = replay_item_status(&item);
+                let _ = self
+                    .upsert_chat_item(conversation_id, runtime, &params, kind, status)
+                    .await?;
+                match kind {
+                    ChatItemKind::AgentMessage => {
+                        if let Some(text) = item.get("text").and_then(Value::as_str) {
+                            if is_commentary_phase(&item) {
+                                let message = self
+                                    .replace_message_reasoning(
+                                        conversation_id,
+                                        &turn.assistant_message_id,
+                                        text,
+                                        ChatMessageStatus::Streaming,
+                                    )
+                                    .await?;
+                                if let Some(summary) =
+                                    self.get_conversation_summary(conversation_id).await?
+                                {
+                                    self.events.emit(EventKind::ChatMessageUpdated {
+                                        session_id: summary.session_id,
+                                        conversation_id: conversation_id.to_string(),
+                                        message,
+                                    });
+                                }
+                            } else {
+                                self.replace_message_content(
+                                    conversation_id,
+                                    &turn.assistant_message_id,
+                                    text,
+                                    ChatMessageStatus::Streaming,
+                                )
+                                .await?;
+                            }
+                        }
+                    }
+                    ChatItemKind::Reasoning => {
+                        if let Some(text) = replay_reasoning_text(&item) {
+                            let message = self
+                                .replace_message_reasoning(
+                                    conversation_id,
+                                    &turn.assistant_message_id,
+                                    &text,
+                                    ChatMessageStatus::Streaming,
+                                )
+                                .await?;
+                            if let Some(summary) =
+                                self.get_conversation_summary(conversation_id).await?
+                            {
+                                self.events.emit(EventKind::ChatMessageUpdated {
+                                    session_id: summary.session_id,
+                                    conversation_id: conversation_id.to_string(),
+                                    message,
+                                });
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if let Some(plan) = provider_turn.get("plan") {
+                self.upsert_active_plan(conversation_id, runtime, plan)
+                    .await?;
+            }
+            if let Some(diff) = provider_turn.get("diff") {
+                self.upsert_diff_summary(conversation_id, runtime, diff)
+                    .await?;
+            }
+
+            let run_status = parse_turn_status(
+                provider_turn
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("completed"),
+            );
+            let message_status = match run_status {
+                ChatRunStatus::Completed => ChatMessageStatus::Completed,
+                ChatRunStatus::Interrupted => ChatMessageStatus::Interrupted,
+                ChatRunStatus::Failed => ChatMessageStatus::Failed,
+                ChatRunStatus::Starting | ChatRunStatus::Running => ChatMessageStatus::Streaming,
+            };
+            let final_text = extract_turn_text(&provider_turn).unwrap_or_default();
+            let message = self
+                .finalize_assistant_message(
+                    conversation_id,
+                    &turn.assistant_message_id,
+                    &final_text,
+                    message_status,
+                )
+                .await?;
+            if !self.run_is_terminal(conversation_id, &turn.run_id).await? {
+                let run = self
+                    .finalize_run(conversation_id, &turn.run_id, run_status, None)
+                    .await?;
+                if let Some(summary) = self.get_conversation_summary(conversation_id).await? {
+                    self.events.emit(EventKind::ChatRunUpdated {
+                        session_id: summary.session_id,
+                        conversation_id: conversation_id.to_string(),
+                        run,
+                    });
+                }
+            }
+            let finalized_turn = self
+                .finalize_turn(
+                    conversation_id,
+                    &turn.id,
+                    chat_turn_status_from_run_status(run_status),
+                    None,
+                )
+                .await?;
+            if let Some(summary) = self.get_conversation_summary(conversation_id).await? {
+                if let Some(message) = message {
+                    self.events.emit(EventKind::ChatMessageUpdated {
+                        session_id: summary.session_id.clone(),
+                        conversation_id: conversation_id.to_string(),
+                        message,
+                    });
+                }
+                self.events.emit(EventKind::ChatTurnUpdated {
+                    session_id: summary.session_id,
+                    conversation_id: conversation_id.to_string(),
+                    turn: finalized_turn,
+                });
+            }
+
+            {
+                let mut state = runtime.state.lock().await;
+                state.active_turn_id = previous.0;
+                state.active_message_id = previous.1;
+                state.active_run_id = previous.2;
+            }
+        }
+
+        if !replayed_turn
+            && let Some(text) = extract_thread_read_text(result)
+            && let Some(message_id) = self.latest_assistant_message_id(conversation_id).await?
+        {
+            let message = self
+                .finalize_assistant_message(
+                    conversation_id,
+                    &message_id,
+                    &text,
+                    ChatMessageStatus::Completed,
+                )
+                .await?;
+            if let Some(summary) = self.get_conversation_summary(conversation_id).await?
+                && let Some(message) = message
+            {
+                self.events.emit(EventKind::ChatMessageUpdated {
+                    session_id: summary.session_id,
+                    conversation_id: conversation_id.to_string(),
+                    message,
+                });
+            }
+        }
+        let _ = self.emit_conversation_updated(conversation_id).await?;
+        Ok(())
+    }
+
+    async fn turn_for_provider_replay(
+        &self,
+        conversation_id: &str,
+        provider_turn_id: Option<&str>,
+    ) -> Result<Option<ChatTurn>, ChatServiceError> {
+        if let Some(provider_turn_id) = provider_turn_id
+            && let Some(row) = sqlx::query_as::<_, TurnRow>(
+                "
+                SELECT
+                    id, conversation_id, run_id, user_message_id,
+                    assistant_message_id, provider_turn_id, status,
+                    started_at_ms, completed_at_ms, error_message,
+                    reconciliation_status, reconciled_at_ms,
+                    reconciliation_error, created_at_ms, updated_at_ms
+                FROM chat_turns
+                WHERE conversation_id = ? AND provider_turn_id = ?
+                LIMIT 1
+                ",
+            )
+            .bind(conversation_id)
+            .bind(provider_turn_id)
+            .fetch_optional(&self.pool)
+            .await?
+        {
+            return Ok(Some(turn_from_row(row)));
+        }
+        Ok(sqlx::query_as::<_, TurnRow>(
+            "
+            SELECT
+                id, conversation_id, run_id, user_message_id,
+                assistant_message_id, provider_turn_id, status,
+                started_at_ms, completed_at_ms, error_message,
+                reconciliation_status, reconciled_at_ms,
+                reconciliation_error, created_at_ms, updated_at_ms
+            FROM chat_turns
+            WHERE conversation_id = ?
+                AND status IN ('starting', 'running')
+            ORDER BY started_at_ms DESC, id DESC
+            LIMIT 1
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(turn_from_row))
+    }
+
+    async fn attach_provider_turn_replay(
+        &self,
+        conversation_id: &str,
+        turn: &ChatTurn,
+        provider_turn_id: Option<&str>,
+    ) -> Result<(), ChatServiceError> {
+        let Some(provider_turn_id) = provider_turn_id else {
+            return Ok(());
+        };
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_messages
+            SET provider_turn_id = COALESCE(provider_turn_id, ?),
+                updated_at_ms = ?
+            WHERE turn_id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(provider_turn_id)
+        .bind(now)
+        .bind(&turn.id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(
+            "
+            UPDATE chat_runs
+            SET provider_turn_id = COALESCE(provider_turn_id, ?)
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(provider_turn_id)
+        .bind(&turn.run_id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(
+            "
+            UPDATE chat_turns
+            SET provider_turn_id = COALESCE(provider_turn_id, ?),
+                updated_at_ms = ?
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(provider_turn_id)
+        .bind(now)
+        .bind(&turn.id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn run_is_terminal(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<bool, ChatServiceError> {
+        let status = sqlx::query(
+            "
+            SELECT status
+            FROM chat_runs
+            WHERE conversation_id = ? AND id = ?
+            LIMIT 1
+            ",
+        )
+        .bind(conversation_id)
+        .bind(run_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .and_then(|row| row.try_get::<String, _>("status").ok())
+        .map(|status| parse_run_status(&status));
+        Ok(matches!(
+            status,
+            Some(ChatRunStatus::Completed | ChatRunStatus::Interrupted | ChatRunStatus::Failed)
+        ))
     }
 
     async fn persist_provider_thread_id(
@@ -4440,6 +5183,8 @@ impl ChatService {
                 last_message_at_ms = ?,
                 last_run_state = ?,
                 last_error = NULL,
+                last_reconciliation_state = ?,
+                last_reconciliation_error = NULL,
                 revision = revision + 1
             WHERE id = ?
             ",
@@ -4449,6 +5194,7 @@ impl ChatService {
         .bind(now)
         .bind(now)
         .bind(ChatRunStatus::Starting.as_str())
+        .bind(ChatReconciliationStatus::NotNeeded.as_str())
         .bind(&conversation.id)
         .execute(&mut *tx)
         .await?;
@@ -4875,6 +5621,8 @@ impl ChatService {
                 id, conversation_id, run_id, user_message_id,
                 assistant_message_id, provider_turn_id, status,
                 started_at_ms, completed_at_ms, error_message,
+                reconciliation_status, reconciled_at_ms,
+                reconciliation_error,
                 created_at_ms, updated_at_ms
             FROM chat_turns
             WHERE conversation_id = ? AND id = ?
@@ -6021,6 +6769,8 @@ fn conversation_from_row(row: ConversationRow) -> ChatConversationSummary {
             .and_then(parse_permission_mode),
         last_run_state: parse_run_status(&row.last_run_state),
         last_error: row.last_error,
+        last_reconciliation_state: parse_reconciliation_status(&row.last_reconciliation_state),
+        last_reconciliation_error: row.last_reconciliation_error,
         context_used_tokens: row.context_used_tokens.map(|value| value.max(0) as u32),
         context_max_tokens: row.context_max_tokens.map(|value| value.max(0) as u32),
         context_percent_used: row.context_percent_used,
@@ -6323,6 +7073,9 @@ fn turn_from_row(row: TurnRow) -> ChatTurn {
         started_at: row.started_at_ms.max(0) as u64,
         completed_at: row.completed_at_ms.map(|value| value.max(0) as u64),
         error_message: row.error_message,
+        reconciliation_status: parse_reconciliation_status(&row.reconciliation_status),
+        reconciled_at: row.reconciled_at_ms.map(|value| value.max(0) as u64),
+        reconciliation_error: row.reconciliation_error,
         created_at: row.created_at_ms.max(0) as u64,
         updated_at: row.updated_at_ms.max(0) as u64,
     }
@@ -6451,6 +7204,22 @@ fn pending_request_summary_from_row(row: PendingRequestSummaryRow) -> ChatPendin
     }
 }
 
+fn reconciliation_from_row(row: ReconciliationRow) -> ChatReconciliation {
+    ChatReconciliation {
+        id: row.id,
+        conversation_id: row.conversation_id,
+        provider_thread_id: row.provider_thread_id,
+        status: parse_reconciliation_status(&row.status),
+        reason: row.reason,
+        started_at: row.started_at_ms.max(0) as u64,
+        finished_at: row.finished_at_ms.map(|value| value.max(0) as u64),
+        error_message: row.error_message,
+        owner_generation: row.owner_generation.max(0) as u64,
+        created_at: row.created_at_ms.max(0) as u64,
+        updated_at: row.updated_at_ms.max(0) as u64,
+    }
+}
+
 fn parse_message_role(value: &str) -> ChatMessageRole {
     if value == "assistant" {
         ChatMessageRole::Assistant
@@ -6522,6 +7291,16 @@ fn parse_item_status(value: &str) -> ChatItemStatus {
         "completed" => ChatItemStatus::Completed,
         "failed" => ChatItemStatus::Failed,
         _ => ChatItemStatus::Streaming,
+    }
+}
+
+fn parse_reconciliation_status(value: &str) -> ChatReconciliationStatus {
+    match value {
+        "pending" => ChatReconciliationStatus::Pending,
+        "running" => ChatReconciliationStatus::Running,
+        "completed" => ChatReconciliationStatus::Completed,
+        "failed" => ChatReconciliationStatus::Failed,
+        _ => ChatReconciliationStatus::NotNeeded,
     }
 }
 
@@ -7076,6 +7855,52 @@ fn extract_turn_text(turn: &Value) -> Option<String> {
         })
 }
 
+fn thread_read_turns(value: &Value) -> Vec<Value> {
+    value
+        .pointer("/thread/turns")
+        .or_else(|| value.get("turns"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn provider_turn_items(turn: &Value) -> Vec<Value> {
+    turn.pointer("/items")
+        .or_else(|| turn.get("items"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn replay_item_params(item: &Value, provider_turn_id: Option<&str>) -> Value {
+    let mut params = serde_json::Map::new();
+    params.insert("item".to_string(), item.clone());
+    if let Some(provider_turn_id) = provider_turn_id {
+        params.insert(
+            "turnId".to_string(),
+            Value::String(provider_turn_id.to_string()),
+        );
+    }
+    Value::Object(params)
+}
+
+fn replay_item_status(item: &Value) -> ChatItemStatus {
+    match item.get("status").and_then(Value::as_str) {
+        Some("failed" | "error") => ChatItemStatus::Failed,
+        Some("started") => ChatItemStatus::Started,
+        Some("streaming" | "in_progress") => ChatItemStatus::Streaming,
+        _ => ChatItemStatus::Completed,
+    }
+}
+
+fn replay_reasoning_text(item: &Value) -> Option<String> {
+    item.get("text")
+        .and_then(Value::as_str)
+        .or_else(|| item.get("summary").and_then(Value::as_str))
+        .or_else(|| item.get("summaryText").and_then(Value::as_str))
+        .map(str::to_string)
+}
+
 fn extract_thread_read_text(value: &Value) -> Option<String> {
     value
         .pointer("/thread/turns")
@@ -7142,6 +7967,8 @@ mod tests {
             selected_permission_mode: None,
             last_run_state: ChatRunStatus::Completed,
             last_error: None,
+            last_reconciliation_state: ChatReconciliationStatus::NotNeeded,
+            last_reconciliation_error: None,
             context_used_tokens: None,
             context_max_tokens: None,
             context_percent_used: None,
@@ -7812,6 +8639,101 @@ mod tests {
             Some(10.0)
         );
         assert_eq!(detail.messages[1].content_text, "");
+    }
+
+    #[tokio::test]
+    async fn process_loss_preserves_partial_turn_and_marks_reconciliation_pending() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+        let (_, assistant_message_id, _, _) =
+            start_test_run(&service, &conversation, &runtime).await;
+        service
+            .append_message_delta(&conversation.id, &assistant_message_id, "partial")
+            .await
+            .unwrap();
+
+        service
+            .handle_provider_closed("transport closed".to_string())
+            .await
+            .unwrap();
+
+        let detail = service
+            .get_conversation_detail(&conversation.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let message = detail
+            .messages
+            .iter()
+            .find(|message| message.id == assistant_message_id)
+            .unwrap();
+        assert_eq!(message.status, ChatMessageStatus::Streaming);
+        assert_eq!(message.content_text, "partial");
+        assert_eq!(detail.latest_run.unwrap().status, ChatRunStatus::Starting);
+        assert_eq!(
+            detail.latest_reconciliation.unwrap().status,
+            ChatReconciliationStatus::Pending
+        );
+    }
+
+    #[tokio::test]
+    async fn thread_read_replay_finalizes_transcript_idempotently() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+        let (_, assistant_message_id, _, _) =
+            start_test_run(&service, &conversation, &runtime).await;
+
+        let replay = json!({
+            "thread": {
+                "turns": [
+                    {
+                        "id": "provider-turn-1",
+                        "status": "completed",
+                        "items": [
+                            {
+                                "id": "provider-item-1",
+                                "type": "agentMessage",
+                                "status": "completed",
+                                "text": "Final answer"
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+        service
+            .apply_thread_read_replay(&conversation.id, &runtime, &replay)
+            .await
+            .unwrap();
+        service
+            .apply_thread_read_replay(&conversation.id, &runtime, &replay)
+            .await
+            .unwrap();
+
+        let detail = service
+            .get_conversation_detail(&conversation.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let message = detail
+            .messages
+            .iter()
+            .find(|message| message.id == assistant_message_id)
+            .unwrap();
+        assert_eq!(message.status, ChatMessageStatus::Completed);
+        assert_eq!(message.content_text, "Final answer");
+        assert_eq!(detail.latest_run.unwrap().status, ChatRunStatus::Completed);
+        assert_eq!(
+            detail.turns[0].provider_turn_id.as_deref(),
+            Some("provider-turn-1")
+        );
+        assert_eq!(detail.items.len(), 1);
+        assert_eq!(
+            detail.items[0].provider_item_id.as_deref(),
+            Some("provider-item-1")
+        );
     }
 
     #[test]

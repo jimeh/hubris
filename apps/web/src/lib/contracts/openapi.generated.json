@@ -3142,6 +3142,16 @@
               "$ref": "#/components/schemas/ChatItem"
             }
           },
+          "latestReconciliation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatReconciliation"
+              }
+            ]
+          },
           "latestRun": {
             "oneOf": [
               {
@@ -3221,6 +3231,7 @@
           "updatedAt",
           "lastActivityAt",
           "lastRunState",
+          "lastReconciliationState",
           "pendingRequestCount",
           "hasPendingRequestAttention",
           "revision"
@@ -3268,6 +3279,12 @@
             "type": ["integer", "null"],
             "format": "int64",
             "minimum": 0
+          },
+          "lastReconciliationError": {
+            "type": ["string", "null"]
+          },
+          "lastReconciliationState": {
+            "$ref": "#/components/schemas/ChatReconciliationStatus"
           },
           "lastRunState": {
             "$ref": "#/components/schemas/ChatRunStatus"
@@ -4007,6 +4024,70 @@
         "description": "Supported reasoning-effort values exposed by Codex model selection.",
         "enum": ["none", "minimal", "low", "medium", "high", "xhigh"]
       },
+      "ChatReconciliation": {
+        "type": "object",
+        "description": "Latest replay/recovery state for one conversation.",
+        "required": [
+          "id",
+          "conversationId",
+          "status",
+          "reason",
+          "startedAt",
+          "ownerGeneration",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "errorMessage": {
+            "type": ["string", "null"]
+          },
+          "finishedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "ownerGeneration": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "providerThreadId": {
+            "type": ["string", "null"]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatReconciliationStatus"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatReconciliationStatus": {
+        "type": "string",
+        "description": "Backend-owned reconciliation lifecycle for replaying Codex thread state.",
+        "enum": ["not_needed", "pending", "running", "completed", "failed"]
+      },
       "ChatRun": {
         "type": "object",
         "description": "Persisted run summary.",
@@ -4198,6 +4279,7 @@
           "assistantMessageId",
           "status",
           "startedAt",
+          "reconciliationStatus",
           "createdAt",
           "updatedAt"
         ],
@@ -4226,6 +4308,17 @@
           },
           "providerTurnId": {
             "type": ["string", "null"]
+          },
+          "reconciledAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "reconciliationError": {
+            "type": ["string", "null"]
+          },
+          "reconciliationStatus": {
+            "$ref": "#/components/schemas/ChatReconciliationStatus"
           },
           "runId": {
             "type": "string"

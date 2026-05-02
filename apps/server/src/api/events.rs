@@ -159,6 +159,18 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         | EventKind::ChatContextUsageUpdated {
             session_id: event_session_id,
             ..
+        }
+        | EventKind::ChatReconciliationStarted {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatReconciliationCompleted {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatReconciliationFailed {
+            session_id: event_session_id,
+            ..
         } => event_session_id == session_id,
         EventKind::WorktreeTabLayoutUpdated { .. } | EventKind::ChatAppServerUpdated { .. } => true,
         EventKind::ProjectAdded(_)
@@ -230,6 +242,11 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         .list_session_context_usage(session_id)
         .await
         .unwrap_or_default();
+    let chat_reconciliations = state
+        .chats
+        .list_session_reconciliations(session_id)
+        .await
+        .unwrap_or_default();
     let chat_runtimes = state
         .chats
         .list_runtime_statuses(session_id)
@@ -277,6 +294,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         chat_conversations,
         chat_pending_requests,
         chat_context_usage,
+        chat_reconciliations,
         chat_runtimes,
         chat_thread_streams,
         projects,

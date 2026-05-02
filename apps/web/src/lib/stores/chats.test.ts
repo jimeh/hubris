@@ -8,6 +8,7 @@ import {
   resetChatStoreForTests,
   selectChatItemOutputIds,
   selectChatMessageIds,
+  selectChatReconciliation,
   selectChatTimelineIds,
   useChatStore,
 } from "./chats";
@@ -88,6 +89,8 @@ const conversation = {
   openTabId: null,
   lastRunState: "completed" as const,
   lastError: null,
+  lastReconciliationState: "not_needed" as const,
+  lastReconciliationError: null,
   pendingRequestCount: 0,
   latestPendingRequestId: null,
   latestPendingRequestKind: null,
@@ -131,6 +134,9 @@ const detail = {
       startedAt: 10,
       completedAt: null,
       errorMessage: null,
+      reconciliationStatus: "not_needed" as const,
+      reconciledAt: null,
+      reconciliationError: null,
       createdAt: 10,
       updatedAt: 10,
     },
@@ -158,6 +164,7 @@ const detail = {
   diffSummaries: [],
   contextUsage: null,
   pendingRequests: [],
+  latestReconciliation: null,
   latestRun: {
     id: "run-1",
     conversationId: "chat-1",
@@ -283,6 +290,20 @@ const contextUsage = {
   updatedAt: 15,
 };
 
+const reconciliation = {
+  id: "reconciliation-1",
+  conversationId: "chat-1",
+  providerThreadId: "thread-1",
+  status: "running" as const,
+  reason: "recovering Codex thread state",
+  startedAt: 16,
+  finishedAt: null,
+  errorMessage: null,
+  ownerGeneration: 1,
+  createdAt: 16,
+  updatedAt: 16,
+};
+
 describe("chat store", () => {
   beforeEach(() => {
     mockEvents = new MockEventClient();
@@ -307,6 +328,7 @@ describe("chat store", () => {
       },
       chat_conversations: [conversation],
       chat_context_usage: [contextUsage],
+      chat_reconciliations: [reconciliation],
       chat_runtimes: [
         {
           conversationId: "chat-1",
@@ -350,6 +372,9 @@ describe("chat store", () => {
       useChatStore.getState().contextUsageByConversationId["chat-1"]
         ?.percentUsed,
     ).toBe(10);
+    expect(
+      selectChatReconciliation(useChatStore.getState(), "chat-1")?.status,
+    ).toBe("running");
     expect(
       useChatStore.getState().threadStreamsByConversationId["chat-1"]
         ?.resumeState,
@@ -570,6 +595,34 @@ describe("chat store", () => {
     expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
       "Hello",
     );
+  });
+
+  it("hydrates and applies reconciliation updates", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      latestReconciliation: reconciliation,
+    });
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    expect(
+      selectChatReconciliation(useChatStore.getState(), "chat-1")?.status,
+    ).toBe("running");
+
+    mockEvents.emit("chat_reconciliation_failed", {
+      session_id: "default",
+      reconciliation: {
+        ...reconciliation,
+        status: "failed",
+        errorMessage: "thread/read failed",
+        finishedAt: 20,
+        updatedAt: 20,
+      },
+    });
+
+    expect(
+      selectChatReconciliation(useChatStore.getState(), "chat-1")?.errorMessage,
+    ).toBe("thread/read failed");
   });
 
   it("hydrates and applies pending request updates", async () => {

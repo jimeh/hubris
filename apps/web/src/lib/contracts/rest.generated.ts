@@ -995,6 +995,7 @@ export interface components {
       conversation: components["schemas"]["ChatConversationSummary"];
       diffSummaries: components["schemas"]["ChatDiffSummary"][];
       items: components["schemas"]["ChatItem"][];
+      latestReconciliation?: null | components["schemas"]["ChatReconciliation"];
       latestRun?: null | components["schemas"]["ChatRun"];
       messages: components["schemas"]["ChatMessage"][];
       pendingRequests: components["schemas"]["ChatPendingRequest"][];
@@ -1028,6 +1029,8 @@ export interface components {
       lastError?: string | null;
       /** Format: int64 */
       lastMessageAt?: number | null;
+      lastReconciliationError?: string | null;
+      lastReconciliationState: components["schemas"]["ChatReconciliationStatus"];
       lastRunState: components["schemas"]["ChatRunStatus"];
       latestPendingRequestId?: string | null;
       latestPendingRequestKind?:
@@ -1327,6 +1330,35 @@ export interface components {
       | "medium"
       | "high"
       | "xhigh";
+    /** @description Latest replay/recovery state for one conversation. */
+    ChatReconciliation: {
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      errorMessage?: string | null;
+      /** Format: int64 */
+      finishedAt?: number | null;
+      id: string;
+      /** Format: int64 */
+      ownerGeneration: number;
+      providerThreadId?: string | null;
+      reason: string;
+      /** Format: int64 */
+      startedAt: number;
+      status: components["schemas"]["ChatReconciliationStatus"];
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description Backend-owned reconciliation lifecycle for replaying Codex thread state.
+     * @enum {string}
+     */
+    ChatReconciliationStatus:
+      | "not_needed"
+      | "pending"
+      | "running"
+      | "completed"
+      | "failed";
     /** @description Persisted run summary. */
     ChatRun: {
       conversationId: string;
@@ -1421,6 +1453,10 @@ export interface components {
       errorMessage?: string | null;
       id: string;
       providerTurnId?: string | null;
+      /** Format: int64 */
+      reconciledAt?: number | null;
+      reconciliationError?: string | null;
+      reconciliationStatus: components["schemas"]["ChatReconciliationStatus"];
       runId: string;
       /** Format: int64 */
       startedAt: number;

@@ -14,8 +14,8 @@ use crate::api::vscode::VscodeStatus;
 use crate::api::worktrees::Worktree;
 use crate::chat::{
     ChatAppServerStatus, ChatContextUsage, ChatConversationSummary, ChatDiffSummary, ChatItem,
-    ChatItemOutput, ChatMessage, ChatPendingRequest, ChatPendingRequestSummary, ChatPlan, ChatRun,
-    ChatRuntimeStatus, ChatThreadStreamStatus, ChatTurn,
+    ChatItemOutput, ChatMessage, ChatPendingRequest, ChatPendingRequestSummary, ChatPlan,
+    ChatReconciliation, ChatRun, ChatRuntimeStatus, ChatThreadStreamStatus, ChatTurn,
 };
 use crate::tab::{TabInfo, WorktreeTabLayout, WorktreeTabLayoutState};
 use crate::worktree_state::WorktreeRestoreState;
@@ -38,6 +38,7 @@ pub enum EventKind {
         chat_conversations: Vec<ChatConversationSummary>,
         chat_pending_requests: Vec<ChatPendingRequestSummary>,
         chat_context_usage: Vec<ChatContextUsage>,
+        chat_reconciliations: Vec<ChatReconciliation>,
         chat_runtimes: Vec<ChatRuntimeStatus>,
         chat_thread_streams: Vec<ChatThreadStreamStatus>,
         projects: Vec<Project>,
@@ -221,6 +222,21 @@ pub enum EventKind {
         session_id: String,
         usage: ChatContextUsage,
     },
+    #[serde(rename = "chat_reconciliation_started")]
+    ChatReconciliationStarted {
+        session_id: String,
+        reconciliation: ChatReconciliation,
+    },
+    #[serde(rename = "chat_reconciliation_completed")]
+    ChatReconciliationCompleted {
+        session_id: String,
+        reconciliation: ChatReconciliation,
+    },
+    #[serde(rename = "chat_reconciliation_failed")]
+    ChatReconciliationFailed {
+        session_id: String,
+        reconciliation: ChatReconciliation,
+    },
 }
 
 impl EventKind {
@@ -266,6 +282,9 @@ impl EventKind {
             EventKind::ChatPlanUpdated { .. } => "chat_plan_updated",
             EventKind::ChatDiffUpdated { .. } => "chat_diff_updated",
             EventKind::ChatContextUsageUpdated { .. } => "chat_context_usage_updated",
+            EventKind::ChatReconciliationStarted { .. } => "chat_reconciliation_started",
+            EventKind::ChatReconciliationCompleted { .. } => "chat_reconciliation_completed",
+            EventKind::ChatReconciliationFailed { .. } => "chat_reconciliation_failed",
         }
     }
 }
@@ -364,6 +383,7 @@ mod tests {
                 chat_conversations: vec![],
                 chat_pending_requests: vec![],
                 chat_context_usage: vec![],
+                chat_reconciliations: vec![],
                 chat_runtimes: vec![],
                 chat_thread_streams: vec![],
                 projects: vec![],

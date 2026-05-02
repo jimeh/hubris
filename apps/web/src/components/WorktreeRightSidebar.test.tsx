@@ -243,6 +243,8 @@ describe("WorktreeRightSidebar", () => {
           openTabId: null,
           lastRunState: "completed",
           lastError: null,
+          lastReconciliationState: "not_needed",
+          lastReconciliationError: null,
           pendingRequestCount: 0,
           latestPendingRequestId: null,
           latestPendingRequestKind: null,

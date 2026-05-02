@@ -30,6 +30,7 @@ import type {
   ChatPendingRequestDecision,
   ChatPendingRequestSummary,
   ChatPlan,
+  ChatReconciliation,
   ChatRun,
   ChatRuntimeStatus,
   ChatThreadStreamStatus,
@@ -68,6 +69,7 @@ type ChatStoreState = {
   diffSummaryIdsByConversationId: Record<string, string[]>;
   diffSummariesById: Record<string, ChatDiffSummary>;
   contextUsageByConversationId: Record<string, ChatContextUsage>;
+  reconciliationsByConversationId: Record<string, ChatReconciliation>;
   pendingRequestIdsByConversationId: Record<string, string[]>;
   pendingRequestsById: Record<string, ChatPendingRequest>;
   pendingRequestSummariesById: Record<string, ChatPendingRequestSummary>;
@@ -192,6 +194,17 @@ function indexPendingRequestSummaries(
   requests: readonly ChatPendingRequestSummary[] = [],
 ): Record<string, ChatPendingRequestSummary> {
   return Object.fromEntries(requests.map((request) => [request.id, request]));
+}
+
+function indexReconciliations(
+  reconciliations: readonly ChatReconciliation[] = [],
+): Record<string, ChatReconciliation> {
+  return Object.fromEntries(
+    reconciliations.map((reconciliation) => [
+      reconciliation.conversationId,
+      reconciliation,
+    ]),
+  );
 }
 
 function normalizeModelOptions(
@@ -475,6 +488,8 @@ function denormalizeConversationDetail(
     pendingRequests: pendingRequestIdsFromState(state, conversationId)
       .map((requestId) => state.pendingRequestsById[requestId])
       .filter((request): request is ChatPendingRequest => Boolean(request)),
+    latestReconciliation:
+      state.reconciliationsByConversationId[conversationId] ?? null,
     latestRun: state.latestRunByConversationId[conversationId] ?? null,
   };
 }
@@ -544,6 +559,15 @@ function setDetail(
     } else {
       delete contextUsageByConversationId[conversationId];
     }
+    const reconciliationsByConversationId = {
+      ...state.reconciliationsByConversationId,
+    };
+    if (detail.latestReconciliation) {
+      reconciliationsByConversationId[conversationId] =
+        detail.latestReconciliation;
+    } else {
+      delete reconciliationsByConversationId[conversationId];
+    }
     return {
       conversationsById: {
         ...state.conversationsById,
@@ -602,6 +626,7 @@ function setDetail(
         ...mapById(diffSummaries),
       },
       contextUsageByConversationId,
+      reconciliationsByConversationId,
       timelineIdsByConversationId: {
         ...state.timelineIdsByConversationId,
         [conversationId]: timelineIds,
@@ -851,6 +876,13 @@ export function selectChatContextUsage(
   return state.contextUsageByConversationId[conversationId] ?? null;
 }
 
+export function selectChatReconciliation(
+  state: ChatStoreState,
+  conversationId: string,
+): ChatReconciliation | null {
+  return state.reconciliationsByConversationId[conversationId] ?? null;
+}
+
 export function selectChatActivePendingRequestIds(
   state: ChatStoreState,
   conversationId: string,
@@ -894,6 +926,7 @@ export function selectChatHeaderSlice(
   conversation: ChatConversationSummary | null;
   latestRun: ChatRun | null;
   runtime: ChatRuntimeStatus | null;
+  reconciliation: ChatReconciliation | null;
   detailError: string | null;
   modelOptionsError: string | null;
   hasStreamingMessage: boolean;
@@ -903,6 +936,7 @@ export function selectChatHeaderSlice(
     conversation: selectChatConversation(state, conversationId),
     latestRun: selectChatLatestRun(state, conversationId),
     runtime: selectChatRuntime(state, conversationId),
+    reconciliation: selectChatReconciliation(state, conversationId),
     detailError: detailState.error,
     modelOptionsError: state.modelOptionsError,
     hasStreamingMessage: hasStreamingAssistantMessage(state, conversationId),
@@ -918,6 +952,7 @@ export function selectChatModelSlice(
   modelOptionsStatus: ChatStoreState["modelOptionsStatus"];
   modelOptionsError: string | null;
   runtime: ChatRuntimeStatus | null;
+  reconciliation: ChatReconciliation | null;
   hasStreamingMessage: boolean;
 } {
   return {
@@ -926,6 +961,7 @@ export function selectChatModelSlice(
     modelOptionsStatus: state.modelOptionsStatus,
     modelOptionsError: state.modelOptionsError,
     runtime: selectChatRuntime(state, conversationId),
+    reconciliation: selectChatReconciliation(state, conversationId),
     hasStreamingMessage: hasStreamingAssistantMessage(state, conversationId),
   };
 }
@@ -951,6 +987,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   diffSummaryIdsByConversationId: {},
   diffSummariesById: {},
   contextUsageByConversationId: {},
+  reconciliationsByConversationId: {},
   pendingRequestIdsByConversationId: {},
   pendingRequestsById: {},
   pendingRequestSummariesById: {},
@@ -1074,6 +1111,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       const contextUsageByConversationId = {
         ...state.contextUsageByConversationId,
       };
+      const reconciliationsByConversationId = {
+        ...state.reconciliationsByConversationId,
+      };
       const latestRunByConversationId = { ...state.latestRunByConversationId };
       for (const messageId of existingMessageIds) {
         delete messagesById[messageId];
@@ -1106,6 +1146,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       delete planIdsByConversationId[conversationId];
       delete diffSummaryIdsByConversationId[conversationId];
       delete contextUsageByConversationId[conversationId];
+      delete reconciliationsByConversationId[conversationId];
       delete timelineIdsByConversationId[conversationId];
       delete latestRunByConversationId[conversationId];
       return {
@@ -1125,6 +1166,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         diffSummaryIdsByConversationId,
         diffSummariesById,
         contextUsageByConversationId,
+        reconciliationsByConversationId,
         pendingRequestIdsByConversationId,
         pendingRequestsById,
         latestRunByConversationId,
@@ -1178,6 +1220,34 @@ function handleThreadStreamEvent(
       [data.stream.conversationId]: data.stream,
     },
   }));
+}
+
+function handleReconciliationEvent(
+  data:
+    | SseEventData<"chat_reconciliation_started">
+    | SseEventData<"chat_reconciliation_completed">
+    | SseEventData<"chat_reconciliation_failed">,
+): void {
+  const conversationId = data.reconciliation.conversationId;
+  useChatStore.setState((state) => {
+    const nextState = {
+      ...state,
+      reconciliationsByConversationId: {
+        ...state.reconciliationsByConversationId,
+        [conversationId]: data.reconciliation,
+      },
+    };
+    if (!isConversationLoaded(state, conversationId)) {
+      return markConversationDirtyInBatch(nextState, conversationId);
+    }
+    return {
+      ...nextState,
+      detailsByConversationId: {
+        ...state.detailsByConversationId,
+        [conversationId]: loadedDetailState(),
+      },
+    };
+  });
 }
 
 function enqueueChatEvent(event: ChatBatchEvent): void {
@@ -1877,6 +1947,9 @@ export function initializeChatStore(): void {
               usage,
             ]),
           ),
+          reconciliationsByConversationId: indexReconciliations(
+            data.chat_reconciliations,
+          ),
           latestRunByConversationId: Object.fromEntries(
             Object.entries(state.latestRunByConversationId).filter(
               ([conversationId]) => conversationIds.has(conversationId),
@@ -1903,6 +1976,9 @@ export function initializeChatStore(): void {
     events.on("chat_plan_updated", handlePlanUpdated),
     events.on("chat_diff_updated", handleDiffUpdated),
     events.on("chat_context_usage_updated", handleContextUsageUpdated),
+    events.on("chat_reconciliation_started", handleReconciliationEvent),
+    events.on("chat_reconciliation_completed", handleReconciliationEvent),
+    events.on("chat_reconciliation_failed", handleReconciliationEvent),
   ];
 }
 
@@ -1947,6 +2023,7 @@ export function resetChatStoreForTests(): void {
     diffSummaryIdsByConversationId: {},
     diffSummariesById: {},
     contextUsageByConversationId: {},
+    reconciliationsByConversationId: {},
     pendingRequestIdsByConversationId: {},
     pendingRequestsById: {},
     pendingRequestSummariesById: {},

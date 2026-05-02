@@ -55,9 +55,9 @@ use crate::chat::{
     ChatModelReasoningEffortOption, ChatPendingRequest, ChatPendingRequestDecision,
     ChatPendingRequestKind, ChatPendingRequestStatus, ChatPendingRequestSummary,
     ChatPermissionMode, ChatPlan, ChatPlanKind, ChatPlanStatus, ChatProvider, ChatReasoningEffort,
-    ChatRun, ChatRunStatus, ChatRuntimeLifecycle, ChatRuntimeStatus, ChatSettings,
-    ChatThreadStreamResumeState, ChatThreadStreamStatus, ChatTurn, ChatTurnStatus,
-    ResolveChatPendingRequestRequest,
+    ChatReconciliation, ChatReconciliationStatus, ChatRun, ChatRunStatus, ChatRuntimeLifecycle,
+    ChatRuntimeStatus, ChatSettings, ChatThreadStreamResumeState, ChatThreadStreamStatus, ChatTurn,
+    ChatTurnStatus, ResolveChatPendingRequestRequest,
 };
 use crate::tab::{
     GitDiffScope, TabInfo, TabPaneSplitAxis, WorktreePaneNode, WorktreePaneTabs, WorktreeTabLayout,
@@ -230,6 +230,7 @@ use crate::tab::{
             ChatTurnStatus,
             ChatItemKind,
             ChatItemStatus,
+            ChatReconciliationStatus,
             ChatRuntimeLifecycle,
             ChatAppServerLifecycle,
             ChatAppServerStatus,
@@ -257,6 +258,7 @@ use crate::tab::{
             ChatPendingRequest,
             ChatPendingRequestSummary,
             ResolveChatPendingRequestRequest,
+            ChatReconciliation,
             ChatConversationDetail,
             ChatRuntimeStatus,
             ChatSettings,

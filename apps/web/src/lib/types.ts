@@ -56,6 +56,9 @@ export type ChatPendingRequestDecision =
   components["schemas"]["ChatPendingRequestDecision"];
 export type ResolveChatPendingRequestRequest =
   components["schemas"]["ResolveChatPendingRequestRequest"];
+export type ChatReconciliation = components["schemas"]["ChatReconciliation"];
+export type ChatReconciliationStatus =
+  components["schemas"]["ChatReconciliationStatus"];
 export type ChatModelOption = components["schemas"]["ChatModelOption"];
 export type ChatModelReasoningEffortOption =
   components["schemas"]["ChatModelReasoningEffortOption"];

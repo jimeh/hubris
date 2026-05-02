@@ -140,7 +140,7 @@ checks enforce this through `mise run check:server`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (8627 symbols, 19780
+This project is indexed by GitNexus as **hubris** (10031 symbols, 22945
 relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 

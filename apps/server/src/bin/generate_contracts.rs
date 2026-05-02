@@ -32,9 +32,9 @@ use hubris_server::chat::{
     ChatModelReasoningEffortOption, ChatPendingRequest, ChatPendingRequestDecision,
     ChatPendingRequestKind, ChatPendingRequestStatus, ChatPendingRequestSummary,
     ChatPermissionMode, ChatPlan, ChatPlanKind, ChatPlanStatus, ChatProvider, ChatReasoningEffort,
-    ChatRun, ChatRunStatus, ChatRuntimeLifecycle, ChatRuntimeStatus, ChatSettings,
-    ChatThreadStreamResumeState, ChatThreadStreamStatus, ChatTurn, ChatTurnStatus,
-    ResolveChatPendingRequestRequest,
+    ChatReconciliation, ChatReconciliationStatus, ChatRun, ChatRunStatus, ChatRuntimeLifecycle,
+    ChatRuntimeStatus, ChatSettings, ChatThreadStreamResumeState, ChatThreadStreamStatus, ChatTurn,
+    ChatTurnStatus, ResolveChatPendingRequestRequest,
 };
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
@@ -122,6 +122,7 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<ChatTurnStatus>(&mut sse, &cfg)?;
     push_ts_export::<ChatItemKind>(&mut sse, &cfg)?;
     push_ts_export::<ChatItemStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatReconciliationStatus>(&mut sse, &cfg)?;
     push_ts_export::<ChatRuntimeLifecycle>(&mut sse, &cfg)?;
     push_ts_export::<ChatAppServerLifecycle>(&mut sse, &cfg)?;
     push_ts_export::<ChatAppServerStatus>(&mut sse, &cfg)?;
@@ -149,6 +150,7 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<ChatPendingRequest>(&mut sse, &cfg)?;
     push_ts_export::<ChatPendingRequestSummary>(&mut sse, &cfg)?;
     push_ts_export::<ResolveChatPendingRequestRequest>(&mut sse, &cfg)?;
+    push_ts_export::<ChatReconciliation>(&mut sse, &cfg)?;
     push_ts_export::<ChatConversationDetail>(&mut sse, &cfg)?;
     push_ts_export::<ChatRuntimeStatus>(&mut sse, &cfg)?;
     push_ts_export::<ChatSettings>(&mut sse, &cfg)?;

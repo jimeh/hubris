@@ -47,6 +47,7 @@ import {
   selectChatItemOutputIds,
   selectChatMessage,
   selectChatModelSlice,
+  selectChatReconciliation,
   selectChatActivePendingRequestIds,
   selectChatPendingRequest,
   selectChatPlan,
@@ -65,6 +66,7 @@ import type {
   ChatPendingRequestDecision,
   ChatPlan,
   ChatPermissionMode,
+  ChatReconciliation,
   ChatReasoningEffort,
   ChatRuntimeLifecycle,
 } from "@/lib/types";
@@ -99,6 +101,23 @@ function runtimeStatusLabel(
       return "Runtime failed";
     default:
       return "Idle";
+  }
+}
+
+function reconciliationStatusText(
+  reconciliation: ChatReconciliation | null,
+): string | null {
+  switch (reconciliation?.status) {
+    case "pending":
+      return "Codex disconnected before this turn completed. Hubris will reconcile the transcript when the thread resumes.";
+    case "running":
+      return "Reconciling Codex thread state. Existing transcript remains visible while Hubris verifies provider state.";
+    case "failed":
+      return reconciliation.errorMessage
+        ? `Reconciliation failed: ${reconciliation.errorMessage}`
+        : "Reconciliation failed. Partial transcript was preserved and future sends are allowed.";
+    default:
+      return null;
   }
 }
 
@@ -616,6 +635,22 @@ function ChatHeader({
           {latestError}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ReconciliationBanner({ conversationId }: { conversationId: string }) {
+  const reconciliation = useChatStore((state) =>
+    selectChatReconciliation(state, conversationId),
+  );
+  const text = reconciliationStatusText(reconciliation);
+  if (!text) {
+    return null;
+  }
+
+  return (
+    <div className="border-b bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+      <div className="mx-auto max-w-3xl">{text}</div>
     </div>
   );
 }
@@ -1262,12 +1297,14 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
     hasStreamingMessage,
     modelOptions,
     modelOptionsStatus,
+    reconciliation,
     runtime: runtimeStatus,
   } = useChatStore(
     useShallow((state) => selectChatModelSlice(state, conversationId)),
   );
   const isRunning = isRuntimeRunning(runtimeStatus?.lifecycle);
   const isRunActive = isRunning || hasStreamingMessage;
+  const isReconciling = reconciliation?.status === "running";
   const activePendingRequestIds = useChatStore(
     useShallow((state) =>
       selectChatActivePendingRequestIds(state, conversationId),
@@ -1306,7 +1343,7 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
       if (!text) {
         return;
       }
-      if (hasBlockingRequest) {
+      if (hasBlockingRequest || isReconciling) {
         return;
       }
       await sendMessage(conversationId, text);
@@ -1431,7 +1468,7 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
                 ) : (
                   <ComposerPrimitive.Send
                     className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
-                    disabled={hasBlockingRequest}
+                    disabled={hasBlockingRequest || isReconciling}
                     aria-label="Send message"
                     title="Send message"
                   >
@@ -1487,6 +1524,7 @@ export default function AgentChatTabView({ tab, visible }: Props) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <ChatHeader conversationId={tab.conversation_id} label={tab.label} />
+      <ReconciliationBanner conversationId={tab.conversation_id} />
       <ChatTranscript conversationId={tab.conversation_id} />
       <ChatComposer conversationId={tab.conversation_id} />
     </div>
