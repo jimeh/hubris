@@ -972,13 +972,33 @@ export interface components {
       /** Format: int64 */
       updatedAt: number;
     };
+    /** @description Latest context-window usage for a Codex conversation. */
+    ChatContextUsage: {
+      conversationId: string;
+      id: string;
+      /** Format: int32 */
+      maxTokens?: number | null;
+      metadataJson: string;
+      /** Format: double */
+      percentUsed?: number | null;
+      providerThreadId?: string | null;
+      /** Format: int32 */
+      totalProcessedTokens?: number | null;
+      /** Format: int64 */
+      updatedAt: number;
+      /** Format: int32 */
+      usedTokens?: number | null;
+    };
     /** @description Full chat detail payload used to hydrate an open chat tab. */
     ChatConversationDetail: {
+      contextUsage?: null | components["schemas"]["ChatContextUsage"];
       conversation: components["schemas"]["ChatConversationSummary"];
+      diffSummaries: components["schemas"]["ChatDiffSummary"][];
       items: components["schemas"]["ChatItem"][];
       latestRun?: null | components["schemas"]["ChatRun"];
       messages: components["schemas"]["ChatMessage"][];
       pendingRequests: components["schemas"]["ChatPendingRequest"][];
+      plans: components["schemas"]["ChatPlan"][];
       turns: components["schemas"]["ChatTurn"][];
     };
     /** @description Conversation-level model preferences that apply to future turns. */
@@ -991,6 +1011,14 @@ export interface components {
     };
     /** @description Persisted summary for a conversation list row. */
     ChatConversationSummary: {
+      /** Format: int32 */
+      contextMaxTokens?: number | null;
+      /** Format: double */
+      contextPercentUsed?: number | null;
+      /** Format: int64 */
+      contextUpdatedAt?: number | null;
+      /** Format: int32 */
+      contextUsedTokens?: number | null;
       /** Format: int64 */
       createdAt: number;
       hasPendingRequestAttention: boolean;
@@ -1026,6 +1054,39 @@ export interface components {
       /** Format: int64 */
       updatedAt: number;
       worktreeId: string;
+    };
+    /** @description One changed file included in a Codex diff summary. */
+    ChatDiffFileSummary: {
+      /** Format: int32 */
+      additions?: number | null;
+      changeType?: string | null;
+      /** Format: int32 */
+      deletions?: number | null;
+      originalPath?: string | null;
+      path: string;
+    };
+    /** @description Persisted turn-level Codex diff summary. */
+    ChatDiffSummary: {
+      /** Format: int32 */
+      additions?: number | null;
+      /** Format: int32 */
+      changedFileCount: number;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      /** Format: int32 */
+      deletions?: number | null;
+      files: components["schemas"]["ChatDiffFileSummary"][];
+      id: string;
+      metadataJson: string;
+      /** Format: int64 */
+      ownerGeneration: number;
+      providerTurnId?: string | null;
+      /** Format: int32 */
+      sequence: number;
+      turnId?: string | null;
+      /** Format: int64 */
+      updatedAt: number;
     };
     /** @description Persisted provider item metadata for a chat conversation. */
     ChatItem: {
@@ -1216,6 +1277,40 @@ export interface components {
      * @enum {string}
      */
     ChatPermissionMode: "full_access";
+    /** @description Persisted Codex plan state used by the chat timeline. */
+    ChatPlan: {
+      /** Format: int64 */
+      completedAt?: number | null;
+      contentText: string;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      itemId?: string | null;
+      kind: components["schemas"]["ChatPlanKind"];
+      metadataJson: string;
+      /** Format: int64 */
+      ownerGeneration: number;
+      providerItemId?: string | null;
+      providerTurnId?: string | null;
+      /** Format: int32 */
+      sequence: number;
+      status: components["schemas"]["ChatPlanStatus"];
+      stepsJson: string;
+      turnId?: string | null;
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description Persisted Codex plan kind.
+     * @enum {string}
+     */
+    ChatPlanKind: "active_task" | "proposed_plan";
+    /**
+     * @description Persisted Codex plan lifecycle state.
+     * @enum {string}
+     */
+    ChatPlanStatus: "streaming" | "completed" | "failed";
     /**
      * @description Supported chat providers.
      * @enum {string}

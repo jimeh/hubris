@@ -39,6 +39,12 @@ export type ChatTurn = components["schemas"]["ChatTurn"];
 export type ChatItem = components["schemas"]["ChatItem"];
 export type ChatItemOutput = components["schemas"]["ChatItemOutput"];
 export type ChatActivityDetail = components["schemas"]["ChatActivityDetail"];
+export type ChatPlan = components["schemas"]["ChatPlan"];
+export type ChatPlanKind = components["schemas"]["ChatPlanKind"];
+export type ChatPlanStatus = components["schemas"]["ChatPlanStatus"];
+export type ChatDiffFileSummary = components["schemas"]["ChatDiffFileSummary"];
+export type ChatDiffSummary = components["schemas"]["ChatDiffSummary"];
+export type ChatContextUsage = components["schemas"]["ChatContextUsage"];
 export type ChatPendingRequest = components["schemas"]["ChatPendingRequest"];
 export type ChatPendingRequestSummary =
   components["schemas"]["ChatPendingRequestSummary"];

@@ -7,7 +7,9 @@ import {
 } from "@assistant-ui/react";
 import {
   ChevronDown,
+  ClipboardList,
   FilePenLine,
+  GitCompare,
   LoaderCircle,
   MessageSquareText,
   SendHorizontal,
@@ -35,6 +37,9 @@ import {
 import {
   selectChatComposerMessages,
   selectChatActivityDetailState,
+  selectChatConversation,
+  selectChatContextUsage,
+  selectChatDiffSummary,
   selectChatDetailState,
   selectChatHeaderSlice,
   selectChatItem,
@@ -44,16 +49,21 @@ import {
   selectChatModelSlice,
   selectChatActivePendingRequestIds,
   selectChatPendingRequest,
+  selectChatPlan,
   selectChatTimelineIds,
   useChatStore,
 } from "@/lib/stores/chats";
+import { useTabStore } from "@/lib/stores/tabs";
 import type {
   AgentChatTab,
+  ChatContextUsage,
+  ChatDiffSummary,
   ChatItem,
   ChatMessage,
   ChatModelOption,
   ChatPendingRequest,
   ChatPendingRequestDecision,
+  ChatPlan,
   ChatPermissionMode,
   ChatReasoningEffort,
   ChatRuntimeLifecycle,
@@ -333,6 +343,109 @@ function simpleOptions(payload: Record<string, unknown>): string[] {
           : "",
     )
     .filter(Boolean);
+}
+
+type PlanStep = {
+  text: string;
+  status: "pending" | "in_progress" | "completed";
+};
+
+function parsePlanSteps(plan: ChatPlan): PlanStep[] {
+  try {
+    const parsed = JSON.parse(plan.stepsJson);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((step) => {
+        if (typeof step === "string") {
+          return { text: step, status: "pending" as const };
+        }
+        if (!step || typeof step !== "object") {
+          return null;
+        }
+        const record = step as Record<string, unknown>;
+        const text =
+          typeof record.text === "string"
+            ? record.text
+            : typeof record.description === "string"
+              ? record.description
+              : typeof record.title === "string"
+                ? record.title
+                : "";
+        if (!text.trim()) {
+          return null;
+        }
+        const rawStatus =
+          typeof record.status === "string" ? record.status : "pending";
+        const status =
+          rawStatus === "completed" || rawStatus === "done"
+            ? "completed"
+            : rawStatus === "in_progress" ||
+                rawStatus === "running" ||
+                rawStatus === "current"
+              ? "in_progress"
+              : "pending";
+        return { text, status };
+      })
+      .filter((step): step is PlanStep => Boolean(step))
+      .slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
+function planTitle(plan: ChatPlan): string {
+  return plan.kind === "active_task" ? "Plan" : "Proposed plan";
+}
+
+function diffStatsLabel(diff: ChatDiffSummary): string {
+  const parts = [
+    `${diff.changedFileCount} file${diff.changedFileCount === 1 ? "" : "s"}`,
+  ];
+  if (diff.additions != null) {
+    parts.push(`+${diff.additions}`);
+  }
+  if (diff.deletions != null) {
+    parts.push(`-${diff.deletions}`);
+  }
+  return parts.join(" · ");
+}
+
+function contextUsageLabel(usage: ChatContextUsage | null): string {
+  if (!usage) {
+    return "Context";
+  }
+  if (typeof usage.percentUsed === "number") {
+    return `${Math.round(usage.percentUsed)}% context`;
+  }
+  if (usage.usedTokens != null && usage.maxTokens != null) {
+    return `${usage.usedTokens.toLocaleString()} / ${usage.maxTokens.toLocaleString()}`;
+  }
+  return "Context";
+}
+
+function contextUsageTitle(usage: ChatContextUsage | null): string {
+  if (!usage) {
+    return "Context usage has not been reported for this chat yet.";
+  }
+  const lines = [];
+  if (usage.usedTokens != null || usage.maxTokens != null) {
+    lines.push(
+      `Used: ${usage.usedTokens?.toLocaleString() ?? "unknown"} / ${
+        usage.maxTokens?.toLocaleString() ?? "unknown"
+      } tokens`,
+    );
+  }
+  if (usage.totalProcessedTokens != null) {
+    lines.push(
+      `Processed: ${usage.totalProcessedTokens.toLocaleString()} tokens`,
+    );
+  }
+  if (usage.percentUsed != null) {
+    lines.push(`Context: ${Math.round(usage.percentUsed)}%`);
+  }
+  return lines.join("\n") || "Context usage has been updated.";
 }
 
 function ActivityIcon({ item }: { item: ChatItem }) {
@@ -876,6 +989,149 @@ function PendingRequestRow({ requestId }: { requestId: string }) {
   );
 }
 
+function PlanRow({ planId }: { planId: string }) {
+  const plan = useChatStore((state) => selectChatPlan(state, planId));
+  if (!plan) {
+    return null;
+  }
+  const steps = parsePlanSteps(plan);
+  const streaming = plan.status === "streaming";
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[min(46rem,92%)] rounded-xl border bg-muted/25 px-3 py-3 text-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            {streaming ? (
+              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ClipboardList className="h-3.5 w-3.5" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1 space-y-2">
+            <div>
+              <div className="font-medium">{planTitle(plan)}</div>
+              <div className="text-xs text-muted-foreground">
+                {streaming ? "Writing plan" : "Plan ready"}
+              </div>
+            </div>
+            {steps.length > 0 ? (
+              <div className="space-y-1.5">
+                {steps.map((step, index) => (
+                  <div
+                    key={`${index}-${step.text}`}
+                    className="flex gap-2 text-xs"
+                  >
+                    <span className="mt-0.5 text-muted-foreground">
+                      {step.status === "completed"
+                        ? "✓"
+                        : step.status === "in_progress"
+                          ? "•"
+                          : "○"}
+                    </span>
+                    <span
+                      className={cn(
+                        step.status === "completed" && "text-muted-foreground",
+                        step.status === "in_progress" && "font-medium",
+                      )}
+                    >
+                      {step.text}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : plan.contentText.trim() ? (
+              <div className="whitespace-pre-wrap text-sm leading-6">
+                {plan.contentText}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                {streaming ? "Waiting for plan content…" : "No plan content."}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiffSummaryRow({ diffId }: { diffId: string }) {
+  const diff = useChatStore((state) => selectChatDiffSummary(state, diffId));
+  const conversation = useChatStore((state) =>
+    diff ? selectChatConversation(state, diff.conversationId) : null,
+  );
+  const openGitDiff = useTabStore((state) => state.openGitDiff);
+  if (!diff) {
+    return null;
+  }
+  const files = diff.files.slice(0, 5);
+  const handleOpenDiff = (path: string, originalPath?: string | null) => {
+    if (!conversation) {
+      return;
+    }
+    void openGitDiff({
+      worktreeId: conversation.worktreeId,
+      path,
+      originalPath: originalPath ?? undefined,
+      scope: "unstaged",
+      preview: false,
+    });
+  };
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[min(46rem,92%)] rounded-xl border bg-muted/25 px-3 py-3 text-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <GitCompare className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0 flex-1 space-y-2">
+            <div>
+              <div className="font-medium">Changes</div>
+              <div className="text-xs text-muted-foreground">
+                {diffStatsLabel(diff)}
+              </div>
+            </div>
+            {files.length > 0 ? (
+              <div className="space-y-1">
+                {files.map((file) => (
+                  <div
+                    key={`${file.path}-${file.originalPath ?? ""}`}
+                    className="flex items-center justify-between gap-3 rounded-md bg-background/60 px-2 py-1.5 text-xs"
+                  >
+                    <span className="min-w-0 truncate">{file.path}</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {file.additions != null || file.deletions != null ? (
+                        <span className="text-muted-foreground">
+                          {file.additions != null ? `+${file.additions}` : ""}
+                          {file.deletions != null ? ` -${file.deletions}` : ""}
+                        </span>
+                      ) : null}
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={!conversation}
+                        onClick={() =>
+                          handleOpenDiff(file.path, file.originalPath)
+                        }
+                      >
+                        Open diff
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                Diff details are not available yet.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChatTimelineRow({
   conversationId,
   rowId,
@@ -893,6 +1149,12 @@ function ChatTimelineRow({
   }
   if (rowId.startsWith("request:")) {
     return <PendingRequestRow requestId={rowId.slice("request:".length)} />;
+  }
+  if (rowId.startsWith("plan:")) {
+    return <PlanRow planId={rowId.slice("plan:".length)} />;
+  }
+  if (rowId.startsWith("diff:")) {
+    return <DiffSummaryRow diffId={rowId.slice("diff:".length)} />;
   }
   return <ChatMessageRow messageId={rowId.slice("message:".length)} />;
 }
@@ -962,6 +1224,36 @@ function PendingRequestPanelCard({ requestId }: { requestId: string }) {
     return null;
   }
   return <PendingRequestCard request={request} compact />;
+}
+
+function ContextUsageMeter({ conversationId }: { conversationId: string }) {
+  const usage = useChatStore((state) =>
+    selectChatContextUsage(state, conversationId),
+  );
+  const percent =
+    typeof usage?.percentUsed === "number"
+      ? Math.max(0, Math.min(100, usage.percentUsed))
+      : null;
+  return (
+    <div
+      className="inline-flex h-8 items-center gap-2 rounded-md border bg-card px-2 text-xs text-muted-foreground"
+      title={contextUsageTitle(usage)}
+    >
+      <span>{contextUsageLabel(usage)}</span>
+      {percent != null ? (
+        <span className="h-1.5 w-14 overflow-hidden rounded-full bg-muted">
+          <span
+            className={cn(
+              "block h-full rounded-full bg-primary",
+              percent >= 85 && "bg-amber-500",
+              percent >= 95 && "bg-destructive",
+            )}
+            style={{ width: `${percent}%` }}
+          />
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function ChatComposer({ conversationId }: { conversationId: string }) {
@@ -1123,6 +1415,8 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
                     ))}
                   </SelectContent>
                 </Select>
+
+                <ContextUsageMeter conversationId={conversationId} />
               </div>
 
               <div className="flex items-center">

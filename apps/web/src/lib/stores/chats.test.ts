@@ -93,6 +93,10 @@ const conversation = {
   latestPendingRequestKind: null,
   latestPendingRequestStatus: null,
   hasPendingRequestAttention: false,
+  contextUsedTokens: null,
+  contextMaxTokens: null,
+  contextPercentUsed: null,
+  contextUpdatedAt: null,
   revision: 1,
 };
 
@@ -150,6 +154,9 @@ const detail = {
       completedAt: null,
     },
   ],
+  plans: [],
+  diffSummaries: [],
+  contextUsage: null,
   pendingRequests: [],
   latestRun: {
     id: "run-1",
@@ -218,6 +225,64 @@ const pendingRequest = {
   resolvedAt: null,
 };
 
+const plan = {
+  id: "plan-1",
+  conversationId: "chat-1",
+  turnId: "turn-local-1",
+  itemId: null,
+  providerTurnId: "turn-1",
+  providerItemId: null,
+  kind: "active_task" as const,
+  status: "streaming" as const,
+  contentText: "",
+  stepsJson: JSON.stringify([
+    { text: "Inspect current state", status: "completed" },
+    { text: "Patch implementation", status: "in_progress" },
+  ]),
+  metadataJson: "{}",
+  ownerGeneration: 1,
+  sequence: 2,
+  createdAt: 11,
+  updatedAt: 11,
+  completedAt: null,
+};
+
+const diffSummary = {
+  id: "diff-1",
+  conversationId: "chat-1",
+  turnId: "turn-local-1",
+  providerTurnId: "turn-1",
+  changedFileCount: 1,
+  additions: 8,
+  deletions: 2,
+  files: [
+    {
+      path: "apps/web/src/lib/stores/chats.ts",
+      originalPath: null,
+      changeType: "modified",
+      additions: 8,
+      deletions: 2,
+    },
+  ],
+  metadataJson: "{}",
+  ownerGeneration: 1,
+  sequence: 4,
+  createdAt: 14,
+  updatedAt: 14,
+};
+
+const contextUsage = {
+  id: "context-1",
+  conversationId: "chat-1",
+  providerThreadId: "thread-1",
+  usedTokens: 1200,
+  maxTokens: 12000,
+  percentUsed: 10,
+  totalProcessedTokens: 3000,
+  metadataJson: "{}",
+  updatedAt: 15,
+};
+
 describe("chat store", () => {
   beforeEach(() => {
     mockEvents = new MockEventClient();
@@ -241,6 +306,7 @@ describe("chat store", () => {
         updatedAt: 10,
       },
       chat_conversations: [conversation],
+      chat_context_usage: [contextUsage],
       chat_runtimes: [
         {
           conversationId: "chat-1",
@@ -280,6 +346,10 @@ describe("chat store", () => {
       useChatStore.getState().runtimesByConversationId["chat-1"]?.lifecycle,
     ).toBe("ready");
     expect(useChatStore.getState().appServerStatus?.lifecycle).toBe("ready");
+    expect(
+      useChatStore.getState().contextUsageByConversationId["chat-1"]
+        ?.percentUsed,
+    ).toBe(10);
     expect(
       useChatStore.getState().threadStreamsByConversationId["chat-1"]
         ?.resumeState,
@@ -405,6 +475,69 @@ describe("chat store", () => {
     );
   });
 
+  it("hydrates and applies plan, diff, and context usage updates", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      plans: [plan],
+      diffSummaries: [diffSummary],
+      contextUsage,
+    });
+
+    const loaded = await useChatStore
+      .getState()
+      .ensureConversationLoaded("chat-1");
+
+    expect(loaded?.plans[0]?.id).toBe("plan-1");
+    expect(loaded?.diffSummaries[0]?.id).toBe("diff-1");
+    expect(loaded?.contextUsage?.percentUsed).toBe(10);
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "message:message-1",
+      "plan:plan-1",
+      "diff:diff-1",
+    ]);
+
+    mockEvents.emit("chat_plan_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      plan: {
+        ...plan,
+        status: "completed",
+        updatedAt: 16,
+        completedAt: 16,
+      },
+    });
+    mockEvents.emit("chat_diff_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      diff: {
+        ...diffSummary,
+        changedFileCount: 2,
+        updatedAt: 16,
+      },
+    });
+    mockEvents.emit("chat_context_usage_updated", {
+      session_id: "default",
+      usage: {
+        ...contextUsage,
+        percentUsed: 22,
+        updatedAt: 16,
+      },
+    });
+    flushChatStoreSseBatchForTests();
+
+    expect(useChatStore.getState().plansById["plan-1"]?.status).toBe(
+      "completed",
+    );
+    expect(
+      useChatStore.getState().diffSummariesById["diff-1"]?.changedFileCount,
+    ).toBe(2);
+    expect(
+      useChatStore.getState().contextUsageByConversationId["chat-1"]
+        ?.percentUsed,
+    ).toBe(22);
+  });
+
   it("adds activity items to the chat timeline without changing messages", async () => {
     initializeChatStore();
     mockGetChat.mockResolvedValue(detail);
@@ -502,7 +635,7 @@ describe("chat store", () => {
     );
   });
 
-  it("marks unloaded conversation detail dirty on turn/item updates", () => {
+  it("marks unloaded conversation detail dirty on lazy detail updates", () => {
     initializeChatStore();
 
     mockEvents.emit("chat_turn_updated", {
@@ -539,6 +672,44 @@ describe("chat store", () => {
       conversation_id: "chat-1",
       item_id: "item-command-1",
       output: commandOutput,
+    });
+    flushChatStoreSseBatchForTests();
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.needsRefresh,
+    ).toBe(true);
+
+    resetChatStoreForTests();
+    mockEvents = new MockEventClient();
+    initializeChatStore();
+    mockEvents.emit("chat_plan_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      plan,
+    });
+    flushChatStoreSseBatchForTests();
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.needsRefresh,
+    ).toBe(true);
+
+    resetChatStoreForTests();
+    mockEvents = new MockEventClient();
+    initializeChatStore();
+    mockEvents.emit("chat_diff_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      diff: diffSummary,
+    });
+    flushChatStoreSseBatchForTests();
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.needsRefresh,
+    ).toBe(true);
+
+    resetChatStoreForTests();
+    mockEvents = new MockEventClient();
+    initializeChatStore();
+    mockEvents.emit("chat_context_usage_updated", {
+      session_id: "default",
+      usage: contextUsage,
     });
     flushChatStoreSseBatchForTests();
     expect(

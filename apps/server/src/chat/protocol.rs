@@ -156,7 +156,11 @@ pub(super) fn classify_method(method: &str) -> AppServerMethod {
         | "item/reasoning/summaryTextDelta"
         | "item/agentMessage/delta"
         | "item/completed"
-        | "turn/completed" => AppServerMethod::Current(method_static(method)),
+        | "turn/completed"
+        | "thread/tokenUsage/updated"
+        | "turn/plan/updated"
+        | "item/plan/delta"
+        | "turn/diff/updated" => AppServerMethod::Current(method_static(method)),
         "item/commandExecution/requestApproval"
         | "item/fileChange/requestApproval"
         | "item/permissions/requestApproval"
@@ -167,10 +171,6 @@ pub(super) fn classify_method(method: &str) -> AppServerMethod {
         | "thread/resume"
         | "thread/unsubscribe"
         | "thread/status/changed"
-        | "thread/tokenUsage/updated"
-        | "turn/plan/updated"
-        | "item/plan/delta"
-        | "turn/diff/updated"
         | "serverRequest/resolved" => AppServerMethod::Future(method_static(method)),
         _ => AppServerMethod::Unknown(method.to_string()),
     }
@@ -461,6 +461,22 @@ mod tests {
         assert_eq!(
             classify_method("item/fileChange/patchUpdated"),
             AppServerMethod::Current("item/fileChange/patchUpdated")
+        );
+        assert_eq!(
+            classify_method("turn/plan/updated"),
+            AppServerMethod::Current("turn/plan/updated")
+        );
+        assert_eq!(
+            classify_method("item/plan/delta"),
+            AppServerMethod::Current("item/plan/delta")
+        );
+        assert_eq!(
+            classify_method("turn/diff/updated"),
+            AppServerMethod::Current("turn/diff/updated")
+        );
+        assert_eq!(
+            classify_method("thread/tokenUsage/updated"),
+            AppServerMethod::Current("thread/tokenUsage/updated")
         );
         assert_eq!(
             classify_method("item/commandExecution/requestApproval"),

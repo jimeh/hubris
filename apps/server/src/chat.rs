@@ -85,7 +85,7 @@ impl ChatReasoningEffort {
 }
 
 /// One reasoning-effort option supported by a Codex model.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatModelReasoningEffortOption {
     pub reasoning_effort: ChatReasoningEffort,
@@ -93,7 +93,7 @@ pub struct ChatModelReasoningEffortOption {
 }
 
 /// One selectable Codex model exposed by app-server.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatModelOption {
     pub id: String,
@@ -283,7 +283,7 @@ pub enum ChatRuntimeLifecycle {
 }
 
 /// Persisted summary for a conversation list row.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatConversationSummary {
     pub id: String,
@@ -314,6 +314,15 @@ pub struct ChatConversationSummary {
     pub last_run_state: ChatRunStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_used_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_percent_used: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub context_updated_at: Option<u64>,
     pub pending_request_count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_pending_request_id: Option<String>,
@@ -327,7 +336,7 @@ pub struct ChatConversationSummary {
 }
 
 /// Persisted transcript message.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     pub id: String,
@@ -352,7 +361,7 @@ pub struct ChatMessage {
 }
 
 /// Persisted run summary.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatRun {
     pub id: String,
@@ -450,6 +459,135 @@ pub struct ChatItemOutput {
 pub struct ChatActivityDetail {
     pub item: ChatItem,
     pub outputs: Vec<ChatItemOutput>,
+}
+
+/// Persisted Codex plan kind.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatPlanKind {
+    ActiveTask,
+    ProposedPlan,
+}
+
+impl ChatPlanKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ActiveTask => "active_task",
+            Self::ProposedPlan => "proposed_plan",
+        }
+    }
+}
+
+/// Persisted Codex plan lifecycle state.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatPlanStatus {
+    Streaming,
+    Completed,
+    Failed,
+}
+
+impl ChatPlanStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Streaming => "streaming",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// Persisted Codex plan state used by the chat timeline.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPlan {
+    pub id: String,
+    pub conversation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_item_id: Option<String>,
+    pub kind: ChatPlanKind,
+    pub status: ChatPlanStatus,
+    pub content_text: String,
+    pub steps_json: String,
+    pub metadata_json: String,
+    #[ts(type = "number")]
+    pub owner_generation: u64,
+    pub sequence: u32,
+    #[ts(type = "number")]
+    pub created_at: u64,
+    #[ts(type = "number")]
+    pub updated_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub completed_at: Option<u64>,
+}
+
+/// One changed file included in a Codex diff summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDiffFileSummary {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additions: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deletions: Option<u32>,
+}
+
+/// Persisted turn-level Codex diff summary.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDiffSummary {
+    pub id: String,
+    pub conversation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_turn_id: Option<String>,
+    pub changed_file_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additions: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deletions: Option<u32>,
+    pub files: Vec<ChatDiffFileSummary>,
+    pub metadata_json: String,
+    #[ts(type = "number")]
+    pub owner_generation: u64,
+    pub sequence: u32,
+    #[ts(type = "number")]
+    pub created_at: u64,
+    #[ts(type = "number")]
+    pub updated_at: u64,
+}
+
+/// Latest context-window usage for a Codex conversation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatContextUsage {
+    pub id: String,
+    pub conversation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent_used: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_processed_tokens: Option<u32>,
+    pub metadata_json: String,
+    #[ts(type = "number")]
+    pub updated_at: u64,
 }
 
 /// Persisted Codex server request kind.
@@ -593,13 +731,17 @@ pub struct ResolveChatPendingRequestRequest {
 }
 
 /// Full chat detail payload used to hydrate an open chat tab.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatConversationDetail {
     pub conversation: ChatConversationSummary,
     pub messages: Vec<ChatMessage>,
     pub turns: Vec<ChatTurn>,
     pub items: Vec<ChatItem>,
+    pub plans: Vec<ChatPlan>,
+    pub diff_summaries: Vec<ChatDiffSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_usage: Option<ChatContextUsage>,
     pub pending_requests: Vec<ChatPendingRequest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_run: Option<ChatRun>,
@@ -1345,6 +1487,10 @@ struct ConversationRow {
     selected_permission_mode: Option<String>,
     last_run_state: String,
     last_error: Option<String>,
+    context_used_tokens: Option<i64>,
+    context_max_tokens: Option<i64>,
+    context_percent_used: Option<f64>,
+    context_updated_at_ms: Option<i64>,
     pending_request_count: i64,
     latest_pending_request_id: Option<String>,
     latest_pending_request_kind: Option<String>,
@@ -1426,6 +1572,56 @@ struct ItemOutputRow {
     content_text: String,
     byte_count: i64,
     created_at_ms: i64,
+    updated_at_ms: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct PlanRow {
+    id: String,
+    conversation_id: String,
+    turn_id: Option<String>,
+    item_id: Option<String>,
+    provider_turn_id: Option<String>,
+    provider_item_id: Option<String>,
+    kind: String,
+    status: String,
+    content_text: String,
+    steps_json: String,
+    metadata_json: String,
+    owner_generation: i64,
+    sequence: i64,
+    created_at_ms: i64,
+    updated_at_ms: i64,
+    completed_at_ms: Option<i64>,
+}
+
+#[derive(Debug, FromRow)]
+struct DiffSummaryRow {
+    id: String,
+    conversation_id: String,
+    turn_id: Option<String>,
+    provider_turn_id: Option<String>,
+    changed_file_count: i64,
+    additions: Option<i64>,
+    deletions: Option<i64>,
+    files_json: String,
+    metadata_json: String,
+    owner_generation: i64,
+    sequence: i64,
+    created_at_ms: i64,
+    updated_at_ms: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct ContextUsageRow {
+    id: String,
+    conversation_id: String,
+    provider_thread_id: Option<String>,
+    used_tokens: Option<i64>,
+    max_tokens: Option<i64>,
+    percent_used: Option<f64>,
+    total_processed_tokens: Option<i64>,
+    metadata_json: String,
     updated_at_ms: i64,
 }
 
@@ -1576,6 +1772,30 @@ impl ChatService {
                 selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error,
                 (
+                    SELECT used_tokens
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_used_tokens,
+                (
+                    SELECT max_tokens
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_max_tokens,
+                (
+                    SELECT percent_used
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_percent_used,
+                (
+                    SELECT updated_at_ms
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_updated_at_ms,
+                (
                     SELECT COUNT(*)
                     FROM chat_pending_requests
                     WHERE conversation_id = chat_conversations.id
@@ -1631,6 +1851,30 @@ impl ChatService {
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
                 selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error,
+                (
+                    SELECT used_tokens
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_used_tokens,
+                (
+                    SELECT max_tokens
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_max_tokens,
+                (
+                    SELECT percent_used
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_percent_used,
+                (
+                    SELECT updated_at_ms
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_updated_at_ms,
                 (
                     SELECT COUNT(*)
                     FROM chat_pending_requests
@@ -1688,6 +1932,30 @@ impl ChatService {
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
                 selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error,
+                (
+                    SELECT used_tokens
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_used_tokens,
+                (
+                    SELECT max_tokens
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_max_tokens,
+                (
+                    SELECT percent_used
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_percent_used,
+                (
+                    SELECT updated_at_ms
+                    FROM chat_context_usage
+                    WHERE conversation_id = chat_conversations.id
+                    LIMIT 1
+                ) AS context_updated_at_ms,
                 (
                     SELECT COUNT(*)
                     FROM chat_pending_requests
@@ -1758,6 +2026,31 @@ impl ChatService {
             .collect())
     }
 
+    /// List latest context usage visible to a session.
+    pub async fn list_session_context_usage(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<ChatContextUsage>, ChatServiceError> {
+        let rows = sqlx::query_as::<_, ContextUsageRow>(
+            "
+            SELECT
+                usage.id, usage.conversation_id, usage.provider_thread_id,
+                usage.used_tokens, usage.max_tokens, usage.percent_used,
+                usage.total_processed_tokens, usage.metadata_json,
+                usage.updated_at_ms
+            FROM chat_context_usage usage
+            INNER JOIN chat_conversations conversation
+                ON conversation.id = usage.conversation_id
+            WHERE conversation.session_id = ?
+            ORDER BY usage.updated_at_ms DESC, usage.id DESC
+            ",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(context_usage_from_row).collect())
+    }
+
     /// Fetch one conversation transcript plus latest run state.
     pub async fn get_conversation_detail(
         &self,
@@ -1825,6 +2118,50 @@ impl ChatService {
         .bind(conversation_id)
         .fetch_all(&self.pool)
         .await?;
+        let plan_rows = sqlx::query_as::<_, PlanRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, item_id, provider_turn_id,
+                provider_item_id, kind, status, content_text, steps_json,
+                metadata_json, owner_generation, sequence, created_at_ms,
+                updated_at_ms, completed_at_ms
+            FROM chat_plans
+            WHERE conversation_id = ?
+            ORDER BY sequence ASC, created_at_ms ASC, id ASC
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let diff_rows = sqlx::query_as::<_, DiffSummaryRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, provider_turn_id,
+                changed_file_count, additions, deletions, files_json,
+                metadata_json, owner_generation, sequence, created_at_ms,
+                updated_at_ms
+            FROM chat_diff_summaries
+            WHERE conversation_id = ?
+            ORDER BY sequence ASC, created_at_ms ASC, id ASC
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let context_usage = sqlx::query_as::<_, ContextUsageRow>(
+            "
+            SELECT
+                id, conversation_id, provider_thread_id, used_tokens,
+                max_tokens, percent_used, total_processed_tokens,
+                metadata_json, updated_at_ms
+            FROM chat_context_usage
+            WHERE conversation_id = ?
+            LIMIT 1
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_optional(&self.pool)
+        .await?;
         let pending_rows = sqlx::query_as::<_, PendingRequestRow>(
             "
             SELECT
@@ -1847,6 +2184,9 @@ impl ChatService {
             messages: message_rows.into_iter().map(message_from_row).collect(),
             turns: turn_rows.into_iter().map(turn_from_row).collect(),
             items: item_rows.into_iter().map(item_from_row).collect(),
+            plans: plan_rows.into_iter().map(plan_from_row).collect(),
+            diff_summaries: diff_rows.into_iter().map(diff_summary_from_row).collect(),
+            context_usage: context_usage.map(context_usage_from_row),
             pending_requests: pending_rows
                 .into_iter()
                 .map(pending_request_from_row)
@@ -3303,6 +3643,28 @@ impl ChatService {
                     )
                     .await?;
             }
+            "turn/plan/updated" => {
+                self.upsert_active_plan(conversation_id, runtime, &params)
+                    .await?;
+            }
+            "item/plan/delta" => {
+                let delta = params
+                    .get("delta")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if !delta.is_empty() {
+                    self.append_proposed_plan_delta(conversation_id, runtime, &params, delta)
+                        .await?;
+                }
+            }
+            "turn/diff/updated" => {
+                self.upsert_diff_summary(conversation_id, runtime, &params)
+                    .await?;
+            }
+            "thread/tokenUsage/updated" => {
+                self.upsert_context_usage(conversation_id, runtime, &params)
+                    .await?;
+            }
             "item/reasoning/summaryTextDelta" => {
                 let delta = params
                     .get("delta")
@@ -3416,6 +3778,11 @@ impl ChatService {
             "item/completed" => {
                 let item = params.get("item").cloned().unwrap_or(Value::Null);
                 let kind = item_kind_from_params(&params);
+                self.finalize_proposed_plan_for_item(conversation_id, runtime, &params)
+                    .await?;
+                if is_plan_payload(&params) {
+                    return Ok(());
+                }
                 let _ = self
                     .upsert_chat_item(
                         conversation_id,
@@ -3484,6 +3851,7 @@ impl ChatService {
                 };
                 let mut run_status = parse_turn_status(status);
                 if let Some(run_id) = run_id {
+                    let provider_turn_id = extract_turn_id(&params);
                     let error_message = params
                         .get("turn")
                         .and_then(|turn| turn.get("error"))
@@ -3530,6 +3898,14 @@ impl ChatService {
                                 error_message.clone(),
                             )
                             .await?;
+                        self.finalize_streaming_plans_for_turn(
+                            conversation_id,
+                            &session_id,
+                            turn_id,
+                            provider_turn_id.as_deref(),
+                            ChatPlanStatus::Completed,
+                        )
+                        .await?;
                         self.events.emit(EventKind::ChatTurnUpdated {
                             session_id: session_id.clone(),
                             conversation_id: conversation_id.to_string(),
@@ -4874,6 +5250,661 @@ impl ChatService {
         Ok(())
     }
 
+    async fn get_plan_by_id(
+        &self,
+        conversation_id: &str,
+        plan_id: &str,
+    ) -> Result<Option<ChatPlan>, ChatServiceError> {
+        Ok(sqlx::query_as::<_, PlanRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, item_id, provider_turn_id,
+                provider_item_id, kind, status, content_text, steps_json,
+                metadata_json, owner_generation, sequence, created_at_ms,
+                updated_at_ms, completed_at_ms
+            FROM chat_plans
+            WHERE conversation_id = ? AND id = ?
+            ",
+        )
+        .bind(conversation_id)
+        .bind(plan_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(plan_from_row))
+    }
+
+    async fn get_diff_summary_by_id(
+        &self,
+        conversation_id: &str,
+        diff_id: &str,
+    ) -> Result<Option<ChatDiffSummary>, ChatServiceError> {
+        Ok(sqlx::query_as::<_, DiffSummaryRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, provider_turn_id,
+                changed_file_count, additions, deletions, files_json,
+                metadata_json, owner_generation, sequence, created_at_ms,
+                updated_at_ms
+            FROM chat_diff_summaries
+            WHERE conversation_id = ? AND id = ?
+            ",
+        )
+        .bind(conversation_id)
+        .bind(diff_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(diff_summary_from_row))
+    }
+
+    async fn get_context_usage_by_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<ChatContextUsage>, ChatServiceError> {
+        Ok(sqlx::query_as::<_, ContextUsageRow>(
+            "
+            SELECT
+                id, conversation_id, provider_thread_id, used_tokens,
+                max_tokens, percent_used, total_processed_tokens,
+                metadata_json, updated_at_ms
+            FROM chat_context_usage
+            WHERE conversation_id = ?
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(context_usage_from_row))
+    }
+
+    async fn next_plan_sequence(&self, conversation_id: &str) -> Result<i64, ChatServiceError> {
+        Ok(sqlx::query(
+            "
+            SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+            FROM (
+                SELECT sequence FROM chat_items WHERE conversation_id = ?
+                UNION ALL
+                SELECT sequence FROM chat_pending_requests WHERE conversation_id = ?
+                UNION ALL
+                SELECT sequence FROM chat_plans WHERE conversation_id = ?
+                UNION ALL
+                SELECT sequence FROM chat_diff_summaries WHERE conversation_id = ?
+            ) AS sequences
+            ",
+        )
+        .bind(conversation_id)
+        .bind(conversation_id)
+        .bind(conversation_id)
+        .bind(conversation_id)
+        .fetch_one(&self.pool)
+        .await?
+        .try_get::<i64, _>("next_sequence")
+        .unwrap_or(1))
+    }
+
+    async fn upsert_active_plan(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        params: &Value,
+    ) -> Result<Option<ChatPlan>, ChatServiceError> {
+        let route_hints = RouteHints::from_value(params);
+        let (turn_id, owner_generation, session_id) = {
+            let state = runtime.state.lock().await;
+            (
+                state.active_turn_id.clone(),
+                state.owner_generation,
+                state.session_id.clone(),
+            )
+        };
+        let provider_turn_id = route_hints.turn_id.or_else(|| extract_turn_id(params));
+        let existing_id = if let Some(turn_id) = turn_id.as_deref() {
+            sqlx::query(
+                "
+                SELECT id
+                FROM chat_plans
+                WHERE conversation_id = ? AND turn_id = ? AND kind = ?
+                LIMIT 1
+                ",
+            )
+            .bind(conversation_id)
+            .bind(turn_id)
+            .bind(ChatPlanKind::ActiveTask.as_str())
+            .fetch_optional(&self.pool)
+            .await?
+            .and_then(|row| row.try_get::<String, _>("id").ok())
+        } else {
+            None
+        };
+        let now = now_ms() as i64;
+        let plan_id = if let Some(existing_id) = existing_id {
+            existing_id
+        } else {
+            let plan_id = uuid::Uuid::new_v4().to_string();
+            let sequence = self.next_plan_sequence(conversation_id).await?;
+            sqlx::query(
+                "
+                INSERT INTO chat_plans (
+                    id, conversation_id, turn_id, provider_turn_id, kind,
+                    status, content_text, steps_json, metadata_json,
+                    owner_generation, sequence, created_at_ms, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, '', '[]', '{}', ?, ?, ?, ?)
+                ",
+            )
+            .bind(&plan_id)
+            .bind(conversation_id)
+            .bind(&turn_id)
+            .bind(&provider_turn_id)
+            .bind(ChatPlanKind::ActiveTask.as_str())
+            .bind(ChatPlanStatus::Streaming.as_str())
+            .bind(owner_generation as i64)
+            .bind(sequence)
+            .bind(now)
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+            plan_id
+        };
+
+        let steps_json = normalize_plan_steps_json(params);
+        let content_text = extract_plan_text(params);
+        sqlx::query(
+            "
+            UPDATE chat_plans
+            SET turn_id = COALESCE(turn_id, ?),
+                provider_turn_id = COALESCE(provider_turn_id, ?),
+                status = ?,
+                content_text = ?,
+                steps_json = ?,
+                metadata_json = ?,
+                owner_generation = ?,
+                updated_at_ms = ?
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(&turn_id)
+        .bind(&provider_turn_id)
+        .bind(ChatPlanStatus::Streaming.as_str())
+        .bind(content_text)
+        .bind(steps_json)
+        .bind(compact_payload_json(params))
+        .bind(owner_generation as i64)
+        .bind(now)
+        .bind(&plan_id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        let plan = self.get_plan_by_id(conversation_id, &plan_id).await?;
+        if let Some(plan) = plan.clone() {
+            self.events.emit(EventKind::ChatPlanUpdated {
+                session_id,
+                conversation_id: conversation_id.to_string(),
+                plan,
+            });
+        }
+        Ok(plan)
+    }
+
+    async fn append_proposed_plan_delta(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        params: &Value,
+        delta: &str,
+    ) -> Result<Option<ChatPlan>, ChatServiceError> {
+        let route_hints = RouteHints::from_value(params);
+        let (turn_id, owner_generation, session_id) = {
+            let state = runtime.state.lock().await;
+            (
+                state.active_turn_id.clone(),
+                state.owner_generation,
+                state.session_id.clone(),
+            )
+        };
+        let provider_item_id = route_hints.item_id.clone();
+        let provider_turn_id = route_hints.turn_id.or_else(|| extract_turn_id(params));
+        let item_id = if let Some(provider_item_id) = provider_item_id.as_deref() {
+            sqlx::query(
+                "
+                SELECT id
+                FROM chat_items
+                WHERE conversation_id = ? AND provider_item_id = ?
+                LIMIT 1
+                ",
+            )
+            .bind(conversation_id)
+            .bind(provider_item_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .and_then(|row| row.try_get::<String, _>("id").ok())
+        } else {
+            None
+        };
+        let existing_id = if let Some(provider_item_id) = provider_item_id.as_deref() {
+            sqlx::query(
+                "
+                SELECT id
+                FROM chat_plans
+                WHERE conversation_id = ? AND provider_item_id = ?
+                LIMIT 1
+                ",
+            )
+            .bind(conversation_id)
+            .bind(provider_item_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .and_then(|row| row.try_get::<String, _>("id").ok())
+        } else if let Some(turn_id) = turn_id.as_deref() {
+            sqlx::query(
+                "
+                SELECT id
+                FROM chat_plans
+                WHERE conversation_id = ? AND turn_id = ? AND kind = ?
+                ORDER BY sequence DESC, created_at_ms DESC, id DESC
+                LIMIT 1
+                ",
+            )
+            .bind(conversation_id)
+            .bind(turn_id)
+            .bind(ChatPlanKind::ProposedPlan.as_str())
+            .fetch_optional(&self.pool)
+            .await?
+            .and_then(|row| row.try_get::<String, _>("id").ok())
+        } else {
+            None
+        };
+        let now = now_ms() as i64;
+        let plan_id = if let Some(existing_id) = existing_id {
+            existing_id
+        } else {
+            let plan_id = uuid::Uuid::new_v4().to_string();
+            let sequence = self.next_plan_sequence(conversation_id).await?;
+            sqlx::query(
+                "
+                INSERT INTO chat_plans (
+                    id, conversation_id, turn_id, item_id, provider_turn_id,
+                    provider_item_id, kind, status, content_text, steps_json,
+                    metadata_json, owner_generation, sequence, created_at_ms,
+                    updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '[]', '{}', ?, ?, ?, ?)
+                ",
+            )
+            .bind(&plan_id)
+            .bind(conversation_id)
+            .bind(&turn_id)
+            .bind(&item_id)
+            .bind(&provider_turn_id)
+            .bind(&provider_item_id)
+            .bind(ChatPlanKind::ProposedPlan.as_str())
+            .bind(ChatPlanStatus::Streaming.as_str())
+            .bind(owner_generation as i64)
+            .bind(sequence)
+            .bind(now)
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+            plan_id
+        };
+
+        sqlx::query(
+            "
+            UPDATE chat_plans
+            SET turn_id = COALESCE(turn_id, ?),
+                item_id = COALESCE(item_id, ?),
+                provider_turn_id = COALESCE(provider_turn_id, ?),
+                provider_item_id = COALESCE(provider_item_id, ?),
+                status = ?,
+                content_text = content_text || ?,
+                metadata_json = ?,
+                owner_generation = ?,
+                updated_at_ms = ?
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(&turn_id)
+        .bind(&item_id)
+        .bind(&provider_turn_id)
+        .bind(&provider_item_id)
+        .bind(ChatPlanStatus::Streaming.as_str())
+        .bind(delta)
+        .bind(compact_payload_json(params))
+        .bind(owner_generation as i64)
+        .bind(now)
+        .bind(&plan_id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        let plan = self.get_plan_by_id(conversation_id, &plan_id).await?;
+        if let Some(plan) = plan.clone() {
+            self.events.emit(EventKind::ChatPlanUpdated {
+                session_id,
+                conversation_id: conversation_id.to_string(),
+                plan,
+            });
+        }
+        Ok(plan)
+    }
+
+    async fn finalize_proposed_plan_for_item(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        params: &Value,
+    ) -> Result<(), ChatServiceError> {
+        let route_hints = RouteHints::from_value(params);
+        let Some(provider_item_id) = route_hints.item_id.as_deref() else {
+            return Ok(());
+        };
+        let row = sqlx::query_as::<_, PlanRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, item_id, provider_turn_id,
+                provider_item_id, kind, status, content_text, steps_json,
+                metadata_json, owner_generation, sequence, created_at_ms,
+                updated_at_ms, completed_at_ms
+            FROM chat_plans
+            WHERE conversation_id = ? AND provider_item_id = ? AND kind = ?
+            LIMIT 1
+            ",
+        )
+        .bind(conversation_id)
+        .bind(provider_item_id)
+        .bind(ChatPlanKind::ProposedPlan.as_str())
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(());
+        };
+        let session_id = { runtime.state.lock().await.session_id.clone() };
+        let now = now_ms() as i64;
+        let item = params.get("item").unwrap_or(params);
+        let final_text = item
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty());
+        sqlx::query(
+            "
+            UPDATE chat_plans
+            SET status = ?,
+                content_text = COALESCE(?, content_text),
+                metadata_json = ?,
+                updated_at_ms = ?,
+                completed_at_ms = ?
+            WHERE conversation_id = ? AND id = ?
+            ",
+        )
+        .bind(ChatPlanStatus::Completed.as_str())
+        .bind(final_text)
+        .bind(compact_payload_json(params))
+        .bind(now)
+        .bind(now)
+        .bind(conversation_id)
+        .bind(&row.id)
+        .execute(&self.pool)
+        .await?;
+        if let Some(plan) = self.get_plan_by_id(conversation_id, &row.id).await? {
+            self.events.emit(EventKind::ChatPlanUpdated {
+                session_id,
+                conversation_id: conversation_id.to_string(),
+                plan,
+            });
+        }
+        Ok(())
+    }
+
+    async fn finalize_streaming_plans_for_turn(
+        &self,
+        conversation_id: &str,
+        session_id: &str,
+        turn_id: &str,
+        provider_turn_id: Option<&str>,
+        status: ChatPlanStatus,
+    ) -> Result<(), ChatServiceError> {
+        let rows = sqlx::query_as::<_, PlanRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, item_id, provider_turn_id,
+                provider_item_id, kind, status, content_text, steps_json,
+                metadata_json, owner_generation, sequence, created_at_ms,
+                updated_at_ms, completed_at_ms
+            FROM chat_plans
+            WHERE conversation_id = ? AND status = ?
+                AND (
+                    turn_id = ?
+                    OR (? IS NOT NULL AND provider_turn_id = ?)
+                )
+            ",
+        )
+        .bind(conversation_id)
+        .bind(ChatPlanStatus::Streaming.as_str())
+        .bind(turn_id)
+        .bind(provider_turn_id)
+        .bind(provider_turn_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let now = now_ms() as i64;
+        for row in rows {
+            sqlx::query(
+                "
+                UPDATE chat_plans
+                SET status = ?, updated_at_ms = ?, completed_at_ms = ?
+                WHERE conversation_id = ? AND id = ?
+                ",
+            )
+            .bind(status.as_str())
+            .bind(now)
+            .bind(now)
+            .bind(conversation_id)
+            .bind(&row.id)
+            .execute(&self.pool)
+            .await?;
+            if let Some(plan) = self.get_plan_by_id(conversation_id, &row.id).await? {
+                self.events.emit(EventKind::ChatPlanUpdated {
+                    session_id: session_id.to_string(),
+                    conversation_id: conversation_id.to_string(),
+                    plan,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    async fn upsert_diff_summary(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        params: &Value,
+    ) -> Result<Option<ChatDiffSummary>, ChatServiceError> {
+        let route_hints = RouteHints::from_value(params);
+        let (turn_id, owner_generation, session_id) = {
+            let state = runtime.state.lock().await;
+            (
+                state.active_turn_id.clone(),
+                state.owner_generation,
+                state.session_id.clone(),
+            )
+        };
+        let provider_turn_id = route_hints.turn_id.or_else(|| extract_turn_id(params));
+        let existing_id = if let Some(turn_id) = turn_id.as_deref() {
+            sqlx::query(
+                "
+                SELECT id
+                FROM chat_diff_summaries
+                WHERE conversation_id = ? AND turn_id = ?
+                LIMIT 1
+                ",
+            )
+            .bind(conversation_id)
+            .bind(turn_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .and_then(|row| row.try_get::<String, _>("id").ok())
+        } else {
+            None
+        };
+        let now = now_ms() as i64;
+        let diff_id = if let Some(existing_id) = existing_id {
+            existing_id
+        } else {
+            let diff_id = uuid::Uuid::new_v4().to_string();
+            let sequence = self.next_plan_sequence(conversation_id).await?;
+            sqlx::query(
+                "
+                INSERT INTO chat_diff_summaries (
+                    id, conversation_id, turn_id, provider_turn_id,
+                    changed_file_count, files_json, metadata_json,
+                    owner_generation, sequence, created_at_ms, updated_at_ms
+                ) VALUES (?, ?, ?, ?, 0, '[]', '{}', ?, ?, ?, ?)
+                ",
+            )
+            .bind(&diff_id)
+            .bind(conversation_id)
+            .bind(&turn_id)
+            .bind(&provider_turn_id)
+            .bind(owner_generation as i64)
+            .bind(sequence)
+            .bind(now)
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+            diff_id
+        };
+        let files = extract_diff_files(params);
+        let additions = extract_u32_field(params, &["additions", "addedLines", "insertions"]);
+        let deletions = extract_u32_field(params, &["deletions", "deletedLines", "removals"]);
+        let changed_file_count = extract_u32_field(params, &["changedFileCount", "fileCount"])
+            .unwrap_or(files.len() as u32);
+        sqlx::query(
+            "
+            UPDATE chat_diff_summaries
+            SET turn_id = COALESCE(turn_id, ?),
+                provider_turn_id = COALESCE(provider_turn_id, ?),
+                changed_file_count = ?,
+                additions = ?,
+                deletions = ?,
+                files_json = ?,
+                metadata_json = ?,
+                owner_generation = ?,
+                updated_at_ms = ?
+            WHERE conversation_id = ? AND id = ?
+            ",
+        )
+        .bind(&turn_id)
+        .bind(&provider_turn_id)
+        .bind(changed_file_count as i64)
+        .bind(additions.map(|value| value as i64))
+        .bind(deletions.map(|value| value as i64))
+        .bind(serde_json::to_string(&files).unwrap_or_else(|_| "[]".to_string()))
+        .bind(compact_payload_json(params))
+        .bind(owner_generation as i64)
+        .bind(now)
+        .bind(conversation_id)
+        .bind(&diff_id)
+        .execute(&self.pool)
+        .await?;
+        let diff = self
+            .get_diff_summary_by_id(conversation_id, &diff_id)
+            .await?;
+        if let Some(diff) = diff.clone() {
+            self.events.emit(EventKind::ChatDiffUpdated {
+                session_id,
+                conversation_id: conversation_id.to_string(),
+                diff,
+            });
+        }
+        Ok(diff)
+    }
+
+    async fn upsert_context_usage(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        params: &Value,
+    ) -> Result<Option<ChatContextUsage>, ChatServiceError> {
+        let (provider_thread_id, session_id) = {
+            let state = runtime.state.lock().await;
+            (state.provider_thread_id.clone(), state.session_id.clone())
+        };
+        let used_tokens = extract_u32_field(
+            params,
+            &[
+                "usedTokens",
+                "tokensUsed",
+                "inputTokens",
+                "contextUsedTokens",
+            ],
+        );
+        let max_tokens = extract_u32_field(
+            params,
+            &[
+                "maxTokens",
+                "contextWindow",
+                "contextWindowTokens",
+                "limitTokens",
+            ],
+        );
+        let total_processed_tokens = extract_u32_field(
+            params,
+            &["totalProcessedTokens", "totalTokens", "processedTokens"],
+        );
+        let percent_used = extract_f64_field(params, &["percentUsed", "contextPercentUsed"])
+            .or_else(|| match (used_tokens, max_tokens) {
+                (Some(used), Some(max)) if max > 0 => Some((used as f64 / max as f64) * 100.0),
+                _ => None,
+            })
+            .map(|value| value.clamp(0.0, 100.0));
+        let now = now_ms() as i64;
+        let usage_id = sqlx::query(
+            "
+            SELECT id
+            FROM chat_context_usage
+            WHERE conversation_id = ?
+            LIMIT 1
+            ",
+        )
+        .bind(conversation_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .and_then(|row| row.try_get::<String, _>("id").ok())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        sqlx::query(
+            "
+            INSERT INTO chat_context_usage (
+                id, conversation_id, provider_thread_id, used_tokens,
+                max_tokens, percent_used, total_processed_tokens,
+                metadata_json, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id) DO UPDATE SET
+                provider_thread_id = COALESCE(excluded.provider_thread_id, provider_thread_id),
+                used_tokens = excluded.used_tokens,
+                max_tokens = excluded.max_tokens,
+                percent_used = excluded.percent_used,
+                total_processed_tokens = excluded.total_processed_tokens,
+                metadata_json = excluded.metadata_json,
+                updated_at_ms = excluded.updated_at_ms
+            ",
+        )
+        .bind(&usage_id)
+        .bind(conversation_id)
+        .bind(&provider_thread_id)
+        .bind(used_tokens.map(|value| value as i64))
+        .bind(max_tokens.map(|value| value as i64))
+        .bind(percent_used)
+        .bind(total_processed_tokens.map(|value| value as i64))
+        .bind(compact_payload_json(params))
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        let usage = self
+            .get_context_usage_by_conversation(conversation_id)
+            .await?;
+        if let Some(usage) = usage.clone() {
+            self.events
+                .emit(EventKind::ChatContextUsageUpdated { session_id, usage });
+            let _ = self.emit_conversation_updated(conversation_id).await?;
+        }
+        Ok(usage)
+    }
+
     async fn finalize_turn(
         &self,
         conversation_id: &str,
@@ -4990,6 +6021,10 @@ fn conversation_from_row(row: ConversationRow) -> ChatConversationSummary {
             .and_then(parse_permission_mode),
         last_run_state: parse_run_status(&row.last_run_state),
         last_error: row.last_error,
+        context_used_tokens: row.context_used_tokens.map(|value| value.max(0) as u32),
+        context_max_tokens: row.context_max_tokens.map(|value| value.max(0) as u32),
+        context_percent_used: row.context_percent_used,
+        context_updated_at: row.context_updated_at_ms.map(|value| value.max(0) as u64),
         pending_request_count: row.pending_request_count.max(0) as u32,
         latest_pending_request_id: row.latest_pending_request_id,
         latest_pending_request_kind: row
@@ -5327,6 +6362,59 @@ fn item_output_from_row(row: ItemOutputRow) -> ChatItemOutput {
     }
 }
 
+fn plan_from_row(row: PlanRow) -> ChatPlan {
+    ChatPlan {
+        id: row.id,
+        conversation_id: row.conversation_id,
+        turn_id: row.turn_id,
+        item_id: row.item_id,
+        provider_turn_id: row.provider_turn_id,
+        provider_item_id: row.provider_item_id,
+        kind: parse_plan_kind(&row.kind),
+        status: parse_plan_status(&row.status),
+        content_text: row.content_text,
+        steps_json: row.steps_json,
+        metadata_json: row.metadata_json,
+        owner_generation: row.owner_generation.max(0) as u64,
+        sequence: row.sequence.max(0) as u32,
+        created_at: row.created_at_ms.max(0) as u64,
+        updated_at: row.updated_at_ms.max(0) as u64,
+        completed_at: row.completed_at_ms.map(|value| value.max(0) as u64),
+    }
+}
+
+fn diff_summary_from_row(row: DiffSummaryRow) -> ChatDiffSummary {
+    ChatDiffSummary {
+        id: row.id,
+        conversation_id: row.conversation_id,
+        turn_id: row.turn_id,
+        provider_turn_id: row.provider_turn_id,
+        changed_file_count: row.changed_file_count.max(0) as u32,
+        additions: row.additions.map(|value| value.max(0) as u32),
+        deletions: row.deletions.map(|value| value.max(0) as u32),
+        files: parse_diff_files_json(&row.files_json),
+        metadata_json: row.metadata_json,
+        owner_generation: row.owner_generation.max(0) as u64,
+        sequence: row.sequence.max(0) as u32,
+        created_at: row.created_at_ms.max(0) as u64,
+        updated_at: row.updated_at_ms.max(0) as u64,
+    }
+}
+
+fn context_usage_from_row(row: ContextUsageRow) -> ChatContextUsage {
+    ChatContextUsage {
+        id: row.id,
+        conversation_id: row.conversation_id,
+        provider_thread_id: row.provider_thread_id,
+        used_tokens: row.used_tokens.map(|value| value.max(0) as u32),
+        max_tokens: row.max_tokens.map(|value| value.max(0) as u32),
+        percent_used: row.percent_used,
+        total_processed_tokens: row.total_processed_tokens.map(|value| value.max(0) as u32),
+        metadata_json: row.metadata_json,
+        updated_at: row.updated_at_ms.max(0) as u64,
+    }
+}
+
 fn pending_request_from_row(row: PendingRequestRow) -> ChatPendingRequest {
     ChatPendingRequest {
         id: row.id,
@@ -5435,6 +6523,25 @@ fn parse_item_status(value: &str) -> ChatItemStatus {
         "failed" => ChatItemStatus::Failed,
         _ => ChatItemStatus::Streaming,
     }
+}
+
+fn parse_plan_kind(value: &str) -> ChatPlanKind {
+    match value {
+        "proposed_plan" => ChatPlanKind::ProposedPlan,
+        _ => ChatPlanKind::ActiveTask,
+    }
+}
+
+fn parse_plan_status(value: &str) -> ChatPlanStatus {
+    match value {
+        "completed" => ChatPlanStatus::Completed,
+        "failed" => ChatPlanStatus::Failed,
+        _ => ChatPlanStatus::Streaming,
+    }
+}
+
+fn parse_diff_files_json(value: &str) -> Vec<ChatDiffFileSummary> {
+    serde_json::from_str(value).unwrap_or_default()
 }
 
 fn parse_reasoning_effort(value: &str) -> ChatReasoningEffort {
@@ -5659,6 +6766,135 @@ fn item_kind_from_params(value: &Value) -> ChatItemKind {
         _ if is_commentary_phase(value) => ChatItemKind::Reasoning,
         _ => ChatItemKind::Unknown,
     }
+}
+
+fn is_plan_payload(value: &Value) -> bool {
+    let item_type = value
+        .get("item")
+        .and_then(|item| item.get("type"))
+        .and_then(Value::as_str)
+        .or_else(|| value.get("type").and_then(Value::as_str));
+    matches!(item_type, Some("plan" | "proposedPlan" | "proposed_plan"))
+}
+
+fn normalize_plan_steps_json(value: &Value) -> String {
+    let steps = value
+        .get("steps")
+        .or_else(|| value.get("plan").and_then(|plan| plan.get("steps")))
+        .or_else(|| {
+            value
+                .get("turn")
+                .and_then(|turn| turn.get("plan"))
+                .and_then(|plan| plan.get("steps"))
+        })
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    serde_json::to_string(&steps).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn extract_plan_text(value: &Value) -> String {
+    value
+        .get("text")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("plan")
+                .and_then(|plan| plan.get("text"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| value.get("summary").and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn extract_u32_field(value: &Value, names: &[&str]) -> Option<u32> {
+    for name in names {
+        if let Some(number) = value.get(*name).and_then(Value::as_u64) {
+            return Some(number.min(u32::MAX as u64) as u32);
+        }
+        if let Some(number) = value
+            .get("usage")
+            .and_then(|usage| usage.get(*name))
+            .and_then(Value::as_u64)
+        {
+            return Some(number.min(u32::MAX as u64) as u32);
+        }
+        if let Some(number) = value
+            .get("diff")
+            .and_then(|diff| diff.get(*name))
+            .and_then(Value::as_u64)
+        {
+            return Some(number.min(u32::MAX as u64) as u32);
+        }
+    }
+    None
+}
+
+fn extract_f64_field(value: &Value, names: &[&str]) -> Option<f64> {
+    for name in names {
+        if let Some(number) = value.get(*name).and_then(Value::as_f64) {
+            return Some(number);
+        }
+        if let Some(number) = value
+            .get("usage")
+            .and_then(|usage| usage.get(*name))
+            .and_then(Value::as_f64)
+        {
+            return Some(number);
+        }
+    }
+    None
+}
+
+fn extract_diff_files(value: &Value) -> Vec<ChatDiffFileSummary> {
+    let files = value
+        .get("files")
+        .or_else(|| value.get("changedFiles"))
+        .or_else(|| value.get("diff").and_then(|diff| diff.get("files")))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    files
+        .into_iter()
+        .filter_map(|file| {
+            if let Some(path) = file.as_str() {
+                return Some(ChatDiffFileSummary {
+                    path: path.to_string(),
+                    original_path: None,
+                    change_type: None,
+                    additions: None,
+                    deletions: None,
+                });
+            }
+            let path = file
+                .get("path")
+                .and_then(Value::as_str)
+                .or_else(|| file.get("newPath").and_then(Value::as_str))
+                .or_else(|| file.get("displayPath").and_then(Value::as_str))?;
+            Some(ChatDiffFileSummary {
+                path: path.to_string(),
+                original_path: file
+                    .get("originalPath")
+                    .and_then(Value::as_str)
+                    .or_else(|| file.get("oldPath").and_then(Value::as_str))
+                    .map(ToOwned::to_owned),
+                change_type: file
+                    .get("changeType")
+                    .and_then(Value::as_str)
+                    .or_else(|| file.get("status").and_then(Value::as_str))
+                    .map(ToOwned::to_owned),
+                additions: file
+                    .get("additions")
+                    .and_then(Value::as_u64)
+                    .map(|value| value.min(u32::MAX as u64) as u32),
+                deletions: file
+                    .get("deletions")
+                    .and_then(Value::as_u64)
+                    .map(|value| value.min(u32::MAX as u64) as u32),
+            })
+        })
+        .take(20)
+        .collect()
 }
 
 fn item_role_for_kind(kind: ChatItemKind) -> Option<ChatMessageRole> {
@@ -5906,6 +7142,10 @@ mod tests {
             selected_permission_mode: None,
             last_run_state: ChatRunStatus::Completed,
             last_error: None,
+            context_used_tokens: None,
+            context_max_tokens: None,
+            context_percent_used: None,
+            context_updated_at: None,
             pending_request_count: 0,
             latest_pending_request_id: None,
             latest_pending_request_kind: None,
@@ -6405,6 +7645,173 @@ mod tests {
         assert_eq!(detail.latest_run.unwrap().status, ChatRunStatus::Completed);
         assert_eq!(detail.messages[1].status, ChatMessageStatus::Completed);
         assert_eq!(detail.messages[1].content_text, "Done");
+    }
+
+    #[tokio::test]
+    async fn plan_notifications_create_active_and_proposed_plans() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+        start_test_run(&service, &conversation, &runtime).await;
+
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "turn/plan/updated",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "steps": [
+                        { "text": "Inspect state", "status": "completed" },
+                        { "text": "Patch code", "status": "in_progress" }
+                    ]
+                }),
+            )
+            .await
+            .unwrap();
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "item/plan/delta",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "itemId": "plan-item-1",
+                    "delta": "1. Inspect\n"
+                }),
+            )
+            .await
+            .unwrap();
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "item/plan/delta",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "itemId": "plan-item-1",
+                    "delta": "2. Patch\n"
+                }),
+            )
+            .await
+            .unwrap();
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "item/completed",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "item": {
+                        "id": "plan-item-1",
+                        "type": "plan",
+                        "text": "Final plan"
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "turn/completed",
+                json!({
+                    "threadId": "thread-1",
+                    "turn": {
+                        "id": "provider-turn-1",
+                        "status": "completed",
+                        "items": []
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+
+        let detail = service
+            .get_conversation_detail(&conversation.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.plans.len(), 2);
+        let active_plan = detail
+            .plans
+            .iter()
+            .find(|plan| plan.kind == ChatPlanKind::ActiveTask)
+            .unwrap();
+        assert_eq!(active_plan.status, ChatPlanStatus::Completed);
+        assert!(active_plan.steps_json.contains("Inspect state"));
+        let proposed_plan = detail
+            .plans
+            .iter()
+            .find(|plan| plan.kind == ChatPlanKind::ProposedPlan)
+            .unwrap();
+        assert_eq!(proposed_plan.status, ChatPlanStatus::Completed);
+        assert_eq!(proposed_plan.content_text, "Final plan");
+    }
+
+    #[tokio::test]
+    async fn diff_and_context_notifications_do_not_mutate_transcript() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+        start_test_run(&service, &conversation, &runtime).await;
+
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "turn/diff/updated",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "changedFileCount": 1,
+                    "additions": 8,
+                    "deletions": 2,
+                    "files": [
+                        {
+                            "path": "src/lib.rs",
+                            "changeType": "modified",
+                            "additions": 8,
+                            "deletions": 2
+                        }
+                    ]
+                }),
+            )
+            .await
+            .unwrap();
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "thread/tokenUsage/updated",
+                json!({
+                    "threadId": "thread-1",
+                    "usedTokens": 1200,
+                    "maxTokens": 12000,
+                    "totalProcessedTokens": 3000
+                }),
+            )
+            .await
+            .unwrap();
+
+        let detail = service
+            .get_conversation_detail(&conversation.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.diff_summaries.len(), 1);
+        assert_eq!(detail.diff_summaries[0].changed_file_count, 1);
+        assert_eq!(detail.diff_summaries[0].files[0].path, "src/lib.rs");
+        assert_eq!(
+            detail.context_usage.as_ref().unwrap().percent_used,
+            Some(10.0)
+        );
+        assert_eq!(detail.messages[1].content_text, "");
     }
 
     #[test]

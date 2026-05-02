@@ -25,14 +25,16 @@ use hubris_server::api::vscode::{
 };
 use hubris_server::api::worktrees::{Worktree, WorktreeUiMode};
 use hubris_server::chat::{
-    ChatActivityDetail, ChatAppServerLifecycle, ChatAppServerStatus, ChatConversationDetail,
-    ChatConversationSettingsPatch, ChatConversationSummary, ChatItem, ChatItemKind, ChatItemOutput,
-    ChatItemStatus, ChatMessage, ChatMessageRole, ChatMessageStatus, ChatModelOption,
+    ChatActivityDetail, ChatAppServerLifecycle, ChatAppServerStatus, ChatContextUsage,
+    ChatConversationDetail, ChatConversationSettingsPatch, ChatConversationSummary,
+    ChatDiffFileSummary, ChatDiffSummary, ChatItem, ChatItemKind, ChatItemOutput, ChatItemStatus,
+    ChatMessage, ChatMessageRole, ChatMessageStatus, ChatModelOption,
     ChatModelReasoningEffortOption, ChatPendingRequest, ChatPendingRequestDecision,
     ChatPendingRequestKind, ChatPendingRequestStatus, ChatPendingRequestSummary,
-    ChatPermissionMode, ChatProvider, ChatReasoningEffort, ChatRun, ChatRunStatus,
-    ChatRuntimeLifecycle, ChatRuntimeStatus, ChatSettings, ChatThreadStreamResumeState,
-    ChatThreadStreamStatus, ChatTurn, ChatTurnStatus, ResolveChatPendingRequestRequest,
+    ChatPermissionMode, ChatPlan, ChatPlanKind, ChatPlanStatus, ChatProvider, ChatReasoningEffort,
+    ChatRun, ChatRunStatus, ChatRuntimeLifecycle, ChatRuntimeStatus, ChatSettings,
+    ChatThreadStreamResumeState, ChatThreadStreamStatus, ChatTurn, ChatTurnStatus,
+    ResolveChatPendingRequestRequest,
 };
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
@@ -135,6 +137,12 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<ChatItem>(&mut sse, &cfg)?;
     push_ts_export::<ChatItemOutput>(&mut sse, &cfg)?;
     push_ts_export::<ChatActivityDetail>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPlanKind>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPlanStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPlan>(&mut sse, &cfg)?;
+    push_ts_export::<ChatDiffFileSummary>(&mut sse, &cfg)?;
+    push_ts_export::<ChatDiffSummary>(&mut sse, &cfg)?;
+    push_ts_export::<ChatContextUsage>(&mut sse, &cfg)?;
     push_ts_export::<ChatPendingRequestKind>(&mut sse, &cfg)?;
     push_ts_export::<ChatPendingRequestStatus>(&mut sse, &cfg)?;
     push_ts_export::<ChatPendingRequestDecision>(&mut sse, &cfg)?;

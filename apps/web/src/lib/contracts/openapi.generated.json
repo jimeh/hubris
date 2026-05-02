@@ -3061,6 +3061,49 @@
           }
         }
       },
+      "ChatContextUsage": {
+        "type": "object",
+        "description": "Latest context-window usage for a Codex conversation.",
+        "required": ["id", "conversationId", "metadataJson", "updatedAt"],
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "maxTokens": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "metadataJson": {
+            "type": "string"
+          },
+          "percentUsed": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "providerThreadId": {
+            "type": ["string", "null"]
+          },
+          "totalProcessedTokens": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usedTokens": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "ChatConversationDetail": {
         "type": "object",
         "description": "Full chat detail payload used to hydrate an open chat tab.",
@@ -3069,11 +3112,29 @@
           "messages",
           "turns",
           "items",
+          "plans",
+          "diffSummaries",
           "pendingRequests"
         ],
         "properties": {
+          "contextUsage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatContextUsage"
+              }
+            ]
+          },
           "conversation": {
             "$ref": "#/components/schemas/ChatConversationSummary"
+          },
+          "diffSummaries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatDiffSummary"
+            }
           },
           "items": {
             "type": "array",
@@ -3101,6 +3162,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ChatPendingRequest"
+            }
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatPlan"
             }
           },
           "turns": {
@@ -3159,6 +3226,25 @@
           "revision"
         ],
         "properties": {
+          "contextMaxTokens": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "contextPercentUsed": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "contextUpdatedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "contextUsedTokens": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
           "createdAt": {
             "type": "integer",
             "format": "int64",
@@ -3267,6 +3353,105 @@
           },
           "worktreeId": {
             "type": "string"
+          }
+        }
+      },
+      "ChatDiffFileSummary": {
+        "type": "object",
+        "description": "One changed file included in a Codex diff summary.",
+        "required": ["path"],
+        "properties": {
+          "additions": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "changeType": {
+            "type": ["string", "null"]
+          },
+          "deletions": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "originalPath": {
+            "type": ["string", "null"]
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatDiffSummary": {
+        "type": "object",
+        "description": "Persisted turn-level Codex diff summary.",
+        "required": [
+          "id",
+          "conversationId",
+          "changedFileCount",
+          "files",
+          "metadataJson",
+          "ownerGeneration",
+          "sequence",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "additions": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "changedFileCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "deletions": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatDiffFileSummary"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "metadataJson": {
+            "type": "string"
+          },
+          "ownerGeneration": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "turnId": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -3724,6 +3909,93 @@
         "type": "string",
         "description": "Explicit permissions preset override. `None` means use Codex defaults.",
         "enum": ["full_access"]
+      },
+      "ChatPlan": {
+        "type": "object",
+        "description": "Persisted Codex plan state used by the chat timeline.",
+        "required": [
+          "id",
+          "conversationId",
+          "kind",
+          "status",
+          "contentText",
+          "stepsJson",
+          "metadataJson",
+          "ownerGeneration",
+          "sequence",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "completedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "contentText": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": ["string", "null"]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChatPlanKind"
+          },
+          "metadataJson": {
+            "type": "string"
+          },
+          "ownerGeneration": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "providerItemId": {
+            "type": ["string", "null"]
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatPlanStatus"
+          },
+          "stepsJson": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatPlanKind": {
+        "type": "string",
+        "description": "Persisted Codex plan kind.",
+        "enum": ["active_task", "proposed_plan"]
+      },
+      "ChatPlanStatus": {
+        "type": "string",
+        "description": "Persisted Codex plan lifecycle state.",
+        "enum": ["streaming", "completed", "failed"]
       },
       "ChatProvider": {
         "type": "string",

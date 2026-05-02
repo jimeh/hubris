@@ -17,9 +17,11 @@ import { useTabStore } from "@/lib/stores/tabs";
 import type {
   ChatAppServerStatus,
   ChatActivityDetail,
+  ChatContextUsage,
   ChatConversationDetail,
   ChatConversationSettingsPatch,
   ChatConversationSummary,
+  ChatDiffSummary,
   ChatItem,
   ChatItemOutput,
   ChatMessage,
@@ -27,6 +29,7 @@ import type {
   ChatPendingRequest,
   ChatPendingRequestDecision,
   ChatPendingRequestSummary,
+  ChatPlan,
   ChatRun,
   ChatRuntimeStatus,
   ChatThreadStreamStatus,
@@ -60,6 +63,11 @@ type ChatStoreState = {
   outputIdsByItemId: Record<string, string[]>;
   outputsById: Record<string, ChatItemOutput>;
   activityDetailsByItemId: Record<string, ActivityDetailState>;
+  planIdsByConversationId: Record<string, string[]>;
+  plansById: Record<string, ChatPlan>;
+  diffSummaryIdsByConversationId: Record<string, string[]>;
+  diffSummariesById: Record<string, ChatDiffSummary>;
+  contextUsageByConversationId: Record<string, ChatContextUsage>;
   pendingRequestIdsByConversationId: Record<string, string[]>;
   pendingRequestsById: Record<string, ChatPendingRequest>;
   pendingRequestSummariesById: Record<string, ChatPendingRequestSummary>;
@@ -128,6 +136,18 @@ type ChatBatchEvent =
         | SseEventData<"chat_pending_request_created">
         | SseEventData<"chat_pending_request_updated">
         | SseEventData<"chat_pending_request_resolved">;
+    }
+  | {
+      type: "plan_updated";
+      data: SseEventData<"chat_plan_updated">;
+    }
+  | {
+      type: "diff_updated";
+      data: SseEventData<"chat_diff_updated">;
+    }
+  | {
+      type: "context_usage_updated";
+      data: SseEventData<"chat_context_usage_updated">;
     };
 
 const DEFAULT_DETAIL_STATE: ConversationDetailState = {
@@ -236,6 +256,26 @@ function sortPendingRequests(
   });
 }
 
+function sortPlans(plans: readonly ChatPlan[]): ChatPlan[] {
+  return [...plans].sort((left, right) => {
+    if (left.sequence !== right.sequence) {
+      return left.sequence - right.sequence;
+    }
+    return left.createdAt - right.createdAt;
+  });
+}
+
+function sortDiffSummaries(
+  summaries: readonly ChatDiffSummary[],
+): ChatDiffSummary[] {
+  return [...summaries].sort((left, right) => {
+    if (left.sequence !== right.sequence) {
+      return left.sequence - right.sequence;
+    }
+    return left.createdAt - right.createdAt;
+  });
+}
+
 function mergeConversationIntoOpenTabs(
   conversation: ChatConversationSummary,
 ): void {
@@ -281,6 +321,20 @@ function pendingRequestIdsFromState(
   return state.pendingRequestIdsByConversationId[conversationId] ?? EMPTY_IDS;
 }
 
+function planIdsFromState(
+  state: ChatStoreState,
+  conversationId: string,
+): readonly string[] {
+  return state.planIdsByConversationId[conversationId] ?? EMPTY_IDS;
+}
+
+function diffSummaryIdsFromState(
+  state: ChatStoreState,
+  conversationId: string,
+): readonly string[] {
+  return state.diffSummaryIdsByConversationId[conversationId] ?? EMPTY_IDS;
+}
+
 function timelineIdsFromState(
   state: ChatStoreState,
   conversationId: string,
@@ -303,6 +357,8 @@ function buildTimelineIds(
   messages: readonly ChatMessage[],
   items: readonly ChatItem[],
   pendingRequests: readonly ChatPendingRequest[] = [],
+  plans: readonly ChatPlan[] = [],
+  diffSummaries: readonly ChatDiffSummary[] = [],
 ): string[] {
   const rows = [
     ...messages.map((message) => ({
@@ -321,6 +377,18 @@ function buildTimelineIds(
       id: `request:${request.id}`,
       createdAt: request.createdAt,
       sequence: request.sequence,
+      priority: 1,
+    })),
+    ...plans.map((plan) => ({
+      id: `plan:${plan.id}`,
+      createdAt: plan.createdAt,
+      sequence: plan.sequence,
+      priority: 1,
+    })),
+    ...diffSummaries.map((diff) => ({
+      id: `diff:${diff.id}`,
+      createdAt: diff.createdAt,
+      sequence: diff.sequence,
       priority: 1,
     })),
   ];
@@ -349,6 +417,8 @@ function timelineIdsForState(
     string,
     ChatPendingRequest
   > = state.pendingRequestsById,
+  plansById: Record<string, ChatPlan> = state.plansById,
+  diffSummariesById: Record<string, ChatDiffSummary> = state.diffSummariesById,
 ): string[] {
   const messages = messageIdsFromState(state, conversationId)
     .map((messageId) => messagesById[messageId])
@@ -359,7 +429,19 @@ function timelineIdsForState(
   const pendingRequests = pendingRequestIdsFromState(state, conversationId)
     .map((requestId) => pendingRequestsById[requestId])
     .filter((request): request is ChatPendingRequest => Boolean(request));
-  return buildTimelineIds(messages, items, pendingRequests);
+  const plans = planIdsFromState(state, conversationId)
+    .map((planId) => plansById[planId])
+    .filter((plan): plan is ChatPlan => Boolean(plan));
+  const diffSummaries = diffSummaryIdsFromState(state, conversationId)
+    .map((diffId) => diffSummariesById[diffId])
+    .filter((diff): diff is ChatDiffSummary => Boolean(diff));
+  return buildTimelineIds(
+    messages,
+    items,
+    pendingRequests,
+    plans,
+    diffSummaries,
+  );
 }
 
 function denormalizeConversationDetail(
@@ -383,6 +465,13 @@ function denormalizeConversationDetail(
     items: itemIdsFromState(state, conversationId)
       .map((itemId) => state.itemsById[itemId])
       .filter((item): item is ChatItem => Boolean(item)),
+    plans: planIdsFromState(state, conversationId)
+      .map((planId) => state.plansById[planId])
+      .filter((plan): plan is ChatPlan => Boolean(plan)),
+    diffSummaries: diffSummaryIdsFromState(state, conversationId)
+      .map((diffId) => state.diffSummariesById[diffId])
+      .filter((diff): diff is ChatDiffSummary => Boolean(diff)),
+    contextUsage: state.contextUsageByConversationId[conversationId] ?? null,
     pendingRequests: pendingRequestIdsFromState(state, conversationId)
       .map((requestId) => state.pendingRequestsById[requestId])
       .filter((request): request is ChatPendingRequest => Boolean(request)),
@@ -436,58 +525,93 @@ function setDetail(
   const turns = sortTurns(detail.turns ?? []);
   const items = sortItems(detail.items ?? []);
   const pendingRequests = sortPendingRequests(detail.pendingRequests ?? []);
-  const timelineIds = buildTimelineIds(messages, items, pendingRequests);
+  const plans = sortPlans(detail.plans ?? []);
+  const diffSummaries = sortDiffSummaries(detail.diffSummaries ?? []);
+  const timelineIds = buildTimelineIds(
+    messages,
+    items,
+    pendingRequests,
+    plans,
+    diffSummaries,
+  );
 
-  useChatStore.setState((state) => ({
-    conversationsById: {
-      ...state.conversationsById,
-      [conversationId]: detail.conversation,
-    },
-    detailsByConversationId: {
-      ...state.detailsByConversationId,
-      [conversationId]: loadedDetailState(),
-    },
-    messageIdsByConversationId: {
-      ...state.messageIdsByConversationId,
-      [conversationId]: messages.map((message) => message.id),
-    },
-    messagesById: {
-      ...state.messagesById,
-      ...mapById(messages),
-    },
-    turnIdsByConversationId: {
-      ...state.turnIdsByConversationId,
-      [conversationId]: turns.map((turn) => turn.id),
-    },
-    turnsById: {
-      ...state.turnsById,
-      ...mapById(turns),
-    },
-    itemIdsByConversationId: {
-      ...state.itemIdsByConversationId,
-      [conversationId]: items.map((item) => item.id),
-    },
-    itemsById: {
-      ...state.itemsById,
-      ...mapById(items),
-    },
-    pendingRequestIdsByConversationId: {
-      ...state.pendingRequestIdsByConversationId,
-      [conversationId]: pendingRequests.map((request) => request.id),
-    },
-    pendingRequestsById: {
-      ...state.pendingRequestsById,
-      ...mapById(pendingRequests),
-    },
-    timelineIdsByConversationId: {
-      ...state.timelineIdsByConversationId,
-      [conversationId]: timelineIds,
-    },
-    latestRunByConversationId: {
-      ...state.latestRunByConversationId,
-      [conversationId]: detail.latestRun ?? null,
-    },
-  }));
+  useChatStore.setState((state) => {
+    const contextUsageByConversationId = {
+      ...state.contextUsageByConversationId,
+    };
+    if (detail.contextUsage) {
+      contextUsageByConversationId[conversationId] = detail.contextUsage;
+    } else {
+      delete contextUsageByConversationId[conversationId];
+    }
+    return {
+      conversationsById: {
+        ...state.conversationsById,
+        [conversationId]: detail.conversation,
+      },
+      detailsByConversationId: {
+        ...state.detailsByConversationId,
+        [conversationId]: loadedDetailState(),
+      },
+      messageIdsByConversationId: {
+        ...state.messageIdsByConversationId,
+        [conversationId]: messages.map((message) => message.id),
+      },
+      messagesById: {
+        ...state.messagesById,
+        ...mapById(messages),
+      },
+      turnIdsByConversationId: {
+        ...state.turnIdsByConversationId,
+        [conversationId]: turns.map((turn) => turn.id),
+      },
+      turnsById: {
+        ...state.turnsById,
+        ...mapById(turns),
+      },
+      itemIdsByConversationId: {
+        ...state.itemIdsByConversationId,
+        [conversationId]: items.map((item) => item.id),
+      },
+      itemsById: {
+        ...state.itemsById,
+        ...mapById(items),
+      },
+      pendingRequestIdsByConversationId: {
+        ...state.pendingRequestIdsByConversationId,
+        [conversationId]: pendingRequests.map((request) => request.id),
+      },
+      pendingRequestsById: {
+        ...state.pendingRequestsById,
+        ...mapById(pendingRequests),
+      },
+      planIdsByConversationId: {
+        ...state.planIdsByConversationId,
+        [conversationId]: plans.map((plan) => plan.id),
+      },
+      plansById: {
+        ...state.plansById,
+        ...mapById(plans),
+      },
+      diffSummaryIdsByConversationId: {
+        ...state.diffSummaryIdsByConversationId,
+        [conversationId]: diffSummaries.map((diff) => diff.id),
+      },
+      diffSummariesById: {
+        ...state.diffSummariesById,
+        ...mapById(diffSummaries),
+      },
+      contextUsageByConversationId,
+      timelineIdsByConversationId: {
+        ...state.timelineIdsByConversationId,
+        [conversationId]: timelineIds,
+      },
+      latestRunByConversationId: {
+        ...state.latestRunByConversationId,
+        [conversationId]: detail.latestRun ?? null,
+      },
+    };
+  });
   mergeConversationIntoOpenTabs(detail.conversation);
 }
 
@@ -706,6 +830,27 @@ export function selectChatPendingRequest(
   return state.pendingRequestsById[requestId] ?? null;
 }
 
+export function selectChatPlan(
+  state: ChatStoreState,
+  planId: string,
+): ChatPlan | null {
+  return state.plansById[planId] ?? null;
+}
+
+export function selectChatDiffSummary(
+  state: ChatStoreState,
+  diffId: string,
+): ChatDiffSummary | null {
+  return state.diffSummariesById[diffId] ?? null;
+}
+
+export function selectChatContextUsage(
+  state: ChatStoreState,
+  conversationId: string,
+): ChatContextUsage | null {
+  return state.contextUsageByConversationId[conversationId] ?? null;
+}
+
 export function selectChatActivePendingRequestIds(
   state: ChatStoreState,
   conversationId: string,
@@ -801,6 +946,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   outputIdsByItemId: {},
   outputsById: {},
   activityDetailsByItemId: {},
+  planIdsByConversationId: {},
+  plansById: {},
+  diffSummaryIdsByConversationId: {},
+  diffSummariesById: {},
+  contextUsageByConversationId: {},
   pendingRequestIdsByConversationId: {},
   pendingRequestsById: {},
   pendingRequestSummariesById: {},
@@ -892,6 +1042,10 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         state.itemIdsByConversationId[conversationId] ?? [];
       const existingPendingRequestIds =
         state.pendingRequestIdsByConversationId[conversationId] ?? [];
+      const existingPlanIds =
+        state.planIdsByConversationId[conversationId] ?? [];
+      const existingDiffIds =
+        state.diffSummaryIdsByConversationId[conversationId] ?? [];
       const detailsByConversationId = { ...state.detailsByConversationId };
       const messageIdsByConversationId = {
         ...state.messageIdsByConversationId,
@@ -911,6 +1065,15 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         ...state.pendingRequestIdsByConversationId,
       };
       const pendingRequestsById = { ...state.pendingRequestsById };
+      const planIdsByConversationId = { ...state.planIdsByConversationId };
+      const plansById = { ...state.plansById };
+      const diffSummaryIdsByConversationId = {
+        ...state.diffSummaryIdsByConversationId,
+      };
+      const diffSummariesById = { ...state.diffSummariesById };
+      const contextUsageByConversationId = {
+        ...state.contextUsageByConversationId,
+      };
       const latestRunByConversationId = { ...state.latestRunByConversationId };
       for (const messageId of existingMessageIds) {
         delete messagesById[messageId];
@@ -929,11 +1092,20 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       for (const requestId of existingPendingRequestIds) {
         delete pendingRequestsById[requestId];
       }
+      for (const planId of existingPlanIds) {
+        delete plansById[planId];
+      }
+      for (const diffId of existingDiffIds) {
+        delete diffSummariesById[diffId];
+      }
       delete detailsByConversationId[conversationId];
       delete messageIdsByConversationId[conversationId];
       delete turnIdsByConversationId[conversationId];
       delete itemIdsByConversationId[conversationId];
       delete pendingRequestIdsByConversationId[conversationId];
+      delete planIdsByConversationId[conversationId];
+      delete diffSummaryIdsByConversationId[conversationId];
+      delete contextUsageByConversationId[conversationId];
       delete timelineIdsByConversationId[conversationId];
       delete latestRunByConversationId[conversationId];
       return {
@@ -948,6 +1120,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         outputIdsByItemId,
         outputsById,
         activityDetailsByItemId,
+        planIdsByConversationId,
+        plansById,
+        diffSummaryIdsByConversationId,
+        diffSummariesById,
+        contextUsageByConversationId,
         pendingRequestIdsByConversationId,
         pendingRequestsById,
         latestRunByConversationId,
@@ -1278,6 +1455,124 @@ function applyPendingRequestUpdated(
   };
 }
 
+function applyPlanUpdated(
+  state: ChatStoreState,
+  conversationId: string,
+  plan: ChatPlan,
+): ChatStoreState {
+  if (!isConversationLoaded(state, conversationId)) {
+    return markConversationDirtyInBatch(state, conversationId);
+  }
+  const currentIds = planIdsFromState(state, conversationId);
+  const plansById = {
+    ...state.plansById,
+    [plan.id]: plan,
+  };
+  const planIdsByConversationId = {
+    ...state.planIdsByConversationId,
+    [conversationId]: upsertSortedEntity(
+      currentIds,
+      plansById,
+      plan,
+      sortPlans,
+    ),
+  };
+  const nextState = {
+    ...state,
+    plansById,
+    planIdsByConversationId,
+  };
+  return {
+    ...nextState,
+    timelineIdsByConversationId: {
+      ...state.timelineIdsByConversationId,
+      [conversationId]: timelineIdsForState(
+        nextState,
+        conversationId,
+        state.messagesById,
+        state.itemsById,
+        state.pendingRequestsById,
+        plansById,
+      ),
+    },
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [conversationId]: loadedDetailState(),
+    },
+  };
+}
+
+function applyDiffUpdated(
+  state: ChatStoreState,
+  conversationId: string,
+  diff: ChatDiffSummary,
+): ChatStoreState {
+  if (!isConversationLoaded(state, conversationId)) {
+    return markConversationDirtyInBatch(state, conversationId);
+  }
+  const currentIds = diffSummaryIdsFromState(state, conversationId);
+  const diffSummariesById = {
+    ...state.diffSummariesById,
+    [diff.id]: diff,
+  };
+  const diffSummaryIdsByConversationId = {
+    ...state.diffSummaryIdsByConversationId,
+    [conversationId]: upsertSortedEntity(
+      currentIds,
+      diffSummariesById,
+      diff,
+      sortDiffSummaries,
+    ),
+  };
+  const nextState = {
+    ...state,
+    diffSummariesById,
+    diffSummaryIdsByConversationId,
+  };
+  return {
+    ...nextState,
+    timelineIdsByConversationId: {
+      ...state.timelineIdsByConversationId,
+      [conversationId]: timelineIdsForState(
+        nextState,
+        conversationId,
+        state.messagesById,
+        state.itemsById,
+        state.pendingRequestsById,
+        state.plansById,
+        diffSummariesById,
+      ),
+    },
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [conversationId]: loadedDetailState(),
+    },
+  };
+}
+
+function applyContextUsageUpdated(
+  state: ChatStoreState,
+  usage: ChatContextUsage,
+): ChatStoreState {
+  const nextState = {
+    ...state,
+    contextUsageByConversationId: {
+      ...state.contextUsageByConversationId,
+      [usage.conversationId]: usage,
+    },
+  };
+  if (!isConversationLoaded(state, usage.conversationId)) {
+    return markConversationDirtyInBatch(nextState, usage.conversationId);
+  }
+  return {
+    ...nextState,
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [usage.conversationId]: loadedDetailState(),
+    },
+  };
+}
+
 function applyActivityDelta(
   state: ChatStoreState,
   data: SseEventData<"chat_activity_delta">,
@@ -1362,6 +1657,20 @@ function applyQueuedChatEvents(
         );
       case "pending_request_updated":
         return applyPendingRequestUpdated(nextState, event.data.request);
+      case "plan_updated":
+        return applyPlanUpdated(
+          nextState,
+          event.data.conversation_id,
+          event.data.plan,
+        );
+      case "diff_updated":
+        return applyDiffUpdated(
+          nextState,
+          event.data.conversation_id,
+          event.data.diff,
+        );
+      case "context_usage_updated":
+        return applyContextUsageUpdated(nextState, event.data.usage);
     }
   }, state);
 }
@@ -1417,6 +1726,20 @@ function handlePendingRequestUpdated(
   enqueueChatEvent({ type: "pending_request_updated", data });
 }
 
+function handlePlanUpdated(data: SseEventData<"chat_plan_updated">): void {
+  enqueueChatEvent({ type: "plan_updated", data });
+}
+
+function handleDiffUpdated(data: SseEventData<"chat_diff_updated">): void {
+  enqueueChatEvent({ type: "diff_updated", data });
+}
+
+function handleContextUsageUpdated(
+  data: SseEventData<"chat_context_usage_updated">,
+): void {
+  enqueueChatEvent({ type: "context_usage_updated", data });
+}
+
 export function initializeChatStore(): void {
   if (initialized) {
     return;
@@ -1465,6 +1788,20 @@ export function initializeChatStore(): void {
         );
         const pendingRequestIds = new Set(
           Object.values(pendingRequestIdsByConversationId).flat(),
+        );
+        const planIdsByConversationId = Object.fromEntries(
+          Object.entries(state.planIdsByConversationId).filter(
+            ([conversationId]) => conversationIds.has(conversationId),
+          ),
+        );
+        const planIds = new Set(Object.values(planIdsByConversationId).flat());
+        const diffSummaryIdsByConversationId = Object.fromEntries(
+          Object.entries(state.diffSummaryIdsByConversationId).filter(
+            ([conversationId]) => conversationIds.has(conversationId),
+          ),
+        );
+        const diffIds = new Set(
+          Object.values(diffSummaryIdsByConversationId).flat(),
         );
         const outputIdsByItemId = Object.fromEntries(
           Object.entries(state.outputIdsByItemId).filter(([itemId]) =>
@@ -1522,6 +1859,24 @@ export function initializeChatStore(): void {
             ),
           ),
           pendingRequestSummariesById: nextPendingRequestSummaries,
+          planIdsByConversationId,
+          plansById: Object.fromEntries(
+            Object.entries(state.plansById).filter(([planId]) =>
+              planIds.has(planId),
+            ),
+          ),
+          diffSummaryIdsByConversationId,
+          diffSummariesById: Object.fromEntries(
+            Object.entries(state.diffSummariesById).filter(([diffId]) =>
+              diffIds.has(diffId),
+            ),
+          ),
+          contextUsageByConversationId: Object.fromEntries(
+            (data.chat_context_usage ?? []).map((usage) => [
+              usage.conversationId,
+              usage,
+            ]),
+          ),
           latestRunByConversationId: Object.fromEntries(
             Object.entries(state.latestRunByConversationId).filter(
               ([conversationId]) => conversationIds.has(conversationId),
@@ -1545,6 +1900,9 @@ export function initializeChatStore(): void {
     events.on("chat_pending_request_created", handlePendingRequestUpdated),
     events.on("chat_pending_request_updated", handlePendingRequestUpdated),
     events.on("chat_pending_request_resolved", handlePendingRequestUpdated),
+    events.on("chat_plan_updated", handlePlanUpdated),
+    events.on("chat_diff_updated", handleDiffUpdated),
+    events.on("chat_context_usage_updated", handleContextUsageUpdated),
   ];
 }
 
@@ -1584,6 +1942,14 @@ export function resetChatStoreForTests(): void {
     outputIdsByItemId: {},
     outputsById: {},
     activityDetailsByItemId: {},
+    planIdsByConversationId: {},
+    plansById: {},
+    diffSummaryIdsByConversationId: {},
+    diffSummariesById: {},
+    contextUsageByConversationId: {},
+    pendingRequestIdsByConversationId: {},
+    pendingRequestsById: {},
+    pendingRequestSummariesById: {},
     latestRunByConversationId: {},
     modelOptions: [],
     modelOptionsStatus: "idle",
