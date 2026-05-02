@@ -141,6 +141,8 @@ pub(super) fn parse_jsonrpc_line(line: &str) -> ParsedLine {
 pub(super) fn classify_method(method: &str) -> AppServerMethod {
     match method {
         "error"
+        | "turn/started"
+        | "item/started"
         | "item/reasoning/summaryTextDelta"
         | "item/agentMessage/delta"
         | "item/completed"
@@ -165,6 +167,8 @@ pub(super) fn classify_method(method: &str) -> AppServerMethod {
 fn method_static(method: &str) -> &'static str {
     match method {
         "error" => "error",
+        "turn/started" => "turn/started",
+        "item/started" => "item/started",
         "item/reasoning/summaryTextDelta" => "item/reasoning/summaryTextDelta",
         "item/agentMessage/delta" => "item/agentMessage/delta",
         "item/completed" => "item/completed",
@@ -417,6 +421,14 @@ mod tests {
         assert_eq!(
             classify_method("turn/completed"),
             AppServerMethod::Current("turn/completed")
+        );
+        assert_eq!(
+            classify_method("turn/started"),
+            AppServerMethod::Current("turn/started")
+        );
+        assert_eq!(
+            classify_method("item/started"),
+            AppServerMethod::Current("item/started")
         );
         assert_eq!(
             classify_method("item/commandExecution/requestApproval"),

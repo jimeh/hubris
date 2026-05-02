@@ -938,8 +938,10 @@ export interface components {
     /** @description Full chat detail payload used to hydrate an open chat tab. */
     ChatConversationDetail: {
       conversation: components["schemas"]["ChatConversationSummary"];
+      items: components["schemas"]["ChatItem"][];
       latestRun?: null | components["schemas"]["ChatRun"];
       messages: components["schemas"]["ChatMessage"][];
+      turns: components["schemas"]["ChatTurn"][];
     };
     /** @description Conversation-level model preferences that apply to future turns. */
     ChatConversationSettingsPatch: {
@@ -977,6 +979,38 @@ export interface components {
       updatedAt: number;
       worktreeId: string;
     };
+    /** @description Persisted provider item metadata for a chat conversation. */
+    ChatItem: {
+      /** Format: int64 */
+      completedAt?: number | null;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      kind: components["schemas"]["ChatItemKind"];
+      metadataJson: string;
+      providerItemId?: string | null;
+      providerTurnId?: string | null;
+      role?: null | components["schemas"]["ChatMessageRole"];
+      /** Format: int32 */
+      sequence: number;
+      status: components["schemas"]["ChatItemStatus"];
+      summary?: string | null;
+      title?: string | null;
+      turnId?: string | null;
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description Normalized Codex item kind persisted for future timeline rendering.
+     * @enum {string}
+     */
+    ChatItemKind: "agent_message" | "reasoning" | "unknown";
+    /**
+     * @description Persisted Codex item lifecycle state.
+     * @enum {string}
+     */
+    ChatItemStatus: "started" | "streaming" | "completed" | "failed";
     /** @description Persisted transcript message. */
     ChatMessage: {
       contentText: string;
@@ -984,12 +1018,15 @@ export interface components {
       /** Format: int64 */
       createdAt: number;
       id: string;
+      itemId?: string | null;
+      providerItemId?: string | null;
       providerTurnId?: string | null;
       reasoningText: string;
       role: components["schemas"]["ChatMessageRole"];
       /** Format: int32 */
       sequence: number;
       status: components["schemas"]["ChatMessageStatus"];
+      turnId?: string | null;
       /** Format: int64 */
       updatedAt: number;
     };
@@ -1056,6 +1093,7 @@ export interface components {
       /** Format: int64 */
       startedAt: number;
       status: components["schemas"]["ChatRunStatus"];
+      turnId?: string | null;
     };
     /**
      * @description Persisted run lifecycle state.
@@ -1127,6 +1165,35 @@ export interface components {
       updatedAt: number;
       worktreeId: string;
     };
+    /** @description Persisted provider turn metadata for a chat conversation. */
+    ChatTurn: {
+      assistantMessageId: string;
+      /** Format: int64 */
+      completedAt?: number | null;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      errorMessage?: string | null;
+      id: string;
+      providerTurnId?: string | null;
+      runId: string;
+      /** Format: int64 */
+      startedAt: number;
+      status: components["schemas"]["ChatTurnStatus"];
+      /** Format: int64 */
+      updatedAt: number;
+      userMessageId: string;
+    };
+    /**
+     * @description Persisted Codex turn lifecycle state.
+     * @enum {string}
+     */
+    ChatTurnStatus:
+      | "starting"
+      | "running"
+      | "completed"
+      | "interrupted"
+      | "failed";
     ClientControlMessage: {
       /** Format: int32 */
       cols: number;

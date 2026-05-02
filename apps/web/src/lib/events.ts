@@ -35,9 +35,13 @@ const SSE_EVENT_NAMES = [
   "chat_conversation_created",
   "chat_conversation_updated",
   "chat_runtime_updated",
+  "chat_app_server_updated",
+  "chat_thread_stream_updated",
   "chat_message_delta",
   "chat_message_updated",
   "chat_run_updated",
+  "chat_turn_updated",
+  "chat_item_updated",
 ] as const satisfies ReadonlyArray<SseEventName>;
 
 /**

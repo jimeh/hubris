@@ -119,6 +119,14 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         | EventKind::ChatRunUpdated {
             session_id: event_session_id,
             ..
+        }
+        | EventKind::ChatTurnUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatItemUpdated {
+            session_id: event_session_id,
+            ..
         } => event_session_id == session_id,
         EventKind::WorktreeTabLayoutUpdated { .. } | EventKind::ChatAppServerUpdated { .. } => true,
         EventKind::ProjectAdded(_)

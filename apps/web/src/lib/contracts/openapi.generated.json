@@ -2932,10 +2932,16 @@
       "ChatConversationDetail": {
         "type": "object",
         "description": "Full chat detail payload used to hydrate an open chat tab.",
-        "required": ["conversation", "messages"],
+        "required": ["conversation", "messages", "turns", "items"],
         "properties": {
           "conversation": {
             "$ref": "#/components/schemas/ChatConversationSummary"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatItem"
+            }
           },
           "latestRun": {
             "oneOf": [
@@ -2951,6 +2957,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ChatMessage"
+            }
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatTurn"
             }
           }
         }
@@ -3081,6 +3093,92 @@
           }
         }
       },
+      "ChatItem": {
+        "type": "object",
+        "description": "Persisted provider item metadata for a chat conversation.",
+        "required": [
+          "id",
+          "conversationId",
+          "kind",
+          "status",
+          "sequence",
+          "metadataJson",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "completedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChatItemKind"
+          },
+          "metadataJson": {
+            "type": "string"
+          },
+          "providerItemId": {
+            "type": ["string", "null"]
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "role": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatMessageRole"
+              }
+            ]
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatItemStatus"
+          },
+          "summary": {
+            "type": ["string", "null"]
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "turnId": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatItemKind": {
+        "type": "string",
+        "description": "Normalized Codex item kind persisted for future timeline rendering.",
+        "enum": ["agent_message", "reasoning", "unknown"]
+      },
+      "ChatItemStatus": {
+        "type": "string",
+        "description": "Persisted Codex item lifecycle state.",
+        "enum": ["started", "streaming", "completed", "failed"]
+      },
       "ChatMessage": {
         "type": "object",
         "description": "Persisted transcript message.",
@@ -3110,6 +3208,12 @@
           "id": {
             "type": "string"
           },
+          "itemId": {
+            "type": ["string", "null"]
+          },
+          "providerItemId": {
+            "type": ["string", "null"]
+          },
           "providerTurnId": {
             "type": ["string", "null"]
           },
@@ -3126,6 +3230,9 @@
           },
           "status": {
             "$ref": "#/components/schemas/ChatMessageStatus"
+          },
+          "turnId": {
+            "type": ["string", "null"]
           },
           "updatedAt": {
             "type": "integer",
@@ -3244,6 +3351,9 @@
           },
           "status": {
             "$ref": "#/components/schemas/ChatRunStatus"
+          },
+          "turnId": {
+            "type": ["string", "null"]
           }
         }
       },
@@ -3391,6 +3501,72 @@
             "type": "string"
           }
         }
+      },
+      "ChatTurn": {
+        "type": "object",
+        "description": "Persisted provider turn metadata for a chat conversation.",
+        "required": [
+          "id",
+          "conversationId",
+          "runId",
+          "userMessageId",
+          "assistantMessageId",
+          "status",
+          "startedAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "assistantMessageId": {
+            "type": "string"
+          },
+          "completedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "errorMessage": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "runId": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatTurnStatus"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "userMessageId": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatTurnStatus": {
+        "type": "string",
+        "description": "Persisted Codex turn lifecycle state.",
+        "enum": ["starting", "running", "completed", "interrupted", "failed"]
       },
       "ClientControlMessage": {
         "oneOf": [

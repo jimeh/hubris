@@ -17,11 +17,13 @@ import type {
   ChatConversationSettingsPatch,
   ChatConversationSummary,
   ChatAppServerStatus,
+  ChatItem,
   ChatMessage,
   ChatModelOption,
   ChatRuntimeStatus,
   ChatRun,
   ChatThreadStreamStatus,
+  ChatTurn,
 } from "@/lib/types";
 
 type ConversationDetailState = {
@@ -111,6 +113,24 @@ function sortRuns(runs: readonly ChatRun[]): ChatRun[] {
   return [...runs].sort((left, right) => right.startedAt - left.startedAt);
 }
 
+function sortTurns(turns: readonly ChatTurn[]): ChatTurn[] {
+  return [...turns].sort((left, right) => {
+    if (left.startedAt !== right.startedAt) {
+      return left.startedAt - right.startedAt;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function sortItems(items: readonly ChatItem[]): ChatItem[] {
+  return [...items].sort((left, right) => {
+    if (left.sequence !== right.sequence) {
+      return left.sequence - right.sequence;
+    }
+    return left.createdAt - right.createdAt;
+  });
+}
+
 function mergeConversationIntoOpenTabs(
   conversation: ChatConversationSummary,
 ): void {
@@ -148,6 +168,28 @@ function upsertRun(
     sortRuns([...runs.filter((existing) => existing.id !== run.id), run])[0] ??
     null;
   return { ...detail, latestRun };
+}
+
+function upsertTurn(
+  detail: ChatConversationDetail,
+  turn: ChatTurn,
+): ChatConversationDetail {
+  const turns = sortTurns([
+    ...(detail.turns ?? []).filter((existing) => existing.id !== turn.id),
+    turn,
+  ]);
+  return { ...detail, turns };
+}
+
+function upsertItem(
+  detail: ChatConversationDetail,
+  item: ChatItem,
+): ChatConversationDetail {
+  const items = sortItems([
+    ...(detail.items ?? []).filter((existing) => existing.id !== item.id),
+    item,
+  ]);
+  return { ...detail, items };
 }
 
 function patchMessageDelta(
@@ -201,6 +243,8 @@ function setDetail(
         detail: {
           ...detail,
           messages: sortMessages(detail.messages),
+          turns: sortTurns(detail.turns ?? []),
+          items: sortItems(detail.items ?? []),
         },
         error: null,
         needsRefresh: false,
@@ -427,6 +471,46 @@ function handleRunUpdated(data: SseEventData<"chat_run_updated">): void {
   });
 }
 
+function handleTurnUpdated(data: SseEventData<"chat_turn_updated">): void {
+  useChatStore.setState((state) => {
+    const current = state.detailsByConversationId[data.conversation_id];
+    if (!current?.detail) {
+      return markConversationDirty(state, data.conversation_id);
+    }
+
+    return {
+      detailsByConversationId: {
+        ...state.detailsByConversationId,
+        [data.conversation_id]: {
+          ...current,
+          detail: upsertTurn(current.detail, data.turn),
+          needsRefresh: false,
+        },
+      },
+    };
+  });
+}
+
+function handleItemUpdated(data: SseEventData<"chat_item_updated">): void {
+  useChatStore.setState((state) => {
+    const current = state.detailsByConversationId[data.conversation_id];
+    if (!current?.detail) {
+      return markConversationDirty(state, data.conversation_id);
+    }
+
+    return {
+      detailsByConversationId: {
+        ...state.detailsByConversationId,
+        [data.conversation_id]: {
+          ...current,
+          detail: upsertItem(current.detail, data.item),
+          needsRefresh: false,
+        },
+      },
+    };
+  });
+}
+
 function handleMessageDelta(data: SseEventData<"chat_message_delta">): void {
   useChatStore.setState((state) => {
     const current = state.detailsByConversationId[data.conversation_id];
@@ -488,6 +572,8 @@ export function initializeChatStore(): void {
     events.on("chat_message_updated", handleMessageUpdated),
     events.on("chat_message_delta", handleMessageDelta),
     events.on("chat_run_updated", handleRunUpdated),
+    events.on("chat_turn_updated", handleTurnUpdated),
+    events.on("chat_item_updated", handleItemUpdated),
   ];
 }
 

@@ -91,7 +91,10 @@ const detail = {
     {
       id: "message-1",
       conversationId: "chat-1",
+      turnId: "turn-local-1",
+      itemId: "item-1",
       providerTurnId: "turn-1",
+      providerItemId: "provider-item-1",
       role: "assistant" as const,
       status: "streaming" as const,
       contentText: "Hello",
@@ -101,9 +104,45 @@ const detail = {
       updatedAt: 10,
     },
   ],
+  turns: [
+    {
+      id: "turn-local-1",
+      conversationId: "chat-1",
+      runId: "run-1",
+      userMessageId: "user-message-1",
+      assistantMessageId: "message-1",
+      providerTurnId: "turn-1",
+      status: "running" as const,
+      startedAt: 10,
+      completedAt: null,
+      errorMessage: null,
+      createdAt: 10,
+      updatedAt: 10,
+    },
+  ],
+  items: [
+    {
+      id: "item-1",
+      conversationId: "chat-1",
+      turnId: "turn-local-1",
+      providerTurnId: "turn-1",
+      providerItemId: "provider-item-1",
+      kind: "agent_message" as const,
+      status: "streaming" as const,
+      role: "assistant" as const,
+      sequence: 1,
+      title: null,
+      summary: null,
+      metadataJson: "{}",
+      createdAt: 10,
+      updatedAt: 10,
+      completedAt: null,
+    },
+  ],
   latestRun: {
     id: "run-1",
     conversationId: "chat-1",
+    turnId: "turn-local-1",
     providerTurnId: "turn-1",
     status: "running" as const,
     startedAt: 10,
@@ -245,6 +284,77 @@ describe("chat store", () => {
     expect(useTabStore.getState().tabs[0]?.label).toBe(
       "Investigate build failure",
     );
+  });
+
+  it("hydrates turn/item detail and applies turn/item SSE updates", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue(detail);
+
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
+        ?.turns[0]?.status,
+    ).toBe("running");
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
+        ?.items[0]?.status,
+    ).toBe("streaming");
+
+    mockEvents.emit("chat_turn_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      turn: {
+        ...detail.turns[0],
+        status: "completed",
+        completedAt: 20,
+        updatedAt: 20,
+      },
+    });
+    mockEvents.emit("chat_item_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      item: {
+        ...detail.items[0],
+        status: "completed",
+        completedAt: 20,
+        updatedAt: 20,
+      },
+    });
+
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
+        ?.turns[0]?.status,
+    ).toBe("completed");
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
+        ?.items[0]?.status,
+    ).toBe("completed");
+  });
+
+  it("marks unloaded conversation detail dirty on turn/item updates", () => {
+    initializeChatStore();
+
+    mockEvents.emit("chat_turn_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      turn: detail.turns[0],
+    });
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.needsRefresh,
+    ).toBe(true);
+
+    resetChatStoreForTests();
+    mockEvents = new MockEventClient();
+    initializeChatStore();
+    mockEvents.emit("chat_item_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      item: detail.items[0],
+    });
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.needsRefresh,
+    ).toBe(true);
   });
 
   it("loads model options and applies conversation setting updates immediately", async () => {

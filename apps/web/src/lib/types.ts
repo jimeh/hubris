@@ -35,6 +35,8 @@ export type ChatConversationDetail =
 export type ChatConversationSettingsPatch =
   components["schemas"]["ChatConversationSettingsPatch"];
 export type ChatMessage = components["schemas"]["ChatMessage"];
+export type ChatTurn = components["schemas"]["ChatTurn"];
+export type ChatItem = components["schemas"]["ChatItem"];
 export type ChatModelOption = components["schemas"]["ChatModelOption"];
 export type ChatModelReasoningEffortOption =
   components["schemas"]["ChatModelReasoningEffortOption"];
@@ -48,5 +50,8 @@ export type ChatMessageRole = components["schemas"]["ChatMessageRole"];
 export type ChatMessageStatus = components["schemas"]["ChatMessageStatus"];
 export type ChatReasoningEffort = components["schemas"]["ChatReasoningEffort"];
 export type ChatRunStatus = components["schemas"]["ChatRunStatus"];
+export type ChatTurnStatus = components["schemas"]["ChatTurnStatus"];
+export type ChatItemKind = components["schemas"]["ChatItemKind"];
+export type ChatItemStatus = components["schemas"]["ChatItemStatus"];
 export type ChatRuntimeLifecycle =
   components["schemas"]["ChatRuntimeLifecycle"];
