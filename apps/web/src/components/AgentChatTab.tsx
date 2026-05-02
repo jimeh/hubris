@@ -62,6 +62,7 @@ import {
   selectChatPendingRequest,
   selectChatPlan,
   selectChatTimelineIds,
+  selectChatWorkGroupSlice,
   useChatStore,
 } from "@/lib/stores/chats";
 import { useTabStore } from "@/lib/stores/tabs";
@@ -625,56 +626,6 @@ function ActivityIcon({ item }: { item: ChatItem }) {
   return <Wrench className={className} />;
 }
 
-function ThinkingBlock({
-  message,
-  streaming,
-}: {
-  message: ChatMessage;
-  streaming: boolean;
-}) {
-  const hasReasoning = message.reasoningText.trim().length > 0;
-  const [collapsed, setCollapsed] = useState(false);
-  const open = (streaming || hasReasoning) && !collapsed;
-
-  if (!hasReasoning && !streaming) {
-    return null;
-  }
-
-  return (
-    <Collapsible
-      open={open}
-      onOpenChange={(nextOpen) => setCollapsed(!nextOpen)}
-    >
-      <div className="rounded-lg border bg-muted/35" aria-label="Reasoning">
-        <CollapsibleTrigger
-          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
-          aria-label={open ? "Collapse reasoning" : "Expand reasoning"}
-        >
-          <div>
-            <div className="text-xs font-medium text-foreground">Thinking</div>
-            <div className="text-xs text-muted-foreground">
-              {streaming ? "Streaming reasoning summary" : "Reasoning summary"}
-            </div>
-          </div>
-          <ChevronDown
-            className={cn(
-              "h-4 w-4 text-muted-foreground transition-transform",
-              open && "rotate-180",
-            )}
-          />
-        </CollapsibleTrigger>
-        <CollapsibleContent className="border-t px-3 py-3">
-          <div className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-            {hasReasoning
-              ? message.reasoningText
-              : "Waiting for reasoning summary…"}
-          </div>
-        </CollapsibleContent>
-      </div>
-    </Collapsible>
-  );
-}
-
 function UserTurn({ message }: { message: ChatMessage }) {
   return (
     <TimelineRowShell
@@ -733,7 +684,6 @@ function AssistantTurn({
             </div>
           </div>
         </div>
-        <ThinkingBlock message={message} streaming={streaming} />
         <div
           className={cn(
             "whitespace-pre-wrap text-sm leading-6",
@@ -848,9 +798,11 @@ function ActivityOutputChunk({ outputId }: { outputId: string }) {
 function ActivityRow({
   conversationId,
   itemId,
+  nested = false,
 }: {
   conversationId: string;
   itemId: string;
+  nested?: boolean;
 }) {
   const item = useChatStore((state) => selectChatItem(state, itemId));
   const outputIds = useChatStore((state) =>
@@ -878,15 +830,12 @@ function ActivityRow({
   const failed = item.status === "failed";
   const hasOutputs = outputIds.length > 0;
 
-  return (
-    <TimelineRowShell
-      active={running}
-      label={timelineRowLabel(activityLabel(item), item.status)}
-    >
+  const content = (
+    <div className={cn("w-full", !nested && "max-w-[min(46rem,92%)]")}>
       <Collapsible open={open} onOpenChange={setOpen}>
         <div
           className={cn(
-            "max-w-[min(46rem,92%)] rounded-xl border bg-muted/25 text-sm",
+            "rounded-xl border bg-muted/25 text-sm",
             failed && "border-destructive/40",
           )}
         >
@@ -943,6 +892,19 @@ function ActivityRow({
           </CollapsibleContent>
         </div>
       </Collapsible>
+    </div>
+  );
+
+  if (nested) {
+    return content;
+  }
+
+  return (
+    <TimelineRowShell
+      active={running}
+      label={timelineRowLabel(activityLabel(item), item.status)}
+    >
+      {content}
     </TimelineRowShell>
   );
 }
@@ -1209,19 +1171,29 @@ function PendingRequestRow({ requestId }: { requestId: string }) {
   );
 }
 
-function PlanRow({ planId }: { planId: string }) {
+function NestedPendingRequestCard({ requestId }: { requestId: string }) {
+  const request = useChatStore((state) =>
+    selectChatPendingRequest(state, requestId),
+  );
+  return request ? <PendingRequestCard request={request} compact /> : null;
+}
+
+function PlanRow({
+  planId,
+  nested = false,
+}: {
+  planId: string;
+  nested?: boolean;
+}) {
   const plan = useChatStore((state) => selectChatPlan(state, planId));
   if (!plan) {
     return null;
   }
   const steps = parsePlanSteps(plan);
   const streaming = plan.status === "streaming";
-  return (
-    <TimelineRowShell
-      active={streaming}
-      label={timelineRowLabel(planTitle(plan), plan.status)}
-    >
-      <div className="max-w-[min(46rem,92%)] rounded-xl border bg-muted/25 px-3 py-3 text-sm">
+  const content = (
+    <div className={cn("w-full", !nested && "max-w-[min(46rem,92%)]")}>
+      <div className="rounded-xl border bg-muted/25 px-3 py-3 text-sm">
         <div className="flex items-start gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             {streaming ? (
@@ -1274,11 +1246,30 @@ function PlanRow({ planId }: { planId: string }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+
+  if (nested) {
+    return content;
+  }
+
+  return (
+    <TimelineRowShell
+      active={streaming}
+      label={timelineRowLabel(planTitle(plan), plan.status)}
+    >
+      {content}
     </TimelineRowShell>
   );
 }
 
-function DiffSummaryRow({ diffId }: { diffId: string }) {
+function DiffSummaryRow({
+  diffId,
+  nested = false,
+}: {
+  diffId: string;
+  nested?: boolean;
+}) {
   const diff = useChatStore((state) => selectChatDiffSummary(state, diffId));
   const conversation = useChatStore((state) =>
     diff ? selectChatConversation(state, diff.conversationId) : null,
@@ -1300,9 +1291,9 @@ function DiffSummaryRow({ diffId }: { diffId: string }) {
       preview: false,
     });
   };
-  return (
-    <TimelineRowShell label={timelineRowLabel("Diff summary", "ready")}>
-      <div className="max-w-[min(46rem,92%)] rounded-xl border bg-muted/25 px-3 py-3 text-sm">
+  const content = (
+    <div className={cn("w-full", !nested && "max-w-[min(46rem,92%)]")}>
+      <div className="rounded-xl border bg-muted/25 px-3 py-3 text-sm">
         <div className="flex items-start gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             <GitCompare className="h-3.5 w-3.5" />
@@ -1351,6 +1342,301 @@ function DiffSummaryRow({ diffId }: { diffId: string }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+
+  if (nested) {
+    return content;
+  }
+
+  return (
+    <TimelineRowShell label={timelineRowLabel("Diff summary", "ready")}>
+      {content}
+    </TimelineRowShell>
+  );
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function workGroupStatusLabel(active: boolean, status: string): string {
+  if (active) {
+    return "Working";
+  }
+  if (status === "completed") {
+    return "Completed";
+  }
+  if (status === "failed") {
+    return "Failed";
+  }
+  if (status === "interrupted") {
+    return "Interrupted";
+  }
+  return status;
+}
+
+function reasoningPreview(message: ChatMessage | null): string | null {
+  const text = message?.reasoningText.trim();
+  if (!text) {
+    return null;
+  }
+  return text.length > 220 ? `${text.slice(0, 220).trimEnd()}…` : text;
+}
+
+function itemMetadata(item: ChatItem | null): Record<string, unknown> {
+  if (!item) {
+    return {};
+  }
+  try {
+    const value = JSON.parse(item.metadataJson);
+    return value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function reasoningItemLabel(item: ChatItem | null): string {
+  const metadata = itemMetadata(item);
+  if (metadata.type === "agentMessage" && metadata.phase === "commentary") {
+    return "Commentary";
+  }
+  return "Thinking";
+}
+
+function reasoningTextPreview(item: ChatItem | null): string | null {
+  const text = item?.summary?.trim();
+  if (!text) {
+    return null;
+  }
+  return text.length > 220 ? `${text.slice(0, 220).trimEnd()}…` : text;
+}
+
+function ReasoningItemBlock({
+  conversationId,
+  item,
+  open,
+}: {
+  conversationId: string;
+  item: ChatItem;
+  open: boolean;
+}) {
+  const outputText = useChatStore((state) =>
+    selectChatItemOutputIds(state, item.id)
+      .map(
+        (outputId) => selectChatItemOutput(state, outputId)?.contentText ?? "",
+      )
+      .join(""),
+  );
+  const ensureActivityLoaded = useChatStore(
+    (state) => state.ensureActivityLoaded,
+  );
+
+  useEffect(() => {
+    if (open) {
+      void ensureActivityLoaded(conversationId, item.id);
+    }
+  }, [conversationId, ensureActivityLoaded, item.id, open]);
+
+  const text = outputText.trim().length > 0 ? outputText : (item.summary ?? "");
+  if (text.trim().length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className="rounded-lg border bg-background/55 px-3 py-3"
+      aria-label={reasoningItemLabel(item)}
+    >
+      <div className="mb-2 text-xs font-medium text-foreground">
+        {reasoningItemLabel(item)}
+      </div>
+      <div className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function WorkGroupRow({
+  conversationId,
+  turnId,
+  segmentKey,
+}: {
+  conversationId: string;
+  turnId: string;
+  segmentKey: string;
+}) {
+  const {
+    active,
+    activityIdsKey,
+    diffSummaryIdsKey,
+    pendingRequestIdsKey,
+    planIdsKey,
+    reasoningItem,
+    reasoningMessage,
+    status,
+  } = useChatStore(
+    useShallow((state) => {
+      const slice = selectChatWorkGroupSlice(
+        state,
+        conversationId,
+        turnId,
+        segmentKey,
+      );
+      return {
+        active: slice.active,
+        activityIdsKey: slice.activityIds.join("\u0000"),
+        diffSummaryIdsKey: slice.diffSummaryIds.join("\u0000"),
+        pendingRequestIdsKey: slice.pendingRequestIds.join("\u0000"),
+        planIdsKey: slice.planIds.join("\u0000"),
+        reasoningItem: slice.reasoningItem,
+        reasoningMessage: slice.reasoningMessage,
+        status: slice.status,
+      };
+    }),
+  );
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const activityIds = activityIdsKey ? activityIdsKey.split("\u0000") : [];
+  const pendingRequestIds = pendingRequestIdsKey
+    ? pendingRequestIdsKey.split("\u0000")
+    : [];
+  const planIds = planIdsKey ? planIdsKey.split("\u0000") : [];
+  const diffSummaryIds = diffSummaryIdsKey
+    ? diffSummaryIdsKey.split("\u0000")
+    : [];
+
+  const fallbackReasoningText =
+    segmentKey === "initial"
+      ? (reasoningMessage?.reasoningText.trim() ?? "")
+      : "";
+  const hasReasoning =
+    Boolean(reasoningItem) || fallbackReasoningText.length > 0;
+  const hasDetails =
+    hasReasoning ||
+    activityIds.length > 0 ||
+    pendingRequestIds.length > 0 ||
+    planIds.length > 0 ||
+    diffSummaryIds.length > 0;
+  if (!active && !hasDetails) {
+    return null;
+  }
+
+  const open = active || (userOpen ?? false);
+  const statusLabel = workGroupStatusLabel(active, status);
+  const counts = [
+    activityIds.length > 0
+      ? pluralize(activityIds.length, "activity", "activities")
+      : null,
+    pendingRequestIds.length > 0
+      ? pluralize(pendingRequestIds.length, "request")
+      : null,
+    planIds.length > 0 ? pluralize(planIds.length, "plan") : null,
+    diffSummaryIds.length > 0 ? pluralize(diffSummaryIds.length, "diff") : null,
+  ].filter(Boolean);
+  const summary =
+    counts.length > 0 ? `${counts.join(" · ")} · ${statusLabel}` : statusLabel;
+  const preview =
+    reasoningTextPreview(reasoningItem) ?? reasoningPreview(reasoningMessage);
+  const title = reasoningItem
+    ? `Codex ${reasoningItemLabel(reasoningItem).toLowerCase()}`
+    : "Codex worked for this turn";
+
+  return (
+    <TimelineRowShell
+      active={active}
+      label={timelineRowLabel("Codex work", statusLabel)}
+    >
+      <div className="w-full max-w-[min(46rem,92%)]">
+        <Collapsible open={open} onOpenChange={setUserOpen}>
+          <div className="rounded-xl border bg-muted/20 text-sm shadow-xs">
+            <CollapsibleTrigger
+              className="flex w-full items-start gap-3 px-3 py-3 text-left"
+              aria-label={open ? "Collapse Codex work" : "Expand Codex work"}
+            >
+              <div
+                className={cn(
+                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground",
+                  active && "text-primary",
+                )}
+              >
+                {active ? (
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Wrench className="h-3.5 w-3.5" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="font-medium">{title}</div>
+                <div className="text-xs text-muted-foreground">{summary}</div>
+                {preview && !open ? (
+                  <div
+                    className="mt-2 max-h-12 overflow-hidden whitespace-pre-wrap text-xs leading-5 text-muted-foreground"
+                    data-testid="chat-work-reasoning-preview"
+                  >
+                    {preview}
+                  </div>
+                ) : null}
+              </div>
+              <ChevronDown
+                className={cn(
+                  "mt-1 h-4 w-4 text-muted-foreground transition-transform",
+                  open && "rotate-180",
+                )}
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="border-t px-3 py-3">
+              <div className="space-y-3">
+                {reasoningItem ? (
+                  <ReasoningItemBlock
+                    conversationId={conversationId}
+                    item={reasoningItem}
+                    open={open}
+                  />
+                ) : fallbackReasoningText.length > 0 ? (
+                  <div
+                    className="rounded-lg border bg-background/55 px-3 py-3"
+                    aria-label="Reasoning summary"
+                  >
+                    <div className="mb-2 text-xs font-medium text-foreground">
+                      Thinking
+                    </div>
+                    <div className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+                      {fallbackReasoningText}
+                    </div>
+                  </div>
+                ) : active ? (
+                  <div className="rounded-lg border bg-background/55 px-3 py-3 text-xs text-muted-foreground">
+                    Codex is preparing its next step…
+                  </div>
+                ) : null}
+                {planIds.map((planId) => (
+                  <PlanRow key={planId} planId={planId} nested />
+                ))}
+                {pendingRequestIds.map((requestId) => (
+                  <NestedPendingRequestCard
+                    key={requestId}
+                    requestId={requestId}
+                  />
+                ))}
+                {activityIds.map((itemId) => (
+                  <ActivityRow
+                    key={itemId}
+                    conversationId={conversationId}
+                    itemId={itemId}
+                    nested
+                  />
+                ))}
+                {diffSummaryIds.map((diffId) => (
+                  <DiffSummaryRow key={diffId} diffId={diffId} nested />
+                ))}
+              </div>
+            </CollapsibleContent>
+          </div>
+        </Collapsible>
+      </div>
     </TimelineRowShell>
   );
 }
@@ -1362,6 +1648,24 @@ function ChatTimelineRow({
   conversationId: string;
   rowId: string;
 }) {
+  if (rowId.startsWith("work:")) {
+    const [, turnId, segmentKey = "initial"] = rowId.split(":");
+    return (
+      <WorkGroupRow
+        conversationId={conversationId}
+        turnId={turnId}
+        segmentKey={segmentKey}
+      />
+    );
+  }
+  if (rowId.startsWith("message:user:")) {
+    return <ChatMessageRow messageId={rowId.slice("message:user:".length)} />;
+  }
+  if (rowId.startsWith("message:assistant:")) {
+    return (
+      <ChatMessageRow messageId={rowId.slice("message:assistant:".length)} />
+    );
+  }
   if (rowId.startsWith("activity:")) {
     return (
       <ActivityRow
@@ -1379,7 +1683,10 @@ function ChatTimelineRow({
   if (rowId.startsWith("diff:")) {
     return <DiffSummaryRow diffId={rowId.slice("diff:".length)} />;
   }
-  return <ChatMessageRow messageId={rowId.slice("message:".length)} />;
+  if (rowId.startsWith("message:")) {
+    return <ChatMessageRow messageId={rowId.slice("message:".length)} />;
+  }
+  return null;
 }
 
 function ChatTranscript({ conversationId }: { conversationId: string }) {

@@ -90,6 +90,17 @@ For existing threads, hydrate before rendering an editable live view:
 - apply live events after the snapshot,
 - deduplicate hydrated items against live events by provider ids.
 
+Hydration can race the live stream. A robust GUI should treat `thread/read`,
+`thread/turns/list`, `thread/resume`, `turn/started`, item deltas, and
+completion notifications as overlapping sources of truth. Prefer a merge model:
+
+- keep the live in-memory turn if it has more items than the hydrated turn,
+- merge by provider turn id and item id before falling back to append order,
+- preserve locally streamed deltas when a historical snapshot is stale,
+- replace placeholders when a completed provider item arrives,
+- ignore empty or duplicate hydrated user messages,
+- keep paged historical turns separate from the active live tail until merged.
+
 User-facing states:
 
 | State                      | UI Treatment                                                           |
@@ -138,6 +149,11 @@ Forward these actions through the owner path:
 
 This prevents duplicate rows, double approval responses, and out-of-order stream
 state when multiple views are attached to the same thread.
+
+Follower views should suppress direct `thread/*`, `turn/*`, and `item/*`
+mutation notifications for followed threads when those mutations are also being
+mirrored by the owner. They can still handle local metadata, settings, and
+feature-controller notifications that are not thread mutations.
 
 ## Turns
 
@@ -195,6 +211,67 @@ User presentation:
 - Show final elapsed time only after completion.
 - Keep copy/export controls hidden or disabled until the message is complete.
 
+## Commentary And Tool Grouping
+
+The Codex VS Code extension keeps `agentMessage` items as assistant-message
+items, even when the message is progress commentary. The `phase` field decides
+how prominent the message should be:
+
+| Agent Message Phase | Recommended UI                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| `final_answer`      | Primary assistant response. Put copy, rating, export, and follow-up controls here.   |
+| `commentary`        | Assistant progress prose. Render as assistant text, but attach nearby work activity. |
+| `null` or unknown   | Treat as commentary until the item completes or a final-answer signal arrives.       |
+
+`item/agentMessage/delta` should only append text to the matching item. Do not
+classify the delta by itself. Classification should come from the surrounding
+`item/started` or `item/completed` item metadata, especially `phase`.
+
+Recommended turn layout:
+
+1. Normalize raw protocol items into UI units such as user message, assistant
+   message, command execution, patch, MCP tool call, web search, approval, and
+   structured user input.
+2. Keep user messages, pending approvals, and blocking user-input requests
+   outside collapsed tool groups.
+3. Treat assistant-message items as grouping boundaries. Tool activity after a
+   commentary message belongs to that commentary block until the next assistant
+   message or turn end.
+4. Render the final answer after the grouped work activity. Once
+   `phase === "final_answer"` starts or completes, auto-collapse earlier work so
+   the final response remains the visual focus.
+5. While a turn is still running and no final answer exists, keep the active
+   work group visible or partially expanded so the user can see current
+   progress.
+
+Example render shape:
+
+```text
+Assistant commentary
+Collapsed activity: Explored 4 files, ran 2 commands
+Assistant commentary
+Collapsed activity: Edited 3 files, ran tests
+Final assistant answer
+```
+
+This is better than interleaving every `item/started`, output delta, and
+completion as separate chat rows. Commentary gives the work a readable
+narrative, while grouped activity preserves detail without drowning out the
+answer.
+
+Make grouping a presentation policy, not protocol state. Different detail modes
+can render the same normalized items differently:
+
+- compact chat mode should collapse completed work aggressively,
+- step-by-step mode can keep single command rows visible,
+- active work should stay easier to inspect than completed work,
+- assistant-message boundaries should still be preserved in every mode.
+
+Exploration grouping needs exceptions. File reads, file lists, and searches
+usually belong together, but a long-running read of a skill definition or other
+semantic setup file may deserve its own visible row such as "Reading X skill" so
+the user understands why progress paused.
+
 ## Tool And Work Activity
 
 Tool-like item lifecycle events include command execution, file changes, MCP
@@ -206,9 +283,15 @@ Recommended presentation:
 - Convert `item/started`, update/progress deltas, and `item/completed` into
   compact work-log rows.
 - Collapse repeated lifecycle rows for the same tool call.
+- Group adjacent exploration commands such as file reads, file lists, and
+  searches into one "Exploring" activity with counts and concise labels.
 - Prefer a concise label plus optional detail over dumping raw payload JSON.
 - Surface command strings, changed files, tool names, and short output previews
   when available.
+- Show long command output only inside an expandable detail panel. The default
+  timeline row should usually show command, status, elapsed time, and result.
+- Collapse completed work groups when the final answer is visible, but keep
+  currently running work easy to inspect.
 - Keep raw payloads available in developer/debug mode, not in the default chat
   view.
 
@@ -268,6 +351,41 @@ When truncating output, make truncation explicit with a stable marker such as
 `[output truncated]`, and keep enough metadata to let developer/debug views
 explain what was omitted.
 
+Some command executions can outlive the turn where they started, especially
+background terminals. Do not bury those inside an old collapsed work group only.
+Track running background commands across turns and surface them near the
+composer or terminal panel with:
+
+- command preview,
+- cwd when useful,
+- latest meaningful output line,
+- stop/clean-up action when supported,
+- link back to the source turn or full terminal output.
+
+When the background command exits, remove it from the active-running surface but
+leave the historical command activity in its original turn.
+
+## MCP Tools And Embedded Apps
+
+MCP tool calls are not always generic log rows. Some results include app or
+widget metadata such as output template/resource URI, content security policy,
+height hints, preferred border styling, connector id, or widget domain.
+
+Recommended handling:
+
+- Detect MCP results that provide renderable app/widget metadata.
+- Keep trusted embedded app results expanded or easy to reopen.
+- Group generic MCP tool calls by server or resolved app identity.
+- Preserve source labels, logos, and connector names when available.
+- Treat pending MCP calls after the last assistant message as active work, not
+  completed history.
+- Decline unsupported MCP elicitations promptly instead of leaving the protocol
+  request pending.
+
+Embedded apps need stronger isolation than normal markdown. Apply the provided
+CSP/domain hints when supported, use a sandboxed frame or equivalent boundary,
+and keep raw tool payloads available only in developer/debug views.
+
 ## Server-Initiated Requests
 
 Server requests are different from notifications. They require exactly one
@@ -286,6 +404,12 @@ Recommended request lifecycle:
 8. Apply the response locally, then remove the request from pending state.
 9. Also remove or mark it resolved if a `serverRequest/resolved` notification
    arrives.
+
+Requests can resolve outside the local UI path: another window may answer them,
+the owner view may resolve them for a follower, or app-server may cancel them
+when a turn ends. Treat `serverRequest/resolved` as authoritative for removing
+pending request panels. If the user tries to act on a stale request, show a
+small "already resolved" state rather than sending another response.
 
 Common request types:
 
@@ -425,6 +549,24 @@ Reasoning text is not the final answer. Present it carefully:
 - Do not mix reasoning into the assistant answer.
 - If unavailable or intentionally hidden, show normal working state instead.
 
+## Directive And Automation Payloads
+
+Some assistant or user-message content may contain directive-style payloads used
+by automations, background tasks, or follow-up routing. These can look like
+XML-ish blocks, heartbeat status, or control decisions rather than normal prose.
+
+Do not blindly render directive payloads as chat text. Parse and route known
+directive formats before markdown rendering:
+
+- strip directive markup from visible assistant text when it is not user-facing,
+- honor "do not notify" decisions by avoiding unread badges or desktop notices,
+- keep any user-visible directive message short and human-readable,
+- log unrecognized directive payloads for debugging,
+- never let directive parsing delete normal visible text around the payload.
+
+If a directive produces queued follow-up work, render the follow-up as normal
+conversation state. The directive itself should usually remain protocol detail.
+
 ## Errors And Warnings
 
 Use severity:
@@ -515,6 +657,8 @@ On reconnect:
 
 - Load a snapshot before replaying live events.
 - Deduplicate by event id and message id.
+- Merge hydrated turns with live turns before rendering new rows.
+- Preserve streamed text/output if hydrated history is behind the live state.
 - Rebuild pending request display state from unresolved request activities.
 - Mark request actions stale unless the current app-server process still owns
   the matching protocol callback.
@@ -617,6 +761,7 @@ payload shapes may evolve, but the UI-side responsibility should stay stable.
 | `turn/plan/updated`         | Update the active task checklist or todo-list item for the turn.                                                              |
 | `hook/started`              | Add or update a compact hook activity and mark related work active.                                                           |
 | `hook/completed`            | Complete the hook activity without creating duplicate timeline rows.                                                          |
+| directive/heartbeat content | Parse control payloads before rendering; only show human-readable visible text.                                               |
 
 ### Item Notifications
 

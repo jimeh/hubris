@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps, ReactNode } from "react";
@@ -444,6 +445,74 @@ describe("AgentChatTab", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "Reconciling Codex thread state",
     );
+  });
+
+  it("groups completed thinking and activity before the final answer", async () => {
+    await renderChat(
+      makeDetail({
+        pendingRequests: [],
+        latestReconciliation: null,
+      }),
+    );
+
+    const rows = screen.getAllByTestId("chat-timeline-row");
+    expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+      "User message: completed",
+      "Codex work: Completed",
+      "Codex response: completed",
+    ]);
+
+    const workRow = screen.getByLabelText("Codex work: Completed");
+    const assistantRow = screen.getByLabelText("Codex response: completed");
+    expect(
+      within(workRow).getByText("Codex worked for this turn"),
+    ).toBeVisible();
+    expect(
+      within(workRow).getByTestId("chat-work-reasoning-preview"),
+    ).toHaveTextContent("I checked the relevant test output first.");
+    expect(within(assistantRow).queryByText("Thinking")).toBeNull();
+    expect(within(assistantRow).getByText("The tests passed.")).toBeVisible();
+
+    fireEvent.click(within(workRow).getByLabelText("Expand Codex work"));
+    expect(within(workRow).getByText("Thinking")).toBeVisible();
+    expect(within(workRow).getByText("Run `bun test`")).toBeVisible();
+    expect(within(workRow).getByText("Plan")).toBeVisible();
+    expect(within(workRow).getByText("Changes")).toBeVisible();
+  });
+
+  it("shows active work without an empty assistant bubble", async () => {
+    await renderChat(
+      makeDetail({
+        messages: [
+          userMessage,
+          {
+            ...assistantMessage,
+            status: "streaming",
+            contentText: "",
+            reasoningText: "I am checking the repo before answering.",
+          },
+        ],
+        items: [
+          {
+            ...makeDetail().items[0],
+            status: "streaming",
+          },
+          {
+            ...makeDetail().items[1],
+            status: "streaming",
+          },
+        ],
+        pendingRequests: [],
+        latestReconciliation: null,
+      }),
+    );
+
+    expect(screen.getByLabelText("Codex work: Working")).toBeVisible();
+    expect(screen.queryByLabelText("Codex response: streaming")).toBeNull();
+    expect(
+      screen.getByText("I am checking the repo before answering."),
+    ).toBeVisible();
+    expect(screen.getByText("Run `bun test`")).toBeVisible();
   });
 
   it("contains inactive rows while keeping active rows fully rendered", async () => {

@@ -10,6 +10,7 @@ import {
   selectChatMessageIds,
   selectChatReconciliation,
   selectChatTimelineIds,
+  selectChatWorkGroupSlice,
   useChatStore,
 } from "./chats";
 
@@ -517,9 +518,8 @@ describe("chat store", () => {
     expect(loaded?.diffSummaries[0]?.id).toBe("diff-1");
     expect(loaded?.contextUsage?.percentUsed).toBe(10);
     expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
-      "message:message-1",
-      "plan:plan-1",
-      "diff:diff-1",
+      "work:turn-local-1:initial",
+      "message:assistant:message-1",
     ]);
 
     mockEvents.emit("chat_plan_updated", {
@@ -569,7 +569,8 @@ describe("chat store", () => {
     await useChatStore.getState().ensureConversationLoaded("chat-1");
 
     expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
-      "message:message-1",
+      "work:turn-local-1:initial",
+      "message:assistant:message-1",
     ]);
 
     mockEvents.emit("chat_activity_updated", {
@@ -586,8 +587,8 @@ describe("chat store", () => {
     flushChatStoreSseBatchForTests();
 
     expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
-      "message:message-1",
-      "activity:item-command-1",
+      "work:turn-local-1:initial",
+      "message:assistant:message-1",
     ]);
     expect(
       selectChatItemOutputIds(useChatStore.getState(), "item-command-1"),
@@ -595,6 +596,250 @@ describe("chat store", () => {
     expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
       "Hello",
     );
+  });
+
+  it("orders turn-owned rows as user, work group, then assistant", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      messages: [
+        {
+          id: "user-message-1",
+          conversationId: "chat-1",
+          turnId: "turn-local-1",
+          itemId: null,
+          providerTurnId: "turn-1",
+          providerItemId: null,
+          role: "user" as const,
+          status: "completed" as const,
+          contentText: "Run the tests",
+          reasoningText: "",
+          sequence: 0,
+          createdAt: 9,
+          updatedAt: 9,
+        },
+        detail.messages[0],
+      ],
+      items: [detail.items[0], commandItem],
+      pendingRequests: [pendingRequest],
+      plans: [plan],
+      diffSummaries: [diffSummary],
+    });
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "message:user:user-message-1",
+      "work:turn-local-1:initial",
+      "message:assistant:message-1",
+    ]);
+  });
+
+  it("splits turn work into commentary segments with following activity", async () => {
+    initializeChatStore();
+    const commentaryOne = {
+      id: "item-commentary-1",
+      conversationId: "chat-1",
+      turnId: "turn-local-1",
+      providerTurnId: "turn-1",
+      providerItemId: "provider-commentary-1",
+      kind: "reasoning" as const,
+      status: "completed" as const,
+      role: "assistant" as const,
+      sequence: 2,
+      title: null,
+      summary: "I’ll inspect the color pages first.",
+      metadataJson: JSON.stringify({
+        type: "agentMessage",
+        phase: "commentary",
+      }),
+      createdAt: 11,
+      updatedAt: 11,
+      completedAt: 11,
+    };
+    const commentaryTwo = {
+      ...commentaryOne,
+      id: "item-commentary-2",
+      providerItemId: "provider-commentary-2",
+      sequence: 4,
+      summary: "I’m checking the swatch styling next.",
+      createdAt: 13,
+      updatedAt: 13,
+      completedAt: 13,
+    };
+    const secondCommand = {
+      ...commandItem,
+      id: "item-command-2",
+      providerItemId: "provider-command-2",
+      sequence: 5,
+      createdAt: 14,
+      updatedAt: 14,
+    };
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      messages: [
+        {
+          id: "user-message-1",
+          conversationId: "chat-1",
+          turnId: "turn-local-1",
+          itemId: null,
+          providerTurnId: "turn-1",
+          providerItemId: null,
+          role: "user" as const,
+          status: "completed" as const,
+          contentText: "Suggest color additions",
+          reasoningText: "",
+          sequence: 0,
+          createdAt: 9,
+          updatedAt: 9,
+        },
+        detail.messages[0],
+      ],
+      items: [
+        detail.items[0],
+        commentaryOne,
+        { ...commandItem, sequence: 3 },
+        commentaryTwo,
+        secondCommand,
+      ],
+    });
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "message:user:user-message-1",
+      "work:turn-local-1:item-commentary-1",
+      "work:turn-local-1:item-commentary-2",
+      "message:assistant:message-1",
+    ]);
+    expect(
+      selectChatWorkGroupSlice(
+        useChatStore.getState(),
+        "chat-1",
+        "turn-local-1",
+        "item-commentary-1",
+      ).activityIds,
+    ).toEqual(["item-command-1"]);
+    expect(
+      selectChatWorkGroupSlice(
+        useChatStore.getState(),
+        "chat-1",
+        "turn-local-1",
+        "item-commentary-2",
+      ).activityIds,
+    ).toEqual(["item-command-2"]);
+  });
+
+  it("suppresses aggregate thinking rows that duplicate commentary", async () => {
+    initializeChatStore();
+    const commentary = {
+      id: "item-commentary-1",
+      conversationId: "chat-1",
+      turnId: "turn-local-1",
+      providerTurnId: "turn-1",
+      providerItemId: "provider-commentary-1",
+      kind: "reasoning" as const,
+      status: "completed" as const,
+      role: "assistant" as const,
+      sequence: 2,
+      title: null,
+      summary: "I’ll inspect the project first.",
+      metadataJson: JSON.stringify({
+        type: "agentMessage",
+        phase: "commentary",
+      }),
+      createdAt: 11,
+      updatedAt: 11,
+      completedAt: 11,
+    };
+    const duplicateThinking = {
+      ...commentary,
+      id: "item-thinking-1",
+      providerItemId: "provider-thinking-1",
+      sequence: 3,
+      summary: "I’ll inspect the project first. Then I’ll check the config.",
+      metadataJson: JSON.stringify({
+        type: "reasoning",
+        phase: null,
+      }),
+      createdAt: 12,
+      updatedAt: 12,
+      completedAt: 12,
+    };
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      items: [
+        detail.items[0],
+        commentary,
+        duplicateThinking,
+        { ...commandItem, sequence: 4 },
+      ],
+    });
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "work:turn-local-1:item-commentary-1",
+      "message:assistant:message-1",
+    ]);
+    expect(
+      selectChatWorkGroupSlice(
+        useChatStore.getState(),
+        "chat-1",
+        "turn-local-1",
+        "item-commentary-1",
+      ).activityIds,
+    ).toEqual(["item-command-1"]);
+  });
+
+  it("keeps unlinked activity as standalone fallback rows", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      turns: [],
+      messages: [{ ...detail.messages[0], turnId: null }],
+      items: [{ ...commandItem, turnId: null }],
+    });
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "message:assistant:message-1",
+      "activity:item-command-1",
+    ]);
+  });
+
+  it("does not render empty active assistant projections", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      messages: [
+        {
+          id: "user-message-1",
+          conversationId: "chat-1",
+          turnId: "turn-local-1",
+          itemId: null,
+          providerTurnId: "turn-1",
+          providerItemId: null,
+          role: "user" as const,
+          status: "completed" as const,
+          contentText: "Inspect the repo",
+          reasoningText: "",
+          sequence: 0,
+          createdAt: 9,
+          updatedAt: 9,
+        },
+        {
+          ...detail.messages[0],
+          status: "streaming" as const,
+          contentText: "",
+          reasoningText: "Checking files before answering.",
+        },
+      ],
+      items: [commandItem],
+    });
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "message:user:user-message-1",
+      "work:turn-local-1:initial",
+    ]);
   });
 
   it("hydrates and applies reconciliation updates", async () => {
@@ -634,8 +879,8 @@ describe("chat store", () => {
     await useChatStore.getState().ensureConversationLoaded("chat-1");
 
     expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
-      "message:message-1",
-      "request:request-1",
+      "work:turn-local-1:initial",
+      "message:assistant:message-1",
     ]);
     expect(
       useChatStore.getState().pendingRequestsById["request-1"]?.status,

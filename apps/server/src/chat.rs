@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -35,6 +36,7 @@ const DEFAULT_IDLE_TIMEOUT_MINUTES: u32 = 5;
 const CHAT_DB_MAX_CONNECTIONS: u32 = 1;
 const MAX_INACTIVE_THREAD_STREAMS: usize = 4;
 const UNSUBSCRIBE_RETRY_DELAY: Duration = Duration::from_secs(15);
+const CODEX_TEXT_TRACE_ENV: &str = "HUBRIS_CODEX_TEXT_TRACE";
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -976,6 +978,11 @@ struct RuntimeState {
     active_error: Option<String>,
     lifecycle: ChatRuntimeLifecycle,
     active_reasoning_summary_index: Option<u64>,
+    active_commentary_item_id: Option<String>,
+    has_reasoning_projection: bool,
+    agent_message_projection_by_item_id: HashMap<String, AgentMessageProjection>,
+    commentary_delta_seen_item_ids: HashSet<String>,
+    commentary_completed_item_ids: HashSet<String>,
     stream_lifecycle: ThreadStreamLifecycle,
     owner_generation: u64,
     idle_generation: u64,
@@ -1002,6 +1009,11 @@ impl RuntimeState {
             active_error: None,
             lifecycle: ChatRuntimeLifecycle::Starting,
             active_reasoning_summary_index: None,
+            active_commentary_item_id: None,
+            has_reasoning_projection: false,
+            agent_message_projection_by_item_id: HashMap::new(),
+            commentary_delta_seen_item_ids: HashSet::new(),
+            commentary_completed_item_ids: HashSet::new(),
             stream_lifecycle,
             owner_generation: 0,
             idle_generation: 0,
@@ -1009,6 +1021,21 @@ impl RuntimeState {
             last_error: None,
         }
     }
+
+    fn reset_text_projection_state(&mut self) {
+        self.active_reasoning_summary_index = None;
+        self.active_commentary_item_id = None;
+        self.has_reasoning_projection = false;
+        self.agent_message_projection_by_item_id.clear();
+        self.commentary_delta_seen_item_ids.clear();
+        self.commentary_completed_item_ids.clear();
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentMessageProjection {
+    Response,
+    Reasoning,
 }
 
 #[derive(Debug, Clone)]
@@ -2612,7 +2639,7 @@ impl ChatService {
             state.active_turn_id = Some(turn_id.clone());
             state.active_message_id = Some(assistant_message_id.clone());
             state.lifecycle = ChatRuntimeLifecycle::Running;
-            state.active_reasoning_summary_index = None;
+            state.reset_text_projection_state();
             state.active_error = None;
             state.last_error = None;
             state.inactive_deadline_at = None;
@@ -3674,13 +3701,31 @@ impl ChatService {
                 }
             }
             "item/started" => {
+                trace_codex_text_event("item/started", conversation_id, &params);
                 let kind = item_kind_from_params(&params);
+                let projection = agent_message_projection_from_value(&params);
+                let route_hints = RouteHints::from_value(&params);
+                if let (Some(item_id), Some(projection)) =
+                    (route_hints.item_id.as_deref(), projection)
+                {
+                    runtime
+                        .state
+                        .lock()
+                        .await
+                        .agent_message_projection_by_item_id
+                        .insert(item_id.to_string(), projection);
+                }
+                let persisted_kind = if projection == Some(AgentMessageProjection::Reasoning) {
+                    ChatItemKind::Reasoning
+                } else {
+                    kind
+                };
                 let _ = self
                     .upsert_chat_item(
                         conversation_id,
                         runtime,
                         &params,
-                        kind,
+                        persisted_kind,
                         ChatItemStatus::Started,
                     )
                     .await?;
@@ -3805,6 +3850,7 @@ impl ChatService {
                     .await?;
             }
             "item/reasoning/summaryTextDelta" => {
+                trace_codex_text_event("item/reasoning/summaryTextDelta", conversation_id, &params);
                 let delta = params
                     .get("delta")
                     .and_then(Value::as_str)
@@ -3813,11 +3859,11 @@ impl ChatService {
                     return Ok(());
                 }
                 let _ = self
-                    .upsert_chat_item(
+                    .append_reasoning_item_delta(
                         conversation_id,
                         runtime,
                         &params,
-                        ChatItemKind::Reasoning,
+                        delta,
                         ChatItemStatus::Streaming,
                     )
                     .await?;
@@ -3835,6 +3881,7 @@ impl ChatService {
                         Some(current) if current != summary_index
                     );
                     state.active_reasoning_summary_index = Some(summary_index);
+                    state.has_reasoning_projection = true;
                     let prefix = if needs_separator { "\n\n" } else { "" };
                     (
                         message_id,
@@ -3855,6 +3902,7 @@ impl ChatService {
                 });
             }
             "item/agentMessage/delta" => {
+                trace_codex_text_event("item/agentMessage/delta", conversation_id, &params);
                 let delta = params
                     .get("delta")
                     .and_then(Value::as_str)
@@ -3863,25 +3911,62 @@ impl ChatService {
                 if delta.is_empty() {
                     return Ok(());
                 }
-                let (message_id, session_id) = {
-                    let state = runtime.state.lock().await;
-                    (state.active_message_id.clone(), state.session_id.clone())
+                let route_hints = RouteHints::from_value(&params);
+                let (message_id, session_id, is_reasoning_delta, prefixed_delta) = {
+                    let mut state = runtime.state.lock().await;
+                    let is_reasoning_delta = is_commentary_phase(&params)
+                        || route_hints.item_id.as_deref().is_some_and(|item_id| {
+                            state
+                                .agent_message_projection_by_item_id
+                                .get(item_id)
+                                .is_some_and(|projection| {
+                                    matches!(projection, AgentMessageProjection::Reasoning)
+                                })
+                        });
+                    let prefixed_delta = if is_reasoning_delta {
+                        let item_changed = route_hints.item_id.as_ref().is_some_and(|item_id| {
+                            state.active_commentary_item_id.as_ref() != Some(item_id)
+                        });
+                        let prefix = if item_changed && state.has_reasoning_projection {
+                            "\n\n"
+                        } else {
+                            ""
+                        };
+                        if let Some(item_id) = route_hints.item_id.as_ref() {
+                            state.active_commentary_item_id = Some(item_id.clone());
+                            state.commentary_delta_seen_item_ids.insert(item_id.clone());
+                        }
+                        state.has_reasoning_projection = true;
+                        format!("{prefix}{delta}")
+                    } else {
+                        delta.clone()
+                    };
+                    (
+                        state.active_message_id.clone(),
+                        state.session_id.clone(),
+                        is_reasoning_delta,
+                        prefixed_delta,
+                    )
                 };
                 let Some(message_id) = message_id else {
                     return Ok(());
                 };
-                if is_commentary_phase(&params) {
+                if is_reasoning_delta {
                     let _ = self
-                        .upsert_chat_item(
+                        .append_reasoning_item_delta(
                             conversation_id,
                             runtime,
                             &params,
-                            ChatItemKind::Reasoning,
+                            &delta,
                             ChatItemStatus::Streaming,
                         )
                         .await?;
                     let Some(message) = self
-                        .append_message_reasoning_delta(conversation_id, &message_id, &delta)
+                        .append_message_reasoning_delta(
+                            conversation_id,
+                            &message_id,
+                            &prefixed_delta,
+                        )
                         .await?
                     else {
                         return Ok(());
@@ -3915,36 +4000,99 @@ impl ChatService {
                 }
             }
             "item/completed" => {
+                trace_codex_text_event("item/completed", conversation_id, &params);
                 let item = params.get("item").cloned().unwrap_or(Value::Null);
                 let kind = item_kind_from_params(&params);
+                let is_commentary_agent_message = matches!(kind, ChatItemKind::AgentMessage)
+                    && (is_commentary_phase(&params) || is_commentary_phase(&item));
+                let route_hints = RouteHints::from_value(&params);
+                let projection = agent_message_projection_from_value(&params);
+                if let (Some(item_id), Some(projection)) =
+                    (route_hints.item_id.as_deref(), projection)
+                {
+                    runtime
+                        .state
+                        .lock()
+                        .await
+                        .agent_message_projection_by_item_id
+                        .insert(item_id.to_string(), projection);
+                }
                 self.finalize_proposed_plan_for_item(conversation_id, runtime, &params)
                     .await?;
                 if is_plan_payload(&params) {
                     return Ok(());
                 }
+                let persisted_kind = if is_commentary_agent_message {
+                    ChatItemKind::Reasoning
+                } else {
+                    kind
+                };
                 let _ = self
                     .upsert_chat_item(
                         conversation_id,
                         runtime,
                         &params,
-                        kind,
+                        persisted_kind,
                         ChatItemStatus::Completed,
                     )
                     .await?;
                 if matches!(kind, ChatItemKind::AgentMessage)
                     && let Some(text) = item.get("text").and_then(Value::as_str)
                 {
-                    let message_id = { runtime.state.lock().await.active_message_id.clone() };
+                    let (message_id, reasoning_completion_delta) = {
+                        let mut state = runtime.state.lock().await;
+                        let reasoning_completion_delta = if is_commentary_agent_message {
+                            let item_id = route_hints.item_id.as_ref();
+                            let already_streamed = item_id.is_some_and(|item_id| {
+                                state.commentary_delta_seen_item_ids.contains(item_id)
+                            });
+                            let already_completed = item_id.is_some_and(|item_id| {
+                                state.commentary_completed_item_ids.contains(item_id)
+                            });
+                            if !already_streamed && !already_completed {
+                                let prefix = if state.has_reasoning_projection {
+                                    "\n\n"
+                                } else {
+                                    ""
+                                };
+                                state.has_reasoning_projection = true;
+                                if let Some(item_id) = item_id {
+                                    state.active_commentary_item_id = Some(item_id.clone());
+                                    state.commentary_completed_item_ids.insert(item_id.clone());
+                                }
+                                Some(format!("{prefix}{text}"))
+                            } else {
+                                if let Some(item_id) = item_id {
+                                    state.commentary_completed_item_ids.insert(item_id.clone());
+                                }
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        (state.active_message_id.clone(), reasoning_completion_delta)
+                    };
                     if let Some(message_id) = message_id {
-                        if is_commentary_phase(&item) {
-                            let message = self
-                                .replace_message_reasoning(
+                        if let Some(reasoning_completion_delta) = reasoning_completion_delta {
+                            let _ = self
+                                .append_reasoning_item_delta(
                                     conversation_id,
-                                    &message_id,
+                                    runtime,
+                                    &params,
                                     text,
-                                    ChatMessageStatus::Streaming,
+                                    ChatItemStatus::Completed,
                                 )
                                 .await?;
+                            let Some(message) = self
+                                .append_message_reasoning_delta(
+                                    conversation_id,
+                                    &message_id,
+                                    &reasoning_completion_delta,
+                                )
+                                .await?
+                            else {
+                                return Ok(());
+                            };
                             if let Some(summary) =
                                 self.get_conversation_summary(conversation_id).await?
                             {
@@ -3954,6 +4102,8 @@ impl ChatService {
                                     message,
                                 });
                             }
+                        } else if is_commentary_agent_message {
+                            return Ok(());
                         } else {
                             self.replace_message_content(
                                 conversation_id,
@@ -3967,6 +4117,7 @@ impl ChatService {
                 }
             }
             "turn/completed" => {
+                trace_codex_text_event("turn/completed", conversation_id, &params);
                 let status = params
                     .get("turn")
                     .and_then(|turn| turn.get("status"))
@@ -3975,7 +4126,7 @@ impl ChatService {
                 let (run_id, turn_id, message_id, session_id, generation, active_error) = {
                     let mut state = runtime.state.lock().await;
                     state.lifecycle = ChatRuntimeLifecycle::Ready;
-                    state.active_reasoning_summary_index = None;
+                    state.reset_text_projection_state();
                     state.idle_generation = state.idle_generation.saturating_add(1);
                     let generation = state.idle_generation;
                     let active_error = state.active_error.take();
@@ -4103,7 +4254,7 @@ impl ChatService {
                 let mut state = runtime.state.lock().await;
                 state.lifecycle = ChatRuntimeLifecycle::Failed;
                 state.stream_lifecycle.mark_process_lost();
-                state.active_reasoning_summary_index = None;
+                state.reset_text_projection_state();
                 state.inactive_deadline_at = None;
                 state.last_error = Some(reason.clone());
                 (
@@ -5998,6 +6149,116 @@ impl ChatService {
         Ok(())
     }
 
+    async fn append_reasoning_item_delta(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        params: &Value,
+        delta: &str,
+        status: ChatItemStatus,
+    ) -> Result<Option<ChatItem>, ChatServiceError> {
+        if delta.is_empty() {
+            return self
+                .upsert_chat_item(
+                    conversation_id,
+                    runtime,
+                    params,
+                    ChatItemKind::Reasoning,
+                    status,
+                )
+                .await;
+        }
+        let Some(item) = self
+            .upsert_chat_item(
+                conversation_id,
+                runtime,
+                params,
+                ChatItemKind::Reasoning,
+                status,
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let next_sequence = sqlx::query(
+            "
+            SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+            FROM chat_item_outputs
+            WHERE conversation_id = ? AND item_id = ?
+            ",
+        )
+        .bind(conversation_id)
+        .bind(&item.id)
+        .fetch_one(&self.pool)
+        .await?
+        .try_get::<i64, _>("next_sequence")
+        .unwrap_or(1);
+        let now = now_ms() as i64;
+        let output_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            "
+            INSERT INTO chat_item_outputs (
+                id, conversation_id, item_id, stream_kind, sequence,
+                content_text, byte_count, created_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ",
+        )
+        .bind(&output_id)
+        .bind(conversation_id)
+        .bind(&item.id)
+        .bind("reasoning")
+        .bind(next_sequence)
+        .bind(delta)
+        .bind(delta.len() as i64)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "
+            UPDATE chat_items
+            SET summary = CASE
+                    WHEN summary IS NULL OR summary = '' THEN substr(?, 1, 1200)
+                    ELSE substr(summary || ?, 1, 1200)
+                END,
+                updated_at_ms = ?
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(delta)
+        .bind(delta)
+        .bind(now)
+        .bind(&item.id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+
+        let Some(updated_item) = self.get_item_by_id(conversation_id, &item.id).await? else {
+            return Ok(None);
+        };
+        let Some(output) = self
+            .get_item_output_by_id(conversation_id, &output_id)
+            .await?
+        else {
+            return Ok(Some(updated_item));
+        };
+        let session_id = { runtime.state.lock().await.session_id.clone() };
+        self.events.emit(EventKind::ChatActivityDelta {
+            session_id: session_id.clone(),
+            conversation_id: conversation_id.to_string(),
+            item_id: updated_item.id.clone(),
+            output,
+        });
+        self.events.emit(EventKind::ChatItemUpdated {
+            session_id,
+            conversation_id: conversation_id.to_string(),
+            item: updated_item.clone(),
+        });
+        Ok(Some(updated_item))
+    }
+
     async fn get_plan_by_id(
         &self,
         conversation_id: &str,
@@ -7547,6 +7808,23 @@ fn item_kind_from_params(value: &Value) -> ChatItemKind {
     }
 }
 
+fn agent_message_projection_from_value(value: &Value) -> Option<AgentMessageProjection> {
+    let item_type = value
+        .get("item")
+        .and_then(|item| item.get("type"))
+        .and_then(Value::as_str)
+        .or_else(|| value.get("type").and_then(Value::as_str));
+    if item_type != Some("agentMessage") {
+        return None;
+    }
+
+    if is_commentary_phase(value) {
+        Some(AgentMessageProjection::Reasoning)
+    } else {
+        Some(AgentMessageProjection::Response)
+    }
+}
+
 fn is_plan_payload(value: &Value) -> bool {
     let item_type = value
         .get("item")
@@ -7810,6 +8088,68 @@ fn summarize_inline(value: &str, limit: usize) -> String {
 
 fn summarize_activity_text(value: &str) -> String {
     summarize_inline(value, 240)
+}
+
+fn codex_text_trace_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var(CODEX_TEXT_TRACE_ENV)
+            .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false)
+    })
+}
+
+fn trace_string_field(value: &Value, path: &str) -> Option<String> {
+    let field = if let Some(pointer) = path.strip_prefix('/') {
+        value.pointer(&format!("/{pointer}"))
+    } else {
+        value.get(path)
+    };
+    field
+        .and_then(Value::as_str)
+        .map(|text| summarize_inline(text, 160))
+}
+
+fn trace_codex_text_event(method: &str, conversation_id: &str, params: &Value) {
+    if !codex_text_trace_enabled() {
+        return;
+    }
+
+    let route_hints = RouteHints::from_value(params);
+    let item = params.get("item").unwrap_or(&Value::Null);
+    let delta_preview = trace_string_field(params, "delta")
+        .or_else(|| trace_string_field(params, "text"))
+        .or_else(|| trace_string_field(params, "/item/delta"));
+    let completed_text_preview = trace_string_field(item, "text")
+        .or_else(|| trace_string_field(params, "/item/text"))
+        .or_else(|| trace_string_field(params, "/turn/items/0/text"));
+    let phase = params
+        .get("phase")
+        .and_then(|value| value.as_str())
+        .or_else(|| item.get("phase").and_then(|value| value.as_str()));
+    let item_type = item
+        .get("type")
+        .and_then(|value| value.as_str())
+        .or_else(|| params.get("type").and_then(|value| value.as_str()));
+    let item_status = item
+        .get("status")
+        .and_then(|value| value.as_str())
+        .or_else(|| params.get("status").and_then(|value| value.as_str()));
+    tracing::info!(
+        target: "hubris_server::chat::codex_text_trace",
+        method,
+        conversation_id,
+        thread_id = route_hints.thread_id.as_deref(),
+        turn_id = route_hints.turn_id.as_deref(),
+        item_id = route_hints.item_id.as_deref(),
+        request_id = route_hints.request_id.as_deref(),
+        phase,
+        item_type,
+        item_status,
+        delta_preview = delta_preview.as_deref(),
+        completed_text_preview = completed_text_preview.as_deref(),
+        "codex app-server text event"
+    );
 }
 
 fn is_commentary_phase(value: &Value) -> bool {
@@ -8261,6 +8601,202 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn commentary_agent_message_delta_inherits_item_started_phase() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+        let (_, assistant_message_id, _, _) =
+            start_test_run(&service, &conversation, &runtime).await;
+
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "item/started",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "item": {
+                        "id": "commentary-1",
+                        "type": "agentMessage",
+                        "phase": "commentary"
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "item/agentMessage/delta",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "itemId": "commentary-1",
+                    "delta": "Inspecting first."
+                }),
+            )
+            .await
+            .unwrap();
+
+        let detail = service
+            .get_conversation_detail(&conversation.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let message = detail
+            .messages
+            .iter()
+            .find(|message| message.id == assistant_message_id)
+            .unwrap();
+        assert_eq!(message.content_text, "");
+        assert_eq!(message.reasoning_text, "Inspecting first.");
+        assert_eq!(detail.items.len(), 1);
+        assert_eq!(detail.items[0].kind, ChatItemKind::Reasoning);
+        assert_eq!(
+            detail.items[0].summary.as_deref(),
+            Some("Inspecting first.")
+        );
+        let activity = service
+            .get_activity_detail(&conversation.id, &detail.items[0].id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(activity.outputs.len(), 1);
+        assert_eq!(activity.outputs[0].content_text, "Inspecting first.");
+    }
+
+    #[tokio::test]
+    async fn multiple_commentary_agent_messages_accumulate_reasoning() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+        let (_, assistant_message_id, _, _) =
+            start_test_run(&service, &conversation, &runtime).await;
+
+        for (item_id, text) in [
+            ("commentary-1", "Inspecting first."),
+            ("commentary-2", "Checking config next."),
+        ] {
+            service
+                .handle_provider_notification(
+                    &conversation.id,
+                    &runtime,
+                    "item/started",
+                    json!({
+                        "threadId": "thread-1",
+                        "turnId": "provider-turn-1",
+                        "item": {
+                            "id": item_id,
+                            "type": "agentMessage",
+                            "phase": "commentary"
+                        }
+                    }),
+                )
+                .await
+                .unwrap();
+            service
+                .handle_provider_notification(
+                    &conversation.id,
+                    &runtime,
+                    "item/agentMessage/delta",
+                    json!({
+                        "threadId": "thread-1",
+                        "turnId": "provider-turn-1",
+                        "itemId": item_id,
+                        "delta": text
+                    }),
+                )
+                .await
+                .unwrap();
+            service
+                .handle_provider_notification(
+                    &conversation.id,
+                    &runtime,
+                    "item/completed",
+                    json!({
+                        "threadId": "thread-1",
+                        "turnId": "provider-turn-1",
+                        "item": {
+                            "id": item_id,
+                            "type": "agentMessage",
+                            "phase": "commentary",
+                            "text": text
+                        }
+                    }),
+                )
+                .await
+                .unwrap();
+        }
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "item/started",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "item": {
+                        "id": "final-1",
+                        "type": "agentMessage",
+                        "phase": "final_answer"
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "item/agentMessage/delta",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "itemId": "final-1",
+                    "delta": "Final answer."
+                }),
+            )
+            .await
+            .unwrap();
+
+        let detail = service
+            .get_conversation_detail(&conversation.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let message = detail
+            .messages
+            .iter()
+            .find(|message| message.id == assistant_message_id)
+            .unwrap();
+        assert_eq!(message.content_text, "Final answer.");
+        assert_eq!(
+            message.reasoning_text,
+            "Inspecting first.\n\nChecking config next."
+        );
+        assert_eq!(
+            detail
+                .items
+                .iter()
+                .filter(|item| item.kind == ChatItemKind::Reasoning)
+                .count(),
+            2
+        );
+        let reasoning_summaries = detail
+            .items
+            .iter()
+            .filter(|item| item.kind == ChatItemKind::Reasoning)
+            .map(|item| item.summary.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            reasoning_summaries,
+            vec![Some("Inspecting first."), Some("Checking config next.")]
+        );
+    }
+
+    #[tokio::test]
     async fn reasoning_delta_creates_reasoning_item_without_response_text() {
         let service = test_service().await;
         let conversation = create_persisted_conversation(&service).await;
@@ -8297,6 +8833,7 @@ mod tests {
         assert_eq!(message.reasoning_text, "Thinking");
         assert_eq!(message.provider_item_id, None);
         assert_eq!(detail.items[0].kind, ChatItemKind::Reasoning);
+        assert_eq!(detail.items[0].summary.as_deref(), Some("Thinking"));
     }
 
     #[tokio::test]
