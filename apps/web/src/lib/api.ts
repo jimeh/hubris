@@ -186,6 +186,7 @@ export type ChatConversationSummary =
   components["schemas"]["ChatConversationSummary"];
 export type ChatConversationDetail =
   components["schemas"]["ChatConversationDetail"];
+export type ChatActivityDetail = components["schemas"]["ChatActivityDetail"];
 export type ChatRuntimeStatus = components["schemas"]["ChatRuntimeStatus"];
 export type ChatThreadStreamStatus =
   components["schemas"]["ChatThreadStreamStatus"];
@@ -636,6 +637,18 @@ export async function getChat(
   conversationId: string,
 ): Promise<ChatConversationDetail> {
   const res = await fetch(`${BASE}/chats/${conversationId}`);
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function getChatActivity(
+  conversationId: string,
+  itemId: string,
+): Promise<ChatActivityDetail> {
+  const res = await fetch(`${BASE}/chats/${conversationId}/activity/${itemId}`);
   if (!res.ok) {
     const message = await readApiErrorMessage(res);
     throwStatusError(res.status, message ?? undefined);

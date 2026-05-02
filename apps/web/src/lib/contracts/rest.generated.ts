@@ -36,6 +36,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/chats/{conversation_id}/activity/{item_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_chat_activity"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/chats/{conversation_id}/interrupt": {
     parameters: {
       query?: never;
@@ -917,6 +933,11 @@ export interface components {
       darkTheme?: string | null;
       lightTheme?: string | null;
     };
+    /** @description Lazy-loaded activity detail for one Codex work item. */
+    ChatActivityDetail: {
+      item: components["schemas"]["ChatItem"];
+      outputs: components["schemas"]["ChatItemOutput"][];
+    };
     /**
      * @description Shared Codex app-server process lifecycle pushed over SSE.
      * @enum {string}
@@ -1005,7 +1026,35 @@ export interface components {
      * @description Normalized Codex item kind persisted for future timeline rendering.
      * @enum {string}
      */
-    ChatItemKind: "agent_message" | "reasoning" | "unknown";
+    ChatItemKind:
+      | "agent_message"
+      | "reasoning"
+      | "command_execution"
+      | "file_change"
+      | "mcp_tool_call"
+      | "dynamic_tool_call"
+      | "web_search"
+      | "image_view"
+      | "hook"
+      | "auto_approval_review"
+      | "model_reroute"
+      | "unknown";
+    /** @description Persisted output chunk for a non-message Codex work item. */
+    ChatItemOutput: {
+      /** Format: int32 */
+      byteCount: number;
+      contentText: string;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      itemId: string;
+      /** Format: int32 */
+      sequence: number;
+      streamKind: string;
+      /** Format: int64 */
+      updatedAt: number;
+    };
     /**
      * @description Persisted Codex item lifecycle state.
      * @enum {string}
@@ -2009,6 +2058,40 @@ export interface operations {
         };
       };
       /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  get_chat_activity: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+        /** @description Activity item ID */
+        item_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Activity detail */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatActivityDetail"];
+        };
+      };
+      /** @description Activity item not found */
       404: {
         headers: {
           [name: string]: unknown;

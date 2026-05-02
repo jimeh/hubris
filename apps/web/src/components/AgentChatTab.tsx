@@ -7,10 +7,13 @@ import {
 } from "@assistant-ui/react";
 import {
   ChevronDown,
+  FilePenLine,
   LoaderCircle,
   MessageSquareText,
   SendHorizontal,
   Square,
+  Terminal,
+  Wrench,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -29,15 +32,20 @@ import {
 } from "@/components/ui/select";
 import {
   selectChatComposerMessages,
+  selectChatActivityDetailState,
   selectChatDetailState,
   selectChatHeaderSlice,
+  selectChatItem,
+  selectChatItemOutput,
+  selectChatItemOutputIds,
   selectChatMessage,
-  selectChatMessageIds,
   selectChatModelSlice,
+  selectChatTimelineIds,
   useChatStore,
 } from "@/lib/stores/chats";
 import type {
   AgentChatTab,
+  ChatItem,
   ChatMessage,
   ChatModelOption,
   ChatPermissionMode,
@@ -168,6 +176,57 @@ function assistantFallbackText(
     default:
       return "";
   }
+}
+
+function activityLabel(item: ChatItem): string {
+  if (item.title) {
+    return item.title;
+  }
+  switch (item.kind) {
+    case "command_execution":
+      return "Run command";
+    case "file_change":
+      return "File change";
+    case "mcp_tool_call":
+    case "dynamic_tool_call":
+      return "Tool call";
+    case "web_search":
+      return "Web search";
+    case "image_view":
+      return "View image";
+    case "hook":
+      return "Run hook";
+    case "auto_approval_review":
+      return "Permission review";
+    case "model_reroute":
+      return "Model rerouted";
+    default:
+      return "Activity";
+  }
+}
+
+function activityStatusLabel(item: ChatItem): string {
+  switch (item.status) {
+    case "started":
+      return "Started";
+    case "streaming":
+      return "Running";
+    case "failed":
+      return "Failed";
+    default:
+      return "Completed";
+  }
+}
+
+function ActivityIcon({ item }: { item: ChatItem }) {
+  const className = "h-3.5 w-3.5";
+  if (item.kind === "command_execution") {
+    return <Terminal className={className} />;
+  }
+  if (item.kind === "file_change") {
+    return <FilePenLine className={className} />;
+  }
+  return <Wrench className={className} />;
 }
 
 function ThinkingBlock({
@@ -347,15 +406,140 @@ function ChatMessageRow({ messageId }: { messageId: string }) {
   );
 }
 
+function ActivityOutputChunk({ outputId }: { outputId: string }) {
+  const output = useChatStore((state) => selectChatItemOutput(state, outputId));
+  if (!output) {
+    return null;
+  }
+  return <>{output.contentText}</>;
+}
+
+function ActivityRow({
+  conversationId,
+  itemId,
+}: {
+  conversationId: string;
+  itemId: string;
+}) {
+  const item = useChatStore((state) => selectChatItem(state, itemId));
+  const outputIds = useChatStore((state) =>
+    selectChatItemOutputIds(state, itemId),
+  );
+  const detailState = useChatStore((state) =>
+    selectChatActivityDetailState(state, itemId),
+  );
+  const ensureActivityLoaded = useChatStore(
+    (state) => state.ensureActivityLoaded,
+  );
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      void ensureActivityLoaded(conversationId, itemId);
+    }
+  }, [conversationId, ensureActivityLoaded, itemId, open]);
+
+  if (!item) {
+    return null;
+  }
+
+  const running = item.status === "started" || item.status === "streaming";
+  const failed = item.status === "failed";
+  const hasOutputs = outputIds.length > 0;
+
+  return (
+    <div className="flex justify-start">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <div
+          className={cn(
+            "max-w-[min(46rem,92%)] rounded-xl border bg-muted/25 text-sm",
+            failed && "border-destructive/40",
+          )}
+        >
+          <CollapsibleTrigger className="flex w-full items-center gap-3 px-3 py-2 text-left">
+            <div
+              className={cn(
+                "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground",
+                running && "text-primary",
+                failed && "text-destructive",
+              )}
+            >
+              {running ? (
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ActivityIcon item={item} />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium">{activityLabel(item)}</div>
+              <div className="truncate text-xs text-muted-foreground">
+                {activityStatusLabel(item)}
+                {item.summary ? ` · ${item.summary}` : ""}
+              </div>
+            </div>
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 text-muted-foreground transition-transform",
+                open && "rotate-180",
+              )}
+            />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="border-t px-3 py-3">
+            {detailState.status === "loading" && !hasOutputs ? (
+              <div className="text-xs text-muted-foreground">
+                Loading activity output…
+              </div>
+            ) : null}
+            {detailState.error ? (
+              <div className="text-xs text-destructive">
+                {detailState.error}
+              </div>
+            ) : null}
+            {hasOutputs ? (
+              <pre className="max-h-72 overflow-auto rounded-lg bg-background/80 p-3 text-xs leading-5 text-foreground">
+                {outputIds.map((outputId) => (
+                  <ActivityOutputChunk key={outputId} outputId={outputId} />
+                ))}
+              </pre>
+            ) : detailState.status !== "loading" ? (
+              <div className="text-xs text-muted-foreground">
+                No output captured for this activity.
+              </div>
+            ) : null}
+          </CollapsibleContent>
+        </div>
+      </Collapsible>
+    </div>
+  );
+}
+
+function ChatTimelineRow({
+  conversationId,
+  rowId,
+}: {
+  conversationId: string;
+  rowId: string;
+}) {
+  if (rowId.startsWith("activity:")) {
+    return (
+      <ActivityRow
+        conversationId={conversationId}
+        itemId={rowId.slice("activity:".length)}
+      />
+    );
+  }
+  return <ChatMessageRow messageId={rowId.slice("message:".length)} />;
+}
+
 function ChatTranscript({ conversationId }: { conversationId: string }) {
-  const messageIds = useChatStore((state) =>
-    selectChatMessageIds(state, conversationId),
+  const timelineIds = useChatStore((state) =>
+    selectChatTimelineIds(state, conversationId),
   );
 
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-4">
-        {messageIds.length === 0 ? (
+        {timelineIds.length === 0 ? (
           <div className="flex min-h-[28vh] flex-col items-center justify-center px-6 text-center">
             <div className="rounded-full bg-primary/10 p-3 text-primary">
               <MessageSquareText className="h-5 w-5" />
@@ -367,8 +551,12 @@ function ChatTranscript({ conversationId }: { conversationId: string }) {
             </p>
           </div>
         ) : (
-          messageIds.map((messageId) => (
-            <ChatMessageRow key={messageId} messageId={messageId} />
+          timelineIds.map((rowId) => (
+            <ChatTimelineRow
+              key={rowId}
+              conversationId={conversationId}
+              rowId={rowId}
+            />
           ))
         )}
       </div>

@@ -6,11 +6,14 @@ import {
   flushChatStoreSseBatchForTests,
   initializeChatStore,
   resetChatStoreForTests,
+  selectChatItemOutputIds,
   selectChatMessageIds,
+  selectChatTimelineIds,
   useChatStore,
 } from "./chats";
 
 const mockGetChat = vi.fn();
+const mockGetChatActivity = vi.fn();
 const mockListChatModels = vi.fn();
 const mockPatchChatSettings = vi.fn();
 const mockSendChatMessage = vi.fn();
@@ -45,6 +48,7 @@ vi.mock("@/lib/api", async () => {
   return {
     ...actual,
     getChat: (...args: unknown[]) => mockGetChat(...args),
+    getChatActivity: (...args: unknown[]) => mockGetChatActivity(...args),
     listChatModels: (...args: unknown[]) => mockListChatModels(...args),
     patchChatSettings: (...args: unknown[]) => mockPatchChatSettings(...args),
     sendChatMessage: (...args: unknown[]) => mockSendChatMessage(...args),
@@ -153,10 +157,41 @@ const detail = {
   },
 };
 
+const commandItem = {
+  id: "item-command-1",
+  conversationId: "chat-1",
+  turnId: "turn-local-1",
+  providerTurnId: "turn-1",
+  providerItemId: "provider-command-1",
+  kind: "command_execution" as const,
+  status: "streaming" as const,
+  role: null,
+  sequence: 2,
+  title: "Run `cargo test`",
+  summary: "running tests",
+  metadataJson: "{}",
+  createdAt: 11,
+  updatedAt: 11,
+  completedAt: null,
+};
+
+const commandOutput = {
+  id: "output-1",
+  conversationId: "chat-1",
+  itemId: "item-command-1",
+  streamKind: "stdout",
+  sequence: 1,
+  contentText: "test output\n",
+  byteCount: 12,
+  createdAt: 12,
+  updatedAt: 12,
+};
+
 describe("chat store", () => {
   beforeEach(() => {
     mockEvents = new MockEventClient();
     mockGetChat.mockReset();
+    mockGetChatActivity.mockReset();
     mockListChatModels.mockReset();
     mockPatchChatSettings.mockReset();
     mockSendChatMessage.mockReset();
@@ -339,6 +374,70 @@ describe("chat store", () => {
     );
   });
 
+  it("adds activity items to the chat timeline without changing messages", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue(detail);
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "message:message-1",
+    ]);
+
+    mockEvents.emit("chat_activity_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      item: commandItem,
+    });
+    mockEvents.emit("chat_activity_delta", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      item_id: "item-command-1",
+      output: commandOutput,
+    });
+    flushChatStoreSseBatchForTests();
+
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "message:message-1",
+      "activity:item-command-1",
+    ]);
+    expect(
+      selectChatItemOutputIds(useChatStore.getState(), "item-command-1"),
+    ).toEqual(["output-1"]);
+    expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
+      "Hello",
+    );
+  });
+
+  it("lazy-loads persisted activity output details", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      items: [...detail.items, commandItem],
+    });
+    mockGetChatActivity.mockResolvedValue({
+      item: {
+        ...commandItem,
+        status: "completed",
+        completedAt: 20,
+      },
+      outputs: [commandOutput],
+    });
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    const loaded = await useChatStore
+      .getState()
+      .ensureActivityLoaded("chat-1", "item-command-1");
+
+    expect(mockGetChatActivity).toHaveBeenCalledWith(
+      "chat-1",
+      "item-command-1",
+    );
+    expect(loaded?.outputs[0]?.contentText).toBe("test output\n");
+    expect(useChatStore.getState().itemsById["item-command-1"]?.status).toBe(
+      "completed",
+    );
+  });
+
   it("marks unloaded conversation detail dirty on turn/item updates", () => {
     initializeChatStore();
 
@@ -362,6 +461,20 @@ describe("chat store", () => {
       session_id: "default",
       conversation_id: "chat-1",
       item: detail.items[0],
+    });
+    flushChatStoreSseBatchForTests();
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.needsRefresh,
+    ).toBe(true);
+
+    resetChatStoreForTests();
+    mockEvents = new MockEventClient();
+    initializeChatStore();
+    mockEvents.emit("chat_activity_delta", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      item_id: "item-command-1",
+      output: commandOutput,
     });
     flushChatStoreSseBatchForTests();
     expect(

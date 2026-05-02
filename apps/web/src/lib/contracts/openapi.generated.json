@@ -79,6 +79,54 @@
         }
       }
     },
+    "/api/chats/{conversation_id}/activity/{item_id}": {
+      "get": {
+        "tags": ["crate::api::chats"],
+        "operationId": "get_chat_activity",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "description": "Activity item ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Activity detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatActivityDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Activity item not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/chats/{conversation_id}/interrupt": {
       "post": {
         "tags": ["crate::api::chats"],
@@ -2899,6 +2947,22 @@
           }
         }
       },
+      "ChatActivityDetail": {
+        "type": "object",
+        "description": "Lazy-loaded activity detail for one Codex work item.",
+        "required": ["item", "outputs"],
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/ChatItem"
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatItemOutput"
+            }
+          }
+        }
+      },
       "ChatAppServerLifecycle": {
         "type": "string",
         "description": "Shared Codex app-server process lifecycle pushed over SSE.",
@@ -3172,7 +3236,72 @@
       "ChatItemKind": {
         "type": "string",
         "description": "Normalized Codex item kind persisted for future timeline rendering.",
-        "enum": ["agent_message", "reasoning", "unknown"]
+        "enum": [
+          "agent_message",
+          "reasoning",
+          "command_execution",
+          "file_change",
+          "mcp_tool_call",
+          "dynamic_tool_call",
+          "web_search",
+          "image_view",
+          "hook",
+          "auto_approval_review",
+          "model_reroute",
+          "unknown"
+        ]
+      },
+      "ChatItemOutput": {
+        "type": "object",
+        "description": "Persisted output chunk for a non-message Codex work item.",
+        "required": [
+          "id",
+          "conversationId",
+          "itemId",
+          "streamKind",
+          "sequence",
+          "contentText",
+          "byteCount",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "byteCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "contentText": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "streamKind": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "ChatItemStatus": {
         "type": "string",

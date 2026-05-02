@@ -7,8 +7,8 @@ use utoipa::{IntoParams, ToSchema};
 use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::chat::{
-    ChatConversationDetail, ChatConversationSettingsPatch, ChatConversationSummary,
-    ChatModelOption, ChatServiceError,
+    ChatActivityDetail, ChatConversationDetail, ChatConversationSettingsPatch,
+    ChatConversationSummary, ChatModelOption, ChatServiceError,
 };
 use crate::state::AppState;
 
@@ -104,6 +104,38 @@ pub async fn get_chat(
                 StatusCode::NOT_FOUND,
                 Json(ApiErrorResponse {
                     message: "chat not found".to_string(),
+                }),
+            )
+        })?;
+    Ok(Json(detail))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/chats/{conversation_id}/activity/{item_id}",
+    params(
+        ("conversation_id" = String, Path, description = "Conversation ID"),
+        ("item_id" = String, Path, description = "Activity item ID"),
+    ),
+    responses(
+        (status = 200, description = "Activity detail", body = ChatActivityDetail),
+        (status = 404, description = "Activity item not found", body = ApiErrorResponse),
+    ),
+)]
+pub async fn get_chat_activity(
+    State(state): State<AppState>,
+    Path((conversation_id, item_id)): Path<(String, String)>,
+) -> Result<Json<ChatActivityDetail>, (StatusCode, Json<ApiErrorResponse>)> {
+    let detail = state
+        .chats
+        .get_activity_detail(&conversation_id, &item_id)
+        .await
+        .map_err(map_chat_error)?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ApiErrorResponse {
+                    message: "chat activity not found".to_string(),
                 }),
             )
         })?;

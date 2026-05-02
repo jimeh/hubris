@@ -37,8 +37,8 @@ pub use access::{
 };
 use access::{desktop_auth_middleware, desktop_bootstrap_handler};
 use api::chats::{
-    get_chat, interrupt_chat, list_chat_models, list_project_worktree_chats, patch_chat_settings,
-    send_chat_message,
+    get_chat, get_chat_activity, interrupt_chat, list_chat_models, list_project_worktree_chats,
+    patch_chat_settings, send_chat_message,
 };
 use api::editor_themes::{
     delete_editor_theme, discover_editor_themes, get_editor_theme, import_extension_theme,
@@ -411,6 +411,10 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route("/tabs/{id}", delete(delete_tab).patch(update_tab))
         .route("/chats/models", get(list_chat_models))
         .route("/chats/{conversation_id}", get(get_chat))
+        .route(
+            "/chats/{conversation_id}/activity/{item_id}",
+            get(get_chat_activity),
+        )
         .route(
             "/chats/{conversation_id}/settings",
             patch(patch_chat_settings),

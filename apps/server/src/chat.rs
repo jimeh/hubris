@@ -213,6 +213,15 @@ impl ChatTurnStatus {
 pub enum ChatItemKind {
     AgentMessage,
     Reasoning,
+    CommandExecution,
+    FileChange,
+    McpToolCall,
+    DynamicToolCall,
+    WebSearch,
+    ImageView,
+    Hook,
+    AutoApprovalReview,
+    ModelReroute,
     Unknown,
 }
 
@@ -221,8 +230,21 @@ impl ChatItemKind {
         match self {
             Self::AgentMessage => "agent_message",
             Self::Reasoning => "reasoning",
+            Self::CommandExecution => "command_execution",
+            Self::FileChange => "file_change",
+            Self::McpToolCall => "mcp_tool_call",
+            Self::DynamicToolCall => "dynamic_tool_call",
+            Self::WebSearch => "web_search",
+            Self::ImageView => "image_view",
+            Self::Hook => "hook",
+            Self::AutoApprovalReview => "auto_approval_review",
+            Self::ModelReroute => "model_reroute",
             Self::Unknown => "unknown",
         }
+    }
+
+    fn is_activity(self) -> bool {
+        !matches!(self, Self::AgentMessage | Self::Reasoning)
     }
 }
 
@@ -395,6 +417,31 @@ pub struct ChatItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(type = "number | null")]
     pub completed_at: Option<u64>,
+}
+
+/// Persisted output chunk for a non-message Codex work item.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatItemOutput {
+    pub id: String,
+    pub conversation_id: String,
+    pub item_id: String,
+    pub stream_kind: String,
+    pub sequence: u32,
+    pub content_text: String,
+    pub byte_count: u32,
+    #[ts(type = "number")]
+    pub created_at: u64,
+    #[ts(type = "number")]
+    pub updated_at: u64,
+}
+
+/// Lazy-loaded activity detail for one Codex work item.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatActivityDetail {
+    pub item: ChatItem,
+    pub outputs: Vec<ChatItemOutput>,
 }
 
 /// Full chat detail payload used to hydrate an open chat tab.
@@ -1198,6 +1245,19 @@ struct ItemRow {
     completed_at_ms: Option<i64>,
 }
 
+#[derive(Debug, FromRow)]
+struct ItemOutputRow {
+    id: String,
+    conversation_id: String,
+    item_id: String,
+    stream_kind: String,
+    sequence: i64,
+    content_text: String,
+    byte_count: i64,
+    created_at_ms: i64,
+    updated_at_ms: i64,
+}
+
 /// Backend owner for persisted conversations and live Codex runtimes.
 pub struct ChatService {
     pool: SqlitePool,
@@ -1444,6 +1504,35 @@ impl ChatService {
             turns: turn_rows.into_iter().map(turn_from_row).collect(),
             items: item_rows.into_iter().map(item_from_row).collect(),
             latest_run: latest_run.map(run_from_row),
+        }))
+    }
+
+    /// Fetch one activity item with its persisted output stream.
+    pub async fn get_activity_detail(
+        &self,
+        conversation_id: &str,
+        item_id: &str,
+    ) -> Result<Option<ChatActivityDetail>, ChatServiceError> {
+        let Some(item) = self.get_item_by_id(conversation_id, item_id).await? else {
+            return Ok(None);
+        };
+        let output_rows = sqlx::query_as::<_, ItemOutputRow>(
+            "
+            SELECT
+                id, conversation_id, item_id, stream_kind, sequence,
+                content_text, byte_count, created_at_ms, updated_at_ms
+            FROM chat_item_outputs
+            WHERE conversation_id = ? AND item_id = ?
+            ORDER BY sequence ASC, created_at_ms ASC, id ASC
+            ",
+        )
+        .bind(conversation_id)
+        .bind(item_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(Some(ChatActivityDetail {
+            item,
+            outputs: output_rows.into_iter().map(item_output_from_row).collect(),
         }))
     }
 
@@ -2314,6 +2403,103 @@ impl ChatService {
                         &params,
                         kind,
                         ChatItemStatus::Started,
+                    )
+                    .await?;
+            }
+            "item/commandExecution/outputDelta" | "command/exec/outputDelta" => {
+                self.append_activity_output(
+                    conversation_id,
+                    runtime,
+                    &params,
+                    ChatItemKind::CommandExecution,
+                    "stdout",
+                )
+                .await?;
+            }
+            "item/fileChange/outputDelta" => {
+                self.append_activity_output(
+                    conversation_id,
+                    runtime,
+                    &params,
+                    ChatItemKind::FileChange,
+                    "patch",
+                )
+                .await?;
+            }
+            "item/fileChange/patchUpdated" => {
+                let _ = self
+                    .upsert_chat_item(
+                        conversation_id,
+                        runtime,
+                        &params,
+                        ChatItemKind::FileChange,
+                        ChatItemStatus::Streaming,
+                    )
+                    .await?;
+            }
+            "item/mcpToolCall/progress" => {
+                let _ = self
+                    .upsert_chat_item(
+                        conversation_id,
+                        runtime,
+                        &params,
+                        ChatItemKind::McpToolCall,
+                        ChatItemStatus::Streaming,
+                    )
+                    .await?;
+            }
+            "item/autoApprovalReview/started" => {
+                let _ = self
+                    .upsert_chat_item(
+                        conversation_id,
+                        runtime,
+                        &params,
+                        ChatItemKind::AutoApprovalReview,
+                        ChatItemStatus::Started,
+                    )
+                    .await?;
+            }
+            "item/autoApprovalReview/completed" => {
+                let _ = self
+                    .upsert_chat_item(
+                        conversation_id,
+                        runtime,
+                        &params,
+                        ChatItemKind::AutoApprovalReview,
+                        ChatItemStatus::Completed,
+                    )
+                    .await?;
+            }
+            "hook/started" => {
+                let _ = self
+                    .upsert_chat_item(
+                        conversation_id,
+                        runtime,
+                        &params,
+                        ChatItemKind::Hook,
+                        ChatItemStatus::Started,
+                    )
+                    .await?;
+            }
+            "hook/completed" => {
+                let _ = self
+                    .upsert_chat_item(
+                        conversation_id,
+                        runtime,
+                        &params,
+                        ChatItemKind::Hook,
+                        ChatItemStatus::Completed,
+                    )
+                    .await?;
+            }
+            "model/rerouted" => {
+                let _ = self
+                    .upsert_chat_item(
+                        conversation_id,
+                        runtime,
+                        &params,
+                        ChatItemKind::ModelReroute,
+                        ChatItemStatus::Completed,
                     )
                     .await?;
             }
@@ -3534,6 +3720,27 @@ impl ChatService {
         .map(item_from_row))
     }
 
+    async fn get_item_output_by_id(
+        &self,
+        conversation_id: &str,
+        output_id: &str,
+    ) -> Result<Option<ChatItemOutput>, ChatServiceError> {
+        Ok(sqlx::query_as::<_, ItemOutputRow>(
+            "
+            SELECT
+                id, conversation_id, item_id, stream_kind, sequence,
+                content_text, byte_count, created_at_ms, updated_at_ms
+            FROM chat_item_outputs
+            WHERE conversation_id = ? AND id = ?
+            ",
+        )
+        .bind(conversation_id)
+        .bind(output_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(item_output_from_row))
+    }
+
     async fn latest_item_id_for_turn_kind(
         &self,
         conversation_id: &str,
@@ -3570,6 +3777,7 @@ impl ChatService {
     ) -> Result<Option<ChatItem>, ChatServiceError> {
         let route_hints = RouteHints::from_value(params);
         let item = params.get("item").unwrap_or(params);
+        let (title, summary) = item_title_summary(kind, params);
         let provider_item_id = route_hints.item_id.or_else(|| {
             item.get("id")
                 .and_then(Value::as_str)
@@ -3629,8 +3837,8 @@ impl ChatService {
                 INSERT INTO chat_items (
                     id, conversation_id, turn_id, provider_turn_id,
                     provider_item_id, kind, status, role, sequence,
-                    metadata_json, created_at_ms, updated_at_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    title, summary, metadata_json, created_at_ms, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ",
             )
             .bind(&item_id)
@@ -3642,6 +3850,8 @@ impl ChatService {
             .bind(status.as_str())
             .bind(item_role_for_kind(kind).map(|role| role.as_str()))
             .bind(next_sequence)
+            .bind(&title)
+            .bind(&summary)
             .bind(item_metadata_json(params))
             .bind(now)
             .bind(now)
@@ -3659,6 +3869,8 @@ impl ChatService {
                 provider_item_id = COALESCE(provider_item_id, ?),
                 kind = ?,
                 status = ?,
+                title = COALESCE(?, title),
+                summary = COALESCE(?, summary),
                 metadata_json = ?,
                 updated_at_ms = ?,
                 completed_at_ms = CASE WHEN ? THEN ? ELSE completed_at_ms END
@@ -3670,6 +3882,8 @@ impl ChatService {
         .bind(&provider_item_id)
         .bind(kind.as_str())
         .bind(status.as_str())
+        .bind(&title)
+        .bind(&summary)
         .bind(item_metadata_json(params))
         .bind(now)
         .bind(matches!(
@@ -3709,6 +3923,13 @@ impl ChatService {
 
         let item = self.get_item_by_id(conversation_id, &item_id).await?;
         if let Some(item) = item.clone() {
+            if kind.is_activity() {
+                self.events.emit(EventKind::ChatActivityUpdated {
+                    session_id: session_id.clone(),
+                    conversation_id: conversation_id.to_string(),
+                    item: item.clone(),
+                });
+            }
             self.events.emit(EventKind::ChatItemUpdated {
                 session_id,
                 conversation_id: conversation_id.to_string(),
@@ -3716,6 +3937,127 @@ impl ChatService {
             });
         }
         Ok(item)
+    }
+
+    async fn append_activity_output(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        params: &Value,
+        kind: ChatItemKind,
+        default_stream_kind: &str,
+    ) -> Result<(), ChatServiceError> {
+        let Some(delta) = extract_activity_delta(params) else {
+            let _ = self
+                .upsert_chat_item(
+                    conversation_id,
+                    runtime,
+                    params,
+                    kind,
+                    ChatItemStatus::Streaming,
+                )
+                .await?;
+            return Ok(());
+        };
+        if delta.is_empty() {
+            return Ok(());
+        }
+        let Some(item) = self
+            .upsert_chat_item(
+                conversation_id,
+                runtime,
+                params,
+                kind,
+                ChatItemStatus::Streaming,
+            )
+            .await?
+        else {
+            return Ok(());
+        };
+
+        let stream_kind = extract_stream_kind(params).unwrap_or(default_stream_kind);
+        let next_sequence = sqlx::query(
+            "
+            SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+            FROM chat_item_outputs
+            WHERE conversation_id = ? AND item_id = ?
+            ",
+        )
+        .bind(conversation_id)
+        .bind(&item.id)
+        .fetch_one(&self.pool)
+        .await?
+        .try_get::<i64, _>("next_sequence")
+        .unwrap_or(1);
+        let now = now_ms() as i64;
+        let output_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            "
+            INSERT INTO chat_item_outputs (
+                id, conversation_id, item_id, stream_kind, sequence,
+                content_text, byte_count, created_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ",
+        )
+        .bind(&output_id)
+        .bind(conversation_id)
+        .bind(&item.id)
+        .bind(stream_kind)
+        .bind(next_sequence)
+        .bind(&delta)
+        .bind(delta.len() as i64)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        let summary = summarize_activity_text(&delta);
+        sqlx::query(
+            "
+            UPDATE chat_items
+            SET summary = CASE
+                    WHEN summary IS NULL OR summary = '' THEN ?
+                    ELSE substr(summary || ?, 1, 240)
+                END,
+                updated_at_ms = ?
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(&summary)
+        .bind(&summary)
+        .bind(now)
+        .bind(&item.id)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+
+        let Some(updated_item) = self.get_item_by_id(conversation_id, &item.id).await? else {
+            return Ok(());
+        };
+        let Some(output) = self
+            .get_item_output_by_id(conversation_id, &output_id)
+            .await?
+        else {
+            return Ok(());
+        };
+        let session_id = { runtime.state.lock().await.session_id.clone() };
+        self.events.emit(EventKind::ChatActivityDelta {
+            session_id: session_id.clone(),
+            conversation_id: conversation_id.to_string(),
+            item_id: item.id.clone(),
+            output,
+        });
+        self.events.emit(EventKind::ChatActivityUpdated {
+            session_id: session_id.clone(),
+            conversation_id: conversation_id.to_string(),
+            item: updated_item.clone(),
+        });
+        self.events.emit(EventKind::ChatItemUpdated {
+            session_id,
+            conversation_id: conversation_id.to_string(),
+            item: updated_item,
+        });
+        Ok(())
     }
 
     async fn finalize_turn(
@@ -3962,6 +4304,20 @@ fn item_from_row(row: ItemRow) -> ChatItem {
     }
 }
 
+fn item_output_from_row(row: ItemOutputRow) -> ChatItemOutput {
+    ChatItemOutput {
+        id: row.id,
+        conversation_id: row.conversation_id,
+        item_id: row.item_id,
+        stream_kind: row.stream_kind,
+        sequence: row.sequence.max(0) as u32,
+        content_text: row.content_text,
+        byte_count: row.byte_count.max(0) as u32,
+        created_at: row.created_at_ms.max(0) as u64,
+        updated_at: row.updated_at_ms.max(0) as u64,
+    }
+}
+
 fn parse_message_role(value: &str) -> ChatMessageRole {
     if value == "assistant" {
         ChatMessageRole::Assistant
@@ -4014,6 +4370,15 @@ fn parse_item_kind(value: &str) -> ChatItemKind {
     match value {
         "agent_message" => ChatItemKind::AgentMessage,
         "reasoning" => ChatItemKind::Reasoning,
+        "command_execution" => ChatItemKind::CommandExecution,
+        "file_change" => ChatItemKind::FileChange,
+        "mcp_tool_call" => ChatItemKind::McpToolCall,
+        "dynamic_tool_call" => ChatItemKind::DynamicToolCall,
+        "web_search" => ChatItemKind::WebSearch,
+        "image_view" => ChatItemKind::ImageView,
+        "hook" => ChatItemKind::Hook,
+        "auto_approval_review" => ChatItemKind::AutoApprovalReview,
+        "model_reroute" => ChatItemKind::ModelReroute,
         _ => ChatItemKind::Unknown,
     }
 }
@@ -4233,6 +4598,19 @@ fn item_kind_from_params(value: &Value) -> ChatItemKind {
     match item_type {
         Some("agentMessage") => ChatItemKind::AgentMessage,
         Some("reasoning") | Some("reasoningSummary") => ChatItemKind::Reasoning,
+        Some("commandExecution") | Some("command_execution") | Some("exec") => {
+            ChatItemKind::CommandExecution
+        }
+        Some("fileChange") | Some("file_change") => ChatItemKind::FileChange,
+        Some("mcpToolCall") | Some("mcp_tool_call") => ChatItemKind::McpToolCall,
+        Some("dynamicToolCall") | Some("dynamic_tool_call") => ChatItemKind::DynamicToolCall,
+        Some("webSearch") | Some("web_search") => ChatItemKind::WebSearch,
+        Some("imageView") | Some("image_view") => ChatItemKind::ImageView,
+        Some("hook") => ChatItemKind::Hook,
+        Some("autoApprovalReview") | Some("auto_approval_review") => {
+            ChatItemKind::AutoApprovalReview
+        }
+        Some("modelReroute") | Some("model_reroute") => ChatItemKind::ModelReroute,
         _ if is_commentary_phase(value) => ChatItemKind::Reasoning,
         _ => ChatItemKind::Unknown,
     }
@@ -4241,7 +4619,16 @@ fn item_kind_from_params(value: &Value) -> ChatItemKind {
 fn item_role_for_kind(kind: ChatItemKind) -> Option<ChatMessageRole> {
     match kind {
         ChatItemKind::AgentMessage | ChatItemKind::Reasoning => Some(ChatMessageRole::Assistant),
-        ChatItemKind::Unknown => None,
+        ChatItemKind::CommandExecution
+        | ChatItemKind::FileChange
+        | ChatItemKind::McpToolCall
+        | ChatItemKind::DynamicToolCall
+        | ChatItemKind::WebSearch
+        | ChatItemKind::ImageView
+        | ChatItemKind::Hook
+        | ChatItemKind::AutoApprovalReview
+        | ChatItemKind::ModelReroute
+        | ChatItemKind::Unknown => None,
     }
 }
 
@@ -4252,8 +4639,117 @@ fn item_metadata_json(value: &Value) -> String {
         "phase": item.get("phase").and_then(Value::as_str)
             .or_else(|| value.get("phase").and_then(Value::as_str)),
         "summaryIndex": value.get("summaryIndex").and_then(Value::as_u64),
+        "command": item.get("command").and_then(Value::as_str)
+            .or_else(|| value.get("command").and_then(Value::as_str)),
+        "cwd": item.get("cwd").and_then(Value::as_str)
+            .or_else(|| value.get("cwd").and_then(Value::as_str)),
+        "exitCode": item.get("exitCode").and_then(Value::as_i64)
+            .or_else(|| value.get("exitCode").and_then(Value::as_i64)),
+        "path": item.get("path").and_then(Value::as_str)
+            .or_else(|| value.get("path").and_then(Value::as_str)),
+        "toolName": item.get("toolName").and_then(Value::as_str)
+            .or_else(|| value.get("toolName").and_then(Value::as_str))
+            .or_else(|| item.get("name").and_then(Value::as_str)),
+        "serverName": item.get("serverName").and_then(Value::as_str)
+            .or_else(|| value.get("serverName").and_then(Value::as_str)),
+        "fromModel": value.get("fromModel").and_then(Value::as_str)
+            .or_else(|| item.get("fromModel").and_then(Value::as_str)),
+        "toModel": value.get("toModel").and_then(Value::as_str)
+            .or_else(|| item.get("toModel").and_then(Value::as_str)),
     });
     serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn item_title_summary(kind: ChatItemKind, value: &Value) -> (Option<String>, Option<String>) {
+    let item = value.get("item").unwrap_or(value);
+    let title = item
+        .get("title")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("title").and_then(Value::as_str))
+        .map(ToOwned::to_owned)
+        .or_else(|| match kind {
+            ChatItemKind::CommandExecution => extract_command(item)
+                .or_else(|| extract_command(value))
+                .map(|command| format!("Run `{}`", summarize_inline(command, 72))),
+            ChatItemKind::FileChange => extract_path(item)
+                .or_else(|| extract_path(value))
+                .map(|path| format!("Edit {path}"))
+                .or_else(|| Some("File change".to_string())),
+            ChatItemKind::McpToolCall => extract_tool_name(item)
+                .or_else(|| extract_tool_name(value))
+                .map(|name| format!("Use {name}"))
+                .or_else(|| Some("Tool call".to_string())),
+            ChatItemKind::DynamicToolCall => Some("Tool call".to_string()),
+            ChatItemKind::WebSearch => Some("Web search".to_string()),
+            ChatItemKind::ImageView => Some("View image".to_string()),
+            ChatItemKind::Hook => Some("Run hook".to_string()),
+            ChatItemKind::AutoApprovalReview => Some("Review permissions".to_string()),
+            ChatItemKind::ModelReroute => Some("Model rerouted".to_string()),
+            ChatItemKind::AgentMessage | ChatItemKind::Reasoning | ChatItemKind::Unknown => None,
+        });
+    let summary = item
+        .get("summary")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("summary").and_then(Value::as_str))
+        .or_else(|| value.get("message").and_then(Value::as_str))
+        .map(summarize_activity_text);
+    (title, summary)
+}
+
+fn extract_activity_delta(value: &Value) -> Option<String> {
+    value
+        .get("delta")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("output").and_then(Value::as_str))
+        .or_else(|| value.get("text").and_then(Value::as_str))
+        .or_else(|| value.get("chunk").and_then(Value::as_str))
+        .or_else(|| value.pointer("/item/delta").and_then(Value::as_str))
+        .or_else(|| value.pointer("/item/output").and_then(Value::as_str))
+        .map(ToOwned::to_owned)
+}
+
+fn extract_stream_kind(value: &Value) -> Option<&str> {
+    value
+        .get("stream")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("streamKind").and_then(Value::as_str))
+        .or_else(|| value.get("fd").and_then(Value::as_str))
+}
+
+fn extract_command(value: &Value) -> Option<&str> {
+    value
+        .get("command")
+        .and_then(Value::as_str)
+        .or_else(|| value.pointer("/exec/command").and_then(Value::as_str))
+}
+
+fn extract_path(value: &Value) -> Option<&str> {
+    value
+        .get("path")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("file").and_then(Value::as_str))
+        .or_else(|| value.pointer("/file/path").and_then(Value::as_str))
+}
+
+fn extract_tool_name(value: &Value) -> Option<&str> {
+    value
+        .get("toolName")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("name").and_then(Value::as_str))
+        .or_else(|| value.pointer("/tool/name").and_then(Value::as_str))
+}
+
+fn summarize_inline(value: &str, limit: usize) -> String {
+    let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut summary = collapsed.chars().take(limit).collect::<String>();
+    if collapsed.chars().count() > limit {
+        summary.push('…');
+    }
+    summary
+}
+
+fn summarize_activity_text(value: &str) -> String {
+    summarize_inline(value, 240)
 }
 
 fn is_commentary_phase(value: &Value) -> bool {
@@ -4683,6 +5179,100 @@ mod tests {
         assert_eq!(message.reasoning_text, "Thinking");
         assert_eq!(message.provider_item_id, None);
         assert_eq!(detail.items[0].kind, ChatItemKind::Reasoning);
+    }
+
+    #[tokio::test]
+    async fn command_output_delta_creates_activity_item_and_output() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+        let (_, assistant_message_id, _, _) =
+            start_test_run(&service, &conversation, &runtime).await;
+
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "item/commandExecution/outputDelta",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "itemId": "command-1",
+                    "item": {
+                        "id": "command-1",
+                        "type": "commandExecution",
+                        "command": "cargo test"
+                    },
+                    "stream": "stdout",
+                    "delta": "running 1 test\n"
+                }),
+            )
+            .await
+            .unwrap();
+
+        let detail = service
+            .get_conversation_detail(&conversation.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let message = detail
+            .messages
+            .iter()
+            .find(|message| message.id == assistant_message_id)
+            .unwrap();
+        assert_eq!(message.content_text, "");
+        assert_eq!(detail.items.len(), 1);
+        assert_eq!(detail.items[0].kind, ChatItemKind::CommandExecution);
+        assert_eq!(detail.items[0].title.as_deref(), Some("Run `cargo test`"));
+        assert_eq!(
+            detail.items[0].provider_item_id.as_deref(),
+            Some("command-1")
+        );
+
+        let activity = service
+            .get_activity_detail(&conversation.id, &detail.items[0].id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(activity.outputs.len(), 1);
+        assert_eq!(activity.outputs[0].stream_kind, "stdout");
+        assert_eq!(activity.outputs[0].content_text, "running 1 test\n");
+    }
+
+    #[tokio::test]
+    async fn file_change_completion_synthesizes_activity_item() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+        start_test_run(&service, &conversation, &runtime).await;
+
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "item/completed",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "item": {
+                        "id": "file-1",
+                        "type": "fileChange",
+                        "path": "src/lib.rs"
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+
+        let detail = service
+            .get_conversation_detail(&conversation.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.items.len(), 1);
+        assert_eq!(detail.items[0].kind, ChatItemKind::FileChange);
+        assert_eq!(detail.items[0].status, ChatItemStatus::Completed);
+        assert_eq!(detail.items[0].title.as_deref(), Some("Edit src/lib.rs"));
     }
 
     #[tokio::test]

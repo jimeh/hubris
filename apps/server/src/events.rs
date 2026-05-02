@@ -13,7 +13,7 @@ use crate::api::tasks::{TaskInvocationStatus, TaskRemoved, TaskUpdated};
 use crate::api::vscode::VscodeStatus;
 use crate::api::worktrees::Worktree;
 use crate::chat::{
-    ChatAppServerStatus, ChatConversationSummary, ChatItem, ChatMessage, ChatRun,
+    ChatAppServerStatus, ChatConversationSummary, ChatItem, ChatItemOutput, ChatMessage, ChatRun,
     ChatRuntimeStatus, ChatThreadStreamStatus, ChatTurn,
 };
 use crate::tab::{TabInfo, WorktreeTabLayout, WorktreeTabLayoutState};
@@ -173,6 +173,19 @@ pub enum EventKind {
         conversation_id: String,
         item: ChatItem,
     },
+    #[serde(rename = "chat_activity_delta")]
+    ChatActivityDelta {
+        session_id: String,
+        conversation_id: String,
+        item_id: String,
+        output: ChatItemOutput,
+    },
+    #[serde(rename = "chat_activity_updated")]
+    ChatActivityUpdated {
+        session_id: String,
+        conversation_id: String,
+        item: ChatItem,
+    },
 }
 
 impl EventKind {
@@ -210,6 +223,8 @@ impl EventKind {
             EventKind::ChatRunUpdated { .. } => "chat_run_updated",
             EventKind::ChatTurnUpdated { .. } => "chat_turn_updated",
             EventKind::ChatItemUpdated { .. } => "chat_item_updated",
+            EventKind::ChatActivityDelta { .. } => "chat_activity_delta",
+            EventKind::ChatActivityUpdated { .. } => "chat_activity_updated",
         }
     }
 }

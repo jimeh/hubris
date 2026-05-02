@@ -143,6 +143,16 @@ pub(super) fn classify_method(method: &str) -> AppServerMethod {
         "error"
         | "turn/started"
         | "item/started"
+        | "item/commandExecution/outputDelta"
+        | "command/exec/outputDelta"
+        | "item/fileChange/outputDelta"
+        | "item/fileChange/patchUpdated"
+        | "item/mcpToolCall/progress"
+        | "item/autoApprovalReview/started"
+        | "item/autoApprovalReview/completed"
+        | "hook/started"
+        | "hook/completed"
+        | "model/rerouted"
         | "item/reasoning/summaryTextDelta"
         | "item/agentMessage/delta"
         | "item/completed"
@@ -169,6 +179,16 @@ fn method_static(method: &str) -> &'static str {
         "error" => "error",
         "turn/started" => "turn/started",
         "item/started" => "item/started",
+        "item/commandExecution/outputDelta" => "item/commandExecution/outputDelta",
+        "command/exec/outputDelta" => "command/exec/outputDelta",
+        "item/fileChange/outputDelta" => "item/fileChange/outputDelta",
+        "item/fileChange/patchUpdated" => "item/fileChange/patchUpdated",
+        "item/mcpToolCall/progress" => "item/mcpToolCall/progress",
+        "item/autoApprovalReview/started" => "item/autoApprovalReview/started",
+        "item/autoApprovalReview/completed" => "item/autoApprovalReview/completed",
+        "hook/started" => "hook/started",
+        "hook/completed" => "hook/completed",
+        "model/rerouted" => "model/rerouted",
         "item/reasoning/summaryTextDelta" => "item/reasoning/summaryTextDelta",
         "item/agentMessage/delta" => "item/agentMessage/delta",
         "item/completed" => "item/completed",
@@ -429,6 +449,14 @@ mod tests {
         assert_eq!(
             classify_method("item/started"),
             AppServerMethod::Current("item/started")
+        );
+        assert_eq!(
+            classify_method("item/commandExecution/outputDelta"),
+            AppServerMethod::Current("item/commandExecution/outputDelta")
+        );
+        assert_eq!(
+            classify_method("item/fileChange/patchUpdated"),
+            AppServerMethod::Current("item/fileChange/patchUpdated")
         );
         assert_eq!(
             classify_method("item/commandExecution/requestApproval"),

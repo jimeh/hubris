@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   getChat,
+  getChatActivity,
   interruptChat,
   listChatModels,
   patchChatSettings,
@@ -14,10 +15,12 @@ import { getEventClient, type SseEventData } from "@/lib/events";
 import { useTabStore } from "@/lib/stores/tabs";
 import type {
   ChatAppServerStatus,
+  ChatActivityDetail,
   ChatConversationDetail,
   ChatConversationSettingsPatch,
   ChatConversationSummary,
   ChatItem,
+  ChatItemOutput,
   ChatMessage,
   ChatModelOption,
   ChatRun,
@@ -32,6 +35,11 @@ type ConversationDetailState = {
   needsRefresh: boolean;
 };
 
+type ActivityDetailState = {
+  status: "idle" | "loading" | "loaded" | "error";
+  error: string | null;
+};
+
 type ChatStoreState = {
   appServerStatus: ChatAppServerStatus | null;
   conversationsById: Record<string, ChatConversationSummary>;
@@ -44,6 +52,10 @@ type ChatStoreState = {
   turnsById: Record<string, ChatTurn>;
   itemIdsByConversationId: Record<string, string[]>;
   itemsById: Record<string, ChatItem>;
+  timelineIdsByConversationId: Record<string, string[]>;
+  outputIdsByItemId: Record<string, string[]>;
+  outputsById: Record<string, ChatItemOutput>;
+  activityDetailsByItemId: Record<string, ActivityDetailState>;
   latestRunByConversationId: Record<string, ChatRun | null>;
   modelOptions: ChatModelOption[];
   modelOptionsStatus: "idle" | "loading" | "loaded" | "error";
@@ -55,6 +67,10 @@ type ChatStoreState = {
   refreshConversation: (
     conversationId: string,
   ) => Promise<ChatConversationDetail | null>;
+  ensureActivityLoaded: (
+    conversationId: string,
+    itemId: string,
+  ) => Promise<ChatActivityDetail | null>;
   sendMessage: (conversationId: string, text: string) => Promise<void>;
   interruptRun: (conversationId: string) => Promise<void>;
   updateConversationSettings: (
@@ -84,6 +100,14 @@ type ChatBatchEvent =
   | {
       type: "item_updated";
       data: SseEventData<"chat_item_updated">;
+    }
+  | {
+      type: "activity_delta";
+      data: SseEventData<"chat_activity_delta">;
+    }
+  | {
+      type: "activity_updated";
+      data: SseEventData<"chat_activity_updated">;
     };
 
 const DEFAULT_DETAIL_STATE: ConversationDetailState = {
@@ -94,6 +118,11 @@ const DEFAULT_DETAIL_STATE: ConversationDetailState = {
 
 const EMPTY_IDS: readonly string[] = [];
 const EMPTY_THREAD_MESSAGES: readonly never[] = [];
+
+const DEFAULT_ACTIVITY_DETAIL_STATE: ActivityDetailState = {
+  status: "idle",
+  error: null,
+};
 
 function indexConversations(
   conversations: readonly ApiChatConversationSummary[],
@@ -161,6 +190,15 @@ function sortItems(items: readonly ChatItem[]): ChatItem[] {
   });
 }
 
+function sortOutputs(outputs: readonly ChatItemOutput[]): ChatItemOutput[] {
+  return [...outputs].sort((left, right) => {
+    if (left.sequence !== right.sequence) {
+      return left.sequence - right.sequence;
+    }
+    return left.createdAt - right.createdAt;
+  });
+}
+
 function mergeConversationIntoOpenTabs(
   conversation: ChatConversationSummary,
 ): void {
@@ -199,6 +237,73 @@ function itemIdsFromState(
   return state.itemIdsByConversationId[conversationId] ?? EMPTY_IDS;
 }
 
+function timelineIdsFromState(
+  state: ChatStoreState,
+  conversationId: string,
+): readonly string[] {
+  return state.timelineIdsByConversationId[conversationId] ?? EMPTY_IDS;
+}
+
+function outputIdsFromState(
+  state: ChatStoreState,
+  itemId: string,
+): readonly string[] {
+  return state.outputIdsByItemId[itemId] ?? EMPTY_IDS;
+}
+
+function isActivityItem(item: ChatItem): boolean {
+  return item.kind !== "agent_message" && item.kind !== "reasoning";
+}
+
+function buildTimelineIds(
+  messages: readonly ChatMessage[],
+  items: readonly ChatItem[],
+): string[] {
+  const rows = [
+    ...messages.map((message) => ({
+      id: `message:${message.id}`,
+      createdAt: message.createdAt,
+      sequence: message.sequence,
+      priority: message.role === "user" ? 0 : 2,
+    })),
+    ...items.filter(isActivityItem).map((item) => ({
+      id: `activity:${item.id}`,
+      createdAt: item.createdAt,
+      sequence: item.sequence,
+      priority: 1,
+    })),
+  ];
+  return rows
+    .sort((left, right) => {
+      if (left.createdAt !== right.createdAt) {
+        return left.createdAt - right.createdAt;
+      }
+      if (left.sequence !== right.sequence) {
+        return left.sequence - right.sequence;
+      }
+      if (left.priority !== right.priority) {
+        return left.priority - right.priority;
+      }
+      return left.id.localeCompare(right.id);
+    })
+    .map((row) => row.id);
+}
+
+function timelineIdsForState(
+  state: ChatStoreState,
+  conversationId: string,
+  messagesById: Record<string, ChatMessage> = state.messagesById,
+  itemsById: Record<string, ChatItem> = state.itemsById,
+): string[] {
+  const messages = messageIdsFromState(state, conversationId)
+    .map((messageId) => messagesById[messageId])
+    .filter((message): message is ChatMessage => Boolean(message));
+  const items = itemIdsFromState(state, conversationId)
+    .map((itemId) => itemsById[itemId])
+    .filter((item): item is ChatItem => Boolean(item));
+  return buildTimelineIds(messages, items);
+}
+
 function denormalizeConversationDetail(
   state: ChatStoreState,
   conversationId: string,
@@ -221,6 +326,23 @@ function denormalizeConversationDetail(
       .map((itemId) => state.itemsById[itemId])
       .filter((item): item is ChatItem => Boolean(item)),
     latestRun: state.latestRunByConversationId[conversationId] ?? null,
+  };
+}
+
+function denormalizeActivityDetail(
+  state: ChatStoreState,
+  itemId: string,
+): ChatActivityDetail | null {
+  const item = state.itemsById[itemId];
+  const status = state.activityDetailsByItemId[itemId];
+  if (!item || status?.status !== "loaded") {
+    return null;
+  }
+  return {
+    item,
+    outputs: outputIdsFromState(state, itemId)
+      .map((outputId) => state.outputsById[outputId])
+      .filter((output): output is ChatItemOutput => Boolean(output)),
   };
 }
 
@@ -252,6 +374,7 @@ function setDetail(
   const messages = sortMessages(detail.messages);
   const turns = sortTurns(detail.turns ?? []);
   const items = sortItems(detail.items ?? []);
+  const timelineIds = buildTimelineIds(messages, items);
 
   useChatStore.setState((state) => ({
     conversationsById: {
@@ -285,6 +408,10 @@ function setDetail(
     itemsById: {
       ...state.itemsById,
       ...mapById(items),
+    },
+    timelineIdsByConversationId: {
+      ...state.timelineIdsByConversationId,
+      [conversationId]: timelineIds,
     },
     latestRunByConversationId: {
       ...state.latestRunByConversationId,
@@ -322,6 +449,90 @@ async function loadConversation(
             DEFAULT_DETAIL_STATE),
           status: "error",
           error: error instanceof Error ? error.message : "Failed to load chat",
+        },
+      },
+    }));
+    return null;
+  }
+}
+
+async function loadActivity(
+  conversationId: string,
+  itemId: string,
+): Promise<ChatActivityDetail | null> {
+  useChatStore.setState((state) => ({
+    activityDetailsByItemId: {
+      ...state.activityDetailsByItemId,
+      [itemId]: {
+        ...(state.activityDetailsByItemId[itemId] ??
+          DEFAULT_ACTIVITY_DETAIL_STATE),
+        status: "loading",
+        error: null,
+      },
+    },
+  }));
+
+  try {
+    const detail = await getChatActivity(conversationId, itemId);
+    useChatStore.setState((state) => {
+      const outputsById = {
+        ...state.outputsById,
+        ...mapById(detail.outputs),
+      };
+      const itemIds = itemIdsFromState(state, conversationId);
+      const itemsById = {
+        ...state.itemsById,
+        [detail.item.id]: detail.item,
+      };
+      const itemIdsByConversationId = {
+        ...state.itemIdsByConversationId,
+        [conversationId]: upsertSortedEntity(
+          itemIds,
+          itemsById,
+          detail.item,
+          sortItems,
+        ),
+      };
+      const nextState = {
+        ...state,
+        itemsById,
+        itemIdsByConversationId,
+      };
+      return {
+        itemsById,
+        itemIdsByConversationId,
+        timelineIdsByConversationId: {
+          ...state.timelineIdsByConversationId,
+          [conversationId]: timelineIdsForState(
+            nextState,
+            conversationId,
+            state.messagesById,
+            itemsById,
+          ),
+        },
+        outputIdsByItemId: {
+          ...state.outputIdsByItemId,
+          [itemId]: sortedIds(detail.outputs, sortOutputs),
+        },
+        outputsById,
+        activityDetailsByItemId: {
+          ...state.activityDetailsByItemId,
+          [itemId]: {
+            status: "loaded",
+            error: null,
+          },
+        },
+      };
+    });
+    return detail;
+  } catch (error) {
+    useChatStore.setState((state) => ({
+      activityDetailsByItemId: {
+        ...state.activityDetailsByItemId,
+        [itemId]: {
+          status: "error",
+          error:
+            error instanceof Error ? error.message : "Failed to load activity",
         },
       },
     }));
@@ -383,11 +594,46 @@ export function selectChatMessageIds(
   return messageIdsFromState(state, conversationId);
 }
 
+export function selectChatTimelineIds(
+  state: ChatStoreState,
+  conversationId: string,
+): readonly string[] {
+  return timelineIdsFromState(state, conversationId);
+}
+
 export function selectChatMessage(
   state: ChatStoreState,
   messageId: string,
 ): ChatMessage | null {
   return state.messagesById[messageId] ?? null;
+}
+
+export function selectChatItem(
+  state: ChatStoreState,
+  itemId: string,
+): ChatItem | null {
+  return state.itemsById[itemId] ?? null;
+}
+
+export function selectChatItemOutputIds(
+  state: ChatStoreState,
+  itemId: string,
+): readonly string[] {
+  return outputIdsFromState(state, itemId);
+}
+
+export function selectChatItemOutput(
+  state: ChatStoreState,
+  outputId: string,
+): ChatItemOutput | null {
+  return state.outputsById[outputId] ?? null;
+}
+
+export function selectChatActivityDetailState(
+  state: ChatStoreState,
+  itemId: string,
+): ActivityDetailState {
+  return state.activityDetailsByItemId[itemId] ?? DEFAULT_ACTIVITY_DETAIL_STATE;
 }
 
 export function selectChatLatestRun(
@@ -463,6 +709,10 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   turnsById: {},
   itemIdsByConversationId: {},
   itemsById: {},
+  timelineIdsByConversationId: {},
+  outputIdsByItemId: {},
+  outputsById: {},
+  activityDetailsByItemId: {},
   latestRunByConversationId: {},
   modelOptions: [],
   modelOptionsStatus: "idle",
@@ -509,6 +759,16 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   async refreshConversation(conversationId) {
     return loadConversation(conversationId);
   },
+  async ensureActivityLoaded(conversationId, itemId) {
+    const current = get().activityDetailsByItemId[itemId];
+    if (current?.status === "loaded") {
+      return denormalizeActivityDetail(get(), itemId);
+    }
+    if (current?.status === "loading") {
+      return denormalizeActivityDetail(get(), itemId);
+    }
+    return loadActivity(conversationId, itemId);
+  },
   async sendMessage(conversationId, text) {
     await sendChatMessage(conversationId, text);
   },
@@ -542,6 +802,12 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       const turnsById = { ...state.turnsById };
       const itemIdsByConversationId = { ...state.itemIdsByConversationId };
       const itemsById = { ...state.itemsById };
+      const timelineIdsByConversationId = {
+        ...state.timelineIdsByConversationId,
+      };
+      const outputIdsByItemId = { ...state.outputIdsByItemId };
+      const outputsById = { ...state.outputsById };
+      const activityDetailsByItemId = { ...state.activityDetailsByItemId };
       const latestRunByConversationId = { ...state.latestRunByConversationId };
       for (const messageId of existingMessageIds) {
         delete messagesById[messageId];
@@ -550,12 +816,18 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         delete turnsById[turnId];
       }
       for (const itemId of existingItemIds) {
+        for (const outputId of outputIdsByItemId[itemId] ?? []) {
+          delete outputsById[outputId];
+        }
+        delete outputIdsByItemId[itemId];
+        delete activityDetailsByItemId[itemId];
         delete itemsById[itemId];
       }
       delete detailsByConversationId[conversationId];
       delete messageIdsByConversationId[conversationId];
       delete turnIdsByConversationId[conversationId];
       delete itemIdsByConversationId[conversationId];
+      delete timelineIdsByConversationId[conversationId];
       delete latestRunByConversationId[conversationId];
       return {
         detailsByConversationId,
@@ -565,6 +837,10 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         turnsById,
         itemIdsByConversationId,
         itemsById,
+        timelineIdsByConversationId,
+        outputIdsByItemId,
+        outputsById,
+        activityDetailsByItemId,
         latestRunByConversationId,
       };
     });
@@ -665,16 +941,29 @@ function applyMessageUpdated(
     ...state.messagesById,
     [message.id]: message,
   };
-  return {
+  const messageIdsByConversationId = {
+    ...state.messageIdsByConversationId,
+    [conversationId]: upsertSortedEntity(
+      currentIds,
+      messagesById,
+      message,
+      sortMessages,
+    ),
+  };
+  const nextState = {
     ...state,
     messagesById,
-    messageIdsByConversationId: {
-      ...state.messageIdsByConversationId,
-      [conversationId]: upsertSortedEntity(
-        currentIds,
+    messageIdsByConversationId,
+  };
+  return {
+    ...nextState,
+    timelineIdsByConversationId: {
+      ...state.timelineIdsByConversationId,
+      [conversationId]: timelineIdsForState(
+        nextState,
+        conversationId,
         messagesById,
-        message,
-        sortMessages,
+        state.itemsById,
       ),
     },
     detailsByConversationId: {
@@ -783,21 +1072,76 @@ function applyItemUpdated(
     ...state.itemsById,
     [item.id]: item,
   };
-  return {
+  const itemIdsByConversationId = {
+    ...state.itemIdsByConversationId,
+    [conversationId]: upsertSortedEntity(
+      currentIds,
+      itemsById,
+      item,
+      sortItems,
+    ),
+  };
+  const nextState = {
     ...state,
     itemsById,
-    itemIdsByConversationId: {
-      ...state.itemIdsByConversationId,
-      [conversationId]: upsertSortedEntity(
-        currentIds,
+    itemIdsByConversationId,
+  };
+  return {
+    ...nextState,
+    timelineIdsByConversationId: {
+      ...state.timelineIdsByConversationId,
+      [conversationId]: timelineIdsForState(
+        nextState,
+        conversationId,
+        state.messagesById,
         itemsById,
-        item,
-        sortItems,
       ),
     },
     detailsByConversationId: {
       ...state.detailsByConversationId,
       [conversationId]: loadedDetailState(),
+    },
+  };
+}
+
+function applyActivityDelta(
+  state: ChatStoreState,
+  data: SseEventData<"chat_activity_delta">,
+): ChatStoreState {
+  if (!isConversationLoaded(state, data.conversation_id)) {
+    return markConversationDirtyInBatch(state, data.conversation_id);
+  }
+  if (!state.itemsById[data.item_id]) {
+    return markConversationDirtyInBatch(state, data.conversation_id);
+  }
+  const output = data.output;
+  const currentIds = outputIdsFromState(state, data.item_id);
+  const outputsById = {
+    ...state.outputsById,
+    [output.id]: output,
+  };
+  return {
+    ...state,
+    outputsById,
+    outputIdsByItemId: {
+      ...state.outputIdsByItemId,
+      [data.item_id]: upsertSortedEntity(
+        currentIds,
+        outputsById,
+        output,
+        sortOutputs,
+      ),
+    },
+    activityDetailsByItemId: {
+      ...state.activityDetailsByItemId,
+      [data.item_id]: {
+        status: "loaded",
+        error: null,
+      },
+    },
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [data.conversation_id]: loadedDetailState(),
     },
   };
 }
@@ -829,6 +1173,14 @@ function applyQueuedChatEvents(
           event.data.turn,
         );
       case "item_updated":
+        return applyItemUpdated(
+          nextState,
+          event.data.conversation_id,
+          event.data.item,
+        );
+      case "activity_delta":
+        return applyActivityDelta(nextState, event.data);
+      case "activity_updated":
         return applyItemUpdated(
           nextState,
           event.data.conversation_id,
@@ -866,6 +1218,16 @@ function handleItemUpdated(data: SseEventData<"chat_item_updated">): void {
   enqueueChatEvent({ type: "item_updated", data });
 }
 
+function handleActivityDelta(data: SseEventData<"chat_activity_delta">): void {
+  enqueueChatEvent({ type: "activity_delta", data });
+}
+
+function handleActivityUpdated(
+  data: SseEventData<"chat_activity_updated">,
+): void {
+  enqueueChatEvent({ type: "activity_updated", data });
+}
+
 function handleMessageDelta(data: SseEventData<"chat_message_delta">): void {
   enqueueChatEvent({ type: "message_delta", data });
 }
@@ -898,11 +1260,22 @@ export function initializeChatStore(): void {
             ([conversationId]) => conversationIds.has(conversationId),
           ),
         );
+        const timelineIdsByConversationId = Object.fromEntries(
+          Object.entries(state.timelineIdsByConversationId).filter(
+            ([conversationId]) => conversationIds.has(conversationId),
+          ),
+        );
         const messageIds = new Set(
           Object.values(messageIdsByConversationId).flat(),
         );
         const turnIds = new Set(Object.values(turnIdsByConversationId).flat());
         const itemIds = new Set(Object.values(itemIdsByConversationId).flat());
+        const outputIdsByItemId = Object.fromEntries(
+          Object.entries(state.outputIdsByItemId).filter(([itemId]) =>
+            itemIds.has(itemId),
+          ),
+        );
+        const outputIds = new Set(Object.values(outputIdsByItemId).flat());
 
         return {
           appServerStatus: data.chat_app_server ?? null,
@@ -934,6 +1307,18 @@ export function initializeChatStore(): void {
               itemIds.has(itemId),
             ),
           ),
+          timelineIdsByConversationId,
+          outputIdsByItemId,
+          outputsById: Object.fromEntries(
+            Object.entries(state.outputsById).filter(([outputId]) =>
+              outputIds.has(outputId),
+            ),
+          ),
+          activityDetailsByItemId: Object.fromEntries(
+            Object.entries(state.activityDetailsByItemId).filter(([itemId]) =>
+              itemIds.has(itemId),
+            ),
+          ),
           latestRunByConversationId: Object.fromEntries(
             Object.entries(state.latestRunByConversationId).filter(
               ([conversationId]) => conversationIds.has(conversationId),
@@ -952,6 +1337,8 @@ export function initializeChatStore(): void {
     events.on("chat_run_updated", handleRunUpdated),
     events.on("chat_turn_updated", handleTurnUpdated),
     events.on("chat_item_updated", handleItemUpdated),
+    events.on("chat_activity_delta", handleActivityDelta),
+    events.on("chat_activity_updated", handleActivityUpdated),
   ];
 }
 
@@ -987,6 +1374,10 @@ export function resetChatStoreForTests(): void {
     turnsById: {},
     itemIdsByConversationId: {},
     itemsById: {},
+    timelineIdsByConversationId: {},
+    outputIdsByItemId: {},
+    outputsById: {},
+    activityDetailsByItemId: {},
     latestRunByConversationId: {},
     modelOptions: [],
     modelOptionsStatus: "idle",
