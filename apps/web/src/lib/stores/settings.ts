@@ -72,7 +72,7 @@ const DEFAULT_SETTINGS: Settings = {
     runtime: "vscodeCli",
   },
   chat: {
-    idleTimeoutMinutes: 5,
+    idleTimeoutMinutes: 60,
   },
 };
 

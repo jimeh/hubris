@@ -21,11 +21,13 @@ export default function ChatSettings() {
       </div>
       <div className={settingsRowClass}>
         <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
-          Idle Timeout
+          Inactive Stream Timeout
         </Label>
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            Shut down inactive Codex runtimes after this many minutes.
+            Unsubscribe inactive Codex thread streams after this many minutes.
+            The shared app-server stays running, and chats resume automatically
+            when reopened or used.
           </p>
           <div className="flex items-center gap-2">
             <Button
@@ -49,7 +51,7 @@ export default function ChatSettings() {
               onChange={(event) => {
                 const parsed = Number.parseInt(event.currentTarget.value, 10);
                 updateSettings({
-                  idleTimeoutMinutes: Number.isFinite(parsed) ? parsed : 5,
+                  idleTimeoutMinutes: Number.isFinite(parsed) ? parsed : 60,
                 });
               }}
             />

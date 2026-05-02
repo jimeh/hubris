@@ -32,7 +32,7 @@ use lifecycle::{
 use protocol::{ParsedLine, RouteHints};
 
 pub const DEFAULT_CHAT_TITLE: &str = "New Chat";
-const DEFAULT_IDLE_TIMEOUT_MINUTES: u32 = 5;
+const DEFAULT_IDLE_TIMEOUT_MINUTES: u32 = 60;
 const CHAT_DB_MAX_CONNECTIONS: u32 = 1;
 const MAX_INACTIVE_THREAD_STREAMS: usize = 4;
 const UNSUBSCRIBE_RETRY_DELAY: Duration = Duration::from_secs(15);
