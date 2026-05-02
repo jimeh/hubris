@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
 import { resetTabStoreForTests, useTabStore } from "@/lib/stores/tabs";
 import {
+  flushChatStoreSseBatchForTests,
   initializeChatStore,
   resetChatStoreForTests,
+  selectChatMessageIds,
   useChatStore,
 } from "./chats";
 
@@ -244,6 +246,9 @@ describe("chat store", () => {
 
     expect(mockGetChat).toHaveBeenCalledWith("chat-1");
     expect(loaded?.messages[0]?.contentText).toBe("Hello");
+    expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
+      "Hello",
+    );
 
     mockEvents.emit("chat_message_delta", {
       session_id: "default",
@@ -253,10 +258,15 @@ describe("chat store", () => {
       revision: 2n,
     });
 
-    expect(
-      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
-        ?.messages[0]?.contentText,
-    ).toBe("Hello world");
+    expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
+      "Hello",
+    );
+
+    flushChatStoreSseBatchForTests();
+
+    expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
+      "Hello world",
+    );
 
     mockEvents.emit("chat_message_updated", {
       session_id: "default",
@@ -266,10 +276,10 @@ describe("chat store", () => {
         reasoningText: "Inspecting the worktree state",
       },
     });
+    flushChatStoreSseBatchForTests();
 
     expect(
-      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
-        ?.messages[0]?.reasoningText,
+      useChatStore.getState().messagesById["message-1"]?.reasoningText,
     ).toBe("Inspecting the worktree state");
 
     mockEvents.emit("chat_conversation_updated", {
@@ -292,14 +302,12 @@ describe("chat store", () => {
 
     await useChatStore.getState().ensureConversationLoaded("chat-1");
 
-    expect(
-      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
-        ?.turns[0]?.status,
-    ).toBe("running");
-    expect(
-      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
-        ?.items[0]?.status,
-    ).toBe("streaming");
+    expect(useChatStore.getState().turnsById["turn-local-1"]?.status).toBe(
+      "running",
+    );
+    expect(useChatStore.getState().itemsById["item-1"]?.status).toBe(
+      "streaming",
+    );
 
     mockEvents.emit("chat_turn_updated", {
       session_id: "default",
@@ -321,15 +329,14 @@ describe("chat store", () => {
         updatedAt: 20,
       },
     });
+    flushChatStoreSseBatchForTests();
 
-    expect(
-      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
-        ?.turns[0]?.status,
-    ).toBe("completed");
-    expect(
-      useChatStore.getState().detailsByConversationId["chat-1"]?.detail
-        ?.items[0]?.status,
-    ).toBe("completed");
+    expect(useChatStore.getState().turnsById["turn-local-1"]?.status).toBe(
+      "completed",
+    );
+    expect(useChatStore.getState().itemsById["item-1"]?.status).toBe(
+      "completed",
+    );
   });
 
   it("marks unloaded conversation detail dirty on turn/item updates", () => {
@@ -340,9 +347,13 @@ describe("chat store", () => {
       conversation_id: "chat-1",
       turn: detail.turns[0],
     });
+    flushChatStoreSseBatchForTests();
     expect(
       useChatStore.getState().detailsByConversationId["chat-1"]?.needsRefresh,
     ).toBe(true);
+    expect(
+      selectChatMessageIds(useChatStore.getState(), "chat-1"),
+    ).toHaveLength(0);
 
     resetChatStoreForTests();
     mockEvents = new MockEventClient();
@@ -352,9 +363,123 @@ describe("chat store", () => {
       conversation_id: "chat-1",
       item: detail.items[0],
     });
+    flushChatStoreSseBatchForTests();
     expect(
       useChatStore.getState().detailsByConversationId["chat-1"]?.needsRefresh,
     ).toBe(true);
+  });
+
+  it("returns stable empty message ids for unloaded conversations", () => {
+    const first = selectChatMessageIds(useChatStore.getState(), "missing");
+    const second = selectChatMessageIds(useChatStore.getState(), "missing");
+
+    expect(first).toBe(second);
+    expect(first).toHaveLength(0);
+  });
+
+  it("batches message deltas and preserves in-frame event order", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue(detail);
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    mockEvents.emit("chat_message_delta", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      message_id: "message-1",
+      delta: " world",
+      revision: 2n,
+    });
+    mockEvents.emit("chat_message_delta", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      message_id: "message-1",
+      delta: "!",
+      revision: 3n,
+    });
+
+    expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
+      "Hello",
+    );
+
+    flushChatStoreSseBatchForTests();
+
+    expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
+      "Hello world!",
+    );
+
+    mockEvents.emit("chat_message_delta", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      message_id: "message-1",
+      delta: " ignored by update",
+      revision: 4n,
+    });
+    mockEvents.emit("chat_message_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      message: {
+        ...detail.messages[0],
+        status: "completed",
+        contentText: "Final",
+      },
+    });
+    mockEvents.emit("chat_message_delta", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      message_id: "message-1",
+      delta: ".",
+      revision: 5n,
+    });
+    flushChatStoreSseBatchForTests();
+
+    expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
+      "Final.",
+    );
+  });
+
+  it("batches run, turn, and item updates into loaded detail state", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue(detail);
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    mockEvents.emit("chat_run_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      run: {
+        ...detail.latestRun,
+        status: "completed",
+        finishedAt: 30,
+      },
+    });
+    mockEvents.emit("chat_turn_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      turn: {
+        ...detail.turns[0],
+        status: "completed",
+        completedAt: 30,
+      },
+    });
+    mockEvents.emit("chat_item_updated", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      item: {
+        ...detail.items[0],
+        status: "completed",
+        completedAt: 30,
+      },
+    });
+    flushChatStoreSseBatchForTests();
+
+    expect(
+      useChatStore.getState().latestRunByConversationId["chat-1"]?.status,
+    ).toBe("completed");
+    expect(useChatStore.getState().turnsById["turn-local-1"]?.status).toBe(
+      "completed",
+    );
+    expect(useChatStore.getState().itemsById["item-1"]?.status).toBe(
+      "completed",
+    );
   });
 
   it("loads model options and applies conversation setting updates immediately", async () => {

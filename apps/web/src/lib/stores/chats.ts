@@ -13,22 +13,21 @@ import {
 import { getEventClient, type SseEventData } from "@/lib/events";
 import { useTabStore } from "@/lib/stores/tabs";
 import type {
+  ChatAppServerStatus,
   ChatConversationDetail,
   ChatConversationSettingsPatch,
   ChatConversationSummary,
-  ChatAppServerStatus,
   ChatItem,
   ChatMessage,
   ChatModelOption,
-  ChatRuntimeStatus,
   ChatRun,
+  ChatRuntimeStatus,
   ChatThreadStreamStatus,
   ChatTurn,
 } from "@/lib/types";
 
 type ConversationDetailState = {
   status: "idle" | "loading" | "loaded" | "error";
-  detail: ChatConversationDetail | null;
   error: string | null;
   needsRefresh: boolean;
 };
@@ -39,6 +38,13 @@ type ChatStoreState = {
   runtimesByConversationId: Record<string, ChatRuntimeStatus>;
   threadStreamsByConversationId: Record<string, ChatThreadStreamStatus>;
   detailsByConversationId: Record<string, ConversationDetailState>;
+  messageIdsByConversationId: Record<string, string[]>;
+  messagesById: Record<string, ChatMessage>;
+  turnIdsByConversationId: Record<string, string[]>;
+  turnsById: Record<string, ChatTurn>;
+  itemIdsByConversationId: Record<string, string[]>;
+  itemsById: Record<string, ChatItem>;
+  latestRunByConversationId: Record<string, ChatRun | null>;
   modelOptions: ChatModelOption[];
   modelOptionsStatus: "idle" | "loading" | "loaded" | "error";
   modelOptionsError: string | null;
@@ -58,12 +64,36 @@ type ChatStoreState = {
   clearConversationDetail: (conversationId: string) => void;
 };
 
+type ChatBatchEvent =
+  | {
+      type: "message_delta";
+      data: SseEventData<"chat_message_delta">;
+    }
+  | {
+      type: "message_updated";
+      data: SseEventData<"chat_message_updated">;
+    }
+  | {
+      type: "run_updated";
+      data: SseEventData<"chat_run_updated">;
+    }
+  | {
+      type: "turn_updated";
+      data: SseEventData<"chat_turn_updated">;
+    }
+  | {
+      type: "item_updated";
+      data: SseEventData<"chat_item_updated">;
+    };
+
 const DEFAULT_DETAIL_STATE: ConversationDetailState = {
   status: "idle",
-  detail: null,
   error: null,
   needsRefresh: false,
 };
+
+const EMPTY_IDS: readonly string[] = [];
+const EMPTY_THREAD_MESSAGES: readonly never[] = [];
 
 function indexConversations(
   conversations: readonly ApiChatConversationSummary[],
@@ -148,82 +178,70 @@ function mergeConversationIntoOpenTabs(
   });
 }
 
-function upsertMessage(
-  detail: ChatConversationDetail,
-  message: ChatMessage,
-): ChatConversationDetail {
-  const messages = sortMessages([
-    ...detail.messages.filter((existing) => existing.id !== message.id),
-    message,
-  ]);
-  return { ...detail, messages };
+function messageIdsFromState(
+  state: ChatStoreState,
+  conversationId: string,
+): readonly string[] {
+  return state.messageIdsByConversationId[conversationId] ?? EMPTY_IDS;
 }
 
-function upsertRun(
-  detail: ChatConversationDetail,
-  run: ChatRun,
-): ChatConversationDetail {
-  const runs = [detail.latestRun].filter(Boolean) as ChatRun[];
-  const latestRun =
-    sortRuns([...runs.filter((existing) => existing.id !== run.id), run])[0] ??
-    null;
-  return { ...detail, latestRun };
+function turnIdsFromState(
+  state: ChatStoreState,
+  conversationId: string,
+): readonly string[] {
+  return state.turnIdsByConversationId[conversationId] ?? EMPTY_IDS;
 }
 
-function upsertTurn(
-  detail: ChatConversationDetail,
-  turn: ChatTurn,
-): ChatConversationDetail {
-  const turns = sortTurns([
-    ...(detail.turns ?? []).filter((existing) => existing.id !== turn.id),
-    turn,
-  ]);
-  return { ...detail, turns };
+function itemIdsFromState(
+  state: ChatStoreState,
+  conversationId: string,
+): readonly string[] {
+  return state.itemIdsByConversationId[conversationId] ?? EMPTY_IDS;
 }
 
-function upsertItem(
-  detail: ChatConversationDetail,
-  item: ChatItem,
-): ChatConversationDetail {
-  const items = sortItems([
-    ...(detail.items ?? []).filter((existing) => existing.id !== item.id),
-    item,
-  ]);
-  return { ...detail, items };
-}
-
-function patchMessageDelta(
-  detail: ChatConversationDetail,
-  messageId: string,
-  delta: string,
+function denormalizeConversationDetail(
+  state: ChatStoreState,
+  conversationId: string,
 ): ChatConversationDetail | null {
-  const message = detail.messages.find(
-    (candidate) => candidate.id === messageId,
-  );
-  if (!message) {
+  const detailState = state.detailsByConversationId[conversationId];
+  const conversation = state.conversationsById[conversationId];
+  if (detailState?.status !== "loaded" || !conversation) {
     return null;
   }
 
-  return upsertMessage(detail, {
-    ...message,
-    contentText: `${message.contentText}${delta}`,
-  });
+  return {
+    conversation,
+    messages: messageIdsFromState(state, conversationId)
+      .map((messageId) => state.messagesById[messageId])
+      .filter((message): message is ChatMessage => Boolean(message)),
+    turns: turnIdsFromState(state, conversationId)
+      .map((turnId) => state.turnsById[turnId])
+      .filter((turn): turn is ChatTurn => Boolean(turn)),
+    items: itemIdsFromState(state, conversationId)
+      .map((itemId) => state.itemsById[itemId])
+      .filter((item): item is ChatItem => Boolean(item)),
+    latestRun: state.latestRunByConversationId[conversationId] ?? null,
+  };
 }
 
-function markConversationDirty(
-  state: ChatStoreState,
-  conversationId: string,
-): Partial<ChatStoreState> {
-  const current =
-    state.detailsByConversationId[conversationId] ?? DEFAULT_DETAIL_STATE;
+function mapById<T extends { id: string }>(
+  items: readonly T[],
+): Record<string, T> {
+  return Object.fromEntries(items.map((item) => [item.id, item]));
+}
+
+function sortedIds<T extends { id: string }>(
+  items: readonly T[],
+  sorter: (items: readonly T[]) => T[],
+): string[] {
+  return sorter(items).map((item) => item.id);
+}
+
+function loadedDetailState(): ConversationDetailState {
   return {
-    detailsByConversationId: {
-      ...state.detailsByConversationId,
-      [conversationId]: {
-        ...current,
-        needsRefresh: true,
-      },
-    },
+    status: "loaded",
+    error: null,
+    needsRefresh: false,
   };
 }
 
@@ -231,6 +249,10 @@ function setDetail(
   conversationId: string,
   detail: ChatConversationDetail,
 ): void {
+  const messages = sortMessages(detail.messages);
+  const turns = sortTurns(detail.turns ?? []);
+  const items = sortItems(detail.items ?? []);
+
   useChatStore.setState((state) => ({
     conversationsById: {
       ...state.conversationsById,
@@ -238,17 +260,35 @@ function setDetail(
     },
     detailsByConversationId: {
       ...state.detailsByConversationId,
-      [conversationId]: {
-        status: "loaded",
-        detail: {
-          ...detail,
-          messages: sortMessages(detail.messages),
-          turns: sortTurns(detail.turns ?? []),
-          items: sortItems(detail.items ?? []),
-        },
-        error: null,
-        needsRefresh: false,
-      },
+      [conversationId]: loadedDetailState(),
+    },
+    messageIdsByConversationId: {
+      ...state.messageIdsByConversationId,
+      [conversationId]: messages.map((message) => message.id),
+    },
+    messagesById: {
+      ...state.messagesById,
+      ...mapById(messages),
+    },
+    turnIdsByConversationId: {
+      ...state.turnIdsByConversationId,
+      [conversationId]: turns.map((turn) => turn.id),
+    },
+    turnsById: {
+      ...state.turnsById,
+      ...mapById(turns),
+    },
+    itemIdsByConversationId: {
+      ...state.itemIdsByConversationId,
+      [conversationId]: items.map((item) => item.id),
+    },
+    itemsById: {
+      ...state.itemsById,
+      ...mapById(items),
+    },
+    latestRunByConversationId: {
+      ...state.latestRunByConversationId,
+      [conversationId]: detail.latestRun ?? null,
     },
   }));
   mergeConversationIntoOpenTabs(detail.conversation);
@@ -289,26 +329,151 @@ async function loadConversation(
   }
 }
 
+function upsertSortedEntity<T extends { id: string }>(
+  ids: readonly string[],
+  byId: Record<string, T>,
+  entity: T,
+  sorter: (items: readonly T[]) => T[],
+): string[] {
+  const nextById = { ...byId, [entity.id]: entity };
+  const nextIds = ids.includes(entity.id) ? [...ids] : [...ids, entity.id];
+  return sortedIds(
+    nextIds
+      .map((id) => nextById[id])
+      .filter((item): item is T => Boolean(item)),
+    sorter,
+  );
+}
+
+function isConversationLoaded(
+  state: ChatStoreState,
+  conversationId: string,
+): boolean {
+  return state.detailsByConversationId[conversationId]?.status === "loaded";
+}
+
+function hasStreamingAssistantMessage(
+  state: ChatStoreState,
+  conversationId: string,
+): boolean {
+  return messageIdsFromState(state, conversationId).some((messageId) => {
+    const message = state.messagesById[messageId];
+    return message?.role === "assistant" && message.status === "streaming";
+  });
+}
+
+export function selectChatDetailState(
+  state: ChatStoreState,
+  conversationId: string,
+): ConversationDetailState {
+  return state.detailsByConversationId[conversationId] ?? DEFAULT_DETAIL_STATE;
+}
+
+export function selectChatConversation(
+  state: ChatStoreState,
+  conversationId: string,
+): ChatConversationSummary | null {
+  return state.conversationsById[conversationId] ?? null;
+}
+
+export function selectChatMessageIds(
+  state: ChatStoreState,
+  conversationId: string,
+): readonly string[] {
+  return messageIdsFromState(state, conversationId);
+}
+
+export function selectChatMessage(
+  state: ChatStoreState,
+  messageId: string,
+): ChatMessage | null {
+  return state.messagesById[messageId] ?? null;
+}
+
+export function selectChatLatestRun(
+  state: ChatStoreState,
+  conversationId: string,
+): ChatRun | null {
+  return state.latestRunByConversationId[conversationId] ?? null;
+}
+
+export function selectChatRuntime(
+  state: ChatStoreState,
+  conversationId: string,
+): ChatRuntimeStatus | null {
+  return state.runtimesByConversationId[conversationId] ?? null;
+}
+
+export function selectChatComposerMessages(): readonly never[] {
+  return EMPTY_THREAD_MESSAGES;
+}
+
+export function selectChatHeaderSlice(
+  state: ChatStoreState,
+  conversationId: string,
+): {
+  conversation: ChatConversationSummary | null;
+  latestRun: ChatRun | null;
+  runtime: ChatRuntimeStatus | null;
+  detailError: string | null;
+  modelOptionsError: string | null;
+  hasStreamingMessage: boolean;
+} {
+  const detailState = selectChatDetailState(state, conversationId);
+  return {
+    conversation: selectChatConversation(state, conversationId),
+    latestRun: selectChatLatestRun(state, conversationId),
+    runtime: selectChatRuntime(state, conversationId),
+    detailError: detailState.error,
+    modelOptionsError: state.modelOptionsError,
+    hasStreamingMessage: hasStreamingAssistantMessage(state, conversationId),
+  };
+}
+
+export function selectChatModelSlice(
+  state: ChatStoreState,
+  conversationId: string,
+): {
+  conversation: ChatConversationSummary | null;
+  modelOptions: ChatModelOption[];
+  modelOptionsStatus: ChatStoreState["modelOptionsStatus"];
+  modelOptionsError: string | null;
+  runtime: ChatRuntimeStatus | null;
+  hasStreamingMessage: boolean;
+} {
+  return {
+    conversation: selectChatConversation(state, conversationId),
+    modelOptions: state.modelOptions,
+    modelOptionsStatus: state.modelOptionsStatus,
+    modelOptionsError: state.modelOptionsError,
+    runtime: selectChatRuntime(state, conversationId),
+    hasStreamingMessage: hasStreamingAssistantMessage(state, conversationId),
+  };
+}
+
 export const useChatStore = create<ChatStoreState>((set, get) => ({
   appServerStatus: null,
   conversationsById: {},
   runtimesByConversationId: {},
   threadStreamsByConversationId: {},
   detailsByConversationId: {},
+  messageIdsByConversationId: {},
+  messagesById: {},
+  turnIdsByConversationId: {},
+  turnsById: {},
+  itemIdsByConversationId: {},
+  itemsById: {},
+  latestRunByConversationId: {},
   modelOptions: [],
   modelOptionsStatus: "idle",
   modelOptionsError: null,
   async ensureConversationLoaded(conversationId) {
     const current = get().detailsByConversationId[conversationId];
-    if (
-      current?.status === "loaded" &&
-      current.detail &&
-      !current.needsRefresh
-    ) {
-      return current.detail;
+    if (current?.status === "loaded" && !current.needsRefresh) {
+      return denormalizeConversationDetail(get(), conversationId);
     }
     if (current?.status === "loading") {
-      return current.detail;
+      return denormalizeConversationDetail(get(), conversationId);
     }
     return loadConversation(conversationId);
   },
@@ -362,42 +527,66 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       if (!(conversationId in state.detailsByConversationId)) {
         return state;
       }
-      const next = { ...state.detailsByConversationId };
-      delete next[conversationId];
-      return { detailsByConversationId: next };
+      const existingMessageIds =
+        state.messageIdsByConversationId[conversationId] ?? [];
+      const existingTurnIds =
+        state.turnIdsByConversationId[conversationId] ?? [];
+      const existingItemIds =
+        state.itemIdsByConversationId[conversationId] ?? [];
+      const detailsByConversationId = { ...state.detailsByConversationId };
+      const messageIdsByConversationId = {
+        ...state.messageIdsByConversationId,
+      };
+      const messagesById = { ...state.messagesById };
+      const turnIdsByConversationId = { ...state.turnIdsByConversationId };
+      const turnsById = { ...state.turnsById };
+      const itemIdsByConversationId = { ...state.itemIdsByConversationId };
+      const itemsById = { ...state.itemsById };
+      const latestRunByConversationId = { ...state.latestRunByConversationId };
+      for (const messageId of existingMessageIds) {
+        delete messagesById[messageId];
+      }
+      for (const turnId of existingTurnIds) {
+        delete turnsById[turnId];
+      }
+      for (const itemId of existingItemIds) {
+        delete itemsById[itemId];
+      }
+      delete detailsByConversationId[conversationId];
+      delete messageIdsByConversationId[conversationId];
+      delete turnIdsByConversationId[conversationId];
+      delete itemIdsByConversationId[conversationId];
+      delete latestRunByConversationId[conversationId];
+      return {
+        detailsByConversationId,
+        messageIdsByConversationId,
+        messagesById,
+        turnIdsByConversationId,
+        turnsById,
+        itemIdsByConversationId,
+        itemsById,
+        latestRunByConversationId,
+      };
     });
   },
 }));
 
 let initialized = false;
 let eventUnsubscribers: Array<() => void> = [];
+let queuedChatEvents: ChatBatchEvent[] = [];
+let queuedChatFrame: number | null = null;
 
 function handleConversationEvent(
   data:
     | SseEventData<"chat_conversation_created">
     | SseEventData<"chat_conversation_updated">,
 ): void {
-  useChatStore.setState((state) => {
-    const details = state.detailsByConversationId[data.conversation.id];
-    return {
-      conversationsById: {
-        ...state.conversationsById,
-        [data.conversation.id]: data.conversation,
-      },
-      detailsByConversationId: details?.detail
-        ? {
-            ...state.detailsByConversationId,
-            [data.conversation.id]: {
-              ...details,
-              detail: {
-                ...details.detail,
-                conversation: data.conversation,
-              },
-            },
-          }
-        : state.detailsByConversationId,
-    };
-  });
+  useChatStore.setState((state) => ({
+    conversationsById: {
+      ...state.conversationsById,
+      [data.conversation.id]: data.conversation,
+    },
+  }));
   mergeConversationIntoOpenTabs(data.conversation);
 }
 
@@ -429,115 +618,256 @@ function handleThreadStreamEvent(
   }));
 }
 
+function enqueueChatEvent(event: ChatBatchEvent): void {
+  queuedChatEvents.push(event);
+  if (queuedChatFrame !== null) {
+    return;
+  }
+  if (
+    typeof window !== "undefined" &&
+    typeof window.requestAnimationFrame === "function"
+  ) {
+    queuedChatFrame = window.requestAnimationFrame(flushQueuedChatEvents);
+    return;
+  }
+  queuedChatFrame = -1;
+  queueMicrotask(flushQueuedChatEvents);
+}
+
+function markConversationDirtyInBatch(
+  state: ChatStoreState,
+  conversationId: string,
+): ChatStoreState {
+  const current =
+    state.detailsByConversationId[conversationId] ?? DEFAULT_DETAIL_STATE;
+  return {
+    ...state,
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [conversationId]: {
+        ...current,
+        needsRefresh: true,
+      },
+    },
+  };
+}
+
+function applyMessageUpdated(
+  state: ChatStoreState,
+  conversationId: string,
+  message: ChatMessage,
+): ChatStoreState {
+  if (!isConversationLoaded(state, conversationId)) {
+    return markConversationDirtyInBatch(state, conversationId);
+  }
+  const currentIds = messageIdsFromState(state, conversationId);
+  const messagesById = {
+    ...state.messagesById,
+    [message.id]: message,
+  };
+  return {
+    ...state,
+    messagesById,
+    messageIdsByConversationId: {
+      ...state.messageIdsByConversationId,
+      [conversationId]: upsertSortedEntity(
+        currentIds,
+        messagesById,
+        message,
+        sortMessages,
+      ),
+    },
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [conversationId]: loadedDetailState(),
+    },
+  };
+}
+
+function applyMessageDelta(
+  state: ChatStoreState,
+  data: SseEventData<"chat_message_delta">,
+): ChatStoreState {
+  if (!isConversationLoaded(state, data.conversation_id)) {
+    return markConversationDirtyInBatch(state, data.conversation_id);
+  }
+  const message = state.messagesById[data.message_id];
+  if (!message) {
+    return markConversationDirtyInBatch(state, data.conversation_id);
+  }
+  return {
+    ...state,
+    messagesById: {
+      ...state.messagesById,
+      [data.message_id]: {
+        ...message,
+        contentText: `${message.contentText}${data.delta}`,
+      },
+    },
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [data.conversation_id]: loadedDetailState(),
+    },
+  };
+}
+
+function applyRunUpdated(
+  state: ChatStoreState,
+  conversationId: string,
+  run: ChatRun,
+): ChatStoreState {
+  if (!isConversationLoaded(state, conversationId)) {
+    return markConversationDirtyInBatch(state, conversationId);
+  }
+  const existing = state.latestRunByConversationId[conversationId];
+  const runs = [existing].filter(
+    (candidate): candidate is ChatRun =>
+      candidate !== null && candidate.id !== run.id,
+  );
+  const latestRun = sortRuns([...runs, run])[0] ?? null;
+  return {
+    ...state,
+    latestRunByConversationId: {
+      ...state.latestRunByConversationId,
+      [conversationId]: latestRun,
+    },
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [conversationId]: loadedDetailState(),
+    },
+  };
+}
+
+function applyTurnUpdated(
+  state: ChatStoreState,
+  conversationId: string,
+  turn: ChatTurn,
+): ChatStoreState {
+  if (!isConversationLoaded(state, conversationId)) {
+    return markConversationDirtyInBatch(state, conversationId);
+  }
+  const currentIds = turnIdsFromState(state, conversationId);
+  const turnsById = {
+    ...state.turnsById,
+    [turn.id]: turn,
+  };
+  return {
+    ...state,
+    turnsById,
+    turnIdsByConversationId: {
+      ...state.turnIdsByConversationId,
+      [conversationId]: upsertSortedEntity(
+        currentIds,
+        turnsById,
+        turn,
+        sortTurns,
+      ),
+    },
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [conversationId]: loadedDetailState(),
+    },
+  };
+}
+
+function applyItemUpdated(
+  state: ChatStoreState,
+  conversationId: string,
+  item: ChatItem,
+): ChatStoreState {
+  if (!isConversationLoaded(state, conversationId)) {
+    return markConversationDirtyInBatch(state, conversationId);
+  }
+  const currentIds = itemIdsFromState(state, conversationId);
+  const itemsById = {
+    ...state.itemsById,
+    [item.id]: item,
+  };
+  return {
+    ...state,
+    itemsById,
+    itemIdsByConversationId: {
+      ...state.itemIdsByConversationId,
+      [conversationId]: upsertSortedEntity(
+        currentIds,
+        itemsById,
+        item,
+        sortItems,
+      ),
+    },
+    detailsByConversationId: {
+      ...state.detailsByConversationId,
+      [conversationId]: loadedDetailState(),
+    },
+  };
+}
+
+function applyQueuedChatEvents(
+  state: ChatStoreState,
+  events: readonly ChatBatchEvent[],
+): ChatStoreState {
+  return events.reduce((nextState, event) => {
+    switch (event.type) {
+      case "message_delta":
+        return applyMessageDelta(nextState, event.data);
+      case "message_updated":
+        return applyMessageUpdated(
+          nextState,
+          event.data.conversation_id,
+          event.data.message,
+        );
+      case "run_updated":
+        return applyRunUpdated(
+          nextState,
+          event.data.conversation_id,
+          event.data.run,
+        );
+      case "turn_updated":
+        return applyTurnUpdated(
+          nextState,
+          event.data.conversation_id,
+          event.data.turn,
+        );
+      case "item_updated":
+        return applyItemUpdated(
+          nextState,
+          event.data.conversation_id,
+          event.data.item,
+        );
+    }
+  }, state);
+}
+
+function flushQueuedChatEvents(): void {
+  const events = queuedChatEvents;
+  queuedChatEvents = [];
+  queuedChatFrame = null;
+  if (events.length === 0) {
+    return;
+  }
+  useChatStore.setState((state) => applyQueuedChatEvents(state, events));
+}
+
 function handleMessageUpdated(
   data: SseEventData<"chat_message_updated">,
 ): void {
-  useChatStore.setState((state) => {
-    const current = state.detailsByConversationId[data.conversation_id];
-    if (!current?.detail) {
-      return markConversationDirty(state, data.conversation_id);
-    }
-
-    return {
-      detailsByConversationId: {
-        ...state.detailsByConversationId,
-        [data.conversation_id]: {
-          ...current,
-          detail: upsertMessage(current.detail, data.message),
-          needsRefresh: false,
-        },
-      },
-    };
-  });
+  enqueueChatEvent({ type: "message_updated", data });
 }
 
 function handleRunUpdated(data: SseEventData<"chat_run_updated">): void {
-  useChatStore.setState((state) => {
-    const current = state.detailsByConversationId[data.conversation_id];
-    if (!current?.detail) {
-      return markConversationDirty(state, data.conversation_id);
-    }
-
-    return {
-      detailsByConversationId: {
-        ...state.detailsByConversationId,
-        [data.conversation_id]: {
-          ...current,
-          detail: upsertRun(current.detail, data.run),
-          needsRefresh: false,
-        },
-      },
-    };
-  });
+  enqueueChatEvent({ type: "run_updated", data });
 }
 
 function handleTurnUpdated(data: SseEventData<"chat_turn_updated">): void {
-  useChatStore.setState((state) => {
-    const current = state.detailsByConversationId[data.conversation_id];
-    if (!current?.detail) {
-      return markConversationDirty(state, data.conversation_id);
-    }
-
-    return {
-      detailsByConversationId: {
-        ...state.detailsByConversationId,
-        [data.conversation_id]: {
-          ...current,
-          detail: upsertTurn(current.detail, data.turn),
-          needsRefresh: false,
-        },
-      },
-    };
-  });
+  enqueueChatEvent({ type: "turn_updated", data });
 }
 
 function handleItemUpdated(data: SseEventData<"chat_item_updated">): void {
-  useChatStore.setState((state) => {
-    const current = state.detailsByConversationId[data.conversation_id];
-    if (!current?.detail) {
-      return markConversationDirty(state, data.conversation_id);
-    }
-
-    return {
-      detailsByConversationId: {
-        ...state.detailsByConversationId,
-        [data.conversation_id]: {
-          ...current,
-          detail: upsertItem(current.detail, data.item),
-          needsRefresh: false,
-        },
-      },
-    };
-  });
+  enqueueChatEvent({ type: "item_updated", data });
 }
 
 function handleMessageDelta(data: SseEventData<"chat_message_delta">): void {
-  useChatStore.setState((state) => {
-    const current = state.detailsByConversationId[data.conversation_id];
-    if (!current?.detail) {
-      return markConversationDirty(state, data.conversation_id);
-    }
-
-    const nextDetail = patchMessageDelta(
-      current.detail,
-      data.message_id,
-      data.delta,
-    );
-    if (!nextDetail) {
-      return markConversationDirty(state, data.conversation_id);
-    }
-
-    return {
-      detailsByConversationId: {
-        ...state.detailsByConversationId,
-        [data.conversation_id]: {
-          ...current,
-          detail: nextDetail,
-          needsRefresh: false,
-        },
-      },
-    };
-  });
+  enqueueChatEvent({ type: "message_delta", data });
 }
 
 export function initializeChatStore(): void {
@@ -549,20 +879,68 @@ export function initializeChatStore(): void {
   const events = getEventClient();
   eventUnsubscribers = [
     events.on("snapshot", (data) => {
+      flushQueuedChatEvents();
       const nextConversations = indexConversations(data.chat_conversations);
-      useChatStore.setState((state) => ({
-        appServerStatus: data.chat_app_server ?? null,
-        conversationsById: nextConversations,
-        runtimesByConversationId: indexRuntimes(data.chat_runtimes),
-        threadStreamsByConversationId: indexThreadStreams(
-          data.chat_thread_streams,
-        ),
-        detailsByConversationId: Object.fromEntries(
-          Object.entries(state.detailsByConversationId).filter(
-            ([conversationId]) => conversationId in nextConversations,
+      useChatStore.setState((state) => {
+        const conversationIds = new Set(Object.keys(nextConversations));
+        const messageIdsByConversationId = Object.fromEntries(
+          Object.entries(state.messageIdsByConversationId).filter(
+            ([conversationId]) => conversationIds.has(conversationId),
           ),
-        ),
-      }));
+        );
+        const turnIdsByConversationId = Object.fromEntries(
+          Object.entries(state.turnIdsByConversationId).filter(
+            ([conversationId]) => conversationIds.has(conversationId),
+          ),
+        );
+        const itemIdsByConversationId = Object.fromEntries(
+          Object.entries(state.itemIdsByConversationId).filter(
+            ([conversationId]) => conversationIds.has(conversationId),
+          ),
+        );
+        const messageIds = new Set(
+          Object.values(messageIdsByConversationId).flat(),
+        );
+        const turnIds = new Set(Object.values(turnIdsByConversationId).flat());
+        const itemIds = new Set(Object.values(itemIdsByConversationId).flat());
+
+        return {
+          appServerStatus: data.chat_app_server ?? null,
+          conversationsById: nextConversations,
+          runtimesByConversationId: indexRuntimes(data.chat_runtimes),
+          threadStreamsByConversationId: indexThreadStreams(
+            data.chat_thread_streams,
+          ),
+          detailsByConversationId: Object.fromEntries(
+            Object.entries(state.detailsByConversationId).filter(
+              ([conversationId]) => conversationIds.has(conversationId),
+            ),
+          ),
+          messageIdsByConversationId,
+          messagesById: Object.fromEntries(
+            Object.entries(state.messagesById).filter(([messageId]) =>
+              messageIds.has(messageId),
+            ),
+          ),
+          turnIdsByConversationId,
+          turnsById: Object.fromEntries(
+            Object.entries(state.turnsById).filter(([turnId]) =>
+              turnIds.has(turnId),
+            ),
+          ),
+          itemIdsByConversationId,
+          itemsById: Object.fromEntries(
+            Object.entries(state.itemsById).filter(([itemId]) =>
+              itemIds.has(itemId),
+            ),
+          ),
+          latestRunByConversationId: Object.fromEntries(
+            Object.entries(state.latestRunByConversationId).filter(
+              ([conversationId]) => conversationIds.has(conversationId),
+            ),
+          ),
+        };
+      });
     }),
     events.on("chat_conversation_created", handleConversationEvent),
     events.on("chat_conversation_updated", handleConversationEvent),
@@ -577,18 +955,39 @@ export function initializeChatStore(): void {
   ];
 }
 
+export function flushChatStoreSseBatchForTests(): void {
+  flushQueuedChatEvents();
+}
+
 export function resetChatStoreForTests(): void {
   for (const unsubscribe of eventUnsubscribers) {
     unsubscribe();
   }
   eventUnsubscribers = [];
   initialized = false;
+  queuedChatEvents = [];
+  if (
+    queuedChatFrame !== null &&
+    queuedChatFrame > 0 &&
+    typeof window !== "undefined" &&
+    typeof window.cancelAnimationFrame === "function"
+  ) {
+    window.cancelAnimationFrame(queuedChatFrame);
+  }
+  queuedChatFrame = null;
   useChatStore.setState({
     appServerStatus: null,
     conversationsById: {},
     runtimesByConversationId: {},
     threadStreamsByConversationId: {},
     detailsByConversationId: {},
+    messageIdsByConversationId: {},
+    messagesById: {},
+    turnIdsByConversationId: {},
+    turnsById: {},
+    itemIdsByConversationId: {},
+    itemsById: {},
+    latestRunByConversationId: {},
     modelOptions: [],
     modelOptionsStatus: "idle",
     modelOptionsError: null,
