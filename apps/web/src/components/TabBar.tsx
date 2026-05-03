@@ -69,7 +69,7 @@ export default function TabBar({
   onClose,
   onAddTerminal,
   onAddBrowser,
-  onAddChat = async () => {},
+  onAddChat,
   onReorder = async () => {},
   onSplitRight,
   onSplitDown,
@@ -283,7 +283,11 @@ export default function TabBar({
           aria-label="New Chat"
           title="New Chat"
           className="h-6 w-6"
+          disabled={!onAddChat}
           onClick={() => {
+            if (!onAddChat) {
+              return;
+            }
             void onAddChat();
           }}
         >

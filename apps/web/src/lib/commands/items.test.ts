@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { buildCommandContextSnapshot } from "@/lib/commands/context";
 import { getCommandPaletteItems } from "@/lib/commands/items";
+import { useChatStore } from "@/lib/stores/chats";
 
 function makeProject(id: string, name: string) {
   return {
@@ -55,6 +56,12 @@ function makeTerminalTab(
 }
 
 describe("command palette items", () => {
+  beforeEach(() => {
+    useChatStore.setState({
+      conversationsById: {},
+    });
+  });
+
   it("combines static commands with dynamic state-backed items", () => {
     const project = makeProject("p1", "Devbox");
     const selectedWorktree = makeWorktree("w1", project.id, "local", {
@@ -301,5 +308,94 @@ describe("command palette items", () => {
         }),
       ]),
     );
+  });
+
+  it("keeps open chat items ordered by recent activity", () => {
+    const project = makeProject("p1", "Devbox");
+    const selectedWorktree = makeWorktree("w1", project.id, "local");
+    useChatStore.setState({
+      conversationsById: {
+        old: {
+          contextMaxTokens: null,
+          contextPercentUsed: null,
+          contextUpdatedAt: null,
+          contextUsedTokens: null,
+          createdAt: 1,
+          hasPendingRequestAttention: false,
+          id: "old",
+          lastActivityAt: 10,
+          lastError: null,
+          lastMessageAt: null,
+          lastReconciliationError: null,
+          lastReconciliationState: "not_needed",
+          lastRunState: "completed",
+          latestPendingRequestId: null,
+          latestPendingRequestKind: null,
+          latestPendingRequestStatus: null,
+          openTabId: null,
+          pendingRequestCount: 0,
+          projectId: project.id,
+          provider: "codex",
+          providerThreadId: null,
+          revision: 1,
+          selectedEffort: null,
+          selectedModel: null,
+          selectedPermissionMode: null,
+          sessionId: "default",
+          title: "Older chat",
+          updatedAt: 10,
+          worktreeId: selectedWorktree.id,
+        },
+        recent: {
+          contextMaxTokens: null,
+          contextPercentUsed: null,
+          contextUpdatedAt: null,
+          contextUsedTokens: null,
+          createdAt: 2,
+          hasPendingRequestAttention: false,
+          id: "recent",
+          lastActivityAt: 20,
+          lastError: null,
+          lastMessageAt: null,
+          lastReconciliationError: null,
+          lastReconciliationState: "not_needed",
+          lastRunState: "completed",
+          latestPendingRequestId: null,
+          latestPendingRequestKind: null,
+          latestPendingRequestStatus: null,
+          openTabId: null,
+          pendingRequestCount: 0,
+          projectId: project.id,
+          provider: "codex",
+          providerThreadId: null,
+          revision: 1,
+          selectedEffort: null,
+          selectedModel: null,
+          selectedPermissionMode: null,
+          sessionId: "default",
+          title: "Recent chat",
+          updatedAt: 20,
+          worktreeId: selectedWorktree.id,
+        },
+      },
+    });
+
+    const items = getCommandPaletteItems(
+      buildCommandContextSnapshot({
+        activeTabId: null,
+        focusedPaneByWorktree: {},
+        projects: [project],
+        selectedWorktreeId: selectedWorktree.id,
+        tabs: [],
+        worktreesByProject: {
+          [project.id]: [selectedWorktree],
+        },
+      }),
+    ).filter((item) => item.id === "tab.openChat");
+
+    expect(items.map((item) => item.key)).toEqual([
+      "tab.openChat:recent",
+      "tab.openChat:old",
+    ]);
   });
 });

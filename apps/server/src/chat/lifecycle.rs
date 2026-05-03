@@ -94,7 +94,10 @@ impl ThreadStreamLifecycle {
     }
 
     pub(super) fn mark_process_lost(&mut self) {
-        if matches!(self.resume_state, ThreadStreamResumeState::Resumed) {
+        if matches!(
+            self.resume_state,
+            ThreadStreamResumeState::Resuming | ThreadStreamResumeState::Resumed
+        ) {
             self.resume_state = ThreadStreamResumeState::NeedsResume;
         }
     }
@@ -160,6 +163,15 @@ mod tests {
     fn process_loss_marks_resumed_thread_as_needing_resume() {
         let mut lifecycle = ThreadStreamLifecycle::default();
         lifecycle.mark_resumed();
+        lifecycle.mark_process_lost();
+
+        assert_eq!(lifecycle.resume_state, ThreadStreamResumeState::NeedsResume);
+    }
+
+    #[test]
+    fn process_loss_marks_resuming_thread_as_needing_resume() {
+        let mut lifecycle = ThreadStreamLifecycle::default();
+        lifecycle.mark_resuming();
         lifecycle.mark_process_lost();
 
         assert_eq!(lifecycle.resume_state, ThreadStreamResumeState::NeedsResume);

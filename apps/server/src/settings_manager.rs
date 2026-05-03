@@ -147,14 +147,17 @@ impl SettingsManager {
         if state.status.writes_blocked {
             return Err(SettingsManagerError::WritesBlocked);
         }
+        let mut normalized = settings;
+        normalized.chat.idle_timeout_minutes =
+            clamp_chat_idle_timeout_minutes(normalized.chat.idle_timeout_minutes);
         let mut document = state.document.clone();
-        apply_settings_to_document(&mut document, &settings);
+        apply_settings_to_document(&mut document, &normalized);
         let generation = persist_document(&self.path, &document, Some(&state.generation)).await?;
         state.document = document;
-        state.settings = settings.clone();
+        state.settings = normalized.clone();
         state.generation = generation.clone();
         Ok(SettingsState {
-            settings,
+            settings: normalized,
             generation,
             status: state.status.clone(),
         })

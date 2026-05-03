@@ -13,5 +13,5 @@ CREATE TABLE chat_item_outputs (
 CREATE INDEX idx_chat_item_outputs_item_sequence
     ON chat_item_outputs (conversation_id, item_id, sequence);
 
-CREATE INDEX idx_chat_item_outputs_item_stream_sequence
+CREATE UNIQUE INDEX idx_chat_item_outputs_item_stream_sequence
     ON chat_item_outputs (conversation_id, item_id, stream_kind, sequence);

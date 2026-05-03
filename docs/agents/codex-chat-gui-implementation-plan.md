@@ -726,9 +726,10 @@ Verification:
 - Manual browser trace on a long conversation with streaming output.
 - Confirm no new markdown/highlight/virtualization dependency was added.
 
-## Recommended First Slice
+## Historical First Slice (already completed)
 
-Start with phases 0 through 3 before adding visible feature complexity:
+For historical context, the implementation originally started with phases 0
+through 3 before adding visible feature complexity:
 
 1. Introduce a protocol normalizer and fixture tests.
 2. Move from per-conversation app-server processes to one host-scoped app-server

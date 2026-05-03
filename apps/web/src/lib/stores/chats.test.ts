@@ -566,6 +566,14 @@ describe("chat store", () => {
   it("adds activity items to the chat timeline without changing messages", async () => {
     initializeChatStore();
     mockGetChat.mockResolvedValue(detail);
+    mockGetChatActivity.mockResolvedValue({
+      item: {
+        ...commandItem,
+        status: "completed",
+        completedAt: 20,
+      },
+      outputs: [commandOutput],
+    });
     await useChatStore.getState().ensureConversationLoaded("chat-1");
 
     expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
@@ -593,9 +601,24 @@ describe("chat store", () => {
     expect(
       selectChatItemOutputIds(useChatStore.getState(), "item-command-1"),
     ).toEqual(["output-1"]);
+    expect(
+      useChatStore.getState().activityDetailsByItemId["item-command-1"]?.status,
+    ).toBe("partial");
     expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
       "Hello",
     );
+
+    await useChatStore
+      .getState()
+      .ensureActivityLoaded("chat-1", "item-command-1");
+
+    expect(mockGetChatActivity).toHaveBeenCalledWith(
+      "chat-1",
+      "item-command-1",
+    );
+    expect(
+      useChatStore.getState().activityDetailsByItemId["item-command-1"]?.status,
+    ).toBe("loaded");
   });
 
   it("orders turn-owned rows as user, work group, then assistant", async () => {
@@ -1081,6 +1104,46 @@ describe("chat store", () => {
     expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
       "Final.",
     );
+  });
+
+  it("adds an assistant timeline row when the first text delta arrives", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      messages: [
+        {
+          ...detail.messages[0],
+          contentText: "",
+          status: "streaming",
+        },
+      ],
+      turns: [
+        {
+          ...detail.turns[0],
+          status: "running",
+        },
+      ],
+      items: [],
+    });
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "work:turn-local-1:initial",
+    ]);
+
+    mockEvents.emit("chat_message_delta", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      message_id: "message-1",
+      delta: "First token",
+      revision: 2n,
+    });
+    flushChatStoreSseBatchForTests();
+
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "work:turn-local-1:initial",
+      "message:assistant:message-1",
+    ]);
   });
 
   it("batches run, turn, and item updates into loaded detail state", async () => {

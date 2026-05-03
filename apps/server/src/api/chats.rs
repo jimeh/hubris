@@ -19,10 +19,21 @@ pub struct ListChatsParams {
     pub session_id: String,
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct ChatSessionParams {
+    #[serde(default = "default_session_id")]
+    pub session_id: String,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SendChatMessageRequest {
     pub text: String,
+}
+
+fn default_session_id() -> String {
+    "default".to_string()
 }
 
 impl From<ChatServiceError> for (StatusCode, Json<ApiErrorResponse>) {
@@ -38,6 +49,32 @@ impl From<ChatServiceError> for (StatusCode, Json<ApiErrorResponse>) {
 
 fn map_chat_error(error: ChatServiceError) -> (StatusCode, Json<ApiErrorResponse>) {
     error.into()
+}
+
+fn chat_not_found() -> (StatusCode, Json<ApiErrorResponse>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(ApiErrorResponse {
+            message: "chat not found".to_string(),
+        }),
+    )
+}
+
+async fn conversation_for_session(
+    state: &AppState,
+    conversation_id: &str,
+    session_id: &str,
+) -> Result<ChatConversationSummary, (StatusCode, Json<ApiErrorResponse>)> {
+    let conversation = state
+        .chats
+        .get_conversation_summary(conversation_id)
+        .await
+        .map_err(map_chat_error)?
+        .ok_or_else(chat_not_found)?;
+    if conversation.session_id != session_id {
+        return Err(chat_not_found());
+    }
+    Ok(conversation)
 }
 
 #[utoipa::path(
@@ -85,6 +122,7 @@ pub async fn list_chat_models(
     path = "/api/chats/{conversation_id}",
     params(
         ("conversation_id" = String, Path, description = "Conversation ID"),
+        ChatSessionParams,
     ),
     responses(
         (status = 200, description = "Conversation detail", body = ChatConversationDetail),
@@ -94,20 +132,15 @@ pub async fn list_chat_models(
 pub async fn get_chat(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
+    Query(params): Query<ChatSessionParams>,
 ) -> Result<Json<ChatConversationDetail>, (StatusCode, Json<ApiErrorResponse>)> {
+    conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let detail = state
         .chats
         .get_conversation_detail(&conversation_id)
         .await
         .map_err(map_chat_error)?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    message: "chat not found".to_string(),
-                }),
-            )
-        })?;
+        .ok_or_else(chat_not_found)?;
     Ok(Json(detail))
 }
 
@@ -117,6 +150,7 @@ pub async fn get_chat(
     params(
         ("conversation_id" = String, Path, description = "Conversation ID"),
         ("item_id" = String, Path, description = "Activity item ID"),
+        ChatSessionParams,
     ),
     responses(
         (status = 200, description = "Activity detail", body = ChatActivityDetail),
@@ -126,7 +160,9 @@ pub async fn get_chat(
 pub async fn get_chat_activity(
     State(state): State<AppState>,
     Path((conversation_id, item_id)): Path<(String, String)>,
+    Query(params): Query<ChatSessionParams>,
 ) -> Result<Json<ChatActivityDetail>, (StatusCode, Json<ApiErrorResponse>)> {
+    conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let detail = state
         .chats
         .get_activity_detail(&conversation_id, &item_id)
@@ -149,6 +185,7 @@ pub async fn get_chat_activity(
     request_body = ChatConversationSettingsPatch,
     params(
         ("conversation_id" = String, Path, description = "Conversation ID"),
+        ChatSessionParams,
     ),
     responses(
         (status = 200, description = "Updated conversation summary", body = ChatConversationSummary),
@@ -158,8 +195,10 @@ pub async fn get_chat_activity(
 pub async fn patch_chat_settings(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
+    Query(params): Query<ChatSessionParams>,
     Json(request): Json<ChatConversationSettingsPatch>,
 ) -> Result<Json<ChatConversationSummary>, (StatusCode, Json<ApiErrorResponse>)> {
+    conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let summary = state
         .chats
         .update_conversation_settings(&conversation_id, request)
@@ -174,6 +213,7 @@ pub async fn patch_chat_settings(
     request_body = SendChatMessageRequest,
     params(
         ("conversation_id" = String, Path, description = "Conversation ID"),
+        ChatSessionParams,
     ),
     responses(
         (status = 202, description = "Message accepted"),
@@ -184,21 +224,11 @@ pub async fn patch_chat_settings(
 pub async fn send_chat_message(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
+    Query(params): Query<ChatSessionParams>,
     Json(request): Json<SendChatMessageRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ApiErrorResponse>)> {
-    let conversation = state
-        .chats
-        .get_conversation_summary(&conversation_id)
-        .await
-        .map_err(map_chat_error)?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    message: "chat not found".to_string(),
-                }),
-            )
-        })?;
+    let conversation =
+        conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let resolved = resolve_worktree(&state, &conversation.worktree_id)
         .await
         .map_err(|status| {
@@ -230,6 +260,7 @@ pub async fn send_chat_message(
     path = "/api/chats/{conversation_id}/interrupt",
     params(
         ("conversation_id" = String, Path, description = "Conversation ID"),
+        ChatSessionParams,
     ),
     responses(
         (status = 202, description = "Interrupt requested"),
@@ -240,20 +271,9 @@ pub async fn send_chat_message(
 pub async fn interrupt_chat(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
+    Query(params): Query<ChatSessionParams>,
 ) -> Result<StatusCode, (StatusCode, Json<ApiErrorResponse>)> {
-    let exists = state
-        .chats
-        .get_conversation_summary(&conversation_id)
-        .await
-        .map_err(map_chat_error)?;
-    if exists.is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                message: "chat not found".to_string(),
-            }),
-        ));
-    }
+    conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     state
         .chats
         .interrupt(&conversation_id)
@@ -269,6 +289,7 @@ pub async fn interrupt_chat(
     params(
         ("conversation_id" = String, Path, description = "Conversation ID"),
         ("request_id" = String, Path, description = "Pending request ID"),
+        ChatSessionParams,
     ),
     responses(
         (status = 200, description = "Resolved pending request", body = ChatPendingRequest),
@@ -279,8 +300,10 @@ pub async fn interrupt_chat(
 pub async fn resolve_chat_pending_request(
     State(state): State<AppState>,
     Path((conversation_id, request_id)): Path<(String, String)>,
+    Query(params): Query<ChatSessionParams>,
     Json(request): Json<ResolveChatPendingRequestRequest>,
 ) -> Result<Json<ChatPendingRequest>, (StatusCode, Json<ApiErrorResponse>)> {
+    conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let pending = state
         .chats
         .resolve_pending_request(&conversation_id, &request_id, request)

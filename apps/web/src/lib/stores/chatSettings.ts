@@ -4,11 +4,17 @@ import type { ChatSettings, ChatSettingsPatch } from "@/lib/theme/types";
 
 type ChatSettingsStoreSlice = {
   settings: ChatSettings;
-  updateSettings: (partial: ChatSettingsPatch) => void;
+  updateSettings: (
+    partial: ChatSettingsPatch,
+    options?: { debounceKey?: string; debounceMs?: number },
+  ) => void;
 };
 
-function updateChatSettings(partial: ChatSettingsPatch): void {
-  useSettingsStore.getState().updateChat(partial);
+function updateChatSettings(
+  partial: ChatSettingsPatch,
+  options?: { debounceKey?: string; debounceMs?: number },
+): void {
+  useSettingsStore.getState().updateChat(partial, options);
 }
 
 function selectChatSettingsSlice(

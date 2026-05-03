@@ -44,7 +44,7 @@ type ConversationDetailState = {
 };
 
 type ActivityDetailState = {
-  status: "idle" | "loading" | "loaded" | "error";
+  status: "idle" | "loading" | "partial" | "loaded" | "error";
   error: string | null;
 };
 
@@ -1769,15 +1769,32 @@ function applyMessageDelta(
   if (!message) {
     return markConversationDirtyInBatch(state, data.conversation_id);
   }
-  return {
+  const nextMessage = {
+    ...message,
+    contentText: `${message.contentText}${data.delta}`,
+  };
+  const messagesById = {
+    ...state.messagesById,
+    [data.message_id]: nextMessage,
+  };
+  const nextState = {
     ...state,
-    messagesById: {
-      ...state.messagesById,
-      [data.message_id]: {
-        ...message,
-        contentText: `${message.contentText}${data.delta}`,
-      },
-    },
+    messagesById,
+  };
+  return {
+    ...nextState,
+    timelineIdsByConversationId:
+      !hasAssistantMessageProjection(message) &&
+      hasAssistantMessageProjection(nextMessage)
+        ? {
+            ...state.timelineIdsByConversationId,
+            [data.conversation_id]: timelineIdsForState(
+              nextState,
+              data.conversation_id,
+              messagesById,
+            ),
+          }
+        : state.timelineIdsByConversationId,
     detailsByConversationId: {
       ...state.detailsByConversationId,
       [data.conversation_id]: loadedDetailState(),
@@ -2103,7 +2120,10 @@ function applyActivityDelta(
     activityDetailsByItemId: {
       ...state.activityDetailsByItemId,
       [data.item_id]: {
-        status: "loaded",
+        status:
+          state.activityDetailsByItemId[data.item_id]?.status === "loaded"
+            ? "loaded"
+            : "partial",
         error: null,
       },
     },

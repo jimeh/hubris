@@ -660,6 +660,13 @@ export const commandRegistry = {
         args?.worktreeId,
         conversation?.worktreeId ?? context.selectedWorktree?.id ?? null,
       );
+      if (
+        !conversation ||
+        conversation.id !== conversationId ||
+        (worktreeId && conversation.worktreeId !== worktreeId)
+      ) {
+        return { reason: "No chat selected", status: "unavailable" };
+      }
       if (!worktreeId) {
         return { reason: "No worktree selected", status: "unavailable" };
       }

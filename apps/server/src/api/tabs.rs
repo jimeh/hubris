@@ -1674,13 +1674,19 @@ pub async fn create_tab(
             .open_tab_id_for_conversation(&resolved_conversation_id)
             .await
             .map_err(|error| TabsApiError::new(error.status, error.message))?
-            && let Some(existing_tab) = state.tabs.get(&existing_tab_id)
-            && existing_tab.session_id() == "default"
-            && existing_tab.worktree_id() == worktree_id
         {
-            response_status = StatusCode::OK;
-            state.chats.touch_runtime(&resolved_conversation_id).await;
-            return Ok((response_status, Json(existing_tab.value().clone())));
+            if let Some(existing_tab) = state.tabs.get(&existing_tab_id)
+                && existing_tab.session_id() == "default"
+                && existing_tab.worktree_id() == worktree_id
+            {
+                response_status = StatusCode::OK;
+                state.chats.touch_runtime(&resolved_conversation_id).await;
+                return Ok((response_status, Json(existing_tab.value().clone())));
+            }
+            let _ = state
+                .chats
+                .set_open_tab_id(&resolved_conversation_id, None)
+                .await;
         }
 
         *conversation_id = Some(resolved_conversation_id);
@@ -1732,6 +1738,30 @@ pub async fn create_tab(
         info.set_label(summary.title);
     }
 
+    if let Some(conversation_id) = info.conversation_id() {
+        let claimed_tab_id = state
+            .chats
+            .claim_open_tab_id_for_conversation(conversation_id, info.id())
+            .await
+            .map_err(|error| TabsApiError::new(error.status, error.message))?;
+        if claimed_tab_id != info.id() {
+            for _ in 0..5 {
+                if let Some(existing_tab) = state.tabs.get(&claimed_tab_id)
+                    && existing_tab.session_id() == info.session_id()
+                    && existing_tab.worktree_id() == info.worktree_id()
+                {
+                    state.chats.touch_runtime(conversation_id).await;
+                    return Ok((StatusCode::OK, Json(existing_tab.value().clone())));
+                }
+                time::sleep(Duration::from_millis(20)).await;
+            }
+            return Err(TabsApiError::new(
+                StatusCode::CONFLICT,
+                "Chat tab is already opening.",
+            ));
+        }
+    }
+
     let terminal_runtime = if info.is_terminal() {
         Some(
             spawn_terminal_runtime(
@@ -1747,10 +1777,6 @@ pub async fn create_tab(
     };
     state.tabs.insert(info.id().to_string(), info.clone());
     if let Some(conversation_id) = info.conversation_id() {
-        let _ = state
-            .chats
-            .set_open_tab_id(conversation_id, Some(info.id()))
-            .await;
         state.chats.touch_runtime(conversation_id).await;
     }
     persist_worktree_snapshot(&state, &worktree_id);

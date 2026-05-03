@@ -196,6 +196,7 @@ export function getCommandPaletteItems(
         ...(getCommandDefinition("tab.openChat").keywords ?? []),
         conversation.title,
       ],
+      sortPriority: -conversation.lastActivityAt,
       subtitle: "Chat",
       title: `Open ${conversation.title}`,
     });
@@ -246,6 +247,13 @@ export function getCommandPaletteItems(
       const groupComparison = left.group.localeCompare(right.group);
       if (groupComparison !== 0) {
         return groupComparison;
+      }
+      if (left.id === "tab.openChat" && right.id === "tab.openChat") {
+        const priorityComparison =
+          (left.sortPriority ?? 0) - (right.sortPriority ?? 0);
+        if (priorityComparison !== 0) {
+          return priorityComparison;
+        }
       }
       const titleComparison = left.title.localeCompare(right.title);
       if (titleComparison !== 0) {

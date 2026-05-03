@@ -175,6 +175,7 @@ export type CommandPaletteItem<TId extends CommandId> = {
   key: string;
   keywords: string[];
   searchText?: string;
+  sortPriority?: number;
   subtitle?: string;
   title: string;
 };

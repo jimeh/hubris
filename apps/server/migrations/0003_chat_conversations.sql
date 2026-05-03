@@ -28,7 +28,8 @@ CREATE TABLE chat_messages (
     content_text TEXT NOT NULL,
     sequence INTEGER NOT NULL,
     created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER NOT NULL
+    updated_at_ms INTEGER NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE
 );
 
 CREATE TABLE chat_runs (
@@ -38,7 +39,8 @@ CREATE TABLE chat_runs (
     status TEXT NOT NULL,
     started_at_ms INTEGER NOT NULL,
     finished_at_ms INTEGER,
-    error_message TEXT
+    error_message TEXT,
+    FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_chat_conversations_scope

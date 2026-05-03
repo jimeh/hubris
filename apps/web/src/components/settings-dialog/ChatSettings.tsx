@@ -50,9 +50,12 @@ export default function ChatSettings() {
               disabled={writesBlocked}
               onChange={(event) => {
                 const parsed = Number.parseInt(event.currentTarget.value, 10);
-                updateSettings({
-                  idleTimeoutMinutes: Number.isFinite(parsed) ? parsed : 60,
-                });
+                updateSettings(
+                  {
+                    idleTimeoutMinutes: Number.isFinite(parsed) ? parsed : 60,
+                  },
+                  { debounceKey: "chat.idleTimeoutMinutes" },
+                );
               }}
             />
             <span className="text-sm text-muted-foreground">minutes</span>

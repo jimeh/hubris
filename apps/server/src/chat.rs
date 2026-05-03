@@ -2405,6 +2405,46 @@ impl ChatService {
         )
     }
 
+    /// Atomically claim the open-tab slot or return the existing canonical tab.
+    pub async fn claim_open_tab_id_for_conversation(
+        &self,
+        conversation_id: &str,
+        desired_tab_id: &str,
+    ) -> Result<String, ChatServiceError> {
+        let now = now_ms() as i64;
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query("SELECT open_tab_id FROM chat_conversations WHERE id = ?")
+            .bind(conversation_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+        if let Some(existing) = row
+            .try_get::<Option<String>, _>("open_tab_id")
+            .ok()
+            .flatten()
+            && !existing.is_empty()
+        {
+            tx.commit().await?;
+            return Ok(existing);
+        }
+
+        sqlx::query(
+            "
+            UPDATE chat_conversations
+            SET open_tab_id = ?, updated_at_ms = ?
+            WHERE id = ?
+            ",
+        )
+        .bind(desired_tab_id)
+        .bind(now)
+        .bind(conversation_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let _ = self.emit_conversation_updated(conversation_id).await?;
+        Ok(desired_tab_id.to_string())
+    }
+
     /// Update the open-tab mapping for a conversation.
     pub async fn set_open_tab_id(
         &self,

@@ -116,7 +116,10 @@ type SettingsStoreState = {
   updateEditor: (partial: EditorSettingsPatch) => void;
   updateWorktree: (partial: WorktreeSettingsPatch) => void;
   updateVscode: (partial: VscodeSettingsPatch) => void;
-  updateChat: (partial: ChatSettingsPatch) => void;
+  updateChat: (
+    partial: ChatSettingsPatch,
+    options?: SettingsUpdateOptions,
+  ) => void;
 };
 
 type CachedSettingsState = Pick<SettingsState, "settings" | "generation">;
@@ -1099,8 +1102,8 @@ export const useSettingsStore = create<SettingsStoreState>(() => ({
   updateVscode(partial) {
     applyOptimisticPatch({ vscode: partial });
   },
-  updateChat(partial) {
-    applyOptimisticPatch({ chat: partial });
+  updateChat(partial, options) {
+    applyOptimisticPatch({ chat: partial }, options);
   },
 }));
 

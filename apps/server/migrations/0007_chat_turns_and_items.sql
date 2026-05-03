@@ -3,7 +3,7 @@ CREATE TABLE chat_turns (
     conversation_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
     user_message_id TEXT NOT NULL,
-    assistant_message_id TEXT NOT NULL,
+    assistant_message_id TEXT,
     provider_turn_id TEXT,
     status TEXT NOT NULL,
     started_at_ms INTEGER NOT NULL,

@@ -19,10 +19,7 @@ type Props = {
 };
 
 function formatRelativeTime(timestamp: number): string {
-  const deltaSeconds = Math.max(
-    0,
-    Math.floor((Date.now() - timestamp * 1000) / 1000),
-  );
+  const deltaSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
   if (deltaSeconds < 60) {
     return "just now";
   }
@@ -63,6 +60,7 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
       Object.values(conversationsById)
         .filter(
           (conversation) =>
+            conversation.sessionId === "default" &&
             conversation.projectId === worktree.project_id &&
             conversation.worktreeId === worktree.id,
         )

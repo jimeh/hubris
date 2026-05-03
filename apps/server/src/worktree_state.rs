@@ -1674,17 +1674,28 @@ async fn load_existing_worktrees(
                     history_index: clamped_history_index,
                 }
             }
-            "agent_chat" => TabInfo::AgentChat {
-                id: tab_id,
-                session_id,
-                worktree_id,
-                pane_id,
-                label,
-                position,
-                created_at,
-                preview,
-                conversation_id: conversation_id.unwrap_or_default(),
-            },
+            "agent_chat" => {
+                let Some(conversation_id) =
+                    conversation_id.filter(|conversation_id| !conversation_id.is_empty())
+                else {
+                    tracing::warn!(
+                        tab_id,
+                        "skipping restored agent chat tab without a conversation id"
+                    );
+                    continue;
+                };
+                TabInfo::AgentChat {
+                    id: tab_id,
+                    session_id,
+                    worktree_id,
+                    pane_id,
+                    label,
+                    position,
+                    created_at,
+                    preview,
+                    conversation_id,
+                }
+            }
             _ => continue,
         };
         worktree.tabs.push(tab);

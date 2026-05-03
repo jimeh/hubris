@@ -53,6 +53,7 @@ const DEFAULT_ROOT_PANE_ID = "pane-1";
 // Shares one createTab request across click+double-click for the same diff,
 // letting the later event upgrade the eventual tab from preview to pinned.
 const pendingGitDiffOpens = new Map<string, PendingGitDiffOpen>();
+const pendingAgentChatOpens = new Map<string, Promise<Tab>>();
 
 type OpenFileOptions = {
   worktreeId: string;
@@ -714,6 +715,18 @@ function gitDiffOpenKey(options: OpenGitDiffOptions): string {
     options.originalPath ?? "",
     options.commitId ?? "",
   ].join("|");
+}
+
+function agentChatOpenKey(
+  options: OpenAgentChatOptions,
+  paneId: string,
+): string {
+  return [
+    "agent_chat",
+    options.worktreeId,
+    paneId,
+    options.conversationId ?? "new",
+  ].join(":");
 }
 
 function disposeDesktopBrowserTab(tab: Tab | null | undefined): void {
@@ -1439,32 +1452,45 @@ export const useTabStore = create<TabsState>((set, get) => {
         options.worktreeId,
         options.paneId,
       );
-      const tab = await createTab({
-        type: "agent_chat",
-        worktree_id: options.worktreeId,
-        pane_id: paneId,
-        conversation_id: options.conversationId,
+      const pendingKey = agentChatOpenKey(options, paneId);
+      const pending = pendingAgentChatOpens.get(pendingKey);
+      if (pending) {
+        return pending;
+      }
+
+      const pendingPromise = (async () => {
+        const tab = await createTab({
+          type: "agent_chat",
+          worktree_id: options.worktreeId,
+          pane_id: paneId,
+          conversation_id: options.conversationId,
+        });
+        set((state) => {
+          const nextTabs = addTabIfMissing(state.tabs, tab);
+          const nextLayoutsByWorktree = ensureLayoutsForTabs(
+            nextTabs,
+            state.layoutsByWorktree,
+          );
+          return {
+            tabs: nextTabs,
+            layoutsByWorktree: nextLayoutsByWorktree,
+            ...activateLocal(
+              {
+                ...state,
+                tabs: nextTabs,
+                layoutsByWorktree: nextLayoutsByWorktree,
+              } as TabsState,
+              tab.id,
+            ),
+          };
+        });
+        return tab;
+      })().finally(() => {
+        pendingAgentChatOpens.delete(pendingKey);
       });
-      set((state) => {
-        const nextTabs = addTabIfMissing(state.tabs, tab);
-        const nextLayoutsByWorktree = ensureLayoutsForTabs(
-          nextTabs,
-          state.layoutsByWorktree,
-        );
-        return {
-          tabs: nextTabs,
-          layoutsByWorktree: nextLayoutsByWorktree,
-          ...activateLocal(
-            {
-              ...state,
-              tabs: nextTabs,
-              layoutsByWorktree: nextLayoutsByWorktree,
-            } as TabsState,
-            tab.id,
-          ),
-        };
-      });
-      return tab;
+
+      pendingAgentChatOpens.set(pendingKey, pendingPromise);
+      return pendingPromise;
     },
     async setBrowserState(id, updates) {
       const existing =
@@ -2080,6 +2106,7 @@ export function initializeTabStore(): void {
 export function resetTabStoreForTests(): void {
   clearNotificationDismissTimer();
   pendingGitDiffOpens.clear();
+  pendingAgentChatOpens.clear();
   for (const timer of restoreStatePersistTimers.values()) {
     clearTimeout(timer);
   }

@@ -27,5 +27,5 @@ CREATE INDEX idx_chat_pending_requests_conversation_status
     ON chat_pending_requests (conversation_id, status, updated_at_ms DESC);
 
 CREATE UNIQUE INDEX idx_chat_pending_requests_provider_request
-    ON chat_pending_requests (provider_request_id)
+    ON chat_pending_requests (conversation_id, provider_request_id)
     WHERE provider_request_id IS NOT NULL;

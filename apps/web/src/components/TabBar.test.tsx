@@ -47,6 +47,7 @@ function baseProps() {
     onClose: vi.fn(),
     onAddTerminal: vi.fn(),
     onAddBrowser: vi.fn().mockResolvedValue(undefined),
+    onAddChat: vi.fn().mockResolvedValue(undefined),
     onSplitRight: vi.fn(),
     onSplitDown: vi.fn(),
     onReorder: vi.fn().mockResolvedValue(undefined),
@@ -271,9 +272,11 @@ describe("TabBar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Previous Change" }));
     fireEvent.click(screen.getByRole("button", { name: "Next Change" }));
+    fireEvent.click(screen.getByRole("button", { name: "New Chat" }));
 
     expect(onPreviousChange).toHaveBeenCalledTimes(1);
     expect(onNextChange).toHaveBeenCalledTimes(1);
+    expect(props.onAddChat).toHaveBeenCalledTimes(1);
   });
 
   it("renders the extra divider only when active-tab actions exist", () => {

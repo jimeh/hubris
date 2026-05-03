@@ -2275,7 +2275,9 @@ export interface operations {
   };
   get_chat: {
     parameters: {
-      query?: never;
+      query?: {
+        session_id?: string;
+      };
       header?: never;
       path: {
         /** @description Conversation ID */
@@ -2307,7 +2309,9 @@ export interface operations {
   };
   get_chat_activity: {
     parameters: {
-      query?: never;
+      query?: {
+        session_id?: string;
+      };
       header?: never;
       path: {
         /** @description Conversation ID */
@@ -2341,7 +2345,9 @@ export interface operations {
   };
   interrupt_chat: {
     parameters: {
-      query?: never;
+      query?: {
+        session_id?: string;
+      };
       header?: never;
       path: {
         /** @description Conversation ID */
@@ -2380,7 +2386,9 @@ export interface operations {
   };
   send_chat_message: {
     parameters: {
-      query?: never;
+      query?: {
+        session_id?: string;
+      };
       header?: never;
       path: {
         /** @description Conversation ID */
@@ -2423,7 +2431,9 @@ export interface operations {
   };
   resolve_chat_pending_request: {
     parameters: {
-      query?: never;
+      query?: {
+        session_id?: string;
+      };
       header?: never;
       path: {
         /** @description Conversation ID */
@@ -2470,7 +2480,9 @@ export interface operations {
   };
   patch_chat_settings: {
     parameters: {
-      query?: never;
+      query?: {
+        session_id?: string;
+      };
       header?: never;
       path: {
         /** @description Conversation ID */
