@@ -1009,6 +1009,9 @@ describe("API client", () => {
         vscode: {
           runtime: "vscodeCli" as const,
         },
+        chat: {
+          idleTimeoutMinutes: 5,
+        },
       };
       const response = {
         settings: payload,
@@ -1070,6 +1073,9 @@ describe("API client", () => {
           vscode: {
             runtime: "vscodeCli",
           },
+          chat: {
+            idleTimeoutMinutes: 5,
+          },
         }),
       ).rejects.toThrow("500");
     });
@@ -1110,6 +1116,9 @@ describe("API client", () => {
           },
           vscode: {
             runtime: "vscodeCli",
+          },
+          chat: {
+            idleTimeoutMinutes: 5,
           },
         }),
       ).rejects.toMatchObject({

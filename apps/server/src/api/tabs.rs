@@ -17,6 +17,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
+use crate::chat::{ChatCreateOptions, DEFAULT_CHAT_TITLE};
 use crate::events::EventKind;
 use crate::pty::live_tab::{
     LiveTab, ReplayFilter, RestoredTerminalBuffers, RestoredTerminalState,
@@ -127,6 +128,13 @@ pub enum CreateTabRequest {
         pane_id: Option<String>,
         url: String,
     },
+    AgentChat {
+        worktree_id: String,
+        #[serde(default)]
+        pane_id: Option<String>,
+        #[serde(default)]
+        conversation_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -190,7 +198,8 @@ fn worktree_id_for_create(req: &CreateTabRequest) -> &str {
         CreateTabRequest::Terminal { worktree_id, .. }
         | CreateTabRequest::File { worktree_id, .. }
         | CreateTabRequest::GitDiff { worktree_id, .. }
-        | CreateTabRequest::Browser { worktree_id, .. } => worktree_id,
+        | CreateTabRequest::Browser { worktree_id, .. }
+        | CreateTabRequest::AgentChat { worktree_id, .. } => worktree_id,
     }
 }
 
@@ -199,7 +208,8 @@ fn pane_id_for_create(req: &CreateTabRequest) -> Option<&str> {
         CreateTabRequest::Terminal { pane_id, .. }
         | CreateTabRequest::File { pane_id, .. }
         | CreateTabRequest::GitDiff { pane_id, .. }
-        | CreateTabRequest::Browser { pane_id, .. } => pane_id.as_deref(),
+        | CreateTabRequest::Browser { pane_id, .. }
+        | CreateTabRequest::AgentChat { pane_id, .. } => pane_id.as_deref(),
     }
 }
 
@@ -297,7 +307,9 @@ fn validate_create_tab_request(req: &mut CreateTabRequest) -> Result<(), TabsApi
             *url = normalize_browser_url(url)?;
             Ok(())
         }
-        CreateTabRequest::Terminal { .. } | CreateTabRequest::File { .. } => Ok(()),
+        CreateTabRequest::Terminal { .. }
+        | CreateTabRequest::File { .. }
+        | CreateTabRequest::AgentChat { .. } => Ok(()),
     }
 }
 
@@ -830,6 +842,21 @@ fn build_tab_info(
             history: vec![url.clone()],
             history_index: 0,
             url,
+        },
+        CreateTabRequest::AgentChat {
+            worktree_id,
+            conversation_id,
+            ..
+        } => TabInfo::AgentChat {
+            id,
+            session_id: "default".to_string(),
+            worktree_id,
+            pane_id,
+            label: DEFAULT_CHAT_TITLE.to_string(),
+            position,
+            created_at,
+            preview: false,
+            conversation_id: conversation_id.unwrap_or_default(),
         },
     }
 }
@@ -1608,6 +1635,56 @@ pub async fn create_tab(
     } else {
         0
     };
+    let mut response_status = StatusCode::CREATED;
+    if let CreateTabRequest::AgentChat {
+        conversation_id, ..
+    } = &mut req
+    {
+        let resolved_conversation_id = if let Some(existing_id) = conversation_id.as_deref() {
+            let summary = state
+                .chats
+                .get_conversation_summary(existing_id)
+                .await
+                .map_err(|error| TabsApiError::new(error.status, error.message))?
+                .ok_or_else(|| {
+                    TabsApiError::new(StatusCode::NOT_FOUND, "Chat conversation not found.")
+                })?;
+            if summary.worktree_id != worktree_id || summary.project_id != resolved.project_id {
+                return Err(TabsApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "Chat conversation does not belong to this worktree.",
+                ));
+            }
+            summary.id
+        } else {
+            state
+                .chats
+                .create_conversation(ChatCreateOptions {
+                    session_id: "default".to_string(),
+                    project_id: resolved.project_id.clone(),
+                    worktree_id: worktree_id.clone(),
+                })
+                .await
+                .map_err(|error| TabsApiError::new(error.status, error.message))?
+                .id
+        };
+
+        if let Some(existing_tab_id) = state
+            .chats
+            .open_tab_id_for_conversation(&resolved_conversation_id)
+            .await
+            .map_err(|error| TabsApiError::new(error.status, error.message))?
+            && let Some(existing_tab) = state.tabs.get(&existing_tab_id)
+            && existing_tab.session_id() == "default"
+            && existing_tab.worktree_id() == worktree_id
+        {
+            response_status = StatusCode::OK;
+            state.chats.touch_runtime(&resolved_conversation_id).await;
+            return Ok((response_status, Json(existing_tab.value().clone())));
+        }
+
+        *conversation_id = Some(resolved_conversation_id);
+    }
     let requested_pane_id = pane_id_for_create(&req).map(str::to_string);
     let existing_layout = state
         .tab_layouts
@@ -1637,7 +1714,7 @@ pub async fn create_tab(
         })
         .map(|entry| entry.value().position())
         .fold(0.0_f64, f64::max);
-    let info = build_tab_info(
+    let mut info = build_tab_info(
         req,
         uuid::Uuid::new_v4().to_string(),
         pane_id,
@@ -1645,6 +1722,39 @@ pub async fn create_tab(
         now_ms(),
         terminal_number,
     );
+    if let Some(conversation_id) = info.conversation_id()
+        && let Some(summary) = state
+            .chats
+            .get_conversation_summary(conversation_id)
+            .await
+            .map_err(|error| TabsApiError::new(error.status, error.message))?
+    {
+        info.set_label(summary.title);
+    }
+
+    if let Some(conversation_id) = info.conversation_id() {
+        let claimed_tab_id = state
+            .chats
+            .claim_open_tab_id_for_conversation(conversation_id, info.id())
+            .await
+            .map_err(|error| TabsApiError::new(error.status, error.message))?;
+        if claimed_tab_id != info.id() {
+            for _ in 0..5 {
+                if let Some(existing_tab) = state.tabs.get(&claimed_tab_id)
+                    && existing_tab.session_id() == info.session_id()
+                    && existing_tab.worktree_id() == info.worktree_id()
+                {
+                    state.chats.touch_runtime(conversation_id).await;
+                    return Ok((StatusCode::OK, Json(existing_tab.value().clone())));
+                }
+                time::sleep(Duration::from_millis(20)).await;
+            }
+            return Err(TabsApiError::new(
+                StatusCode::CONFLICT,
+                "Chat tab is already opening.",
+            ));
+        }
+    }
 
     let terminal_runtime = if info.is_terminal() {
         Some(
@@ -1660,6 +1770,9 @@ pub async fn create_tab(
         None
     };
     state.tabs.insert(info.id().to_string(), info.clone());
+    if let Some(conversation_id) = info.conversation_id() {
+        state.chats.touch_runtime(conversation_id).await;
+    }
     persist_worktree_snapshot(&state, &worktree_id);
     state.events.emit(EventKind::TabCreated {
         session_id: info.session_id().to_string(),
@@ -1690,7 +1803,7 @@ pub async fn create_tab(
         );
     }
 
-    Ok((StatusCode::CREATED, Json(info)))
+    Ok((response_status, Json(info)))
 }
 
 #[utoipa::path(
@@ -1712,6 +1825,9 @@ pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -
 
     if let Some((_, runtime)) = state.terminal_tabs.remove(&id) {
         runtime.notify_close();
+    }
+    if removed_tab.is_agent_chat() {
+        let _ = state.chats.clear_open_tab_id_for_tab(&id).await;
     }
     state.restored_terminal_tabs.remove(&id);
     state.terminal_restore_locks.remove(&id);

@@ -8,6 +8,7 @@ import {
 } from "@/lib/stores/appSidebar";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useProjectStore } from "@/lib/stores/projects";
+import { resetChatStoreForTests, useChatStore } from "@/lib/stores/chats";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeHistorySwitcherStore } from "@/lib/stores/worktreeHistorySwitcher";
 import {
@@ -111,6 +112,7 @@ describe("command runtime", () => {
     localStorage.clear();
     resetBootstrapForTests();
     resetAppSidebarStoreForTests();
+    resetChatStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     useWorktreeHistorySwitcherStore.getState().cancel();
     vi.restoreAllMocks();
@@ -132,6 +134,8 @@ describe("command runtime", () => {
         "worktree.selectPrevious",
         "worktree.showHistorySwitcher",
         "tab.newTerminal",
+        "tab.newChat",
+        "tab.openChat",
         "settings.openSection",
       ]),
     );
@@ -155,6 +159,87 @@ describe("command runtime", () => {
       enabled: true,
       reason: undefined,
     });
+    expect(getCommandAvailability("tab.newChat")).toEqual({
+      enabled: true,
+      reason: undefined,
+    });
+  });
+
+  it("creates chat tabs through the command runtime", async () => {
+    const { worktreeOne } = seedContext();
+    const tab = {
+      id: "chat-tab-1",
+      label: "New Chat",
+      position: 2,
+      worktree_id: worktreeOne.id,
+      pane_id: "pane-1",
+      session_id: "default",
+      type: "agent_chat" as const,
+      created_at: 0,
+      preview: false,
+      conversation_id: "conversation-1",
+    };
+    const openAgentChatSpy = vi
+      .spyOn(useTabStore.getState(), "openAgentChat")
+      .mockResolvedValue(tab);
+
+    const result = await executeCommand({
+      args: { paneId: "pane-2", worktreeId: worktreeOne.id },
+      id: "tab.newChat",
+      source: "button",
+    });
+
+    expect(result).toEqual({ status: "success" });
+    expect(openAgentChatSpy).toHaveBeenCalledWith({
+      paneId: "pane-2",
+      worktreeId: worktreeOne.id,
+    });
+  });
+
+  it("uses explicit worktree args when checking open chat availability", () => {
+    const { worktreeTwo } = seedContext();
+    useChatStore.setState({
+      conversationsById: {
+        "chat-2": {
+          id: "chat-2",
+          sessionId: "default",
+          projectId: worktreeTwo.project_id,
+          worktreeId: worktreeTwo.id,
+          provider: "codex",
+          providerThreadId: null,
+          title: "Other worktree chat",
+          selectedModel: null,
+          selectedEffort: null,
+          selectedPermissionMode: null,
+          createdAt: 10,
+          updatedAt: 10,
+          lastActivityAt: 10,
+          lastMessageAt: 10,
+          openTabId: null,
+          lastRunState: "completed",
+          lastError: null,
+          lastReconciliationState: "not_needed",
+          lastReconciliationError: null,
+          pendingRequestCount: 0,
+          latestPendingRequestId: null,
+          latestPendingRequestKind: null,
+          latestPendingRequestStatus: null,
+          hasPendingRequestAttention: false,
+          contextUsedTokens: null,
+          contextMaxTokens: null,
+          contextPercentUsed: null,
+          contextUpdatedAt: null,
+          revision: 1,
+        },
+      },
+    });
+
+    expect(
+      getCommandAvailability("tab.openChat", {
+        conversationId: "chat-2",
+        worktreeId: worktreeTwo.id,
+      }),
+    ).toEqual({ enabled: true, reason: undefined });
   });
 
   it("toggles the registered left sidebar controller", async () => {

@@ -4,6 +4,118 @@
  */
 
 export interface paths {
+  "/api/chats/models": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_chat_models"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_chat"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}/activity/{item_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["get_chat_activity"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}/interrupt": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["interrupt_chat"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}/messages": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["send_chat_message"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}/requests/{request_id}/resolve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["resolve_chat_pending_request"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}/settings": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch: operations["patch_chat_settings"];
+    trace?: never;
+  };
   "/api/editor-themes": {
     parameters: {
       query?: never;
@@ -557,6 +669,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/projects/{project_id}/worktrees/{worktree_id}/chats": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_project_worktree_chats"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/settings": {
     parameters: {
       query?: never;
@@ -821,6 +949,532 @@ export interface components {
       darkTheme?: string | null;
       lightTheme?: string | null;
     };
+    /** @description Lazy-loaded activity detail for one Codex work item. */
+    ChatActivityDetail: {
+      item: components["schemas"]["ChatItem"];
+      outputs: components["schemas"]["ChatItemOutput"][];
+    };
+    /**
+     * @description Shared Codex app-server process lifecycle pushed over SSE.
+     * @enum {string}
+     */
+    ChatAppServerLifecycle:
+      | "stopped"
+      | "starting"
+      | "initializing"
+      | "ready"
+      | "stopping"
+      | "fatal";
+    /** @description Host-scoped Codex app-server status. */
+    ChatAppServerStatus: {
+      lastError?: string | null;
+      lifecycle: components["schemas"]["ChatAppServerLifecycle"];
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /** @description Latest context-window usage for a Codex conversation. */
+    ChatContextUsage: {
+      conversationId: string;
+      id: string;
+      /** Format: int32 */
+      maxTokens?: number | null;
+      metadataJson: string;
+      /** Format: double */
+      percentUsed?: number | null;
+      providerThreadId?: string | null;
+      /** Format: int32 */
+      totalProcessedTokens?: number | null;
+      /** Format: int64 */
+      updatedAt: number;
+      /** Format: int32 */
+      usedTokens?: number | null;
+    };
+    /** @description Full chat detail payload used to hydrate an open chat tab. */
+    ChatConversationDetail: {
+      contextUsage?: null | components["schemas"]["ChatContextUsage"];
+      conversation: components["schemas"]["ChatConversationSummary"];
+      diffSummaries: components["schemas"]["ChatDiffSummary"][];
+      items: components["schemas"]["ChatItem"][];
+      latestReconciliation?: null | components["schemas"]["ChatReconciliation"];
+      latestRun?: null | components["schemas"]["ChatRun"];
+      messages: components["schemas"]["ChatMessage"][];
+      pendingRequests: components["schemas"]["ChatPendingRequest"][];
+      plans: components["schemas"]["ChatPlan"][];
+      turns: components["schemas"]["ChatTurn"][];
+    };
+    /** @description Conversation-level model preferences that apply to future turns. */
+    ChatConversationSettingsPatch: {
+      selectedEffort?: null | components["schemas"]["ChatReasoningEffort"];
+      selectedModel?: string | null;
+      selectedPermissionMode?:
+        | null
+        | components["schemas"]["ChatPermissionMode"];
+    };
+    /** @description Persisted summary for a conversation list row. */
+    ChatConversationSummary: {
+      /** Format: int32 */
+      contextMaxTokens?: number | null;
+      /** Format: double */
+      contextPercentUsed?: number | null;
+      /** Format: int64 */
+      contextUpdatedAt?: number | null;
+      /** Format: int32 */
+      contextUsedTokens?: number | null;
+      /** Format: int64 */
+      createdAt: number;
+      hasPendingRequestAttention: boolean;
+      id: string;
+      /** Format: int64 */
+      lastActivityAt: number;
+      lastError?: string | null;
+      /** Format: int64 */
+      lastMessageAt?: number | null;
+      lastReconciliationError?: string | null;
+      lastReconciliationState: components["schemas"]["ChatReconciliationStatus"];
+      lastRunState: components["schemas"]["ChatRunStatus"];
+      latestPendingRequestId?: string | null;
+      latestPendingRequestKind?:
+        | null
+        | components["schemas"]["ChatPendingRequestKind"];
+      latestPendingRequestStatus?:
+        | null
+        | components["schemas"]["ChatPendingRequestStatus"];
+      openTabId?: string | null;
+      /** Format: int32 */
+      pendingRequestCount: number;
+      projectId: string;
+      provider: components["schemas"]["ChatProvider"];
+      providerThreadId?: string | null;
+      /** Format: int64 */
+      revision: number;
+      selectedEffort?: null | components["schemas"]["ChatReasoningEffort"];
+      selectedModel?: string | null;
+      selectedPermissionMode?:
+        | null
+        | components["schemas"]["ChatPermissionMode"];
+      sessionId: string;
+      title: string;
+      /** Format: int64 */
+      updatedAt: number;
+      worktreeId: string;
+    };
+    /** @description One changed file included in a Codex diff summary. */
+    ChatDiffFileSummary: {
+      /** Format: int32 */
+      additions?: number | null;
+      changeType?: string | null;
+      /** Format: int32 */
+      deletions?: number | null;
+      originalPath?: string | null;
+      path: string;
+    };
+    /** @description Persisted turn-level Codex diff summary. */
+    ChatDiffSummary: {
+      /** Format: int32 */
+      additions?: number | null;
+      /** Format: int32 */
+      changedFileCount: number;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      /** Format: int32 */
+      deletions?: number | null;
+      files: components["schemas"]["ChatDiffFileSummary"][];
+      id: string;
+      metadataJson: string;
+      /** Format: int64 */
+      ownerGeneration: number;
+      providerTurnId?: string | null;
+      /** Format: int32 */
+      sequence: number;
+      turnId?: string | null;
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /** @description Persisted provider item metadata for a chat conversation. */
+    ChatItem: {
+      /** Format: int64 */
+      completedAt?: number | null;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      kind: components["schemas"]["ChatItemKind"];
+      metadataJson: string;
+      providerItemId?: string | null;
+      providerTurnId?: string | null;
+      role?: null | components["schemas"]["ChatMessageRole"];
+      /** Format: int32 */
+      sequence: number;
+      status: components["schemas"]["ChatItemStatus"];
+      summary?: string | null;
+      title?: string | null;
+      turnId?: string | null;
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description Normalized Codex item kind persisted for future timeline rendering.
+     * @enum {string}
+     */
+    ChatItemKind:
+      | "agent_message"
+      | "reasoning"
+      | "command_execution"
+      | "file_change"
+      | "mcp_tool_call"
+      | "dynamic_tool_call"
+      | "web_search"
+      | "image_view"
+      | "hook"
+      | "auto_approval_review"
+      | "model_reroute"
+      | "unknown";
+    /** @description Persisted output chunk for a non-message Codex work item. */
+    ChatItemOutput: {
+      /** Format: int32 */
+      byteCount: number;
+      contentText: string;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      itemId: string;
+      /** Format: int32 */
+      sequence: number;
+      streamKind: string;
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description Persisted Codex item lifecycle state.
+     * @enum {string}
+     */
+    ChatItemStatus: "started" | "streaming" | "completed" | "failed";
+    /** @description Persisted transcript message. */
+    ChatMessage: {
+      contentText: string;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      itemId?: string | null;
+      providerItemId?: string | null;
+      providerTurnId?: string | null;
+      reasoningText: string;
+      role: components["schemas"]["ChatMessageRole"];
+      /** Format: int32 */
+      sequence: number;
+      status: components["schemas"]["ChatMessageStatus"];
+      turnId?: string | null;
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description Persisted message role for a conversation transcript item.
+     * @enum {string}
+     */
+    ChatMessageRole: "user" | "assistant";
+    /**
+     * @description Persisted message lifecycle state.
+     * @enum {string}
+     */
+    ChatMessageStatus:
+      | "pending"
+      | "streaming"
+      | "completed"
+      | "interrupted"
+      | "failed";
+    /** @description One selectable Codex model exposed by app-server. */
+    ChatModelOption: {
+      defaultReasoningEffort: components["schemas"]["ChatReasoningEffort"];
+      description: string;
+      displayName: string;
+      hidden: boolean;
+      id: string;
+      isDefault: boolean;
+      model: string;
+      supportedReasoningEfforts: components["schemas"]["ChatModelReasoningEffortOption"][];
+    };
+    /** @description One reasoning-effort option supported by a Codex model. */
+    ChatModelReasoningEffortOption: {
+      description: string;
+      reasoningEffort: components["schemas"]["ChatReasoningEffort"];
+    };
+    /** @description Persisted Codex server request with enough state to render and answer it. */
+    ChatPendingRequest: {
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      decision?: null | components["schemas"]["ChatPendingRequestDecision"];
+      errorMessage?: string | null;
+      id: string;
+      itemId?: string | null;
+      kind: components["schemas"]["ChatPendingRequestKind"];
+      method: string;
+      /** Format: int64 */
+      ownerGeneration: number;
+      payloadJson: string;
+      providerItemId?: string | null;
+      providerRequestId: string;
+      providerTurnId?: string | null;
+      /** Format: int64 */
+      resolvedAt?: number | null;
+      responseJson?: string | null;
+      /** Format: int32 */
+      sequence: number;
+      status: components["schemas"]["ChatPendingRequestStatus"];
+      turnId?: string | null;
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description User-visible decision sent back to Codex for a pending request.
+     * @enum {string}
+     */
+    ChatPendingRequestDecision:
+      | "accept"
+      | "acceptForSession"
+      | "decline"
+      | "cancel"
+      | "acceptWithExecpolicyAmendment"
+      | "applyNetworkPolicyAmendment"
+      | "submit";
+    /**
+     * @description Persisted Codex server request kind.
+     * @enum {string}
+     */
+    ChatPendingRequestKind:
+      | "command_approval"
+      | "file_approval"
+      | "permission_approval"
+      | "structured_input"
+      | "mcp_elicitation"
+      | "unsupported";
+    /**
+     * @description Persisted Codex server request lifecycle.
+     * @enum {string}
+     */
+    ChatPendingRequestStatus:
+      | "pending"
+      | "resolving"
+      | "resolved"
+      | "declined"
+      | "cancelled"
+      | "stale"
+      | "failed";
+    /** @description Lightweight request state included in global SSE snapshots. */
+    ChatPendingRequestSummary: {
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      kind: components["schemas"]["ChatPendingRequestKind"];
+      method: string;
+      status: components["schemas"]["ChatPendingRequestStatus"];
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description Explicit permissions preset override. `None` means use Codex defaults.
+     * @enum {string}
+     */
+    ChatPermissionMode: "full_access";
+    /** @description Persisted Codex plan state used by the chat timeline. */
+    ChatPlan: {
+      /** Format: int64 */
+      completedAt?: number | null;
+      contentText: string;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      id: string;
+      itemId?: string | null;
+      kind: components["schemas"]["ChatPlanKind"];
+      metadataJson: string;
+      /** Format: int64 */
+      ownerGeneration: number;
+      providerItemId?: string | null;
+      providerTurnId?: string | null;
+      /** Format: int32 */
+      sequence: number;
+      status: components["schemas"]["ChatPlanStatus"];
+      stepsJson: string;
+      turnId?: string | null;
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description Persisted Codex plan kind.
+     * @enum {string}
+     */
+    ChatPlanKind: "active_task" | "proposed_plan";
+    /**
+     * @description Persisted Codex plan lifecycle state.
+     * @enum {string}
+     */
+    ChatPlanStatus: "streaming" | "completed" | "failed";
+    /**
+     * @description Supported chat providers.
+     * @enum {string}
+     */
+    ChatProvider: "codex";
+    /**
+     * @description Supported reasoning-effort values exposed by Codex model selection.
+     * @enum {string}
+     */
+    ChatReasoningEffort:
+      | "none"
+      | "minimal"
+      | "low"
+      | "medium"
+      | "high"
+      | "xhigh";
+    /** @description Latest replay/recovery state for one conversation. */
+    ChatReconciliation: {
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      errorMessage?: string | null;
+      /** Format: int64 */
+      finishedAt?: number | null;
+      id: string;
+      /** Format: int64 */
+      ownerGeneration: number;
+      providerThreadId?: string | null;
+      reason: string;
+      /** Format: int64 */
+      startedAt: number;
+      status: components["schemas"]["ChatReconciliationStatus"];
+      /** Format: int64 */
+      updatedAt: number;
+    };
+    /**
+     * @description Backend-owned reconciliation lifecycle for replaying Codex thread state.
+     * @enum {string}
+     */
+    ChatReconciliationStatus:
+      | "not_needed"
+      | "pending"
+      | "running"
+      | "completed"
+      | "failed";
+    /** @description Persisted run summary. */
+    ChatRun: {
+      conversationId: string;
+      errorMessage?: string | null;
+      /** Format: int64 */
+      finishedAt?: number | null;
+      id: string;
+      providerTurnId?: string | null;
+      /** Format: int64 */
+      startedAt: number;
+      status: components["schemas"]["ChatRunStatus"];
+      turnId?: string | null;
+    };
+    /**
+     * @description Persisted run lifecycle state.
+     * @enum {string}
+     */
+    ChatRunStatus:
+      | "starting"
+      | "running"
+      | "completed"
+      | "interrupted"
+      | "failed";
+    /**
+     * @description In-memory runtime lifecycle state for a live Codex app-server process.
+     * @enum {string}
+     */
+    ChatRuntimeLifecycle:
+      | "stopped"
+      | "starting"
+      | "ready"
+      | "running"
+      | "stopping"
+      | "failed";
+    /** @description Shared runtime summary pushed over SSE. */
+    ChatRuntimeStatus: {
+      activeMessageId?: string | null;
+      activeRunId?: string | null;
+      conversationId: string;
+      lastError?: string | null;
+      lifecycle: components["schemas"]["ChatRuntimeLifecycle"];
+      projectId: string;
+      providerThreadId?: string | null;
+      sessionId: string;
+      /** Format: int64 */
+      updatedAt: number;
+      worktreeId: string;
+    };
+    /** @description Chat settings owned by the backend. */
+    ChatSettings: {
+      /** Format: int32 */
+      idleTimeoutMinutes: number;
+    };
+    ChatSettingsPatch: {
+      /** Format: int32 */
+      idleTimeoutMinutes?: number | null;
+    };
+    /**
+     * @description Per-conversation Codex thread stream resume state.
+     * @enum {string}
+     */
+    ChatThreadStreamResumeState:
+      | "not_started"
+      | "needs_resume"
+      | "resuming"
+      | "resumed";
+    /** @description Live stream status for one Codex thread. */
+    ChatThreadStreamStatus: {
+      activeMessageId?: string | null;
+      activeRunId?: string | null;
+      conversationId: string;
+      /** Format: int64 */
+      inactiveDeadlineAt?: number | null;
+      lastError?: string | null;
+      lifecycle: components["schemas"]["ChatRuntimeLifecycle"];
+      projectId: string;
+      providerThreadId?: string | null;
+      resumeState: components["schemas"]["ChatThreadStreamResumeState"];
+      sessionId: string;
+      /** Format: int64 */
+      updatedAt: number;
+      worktreeId: string;
+    };
+    /** @description Persisted provider turn metadata for a chat conversation. */
+    ChatTurn: {
+      assistantMessageId: string;
+      /** Format: int64 */
+      completedAt?: number | null;
+      conversationId: string;
+      /** Format: int64 */
+      createdAt: number;
+      errorMessage?: string | null;
+      id: string;
+      providerTurnId?: string | null;
+      /** Format: int64 */
+      reconciledAt?: number | null;
+      reconciliationError?: string | null;
+      reconciliationStatus: components["schemas"]["ChatReconciliationStatus"];
+      runId: string;
+      /** Format: int64 */
+      startedAt: number;
+      status: components["schemas"]["ChatTurnStatus"];
+      /** Format: int64 */
+      updatedAt: number;
+      userMessageId: string;
+    };
+    /**
+     * @description Persisted Codex turn lifecycle state.
+     * @enum {string}
+     */
+    ChatTurnStatus:
+      | "starting"
+      | "running"
+      | "completed"
+      | "interrupted"
+      | "failed";
     ClientControlMessage: {
       /** Format: int32 */
       cols: number;
@@ -863,6 +1517,13 @@ export interface components {
           /** @enum {string} */
           type: "browser";
           url: string;
+          worktree_id: string;
+        }
+      | {
+          conversation_id?: string | null;
+          pane_id?: string | null;
+          /** @enum {string} */
+          type: "agent_chat";
           worktree_id: string;
         };
     CreateWorktreeRequest: {
@@ -1073,6 +1734,14 @@ export interface components {
     ReorderWorktreesRequest: {
       worktree_ids: string[];
     };
+    /** @description Request body for resolving a pending Codex server request. */
+    ResolveChatPendingRequestRequest: {
+      decision: components["schemas"]["ChatPendingRequestDecision"];
+      value?: unknown;
+    };
+    SendChatMessageRequest: {
+      text: string;
+    };
     ServerControlMessage:
       | {
           /** Format: int64 */
@@ -1100,6 +1769,7 @@ export interface components {
         };
     Settings: {
       appearance?: components["schemas"]["AppearanceSettings"];
+      chat?: components["schemas"]["ChatSettings"];
       editor?: components["schemas"]["EditorSettings"];
       terminal?: components["schemas"]["TerminalSettings"];
       vscode?: components["schemas"]["VscodeSettings"];
@@ -1107,6 +1777,7 @@ export interface components {
     };
     SettingsPatch: {
       appearance?: null | components["schemas"]["AppearanceSettingsPatch"];
+      chat?: null | components["schemas"]["ChatSettingsPatch"];
       editor?: null | components["schemas"]["EditorSettingsPatch"];
       terminal?: null | components["schemas"]["TerminalSettingsPatch"];
       vscode?: null | components["schemas"]["VscodeSettingsPatch"];
@@ -1204,6 +1875,21 @@ export interface components {
           /** @enum {string} */
           type: "browser";
           url: string;
+          worktree_id: string;
+        }
+      | {
+          conversation_id: string;
+          /** Format: int64 */
+          created_at: number;
+          id: string;
+          label: string;
+          pane_id: string;
+          /** Format: double */
+          position: number;
+          preview: boolean;
+          session_id: string;
+          /** @enum {string} */
+          type: "agent_chat";
           worktree_id: string;
         };
     /** @enum {string} */
@@ -1558,6 +2244,278 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  list_chat_models: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Available Codex models */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatModelOption"][];
+        };
+      };
+      /** @description Failed to query Codex models */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  get_chat: {
+    parameters: {
+      query?: {
+        session_id?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Conversation detail */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatConversationDetail"];
+        };
+      };
+      /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  get_chat_activity: {
+    parameters: {
+      query?: {
+        session_id?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+        /** @description Activity item ID */
+        item_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Activity detail */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatActivityDetail"];
+        };
+      };
+      /** @description Activity item not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  interrupt_chat: {
+    parameters: {
+      query?: {
+        session_id?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Interrupt requested */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Conversation not running */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  send_chat_message: {
+    parameters: {
+      query?: {
+        session_id?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SendChatMessageRequest"];
+      };
+    };
+    responses: {
+      /** @description Message accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Failed to start Codex runtime */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  resolve_chat_pending_request: {
+    parameters: {
+      query?: {
+        session_id?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+        /** @description Pending request ID */
+        request_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ResolveChatPendingRequestRequest"];
+      };
+    };
+    responses: {
+      /** @description Resolved pending request */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatPendingRequest"];
+        };
+      };
+      /** @description Pending request not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Pending request already resolved or stale */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  patch_chat_settings: {
+    parameters: {
+      query?: {
+        session_id?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ChatConversationSettingsPatch"];
+      };
+    };
+    responses: {
+      /** @description Updated conversation summary */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatConversationSummary"];
+        };
+      };
+      /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
   list_editor_themes: {
     parameters: {
       query?: never;
@@ -3298,6 +4256,33 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  list_project_worktree_chats: {
+    parameters: {
+      query: {
+        session_id: string;
+      };
+      header?: never;
+      path: {
+        /** @description Project ID */
+        project_id: string;
+        /** @description Worktree ID */
+        worktree_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Conversation summaries */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatConversationSummary"][];
         };
       };
     };

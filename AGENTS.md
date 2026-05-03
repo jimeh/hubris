@@ -105,6 +105,11 @@ checks enforce this through `mise run check:server`.
   in focused components under `apps/web/src/components/settings-dialog/`, with
   backend-authoritative state coming from stores/contracts rather than ad hoc
   local orchestration.
+- **Codex chat is protocol-normalized before UI rendering**: when changing Codex
+  chat/app-server behavior, use
+  `docs/agents/codex-app-server-GUI-best-practices.md` as the protocol and UI
+  normalization reference. Do not render raw JSON-RPC events directly into the
+  timeline.
 
 ## Detail Docs
 
@@ -119,6 +124,15 @@ checks enforce this through `mise run check:server`.
 - [Desktop](docs/agents/desktop.md) — Electron build, dev workflow, auth
 - [Dev Environment](docs/agents/dev-environment.md) — mise tasks, hot reload,
   socket activation
+- [Codex App Server GUI Best Practices](docs/agents/codex-app-server-GUI-best-practices.md)
+  — Codex `app-server` JSON-RPC normalization, chat UI state, server requests,
+  tool activity, reasoning, and replay guidance
+- [Codex App Server Lifecycle Best Practices](docs/agents/codex-app-server-lifecycle-best-practices.md)
+  — host-scoped app-server lifecycle, thread unsubscribe/resume, stream
+  ownership, and crash/restart behavior
+- [Codex Chat GUI Implementation Plan](docs/agents/codex-chat-gui-implementation-plan.md)
+  — phased roadmap for closing current Codex chat gaps across backend
+  normalization, persistence, SSE, frontend stores, and timeline UI
 - [Discoveries](docs/agents/discoveries.md) — accumulated project gotchas and
   non-obvious findings
 
@@ -126,7 +140,7 @@ checks enforce this through `mise run check:server`.
 
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **hubris** (8627 symbols, 19780
+This project is indexed by GitNexus as **hubris** (10031 symbols, 22945
 relationships, 300 execution flows). Use the GitNexus MCP tools to understand
 code, assess impact, and navigate safely.
 

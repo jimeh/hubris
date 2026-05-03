@@ -53,6 +53,7 @@ const DEFAULT_ROOT_PANE_ID = "pane-1";
 // Shares one createTab request across click+double-click for the same diff,
 // letting the later event upgrade the eventual tab from preview to pinned.
 const pendingGitDiffOpens = new Map<string, PendingGitDiffOpen>();
+const pendingAgentChatOpens = new Map<string, Promise<Tab>>();
 
 type OpenFileOptions = {
   worktreeId: string;
@@ -74,6 +75,12 @@ type OpenGitDiffOptions = {
 type OpenBrowserOptions = {
   worktreeId: string;
   url?: string;
+  paneId?: string;
+};
+
+type OpenAgentChatOptions = {
+  worktreeId: string;
+  conversationId?: string;
   paneId?: string;
 };
 
@@ -109,6 +116,7 @@ type TabsState = {
   openFile: (options: OpenFileOptions) => Promise<Tab>;
   openGitDiff: (options: OpenGitDiffOptions) => Promise<Tab>;
   openBrowser: (options: OpenBrowserOptions) => Promise<Tab>;
+  openAgentChat: (options: OpenAgentChatOptions) => Promise<Tab>;
   setBrowserState: (
     id: string,
     updates: BrowserTabUpdate,
@@ -519,6 +527,17 @@ function tabKey(tab: Tab): string {
         tab.history.join("||"),
         tab.history_index,
       ].join("|");
+    case "agent_chat":
+      return [
+        tab.id,
+        tab.label,
+        tab.position,
+        tab.worktree_id,
+        tab.pane_id,
+        tab.preview,
+        tab.type,
+        tab.conversation_id,
+      ].join("|");
   }
 }
 
@@ -696,6 +715,16 @@ function gitDiffOpenKey(options: OpenGitDiffOptions): string {
     options.originalPath ?? "",
     options.commitId ?? "",
   ].join("|");
+}
+
+function agentChatOpenKey(
+  options: OpenAgentChatOptions,
+  paneId: string,
+): string {
+  if (options.conversationId) {
+    return ["agent_chat", options.worktreeId, options.conversationId].join(":");
+  }
+  return ["agent_chat", options.worktreeId, paneId, "new"].join(":");
 }
 
 function disposeDesktopBrowserTab(tab: Tab | null | undefined): void {
@@ -1401,6 +1430,66 @@ export const useTabStore = create<TabsState>((set, get) => {
       });
       return tab;
     },
+    async openAgentChat(options) {
+      const existing =
+        options.conversationId == null
+          ? null
+          : (get().tabs.find(
+              (tab) =>
+                tab.type === "agent_chat" &&
+                tab.worktree_id === options.worktreeId &&
+                tab.conversation_id === options.conversationId,
+            ) ?? null);
+      if (existing) {
+        set((state) => activateLocal(state, existing.id));
+        return existing;
+      }
+
+      const paneId = resolvedPaneIdOrNew(
+        get(),
+        options.worktreeId,
+        options.paneId,
+      );
+      const pendingKey = agentChatOpenKey(options, paneId);
+      const pending = pendingAgentChatOpens.get(pendingKey);
+      if (pending) {
+        return pending;
+      }
+
+      const pendingPromise = (async () => {
+        const tab = await createTab({
+          type: "agent_chat",
+          worktree_id: options.worktreeId,
+          pane_id: paneId,
+          conversation_id: options.conversationId,
+        });
+        set((state) => {
+          const nextTabs = addTabIfMissing(state.tabs, tab);
+          const nextLayoutsByWorktree = ensureLayoutsForTabs(
+            nextTabs,
+            state.layoutsByWorktree,
+          );
+          return {
+            tabs: nextTabs,
+            layoutsByWorktree: nextLayoutsByWorktree,
+            ...activateLocal(
+              {
+                ...state,
+                tabs: nextTabs,
+                layoutsByWorktree: nextLayoutsByWorktree,
+              } as TabsState,
+              tab.id,
+            ),
+          };
+        });
+        return tab;
+      })().finally(() => {
+        pendingAgentChatOpens.delete(pendingKey);
+      });
+
+      pendingAgentChatOpens.set(pendingKey, pendingPromise);
+      return pendingPromise;
+    },
     async setBrowserState(id, updates) {
       const existing =
         get().tabs.find(
@@ -2015,6 +2104,7 @@ export function initializeTabStore(): void {
 export function resetTabStoreForTests(): void {
   clearNotificationDismissTimer();
   pendingGitDiffOpens.clear();
+  pendingAgentChatOpens.clear();
   for (const timer of restoreStatePersistTimers.values()) {
     clearTimeout(timer);
   }

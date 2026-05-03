@@ -5,7 +5,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { Globe, Lock, Terminal, X } from "lucide-react";
+import { Globe, Lock, MessageSquare, Terminal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TabViewProps } from "./types";
 
@@ -78,6 +78,49 @@ const SortableTabView = memo(
       onPinTab?.(tabId);
     }
 
+    function renderIcon() {
+      switch (iconKind) {
+        case "terminal":
+          return (
+            <Terminal
+              className="h-4 w-4 shrink-0 text-muted-foreground"
+              data-testid="tab-terminal-icon"
+              aria-hidden="true"
+            />
+          );
+        case "browser":
+          return (
+            <Globe
+              className="h-4 w-4 shrink-0 text-muted-foreground"
+              data-testid="tab-browser-icon"
+              aria-hidden="true"
+            />
+          );
+        case "chat":
+          return (
+            <MessageSquare
+              className="h-4 w-4 shrink-0 text-muted-foreground"
+              data-testid="tab-chat-icon"
+              aria-hidden="true"
+            />
+          );
+        case "material":
+          return iconPath ? (
+            <img
+              src={iconPath}
+              alt=""
+              className="hubris-explorer-icon h-4 w-4 shrink-0 object-contain"
+              data-testid="tab-file-icon"
+              data-icon-id={iconId}
+              aria-hidden="true"
+              draggable={false}
+            />
+          ) : null;
+        default:
+          return null;
+      }
+    }
+
     return (
       <div
         ref={ref}
@@ -105,29 +148,7 @@ const SortableTabView = memo(
         onDoubleClick={handleDoubleClick}
         onKeyDown={handleKeyDown}
       >
-        {iconKind === "terminal" ? (
-          <Terminal
-            className="h-4 w-4 shrink-0 text-muted-foreground"
-            data-testid="tab-terminal-icon"
-            aria-hidden="true"
-          />
-        ) : iconKind === "browser" ? (
-          <Globe
-            className="h-4 w-4 shrink-0 text-muted-foreground"
-            data-testid="tab-browser-icon"
-            aria-hidden="true"
-          />
-        ) : iconKind === "material" && iconPath ? (
-          <img
-            src={iconPath}
-            alt=""
-            className="hubris-explorer-icon h-4 w-4 shrink-0 object-contain"
-            data-testid="tab-file-icon"
-            data-icon-id={iconId}
-            aria-hidden="true"
-            draggable={false}
-          />
-        ) : null}
+        {renderIcon()}
         {dirty ? (
           <span
             className="h-2 w-2 shrink-0 rounded-full bg-sky-400"

@@ -47,6 +47,7 @@ function baseProps() {
     onClose: vi.fn(),
     onAddTerminal: vi.fn(),
     onAddBrowser: vi.fn().mockResolvedValue(undefined),
+    onAddChat: vi.fn().mockResolvedValue(undefined),
     onSplitRight: vi.fn(),
     onSplitDown: vi.fn(),
     onReorder: vi.fn().mockResolvedValue(undefined),
@@ -266,13 +267,16 @@ describe("TabBar", () => {
     expect(buttons[2]).toHaveAttribute("aria-label", "Split Vertically");
     expect(buttons[3]).toHaveAttribute("aria-label", "Split Horizontally");
     expect(buttons[4]).toHaveAttribute("aria-label", "New Browser");
-    expect(buttons[5]).toHaveAttribute("aria-label", "New Terminal");
+    expect(buttons[5]).toHaveAttribute("aria-label", "New Chat");
+    expect(buttons[6]).toHaveAttribute("aria-label", "New Terminal");
 
     fireEvent.click(screen.getByRole("button", { name: "Previous Change" }));
     fireEvent.click(screen.getByRole("button", { name: "Next Change" }));
+    fireEvent.click(screen.getByRole("button", { name: "New Chat" }));
 
     expect(onPreviousChange).toHaveBeenCalledTimes(1);
     expect(onNextChange).toHaveBeenCalledTimes(1);
+    expect(props.onAddChat).toHaveBeenCalledTimes(1);
   });
 
   it("renders the extra divider only when active-tab actions exist", () => {

@@ -132,12 +132,14 @@ export type WorktreeSettings = RequiredFields<
 export type VscodeSettings = RequiredFields<
   NonNullable<RestSettings["vscode"]>
 >;
+export type ChatSettings = RequiredFields<NonNullable<RestSettings["chat"]>>;
 export type Settings = {
   appearance: AppearanceSettings;
   terminal: TerminalSettings;
   editor: EditorSettings;
   worktree: WorktreeSettings;
   vscode: VscodeSettings;
+  chat: ChatSettings;
 };
 export type SettingsStatusKind = Exclude<
   RestSettingsStatus["kind"],
@@ -163,12 +165,16 @@ export type WorktreeSettingsPatch = NullableToOptional<
 export type VscodeSettingsPatch = NullableToOptional<
   NonNullable<RestSettingsPatch["vscode"]>
 >;
+export type ChatSettingsPatch = NullableToOptional<
+  NonNullable<RestSettingsPatch["chat"]>
+>;
 export type SettingsPatch = {
   appearance?: AppearanceSettingsPatch;
   terminal?: TerminalSettingsPatch;
   editor?: EditorSettingsPatch;
   worktree?: WorktreeSettingsPatch;
   vscode?: VscodeSettingsPatch;
+  chat?: ChatSettingsPatch;
 };
 export type SettingsState = {
   settings: Settings;

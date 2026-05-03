@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB,
   WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB,
+  WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
   type WorktreeRightSidebarTabId,
 } from "@/lib/worktreeRightSidebar";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
@@ -159,6 +160,13 @@ async function runSidebarCoordination(): Promise<void> {
       const pendingGeneration = worktreeState?.pendingGeneration ?? 0;
       const pendingGitGeneration = worktreeState?.pendingGitGeneration ?? 0;
 
+      if (
+        sidebarState.activeTab !== WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB &&
+        sidebarState.activeTab !== WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB
+      ) {
+        continue;
+      }
+
       if (pendingGeneration > 0) {
         await fileManager.refreshPendingPaths(worktree.project_id, worktree.id);
         continue;
@@ -218,7 +226,7 @@ function writeDesktopOpen(open: boolean): void {
 function readActiveTab(): WorktreeRightSidebarTabId {
   try {
     const raw = localStorage.getItem(LS_ACTIVE_TAB);
-    if (raw === "all-files" || raw === "changes") {
+    if (raw === "all-files" || raw === "changes" || raw === "chats") {
       return raw;
     }
   } catch {

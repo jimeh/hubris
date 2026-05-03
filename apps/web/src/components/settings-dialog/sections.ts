@@ -2,6 +2,7 @@ import {
   Code2,
   GitFork,
   Keyboard,
+  MessageSquare,
   Monitor,
   Paintbrush,
   Terminal,
@@ -14,6 +15,7 @@ export const sections = [
   { name: "Keyboard Shortcuts", icon: Keyboard },
   { name: "VS Code", icon: Monitor },
   { name: "Worktrees", icon: GitFork },
+  { name: "Chats", icon: MessageSquare },
 ] as const;
 
 export type SectionName = (typeof sections)[number]["name"];

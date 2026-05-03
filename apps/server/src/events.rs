@@ -12,6 +12,11 @@ use crate::api::settings::{Settings, SettingsState, SettingsStatus};
 use crate::api::tasks::{TaskInvocationStatus, TaskRemoved, TaskUpdated};
 use crate::api::vscode::VscodeStatus;
 use crate::api::worktrees::Worktree;
+use crate::chat::{
+    ChatAppServerStatus, ChatContextUsage, ChatConversationSummary, ChatDiffSummary, ChatItem,
+    ChatItemOutput, ChatMessage, ChatPendingRequest, ChatPendingRequestSummary, ChatPlan,
+    ChatReconciliation, ChatRun, ChatRuntimeStatus, ChatThreadStreamStatus, ChatTurn,
+};
 use crate::tab::{TabInfo, WorktreeTabLayout, WorktreeTabLayoutState};
 use crate::worktree_state::WorktreeRestoreState;
 
@@ -29,9 +34,16 @@ pub enum EventKind {
         tabs: Vec<TabInfo>,
         tab_layouts: HashMap<String, WorktreeTabLayout>,
         worktree_restore_state: HashMap<String, WorktreeRestoreState>,
+        chat_app_server: ChatAppServerStatus,
+        chat_conversations: Vec<ChatConversationSummary>,
+        chat_pending_requests: Vec<ChatPendingRequestSummary>,
+        chat_context_usage: Vec<ChatContextUsage>,
+        chat_reconciliations: Vec<ChatReconciliation>,
+        chat_runtimes: Vec<ChatRuntimeStatus>,
+        chat_thread_streams: Vec<ChatThreadStreamStatus>,
         projects: Vec<Project>,
         worktrees: HashMap<String, Vec<Worktree>>,
-        project_errors: HashMap<String, String>,
+        project_errors: Box<HashMap<String, String>>,
         settings: Box<Settings>,
         settings_generation: String,
         settings_status: SettingsStatus,
@@ -111,6 +123,120 @@ pub enum EventKind {
     TaskUpdated(Box<TaskUpdated>),
     #[serde(rename = "task_removed")]
     TaskRemoved(Box<TaskRemoved>),
+    #[serde(rename = "chat_conversation_created")]
+    ChatConversationCreated {
+        session_id: String,
+        conversation: ChatConversationSummary,
+    },
+    #[serde(rename = "chat_conversation_updated")]
+    ChatConversationUpdated {
+        session_id: String,
+        conversation: ChatConversationSummary,
+    },
+    #[serde(rename = "chat_runtime_updated")]
+    ChatRuntimeUpdated {
+        session_id: String,
+        runtime: ChatRuntimeStatus,
+    },
+    #[serde(rename = "chat_app_server_updated")]
+    ChatAppServerUpdated { app_server: ChatAppServerStatus },
+    #[serde(rename = "chat_thread_stream_updated")]
+    ChatThreadStreamUpdated {
+        session_id: String,
+        stream: ChatThreadStreamStatus,
+    },
+    #[serde(rename = "chat_message_delta")]
+    ChatMessageDelta {
+        session_id: String,
+        conversation_id: String,
+        message_id: String,
+        delta: String,
+        revision: u64,
+    },
+    #[serde(rename = "chat_message_updated")]
+    ChatMessageUpdated {
+        session_id: String,
+        conversation_id: String,
+        message: ChatMessage,
+    },
+    #[serde(rename = "chat_run_updated")]
+    ChatRunUpdated {
+        session_id: String,
+        conversation_id: String,
+        run: ChatRun,
+    },
+    #[serde(rename = "chat_turn_updated")]
+    ChatTurnUpdated {
+        session_id: String,
+        conversation_id: String,
+        turn: ChatTurn,
+    },
+    #[serde(rename = "chat_item_updated")]
+    ChatItemUpdated {
+        session_id: String,
+        conversation_id: String,
+        item: ChatItem,
+    },
+    #[serde(rename = "chat_activity_delta")]
+    ChatActivityDelta {
+        session_id: String,
+        conversation_id: String,
+        item_id: String,
+        output: ChatItemOutput,
+    },
+    #[serde(rename = "chat_activity_updated")]
+    ChatActivityUpdated {
+        session_id: String,
+        conversation_id: String,
+        item: ChatItem,
+    },
+    #[serde(rename = "chat_pending_request_created")]
+    ChatPendingRequestCreated {
+        session_id: String,
+        request: ChatPendingRequest,
+    },
+    #[serde(rename = "chat_pending_request_updated")]
+    ChatPendingRequestUpdated {
+        session_id: String,
+        request: ChatPendingRequest,
+    },
+    #[serde(rename = "chat_pending_request_resolved")]
+    ChatPendingRequestResolved {
+        session_id: String,
+        request: ChatPendingRequest,
+    },
+    #[serde(rename = "chat_plan_updated")]
+    ChatPlanUpdated {
+        session_id: String,
+        conversation_id: String,
+        plan: ChatPlan,
+    },
+    #[serde(rename = "chat_diff_updated")]
+    ChatDiffUpdated {
+        session_id: String,
+        conversation_id: String,
+        diff: ChatDiffSummary,
+    },
+    #[serde(rename = "chat_context_usage_updated")]
+    ChatContextUsageUpdated {
+        session_id: String,
+        usage: ChatContextUsage,
+    },
+    #[serde(rename = "chat_reconciliation_started")]
+    ChatReconciliationStarted {
+        session_id: String,
+        reconciliation: ChatReconciliation,
+    },
+    #[serde(rename = "chat_reconciliation_completed")]
+    ChatReconciliationCompleted {
+        session_id: String,
+        reconciliation: ChatReconciliation,
+    },
+    #[serde(rename = "chat_reconciliation_failed")]
+    ChatReconciliationFailed {
+        session_id: String,
+        reconciliation: ChatReconciliation,
+    },
 }
 
 impl EventKind {
@@ -138,6 +264,27 @@ impl EventKind {
             EventKind::ManagedProcessUpdated(_) => "managed_process_updated",
             EventKind::TaskUpdated(_) => "task_updated",
             EventKind::TaskRemoved(_) => "task_removed",
+            EventKind::ChatConversationCreated { .. } => "chat_conversation_created",
+            EventKind::ChatConversationUpdated { .. } => "chat_conversation_updated",
+            EventKind::ChatRuntimeUpdated { .. } => "chat_runtime_updated",
+            EventKind::ChatAppServerUpdated { .. } => "chat_app_server_updated",
+            EventKind::ChatThreadStreamUpdated { .. } => "chat_thread_stream_updated",
+            EventKind::ChatMessageDelta { .. } => "chat_message_delta",
+            EventKind::ChatMessageUpdated { .. } => "chat_message_updated",
+            EventKind::ChatRunUpdated { .. } => "chat_run_updated",
+            EventKind::ChatTurnUpdated { .. } => "chat_turn_updated",
+            EventKind::ChatItemUpdated { .. } => "chat_item_updated",
+            EventKind::ChatActivityDelta { .. } => "chat_activity_delta",
+            EventKind::ChatActivityUpdated { .. } => "chat_activity_updated",
+            EventKind::ChatPendingRequestCreated { .. } => "chat_pending_request_created",
+            EventKind::ChatPendingRequestUpdated { .. } => "chat_pending_request_updated",
+            EventKind::ChatPendingRequestResolved { .. } => "chat_pending_request_resolved",
+            EventKind::ChatPlanUpdated { .. } => "chat_plan_updated",
+            EventKind::ChatDiffUpdated { .. } => "chat_diff_updated",
+            EventKind::ChatContextUsageUpdated { .. } => "chat_context_usage_updated",
+            EventKind::ChatReconciliationStarted { .. } => "chat_reconciliation_started",
+            EventKind::ChatReconciliationCompleted { .. } => "chat_reconciliation_completed",
+            EventKind::ChatReconciliationFailed { .. } => "chat_reconciliation_failed",
         }
     }
 }
@@ -228,9 +375,20 @@ mod tests {
                 tabs: vec![],
                 tab_layouts: HashMap::new(),
                 worktree_restore_state: HashMap::new(),
+                chat_app_server: ChatAppServerStatus {
+                    lifecycle: crate::chat::ChatAppServerLifecycle::Stopped,
+                    last_error: None,
+                    updated_at: 0,
+                },
+                chat_conversations: vec![],
+                chat_pending_requests: vec![],
+                chat_context_usage: vec![],
+                chat_reconciliations: vec![],
+                chat_runtimes: vec![],
+                chat_thread_streams: vec![],
                 projects: vec![],
                 worktrees: HashMap::new(),
-                project_errors: HashMap::new(),
+                project_errors: Box::new(HashMap::new()),
                 settings: Box::new(Settings::default()),
                 settings_generation: "0".to_string(),
                 settings_status: SettingsStatus::ok(),

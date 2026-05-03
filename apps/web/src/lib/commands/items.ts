@@ -1,5 +1,6 @@
 import { projectForWorktree } from "@/lib/commands/context";
 import { commandIds, getCommandDefinition } from "@/lib/commands/registry";
+import { useChatStore } from "@/lib/stores/chats";
 import type {
   AnyCommandPaletteItem,
   CommandContextSnapshot,
@@ -13,6 +14,7 @@ const STATIC_PALETTE_COMMANDS = [
   "worktree.create",
   "tab.newTerminal",
   "tab.newBrowser",
+  "tab.newChat",
   "pane.splitRight",
   "pane.splitDown",
   "tab.close",
@@ -168,6 +170,38 @@ export function getCommandPaletteItems(
   }
 
   const selectedWorktreeId = context.selectedWorktree?.id;
+  const conversations = Object.values(useChatStore.getState().conversationsById)
+    .filter(
+      (conversation) =>
+        conversation.worktreeId === selectedWorktreeId &&
+        !context.tabs.some(
+          (tab) =>
+            tab.type === "agent_chat" &&
+            tab.conversation_id === conversation.id,
+        ),
+    )
+    .sort((left, right) => right.lastActivityAt - left.lastActivityAt);
+
+  for (const conversation of conversations) {
+    items.push({
+      args: {
+        conversationId: conversation.id,
+        worktreeId: conversation.worktreeId,
+      },
+      group: "Tabs",
+      icon: getCommandDefinition("tab.openChat").icon,
+      id: "tab.openChat",
+      key: `tab.openChat:${conversation.id}`,
+      keywords: [
+        ...(getCommandDefinition("tab.openChat").keywords ?? []),
+        conversation.title,
+      ],
+      sortPriority: -conversation.lastActivityAt,
+      subtitle: "Chat",
+      title: `Open ${conversation.title}`,
+    });
+  }
+
   for (const tab of context.tabs) {
     if (selectedWorktreeId && tab.worktree_id !== selectedWorktreeId) {
       continue;
@@ -213,6 +247,13 @@ export function getCommandPaletteItems(
       const groupComparison = left.group.localeCompare(right.group);
       if (groupComparison !== 0) {
         return groupComparison;
+      }
+      if (left.id === "tab.openChat" && right.id === "tab.openChat") {
+        const priorityComparison =
+          (left.sortPriority ?? 0) - (right.sortPriority ?? 0);
+        if (priorityComparison !== 0) {
+          return priorityComparison;
+        }
       }
       const titleComparison = left.title.localeCompare(right.title);
       if (titleComparison !== 0) {

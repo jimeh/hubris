@@ -24,6 +24,18 @@ use hubris_server::api::vscode::{
     VscodeRuntimeStatus, VscodeStatus,
 };
 use hubris_server::api::worktrees::{Worktree, WorktreeUiMode};
+use hubris_server::chat::{
+    ChatActivityDetail, ChatAppServerLifecycle, ChatAppServerStatus, ChatContextUsage,
+    ChatConversationDetail, ChatConversationSettingsPatch, ChatConversationSummary,
+    ChatDiffFileSummary, ChatDiffSummary, ChatItem, ChatItemKind, ChatItemOutput, ChatItemStatus,
+    ChatMessage, ChatMessageRole, ChatMessageStatus, ChatModelOption,
+    ChatModelReasoningEffortOption, ChatPendingRequest, ChatPendingRequestDecision,
+    ChatPendingRequestKind, ChatPendingRequestStatus, ChatPendingRequestSummary,
+    ChatPermissionMode, ChatPlan, ChatPlanKind, ChatPlanStatus, ChatProvider, ChatReasoningEffort,
+    ChatReconciliation, ChatReconciliationStatus, ChatRun, ChatRunStatus, ChatRuntimeLifecycle,
+    ChatRuntimeStatus, ChatSettings, ChatThreadStreamResumeState, ChatThreadStreamStatus, ChatTurn,
+    ChatTurnStatus, ResolveChatPendingRequestRequest,
+};
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
 use hubris_server::tab::{
@@ -101,6 +113,47 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<WorktreeSettings>(&mut sse, &cfg)?;
     push_ts_export::<VscodeRuntimeKind>(&mut sse, &cfg)?;
     push_ts_export::<VscodeSettings>(&mut sse, &cfg)?;
+    push_ts_export::<ChatProvider>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPermissionMode>(&mut sse, &cfg)?;
+    push_ts_export::<ChatReasoningEffort>(&mut sse, &cfg)?;
+    push_ts_export::<ChatMessageRole>(&mut sse, &cfg)?;
+    push_ts_export::<ChatMessageStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatRunStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatTurnStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatItemKind>(&mut sse, &cfg)?;
+    push_ts_export::<ChatItemStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatReconciliationStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatRuntimeLifecycle>(&mut sse, &cfg)?;
+    push_ts_export::<ChatAppServerLifecycle>(&mut sse, &cfg)?;
+    push_ts_export::<ChatAppServerStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatThreadStreamResumeState>(&mut sse, &cfg)?;
+    push_ts_export::<ChatThreadStreamStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatModelReasoningEffortOption>(&mut sse, &cfg)?;
+    push_ts_export::<ChatModelOption>(&mut sse, &cfg)?;
+    push_ts_export::<ChatConversationSettingsPatch>(&mut sse, &cfg)?;
+    push_ts_export::<ChatConversationSummary>(&mut sse, &cfg)?;
+    push_ts_export::<ChatMessage>(&mut sse, &cfg)?;
+    push_ts_export::<ChatRun>(&mut sse, &cfg)?;
+    push_ts_export::<ChatTurn>(&mut sse, &cfg)?;
+    push_ts_export::<ChatItem>(&mut sse, &cfg)?;
+    push_ts_export::<ChatItemOutput>(&mut sse, &cfg)?;
+    push_ts_export::<ChatActivityDetail>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPlanKind>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPlanStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPlan>(&mut sse, &cfg)?;
+    push_ts_export::<ChatDiffFileSummary>(&mut sse, &cfg)?;
+    push_ts_export::<ChatDiffSummary>(&mut sse, &cfg)?;
+    push_ts_export::<ChatContextUsage>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPendingRequestKind>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPendingRequestStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPendingRequestDecision>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPendingRequest>(&mut sse, &cfg)?;
+    push_ts_export::<ChatPendingRequestSummary>(&mut sse, &cfg)?;
+    push_ts_export::<ResolveChatPendingRequestRequest>(&mut sse, &cfg)?;
+    push_ts_export::<ChatReconciliation>(&mut sse, &cfg)?;
+    push_ts_export::<ChatConversationDetail>(&mut sse, &cfg)?;
+    push_ts_export::<ChatRuntimeStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatSettings>(&mut sse, &cfg)?;
     push_ts_export::<Settings>(&mut sse, &cfg)?;
     push_ts_export::<SettingsStatusKind>(&mut sse, &cfg)?;
     push_ts_export::<SettingsStatus>(&mut sse, &cfg)?;

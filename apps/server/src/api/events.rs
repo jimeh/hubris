@@ -91,8 +91,88 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
         | EventKind::TabsReordered {
             session_id: event_session_id,
             ..
+        }
+        | EventKind::ChatConversationCreated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatConversationUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatRuntimeUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatThreadStreamUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatMessageDelta {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatMessageUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatRunUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatTurnUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatItemUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatActivityDelta {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatActivityUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatPendingRequestCreated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatPendingRequestUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatPendingRequestResolved {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatPlanUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatDiffUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatContextUsageUpdated {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatReconciliationStarted {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatReconciliationCompleted {
+            session_id: event_session_id,
+            ..
+        }
+        | EventKind::ChatReconciliationFailed {
+            session_id: event_session_id,
+            ..
         } => event_session_id == session_id,
-        EventKind::WorktreeTabLayoutUpdated { .. } => true,
+        EventKind::WorktreeTabLayoutUpdated { .. } | EventKind::ChatAppServerUpdated { .. } => true,
         EventKind::ProjectAdded(_)
         | EventKind::ProjectRemoved { .. }
         | EventKind::ProjectUpdated(_)
@@ -146,6 +226,35 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
     let mut project_errors = HashMap::new();
     let settings = state.settings.get().await;
     let keybindings = state.keybindings.get().await;
+    let chat_conversations = match state.chats.list_session_conversations(session_id).await {
+        Ok(value) => value,
+        Err(error) => return snapshot_unavailable_event("chat_conversations", &error.message),
+    };
+    let chat_app_server = state.chats.app_server_status().await;
+    let chat_pending_requests = match state
+        .chats
+        .list_session_pending_request_summaries(session_id)
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => return snapshot_unavailable_event("chat_pending_requests", &error.message),
+    };
+    let chat_context_usage = match state.chats.list_session_context_usage(session_id).await {
+        Ok(value) => value,
+        Err(error) => return snapshot_unavailable_event("chat_context_usage", &error.message),
+    };
+    let chat_reconciliations = match state.chats.list_session_reconciliations(session_id).await {
+        Ok(value) => value,
+        Err(error) => return snapshot_unavailable_event("chat_reconciliations", &error.message),
+    };
+    let chat_runtimes = match state.chats.list_runtime_statuses(session_id).await {
+        Ok(value) => value,
+        Err(error) => return snapshot_unavailable_event("chat_runtimes", &error.message),
+    };
+    let chat_thread_streams = match state.chats.list_thread_stream_statuses(session_id).await {
+        Ok(value) => value,
+        Err(error) => return snapshot_unavailable_event("chat_thread_streams", &error.message),
+    };
     let vscode = state.vscode.status().await.into();
     let managed_processes = state
         .processes
@@ -179,9 +288,16 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         tabs,
         tab_layouts,
         worktree_restore_state,
+        chat_app_server,
+        chat_conversations,
+        chat_pending_requests,
+        chat_context_usage,
+        chat_reconciliations,
+        chat_runtimes,
+        chat_thread_streams,
         projects,
         worktrees,
-        project_errors,
+        project_errors: Box::new(project_errors),
         settings: Box::new(settings.settings),
         settings_generation: settings.generation,
         settings_status: settings.status,
@@ -197,6 +313,20 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         .data(serde_json::to_string(&snapshot).unwrap())
 }
 
+fn snapshot_unavailable_event(scope: &str, message: &str) -> sse::Event {
+    tracing::warn!(scope, message, "failed to build SSE snapshot");
+    sse::Event::default().event("snapshot_unavailable").data(
+        serde_json::json!({
+            "type": "snapshot_unavailable",
+            "data": {
+                "scope": scope,
+                "message": message,
+            },
+        })
+        .to_string(),
+    )
+}
+
 fn to_sse_event(event: &Event) -> sse::Event {
     sse::Event::default()
         .event(event.kind.event_name())
@@ -206,6 +336,7 @@ fn to_sse_event(event: &Event) -> sse::Event {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::{ChatMessage, ChatMessageRole, ChatMessageStatus};
     use crate::tab::{TabInfo, TerminalTabLabels};
 
     fn make_terminal_tab(session_id: &str) -> TabInfo {
@@ -247,6 +378,34 @@ mod tests {
             kind: EventKind::TabClosed {
                 session_id: "session-a".into(),
                 tab_id: "tab-1".into(),
+            },
+        };
+
+        assert!(event_matches_session(&event, "session-a"));
+        assert!(!event_matches_session(&event, "session-b"));
+    }
+
+    #[test]
+    fn chat_events_only_match_their_own_session() {
+        let event = Event {
+            kind: EventKind::ChatMessageUpdated {
+                session_id: "session-a".into(),
+                conversation_id: "chat-1".into(),
+                message: ChatMessage {
+                    id: "message-1".into(),
+                    conversation_id: "chat-1".into(),
+                    turn_id: None,
+                    item_id: None,
+                    provider_turn_id: None,
+                    provider_item_id: None,
+                    role: ChatMessageRole::Assistant,
+                    status: ChatMessageStatus::Completed,
+                    content_text: "ready".into(),
+                    reasoning_text: String::new(),
+                    sequence: 1,
+                    created_at: 0,
+                    updated_at: 0,
+                },
             },
         };
 

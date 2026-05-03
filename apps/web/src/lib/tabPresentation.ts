@@ -14,7 +14,7 @@ export type TabPresentation = {
   labelSuffix?: string;
   statusLabel?: string;
   title: string;
-  iconKind: "terminal" | "material" | "browser";
+  iconKind: "terminal" | "material" | "browser" | "chat";
   iconPath?: string;
   iconId?: string;
   toneClass?: string;
@@ -123,6 +123,15 @@ export function presentTab(
       label,
       title: tab.url,
       iconKind: "browser",
+    };
+  }
+
+  if (tab.type === "agent_chat") {
+    const label = tab.label || "New Chat";
+    return {
+      label,
+      title: label,
+      iconKind: "chat",
     };
   }
 

@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
-import type { BrowserTab, FileTab, GitDiffTab, TerminalTab } from "@/lib/types";
+import type {
+  AgentChatTab,
+  BrowserTab,
+  FileTab,
+  GitDiffTab,
+  TerminalTab,
+} from "@/lib/types";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import {
   initializeTabStore,
@@ -159,6 +165,23 @@ function makeBrowserTab(
     url: overrides.url,
     history: overrides.history ?? [overrides.url],
     history_index: overrides.history_index ?? 0,
+  };
+}
+
+function makeAgentChatTab(
+  overrides: Partial<AgentChatTab> & { id: string; conversation_id: string },
+): AgentChatTab {
+  return {
+    id: overrides.id,
+    label: overrides.label ?? "New Chat",
+    position: overrides.position ?? 1,
+    worktree_id: overrides.worktree_id ?? "w1",
+    pane_id: overrides.pane_id ?? "pane-1",
+    session_id: overrides.session_id ?? "default",
+    type: "agent_chat",
+    created_at: overrides.created_at ?? 0,
+    preview: overrides.preview ?? false,
+    conversation_id: overrides.conversation_id,
   };
 }
 
@@ -936,6 +959,84 @@ describe("Tab store", () => {
     expect(
       store.tabsForWorktree("w1").map((candidate) => candidate.id),
     ).toEqual(["diff-3"]);
+  });
+
+  it("openAgentChat dedupes concurrent new chat creates", async () => {
+    const store = await getStore();
+    let resolveCreate!: (tab: AgentChatTab) => void;
+    mockCreateTab.mockImplementation(
+      () =>
+        new Promise<AgentChatTab>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+
+    const firstPromise = store.useTabStore
+      .getState()
+      .openAgentChat({ worktreeId: "w1" });
+    const secondPromise = store.useTabStore
+      .getState()
+      .openAgentChat({ worktreeId: "w1" });
+
+    await vi.waitFor(() => {
+      expect(mockCreateTab).toHaveBeenCalledTimes(1);
+    });
+
+    resolveCreate(
+      makeAgentChatTab({
+        id: "chat-tab-1",
+        worktree_id: "w1",
+        conversation_id: "chat-1",
+      }),
+    );
+
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+    expect(first.id).toBe("chat-tab-1");
+    expect(second.id).toBe("chat-tab-1");
+    expect(
+      store.tabsForWorktree("w1").map((candidate) => candidate.id),
+    ).toEqual(["chat-tab-1"]);
+  });
+
+  it("openAgentChat dedupes concurrent existing chat opens across panes", async () => {
+    const store = await getStore();
+    let resolveCreate!: (tab: AgentChatTab) => void;
+    mockCreateTab.mockImplementation(
+      () =>
+        new Promise<AgentChatTab>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+
+    const firstPromise = store.useTabStore.getState().openAgentChat({
+      conversationId: "chat-1",
+      paneId: "pane-1",
+      worktreeId: "w1",
+    });
+    const secondPromise = store.useTabStore.getState().openAgentChat({
+      conversationId: "chat-1",
+      paneId: "pane-2",
+      worktreeId: "w1",
+    });
+
+    await vi.waitFor(() => {
+      expect(mockCreateTab).toHaveBeenCalledTimes(1);
+    });
+
+    resolveCreate(
+      makeAgentChatTab({
+        id: "chat-tab-1",
+        pane_id: "pane-1",
+        worktree_id: "w1",
+        conversation_id: "chat-1",
+      }),
+    );
+
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+    expect(first.id).toBe("chat-tab-1");
+    expect(second.id).toBe("chat-tab-1");
   });
 
   it("openGitDiff upgrades an in-flight preview create to pinned", async () => {

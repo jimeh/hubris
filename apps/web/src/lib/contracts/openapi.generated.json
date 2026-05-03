@@ -9,6 +9,383 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/chats/models": {
+      "get": {
+        "tags": ["crate::api::chats"],
+        "operationId": "list_chat_models",
+        "responses": {
+          "200": {
+            "description": "Available Codex models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatModelOption"
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Failed to query Codex models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}": {
+      "get": {
+        "tags": ["crate::api::chats"],
+        "operationId": "get_chat",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatConversationDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}/activity/{item_id}": {
+      "get": {
+        "tags": ["crate::api::chats"],
+        "operationId": "get_chat_activity",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "description": "Activity item ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Activity detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatActivityDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Activity item not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}/interrupt": {
+      "post": {
+        "tags": ["crate::api::chats"],
+        "operationId": "interrupt_chat",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Interrupt requested"
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conversation not running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}/messages": {
+      "post": {
+        "tags": ["crate::api::chats"],
+        "operationId": "send_chat_message",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendChatMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Message accepted"
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to start Codex runtime",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}/requests/{request_id}/resolve": {
+      "post": {
+        "tags": ["crate::api::chats"],
+        "operationId": "resolve_chat_pending_request",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "description": "Pending request ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveChatPendingRequestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Resolved pending request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatPendingRequest"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pending request not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Pending request already resolved or stale",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}/settings": {
+      "patch": {
+        "tags": ["crate::api::chats"],
+        "operationId": "patch_chat_settings",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatConversationSettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated conversation summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatConversationSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/editor-themes": {
       "get": {
         "tags": ["crate::api::editor_themes"],
@@ -1898,6 +2275,55 @@
         }
       }
     },
+    "/api/projects/{project_id}/worktrees/{worktree_id}/chats": {
+      "get": {
+        "tags": ["crate::api::chats"],
+        "operationId": "list_project_worktree_chats",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "worktree_id",
+            "in": "path",
+            "description": "Worktree ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversation summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatConversationSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings": {
       "get": {
         "tags": ["crate::api::settings"],
@@ -2637,6 +3063,1337 @@
           }
         }
       },
+      "ChatActivityDetail": {
+        "type": "object",
+        "description": "Lazy-loaded activity detail for one Codex work item.",
+        "required": ["item", "outputs"],
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/ChatItem"
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatItemOutput"
+            }
+          }
+        }
+      },
+      "ChatAppServerLifecycle": {
+        "type": "string",
+        "description": "Shared Codex app-server process lifecycle pushed over SSE.",
+        "enum": [
+          "stopped",
+          "starting",
+          "initializing",
+          "ready",
+          "stopping",
+          "fatal"
+        ]
+      },
+      "ChatAppServerStatus": {
+        "type": "object",
+        "description": "Host-scoped Codex app-server status.",
+        "required": ["lifecycle", "updatedAt"],
+        "properties": {
+          "lastError": {
+            "type": ["string", "null"]
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/ChatAppServerLifecycle"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatContextUsage": {
+        "type": "object",
+        "description": "Latest context-window usage for a Codex conversation.",
+        "required": ["id", "conversationId", "metadataJson", "updatedAt"],
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "maxTokens": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "metadataJson": {
+            "type": "string"
+          },
+          "percentUsed": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "providerThreadId": {
+            "type": ["string", "null"]
+          },
+          "totalProcessedTokens": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usedTokens": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatConversationDetail": {
+        "type": "object",
+        "description": "Full chat detail payload used to hydrate an open chat tab.",
+        "required": [
+          "conversation",
+          "messages",
+          "turns",
+          "items",
+          "plans",
+          "diffSummaries",
+          "pendingRequests"
+        ],
+        "properties": {
+          "contextUsage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatContextUsage"
+              }
+            ]
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/ChatConversationSummary"
+          },
+          "diffSummaries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatDiffSummary"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatItem"
+            }
+          },
+          "latestReconciliation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatReconciliation"
+              }
+            ]
+          },
+          "latestRun": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatRun"
+              }
+            ]
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            }
+          },
+          "pendingRequests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatPendingRequest"
+            }
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatPlan"
+            }
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatTurn"
+            }
+          }
+        }
+      },
+      "ChatConversationSettingsPatch": {
+        "type": "object",
+        "description": "Conversation-level model preferences that apply to future turns.",
+        "properties": {
+          "selectedEffort": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatReasoningEffort"
+              }
+            ]
+          },
+          "selectedModel": {
+            "type": ["string", "null"]
+          },
+          "selectedPermissionMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatPermissionMode"
+              }
+            ]
+          }
+        }
+      },
+      "ChatConversationSummary": {
+        "type": "object",
+        "description": "Persisted summary for a conversation list row.",
+        "required": [
+          "id",
+          "sessionId",
+          "projectId",
+          "worktreeId",
+          "provider",
+          "title",
+          "createdAt",
+          "updatedAt",
+          "lastActivityAt",
+          "lastRunState",
+          "lastReconciliationState",
+          "pendingRequestCount",
+          "hasPendingRequestAttention",
+          "revision"
+        ],
+        "properties": {
+          "contextMaxTokens": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "contextPercentUsed": {
+            "type": ["number", "null"],
+            "format": "double"
+          },
+          "contextUpdatedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "contextUsedTokens": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "hasPendingRequestAttention": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastActivityAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "lastError": {
+            "type": ["string", "null"]
+          },
+          "lastMessageAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "lastReconciliationError": {
+            "type": ["string", "null"]
+          },
+          "lastReconciliationState": {
+            "$ref": "#/components/schemas/ChatReconciliationStatus"
+          },
+          "lastRunState": {
+            "$ref": "#/components/schemas/ChatRunStatus"
+          },
+          "latestPendingRequestId": {
+            "type": ["string", "null"]
+          },
+          "latestPendingRequestKind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatPendingRequestKind"
+              }
+            ]
+          },
+          "latestPendingRequestStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatPendingRequestStatus"
+              }
+            ]
+          },
+          "openTabId": {
+            "type": ["string", "null"]
+          },
+          "pendingRequestCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ChatProvider"
+          },
+          "providerThreadId": {
+            "type": ["string", "null"]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "selectedEffort": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatReasoningEffort"
+              }
+            ]
+          },
+          "selectedModel": {
+            "type": ["string", "null"]
+          },
+          "selectedPermissionMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatPermissionMode"
+              }
+            ]
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "worktreeId": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatDiffFileSummary": {
+        "type": "object",
+        "description": "One changed file included in a Codex diff summary.",
+        "required": ["path"],
+        "properties": {
+          "additions": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "changeType": {
+            "type": ["string", "null"]
+          },
+          "deletions": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "originalPath": {
+            "type": ["string", "null"]
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatDiffSummary": {
+        "type": "object",
+        "description": "Persisted turn-level Codex diff summary.",
+        "required": [
+          "id",
+          "conversationId",
+          "changedFileCount",
+          "files",
+          "metadataJson",
+          "ownerGeneration",
+          "sequence",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "additions": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "changedFileCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "deletions": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatDiffFileSummary"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "metadataJson": {
+            "type": "string"
+          },
+          "ownerGeneration": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "turnId": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatItem": {
+        "type": "object",
+        "description": "Persisted provider item metadata for a chat conversation.",
+        "required": [
+          "id",
+          "conversationId",
+          "kind",
+          "status",
+          "sequence",
+          "metadataJson",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "completedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChatItemKind"
+          },
+          "metadataJson": {
+            "type": "string"
+          },
+          "providerItemId": {
+            "type": ["string", "null"]
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "role": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatMessageRole"
+              }
+            ]
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatItemStatus"
+          },
+          "summary": {
+            "type": ["string", "null"]
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "turnId": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatItemKind": {
+        "type": "string",
+        "description": "Normalized Codex item kind persisted for future timeline rendering.",
+        "enum": [
+          "agent_message",
+          "reasoning",
+          "command_execution",
+          "file_change",
+          "mcp_tool_call",
+          "dynamic_tool_call",
+          "web_search",
+          "image_view",
+          "hook",
+          "auto_approval_review",
+          "model_reroute",
+          "unknown"
+        ]
+      },
+      "ChatItemOutput": {
+        "type": "object",
+        "description": "Persisted output chunk for a non-message Codex work item.",
+        "required": [
+          "id",
+          "conversationId",
+          "itemId",
+          "streamKind",
+          "sequence",
+          "contentText",
+          "byteCount",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "byteCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "contentText": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "streamKind": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatItemStatus": {
+        "type": "string",
+        "description": "Persisted Codex item lifecycle state.",
+        "enum": ["started", "streaming", "completed", "failed"]
+      },
+      "ChatMessage": {
+        "type": "object",
+        "description": "Persisted transcript message.",
+        "required": [
+          "id",
+          "conversationId",
+          "role",
+          "status",
+          "contentText",
+          "reasoningText",
+          "sequence",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "contentText": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": ["string", "null"]
+          },
+          "providerItemId": {
+            "type": ["string", "null"]
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "reasoningText": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ChatMessageRole"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatMessageStatus"
+          },
+          "turnId": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatMessageRole": {
+        "type": "string",
+        "description": "Persisted message role for a conversation transcript item.",
+        "enum": ["user", "assistant"]
+      },
+      "ChatMessageStatus": {
+        "type": "string",
+        "description": "Persisted message lifecycle state.",
+        "enum": ["pending", "streaming", "completed", "interrupted", "failed"]
+      },
+      "ChatModelOption": {
+        "type": "object",
+        "description": "One selectable Codex model exposed by app-server.",
+        "required": [
+          "id",
+          "model",
+          "displayName",
+          "description",
+          "isDefault",
+          "hidden",
+          "defaultReasoningEffort",
+          "supportedReasoningEfforts"
+        ],
+        "properties": {
+          "defaultReasoningEffort": {
+            "$ref": "#/components/schemas/ChatReasoningEffort"
+          },
+          "description": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "supportedReasoningEfforts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatModelReasoningEffortOption"
+            }
+          }
+        }
+      },
+      "ChatModelReasoningEffortOption": {
+        "type": "object",
+        "description": "One reasoning-effort option supported by a Codex model.",
+        "required": ["reasoningEffort", "description"],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "reasoningEffort": {
+            "$ref": "#/components/schemas/ChatReasoningEffort"
+          }
+        }
+      },
+      "ChatPendingRequest": {
+        "type": "object",
+        "description": "Persisted Codex server request with enough state to render and answer it.",
+        "required": [
+          "id",
+          "conversationId",
+          "providerRequestId",
+          "method",
+          "kind",
+          "status",
+          "payloadJson",
+          "ownerGeneration",
+          "sequence",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "decision": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatPendingRequestDecision"
+              }
+            ]
+          },
+          "errorMessage": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": ["string", "null"]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChatPendingRequestKind"
+          },
+          "method": {
+            "type": "string"
+          },
+          "ownerGeneration": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "payloadJson": {
+            "type": "string"
+          },
+          "providerItemId": {
+            "type": ["string", "null"]
+          },
+          "providerRequestId": {
+            "type": "string"
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "resolvedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "responseJson": {
+            "type": ["string", "null"]
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatPendingRequestStatus"
+          },
+          "turnId": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatPendingRequestDecision": {
+        "type": "string",
+        "description": "User-visible decision sent back to Codex for a pending request.",
+        "enum": [
+          "accept",
+          "acceptForSession",
+          "decline",
+          "cancel",
+          "acceptWithExecpolicyAmendment",
+          "applyNetworkPolicyAmendment",
+          "submit"
+        ]
+      },
+      "ChatPendingRequestKind": {
+        "type": "string",
+        "description": "Persisted Codex server request kind.",
+        "enum": [
+          "command_approval",
+          "file_approval",
+          "permission_approval",
+          "structured_input",
+          "mcp_elicitation",
+          "unsupported"
+        ]
+      },
+      "ChatPendingRequestStatus": {
+        "type": "string",
+        "description": "Persisted Codex server request lifecycle.",
+        "enum": [
+          "pending",
+          "resolving",
+          "resolved",
+          "declined",
+          "cancelled",
+          "stale",
+          "failed"
+        ]
+      },
+      "ChatPendingRequestSummary": {
+        "type": "object",
+        "description": "Lightweight request state included in global SSE snapshots.",
+        "required": [
+          "id",
+          "conversationId",
+          "kind",
+          "status",
+          "method",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChatPendingRequestKind"
+          },
+          "method": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatPendingRequestStatus"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatPermissionMode": {
+        "type": "string",
+        "description": "Explicit permissions preset override. `None` means use Codex defaults.",
+        "enum": ["full_access"]
+      },
+      "ChatPlan": {
+        "type": "object",
+        "description": "Persisted Codex plan state used by the chat timeline.",
+        "required": [
+          "id",
+          "conversationId",
+          "kind",
+          "status",
+          "contentText",
+          "stepsJson",
+          "metadataJson",
+          "ownerGeneration",
+          "sequence",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "completedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "contentText": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": ["string", "null"]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChatPlanKind"
+          },
+          "metadataJson": {
+            "type": "string"
+          },
+          "ownerGeneration": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "providerItemId": {
+            "type": ["string", "null"]
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatPlanStatus"
+          },
+          "stepsJson": {
+            "type": "string"
+          },
+          "turnId": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatPlanKind": {
+        "type": "string",
+        "description": "Persisted Codex plan kind.",
+        "enum": ["active_task", "proposed_plan"]
+      },
+      "ChatPlanStatus": {
+        "type": "string",
+        "description": "Persisted Codex plan lifecycle state.",
+        "enum": ["streaming", "completed", "failed"]
+      },
+      "ChatProvider": {
+        "type": "string",
+        "description": "Supported chat providers.",
+        "enum": ["codex"]
+      },
+      "ChatReasoningEffort": {
+        "type": "string",
+        "description": "Supported reasoning-effort values exposed by Codex model selection.",
+        "enum": ["none", "minimal", "low", "medium", "high", "xhigh"]
+      },
+      "ChatReconciliation": {
+        "type": "object",
+        "description": "Latest replay/recovery state for one conversation.",
+        "required": [
+          "id",
+          "conversationId",
+          "status",
+          "reason",
+          "startedAt",
+          "ownerGeneration",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "errorMessage": {
+            "type": ["string", "null"]
+          },
+          "finishedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "ownerGeneration": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "providerThreadId": {
+            "type": ["string", "null"]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatReconciliationStatus"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatReconciliationStatus": {
+        "type": "string",
+        "description": "Backend-owned reconciliation lifecycle for replaying Codex thread state.",
+        "enum": ["not_needed", "pending", "running", "completed", "failed"]
+      },
+      "ChatRun": {
+        "type": "object",
+        "description": "Persisted run summary.",
+        "required": ["id", "conversationId", "status", "startedAt"],
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "errorMessage": {
+            "type": ["string", "null"]
+          },
+          "finishedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "startedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatRunStatus"
+          },
+          "turnId": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "ChatRunStatus": {
+        "type": "string",
+        "description": "Persisted run lifecycle state.",
+        "enum": ["starting", "running", "completed", "interrupted", "failed"]
+      },
+      "ChatRuntimeLifecycle": {
+        "type": "string",
+        "description": "In-memory runtime lifecycle state for a live Codex app-server process.",
+        "enum": [
+          "stopped",
+          "starting",
+          "ready",
+          "running",
+          "stopping",
+          "failed"
+        ]
+      },
+      "ChatRuntimeStatus": {
+        "type": "object",
+        "description": "Shared runtime summary pushed over SSE.",
+        "required": [
+          "conversationId",
+          "sessionId",
+          "projectId",
+          "worktreeId",
+          "lifecycle",
+          "updatedAt"
+        ],
+        "properties": {
+          "activeMessageId": {
+            "type": ["string", "null"]
+          },
+          "activeRunId": {
+            "type": ["string", "null"]
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": ["string", "null"]
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/ChatRuntimeLifecycle"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "providerThreadId": {
+            "type": ["string", "null"]
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "worktreeId": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatSettings": {
+        "type": "object",
+        "description": "Chat settings owned by the backend.",
+        "required": ["idleTimeoutMinutes"],
+        "properties": {
+          "idleTimeoutMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "idleTimeoutMinutes": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ChatThreadStreamResumeState": {
+        "type": "string",
+        "description": "Per-conversation Codex thread stream resume state.",
+        "enum": ["not_started", "needs_resume", "resuming", "resumed"]
+      },
+      "ChatThreadStreamStatus": {
+        "type": "object",
+        "description": "Live stream status for one Codex thread.",
+        "required": [
+          "conversationId",
+          "sessionId",
+          "projectId",
+          "worktreeId",
+          "resumeState",
+          "lifecycle",
+          "updatedAt"
+        ],
+        "properties": {
+          "activeMessageId": {
+            "type": ["string", "null"]
+          },
+          "activeRunId": {
+            "type": ["string", "null"]
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "inactiveDeadlineAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "lastError": {
+            "type": ["string", "null"]
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/ChatRuntimeLifecycle"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "providerThreadId": {
+            "type": ["string", "null"]
+          },
+          "resumeState": {
+            "$ref": "#/components/schemas/ChatThreadStreamResumeState"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "worktreeId": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatTurn": {
+        "type": "object",
+        "description": "Persisted provider turn metadata for a chat conversation.",
+        "required": [
+          "id",
+          "conversationId",
+          "runId",
+          "userMessageId",
+          "assistantMessageId",
+          "status",
+          "startedAt",
+          "reconciliationStatus",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "assistantMessageId": {
+            "type": "string"
+          },
+          "completedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "errorMessage": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": "string"
+          },
+          "providerTurnId": {
+            "type": ["string", "null"]
+          },
+          "reconciledAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "reconciliationError": {
+            "type": ["string", "null"]
+          },
+          "reconciliationStatus": {
+            "$ref": "#/components/schemas/ChatReconciliationStatus"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatTurnStatus"
+          },
+          "updatedAt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "userMessageId": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatTurnStatus": {
+        "type": "string",
+        "description": "Persisted Codex turn lifecycle state.",
+        "enum": ["starting", "running", "completed", "interrupted", "failed"]
+      },
       "ClientControlMessage": {
         "oneOf": [
           {
@@ -2752,6 +4509,25 @@
               },
               "url": {
                 "type": "string"
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["worktree_id", "type"],
+            "properties": {
+              "conversation_id": {
+                "type": ["string", "null"]
+              },
+              "pane_id": {
+                "type": ["string", "null"]
+              },
+              "type": {
+                "type": "string",
+                "enum": ["agent_chat"]
               },
               "worktree_id": {
                 "type": "string"
@@ -3353,6 +5129,26 @@
           }
         }
       },
+      "ResolveChatPendingRequestRequest": {
+        "type": "object",
+        "description": "Request body for resolving a pending Codex server request.",
+        "required": ["decision"],
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/ChatPendingRequestDecision"
+          },
+          "value": {}
+        }
+      },
+      "SendChatMessageRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
       "ServerControlMessage": {
         "oneOf": [
           {
@@ -3431,6 +5227,9 @@
           "appearance": {
             "$ref": "#/components/schemas/AppearanceSettings"
           },
+          "chat": {
+            "$ref": "#/components/schemas/ChatSettings"
+          },
           "editor": {
             "$ref": "#/components/schemas/EditorSettings"
           },
@@ -3455,6 +5254,16 @@
               },
               {
                 "$ref": "#/components/schemas/AppearanceSettingsPatch"
+              }
+            ]
+          },
+          "chat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatSettingsPatch"
               }
             ]
           },
@@ -3817,6 +5626,57 @@
               },
               "url": {
                 "type": "string"
+              },
+              "worktree_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "session_id",
+              "worktree_id",
+              "pane_id",
+              "label",
+              "position",
+              "created_at",
+              "preview",
+              "conversation_id",
+              "type"
+            ],
+            "properties": {
+              "conversation_id": {
+                "type": "string"
+              },
+              "created_at": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "pane_id": {
+                "type": "string"
+              },
+              "position": {
+                "type": "number",
+                "format": "double"
+              },
+              "preview": {
+                "type": "boolean"
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["agent_chat"]
               },
               "worktree_id": {
                 "type": "string"

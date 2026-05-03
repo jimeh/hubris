@@ -182,6 +182,22 @@ export type WorktreeGitCommitDetails = GitCommitDetailsResponse;
 export type WorktreeFileContent = WorktreeFileContentResponse;
 export type SaveWorktreeFileContentResponse = WriteWorktreeFileContentResponse;
 export type WorktreeGitDiff = WorktreeGitDiffResponse;
+export type ChatConversationSummary =
+  components["schemas"]["ChatConversationSummary"];
+export type ChatConversationDetail =
+  components["schemas"]["ChatConversationDetail"];
+export type ChatActivityDetail = components["schemas"]["ChatActivityDetail"];
+export type ChatPendingRequest = components["schemas"]["ChatPendingRequest"];
+export type ChatRuntimeStatus = components["schemas"]["ChatRuntimeStatus"];
+export type ChatThreadStreamStatus =
+  components["schemas"]["ChatThreadStreamStatus"];
+export type ChatModelOption = components["schemas"]["ChatModelOption"];
+export type ChatPermissionMode = components["schemas"]["ChatPermissionMode"];
+export type ChatConversationSettingsPatch =
+  components["schemas"]["ChatConversationSettingsPatch"];
+type SendChatMessageRequest = components["schemas"]["SendChatMessageRequest"];
+export type ResolveChatPendingRequestRequest =
+  components["schemas"]["ResolveChatPendingRequestRequest"];
 
 export async function listProjectWorktreeStartPoints(
   projectId: string,
@@ -601,6 +617,116 @@ export async function updateTab(
     body: JSON.stringify(updates),
   });
   if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+export async function listProjectWorktreeChats(
+  projectId: string,
+  worktreeId: string,
+  sessionId = "default",
+): Promise<ChatConversationSummary[]> {
+  const params = new URLSearchParams({ session_id: sessionId });
+  const res = await fetch(
+    `${BASE}/projects/${projectId}/worktrees/${worktreeId}/chats?${params.toString()}`,
+  );
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function getChat(
+  conversationId: string,
+): Promise<ChatConversationDetail> {
+  const res = await fetch(`${BASE}/chats/${conversationId}`);
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function getChatActivity(
+  conversationId: string,
+  itemId: string,
+): Promise<ChatActivityDetail> {
+  const res = await fetch(`${BASE}/chats/${conversationId}/activity/${itemId}`);
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function listChatModels(): Promise<ChatModelOption[]> {
+  const res = await fetch(`${BASE}/chats/models`);
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function patchChatSettings(
+  conversationId: string,
+  patch: ChatConversationSettingsPatch,
+): Promise<ChatConversationSummary> {
+  const res = await fetch(`${BASE}/chats/${conversationId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function sendChatMessage(
+  conversationId: string,
+  text: string,
+): Promise<void> {
+  const payload: SendChatMessageRequest = { text };
+  const res = await fetch(`${BASE}/chats/${conversationId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+}
+
+export async function interruptChat(conversationId: string): Promise<void> {
+  const res = await fetch(`${BASE}/chats/${conversationId}/interrupt`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+}
+
+export async function resolveChatPendingRequest(
+  conversationId: string,
+  requestId: string,
+  request: ResolveChatPendingRequestRequest,
+): Promise<ChatPendingRequest> {
+  const res = await fetch(
+    `${BASE}/chats/${conversationId}/requests/${requestId}/resolve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
   return res.json();
 }
 

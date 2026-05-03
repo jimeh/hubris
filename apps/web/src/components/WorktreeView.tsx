@@ -26,6 +26,7 @@ import { useShallow } from "zustand/react/shallow";
 import BrowserTab from "@/components/BrowserTab";
 import FileEditorTab from "@/components/FileEditorTab";
 import GitDiffTab from "@/components/GitDiffTab";
+import AgentChatTabView from "@/components/AgentChatTab";
 import TabBar, { type TabBarAction } from "@/components/TabBar";
 import TerminalTab from "@/components/TerminalTab";
 import WorktreeRightSidebar from "@/components/WorktreeRightSidebar";
@@ -75,6 +76,7 @@ type PaneLeafProps = {
   onCloseTab: (tabId: string) => void;
   onAddTerminal: () => void;
   onAddBrowser: () => Promise<void>;
+  onAddChat: () => Promise<void>;
   onSplitRight: () => void;
   onSplitDown: () => void;
   onResetTerminalTabName: (tabId: string) => Promise<void>;
@@ -332,6 +334,7 @@ function PaneLeaf({
   onCloseTab,
   onAddTerminal,
   onAddBrowser,
+  onAddChat,
   onSplitRight,
   onSplitDown,
   onResetTerminalTabName,
@@ -360,6 +363,7 @@ function PaneLeaf({
         onClose={onCloseTab}
         onAddTerminal={onAddTerminal}
         onAddBrowser={onAddBrowser}
+        onAddChat={onAddChat}
         onSplitRight={onSplitRight}
         onSplitDown={onSplitDown}
         onResetTerminalTabName={onResetTerminalTabName}
@@ -990,6 +994,13 @@ export default function WorktreeView({ worktree, active }: Props) {
               source: "button",
             });
           }}
+          onAddChat={async () => {
+            await executeCommand({
+              args: { paneId, worktreeId: worktree.id },
+              id: "tab.newChat",
+              source: "button",
+            });
+          }}
           onSplitRight={() => {
             void executeCommand({
               args: {
@@ -1153,6 +1164,8 @@ export default function WorktreeView({ worktree, active }: Props) {
                       />
                     ) : tab.type === "browser" ? (
                       <BrowserTab tab={tab} visible={visible} />
+                    ) : tab.type === "agent_chat" ? (
+                      <AgentChatTabView tab={tab} visible={visible} />
                     ) : null}
                   </div>
                 );

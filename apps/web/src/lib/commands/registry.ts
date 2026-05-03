@@ -4,6 +4,8 @@ import {
   Globe,
   History,
   LayoutPanelTop,
+  MessageSquare,
+  MessageSquarePlus,
   Monitor,
   PanelLeft,
   PanelRight,
@@ -21,6 +23,7 @@ import { ApiStatusError } from "@/lib/api";
 import { useAppSidebarStore } from "@/lib/stores/appSidebar";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
 import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
+import { useChatStore } from "@/lib/stores/chats";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useTabStore } from "@/lib/stores/tabs";
@@ -584,6 +587,35 @@ export const commandRegistry = {
     keywords: ["browser", "tab", "web"],
     title: "New Browser Tab",
   }),
+  "tab.newChat": defineCommand({
+    async execute(context, args) {
+      const worktreeId = resolveWorktreeId(
+        args?.worktreeId,
+        context.selectedWorktree?.id ?? null,
+      );
+      if (!worktreeId) {
+        return { reason: "No worktree selected", status: "unavailable" };
+      }
+
+      await useTabStore.getState().openAgentChat({
+        paneId: args?.paneId ?? context.focusedPaneId ?? undefined,
+        worktreeId,
+      });
+      return success();
+    },
+    group: "Tabs",
+    icon: MessageSquarePlus,
+    id: "tab.newChat",
+    isAvailable(context, args) {
+      const worktreeId = resolveWorktreeId(
+        args?.worktreeId,
+        context.selectedWorktree?.id ?? null,
+      );
+      return worktreeId ? enabled() : disabled("Select a worktree first");
+    },
+    keywords: ["agent", "chat", "codex", "conversation", "tab"],
+    title: "New Chat Tab",
+  }),
   "tab.newTerminal": defineCommand({
     async execute(context, args) {
       const worktreeId = resolveWorktreeId(
@@ -614,6 +646,66 @@ export const commandRegistry = {
     },
     keywords: ["terminal", "tab", "shell"],
     title: "New Terminal Tab",
+  }),
+  "tab.openChat": defineCommand({
+    async execute(context, args) {
+      const conversationId = args?.conversationId;
+      if (!conversationId) {
+        return { reason: "No chat selected", status: "unavailable" };
+      }
+
+      const conversation =
+        useChatStore.getState().conversationsById[conversationId] ?? null;
+      const worktreeId = resolveWorktreeId(
+        args?.worktreeId,
+        conversation?.worktreeId ?? context.selectedWorktree?.id ?? null,
+      );
+      if (
+        !conversation ||
+        conversation.id !== conversationId ||
+        (worktreeId && conversation.worktreeId !== worktreeId)
+      ) {
+        return { reason: "No chat selected", status: "unavailable" };
+      }
+      if (!worktreeId) {
+        return { reason: "No worktree selected", status: "unavailable" };
+      }
+
+      await useTabStore.getState().openAgentChat({
+        conversationId,
+        paneId: args?.paneId ?? context.focusedPaneId ?? undefined,
+        worktreeId,
+      });
+      return success();
+    },
+    group: "Tabs",
+    icon: MessageSquare,
+    id: "tab.openChat",
+    isAvailable(context, args) {
+      const conversationId = args?.conversationId;
+      if (!conversationId) {
+        return disabled("No chat selected");
+      }
+
+      const conversation =
+        useChatStore.getState().conversationsById[conversationId] ?? null;
+      if (!conversation) {
+        return disabled("Chat not found");
+      }
+
+      const effectiveWorktreeId =
+        args?.worktreeId ?? context.selectedWorktree?.id ?? null;
+      if (
+        effectiveWorktreeId &&
+        conversation.worktreeId !== effectiveWorktreeId
+      ) {
+        return disabled("Chat belongs to another worktree");
+      }
+
+      return enabled();
+    },
+    keywords: ["agent", "chat", "codex", "conversation", "open"],
+    title: "Open Chat",
   }),
   "tab.pin": defineCommand({
     async execute(context, args) {

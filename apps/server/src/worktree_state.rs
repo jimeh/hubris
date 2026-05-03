@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqliteSynchronous};
-use sqlx::{Connection as _, QueryBuilder, Sqlite, Transaction};
+use sqlx::{Connection as _, QueryBuilder, Row, Sqlite, Transaction};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::MissedTickBehavior;
 use ts_rs::TS;
@@ -908,12 +908,14 @@ async fn replace_worktree_state(
             original_path,
             commit_id,
             url,
+            conversation_id,
             custom_label,
             process_label,
             title_label,
         ) = match tab {
             TabInfo::Terminal { labels, .. } => (
                 "terminal",
+                None,
                 None,
                 None,
                 None,
@@ -926,6 +928,7 @@ async fn replace_worktree_state(
             TabInfo::File { path, .. } => (
                 "file",
                 Some(path.as_str()),
+                None,
                 None,
                 None,
                 None,
@@ -950,6 +953,7 @@ async fn replace_worktree_state(
                 None,
                 None,
                 None,
+                None,
             ),
             TabInfo::Browser { url, .. } => (
                 "browser",
@@ -958,6 +962,21 @@ async fn replace_worktree_state(
                 None,
                 None,
                 Some(url.as_str()),
+                None,
+                None,
+                None,
+                None,
+            ),
+            TabInfo::AgentChat {
+                conversation_id, ..
+            } => (
+                "agent_chat",
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(conversation_id.as_str()),
                 None,
                 None,
                 None,
@@ -972,7 +991,7 @@ async fn replace_worktree_state(
         let preview = tab.preview();
         let history_index = tab.history_index().map(|index| index as i64);
 
-        sqlx::query!(
+        sqlx::query(
             "
             INSERT INTO tabs (
                 tab_id,
@@ -993,10 +1012,11 @@ async fn replace_worktree_state(
                 original_path,
                 commit_id,
                 url,
-                browser_history_index
+                browser_history_index,
+                conversation_id
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                ?15, ?16, ?17, ?18, ?19
+                ?15, ?16, ?17, ?18, ?19, ?20
             )
             ON CONFLICT(tab_id) DO UPDATE SET
                 project_id = excluded.project_id,
@@ -1016,28 +1036,30 @@ async fn replace_worktree_state(
                 original_path = excluded.original_path,
                 commit_id = excluded.commit_id,
                 url = excluded.url,
-                browser_history_index = excluded.browser_history_index
+                browser_history_index = excluded.browser_history_index,
+                conversation_id = excluded.conversation_id
             ",
-            tab_id,
-            snapshot.project_id,
-            snapshot.worktree_id,
-            session_id,
-            tab_type,
-            pane_id,
-            label,
-            position,
-            created_at_ms,
-            preview,
-            custom_label,
-            process_label,
-            title_label,
-            path,
-            scope,
-            original_path,
-            commit_id,
-            url,
-            history_index,
         )
+        .bind(tab_id)
+        .bind(&snapshot.project_id)
+        .bind(&snapshot.worktree_id)
+        .bind(session_id)
+        .bind(tab_type)
+        .bind(pane_id)
+        .bind(label)
+        .bind(position)
+        .bind(created_at_ms)
+        .bind(preview)
+        .bind(custom_label)
+        .bind(process_label)
+        .bind(title_label)
+        .bind(path)
+        .bind(scope)
+        .bind(original_path)
+        .bind(commit_id)
+        .bind(url)
+        .bind(history_index)
+        .bind(conversation_id)
         .execute(&mut *tx)
         .await?;
 
@@ -1532,19 +1554,19 @@ async fn load_existing_worktrees(
     }
 
     let browser_histories = load_browser_histories(conn).await?;
-    let tab_rows = sqlx::query!(
+    let tab_rows = sqlx::query(
         "
         SELECT
-            tab_id as \"tab_id!\",
-            project_id as \"project_id!\",
-            worktree_id as \"worktree_id!\",
-            session_id as \"session_id!\",
-            tab_type as \"tab_type!\",
-            pane_id as \"pane_id!\",
-            label as \"label!\",
-            position as \"position!\",
-            created_at_ms as \"created_at_ms!\",
-            preview as \"preview!\",
+            tab_id,
+            project_id,
+            worktree_id,
+            session_id,
+            tab_type,
+            pane_id,
+            label,
+            position,
+            created_at_ms,
+            preview,
             custom_label,
             process_label,
             title_label,
@@ -1553,85 +1575,125 @@ async fn load_existing_worktrees(
             original_path,
             commit_id,
             url,
-            browser_history_index
+            browser_history_index,
+            conversation_id
         FROM tabs
         ORDER BY worktree_id, pane_id, position, created_at_ms, tab_id
-        "
+        ",
     )
     .fetch_all(&mut *conn)
     .await?;
 
     for row in tab_rows {
-        let Some(worktree) = worktrees_by_id.get_mut(&row.worktree_id) else {
+        let worktree_id: String = row.try_get("worktree_id")?;
+        let Some(worktree) = worktrees_by_id.get_mut(&worktree_id) else {
             continue;
         };
-        worktree.project_id = row.project_id;
-        let created_at = row.created_at_ms.max(0) as u64;
-        let tab = match row.tab_type.as_str() {
+        let project_id: String = row.try_get("project_id")?;
+        worktree.project_id = project_id;
+        let session_id: String = row.try_get("session_id")?;
+        let tab_type: String = row.try_get("tab_type")?;
+        let pane_id: String = row.try_get("pane_id")?;
+        let label: String = row.try_get("label")?;
+        let position: f64 = row.try_get("position")?;
+        let created_at_ms: i64 = row.try_get("created_at_ms")?;
+        let created_at = created_at_ms.max(0) as u64;
+        let preview = row.try_get::<i64, _>("preview")? != 0;
+        let path = row.try_get::<Option<String>, _>("path")?;
+        let scope = row.try_get::<Option<String>, _>("scope")?;
+        let original_path = row.try_get::<Option<String>, _>("original_path")?;
+        let commit_id = row.try_get::<Option<String>, _>("commit_id")?;
+        let url = row.try_get::<Option<String>, _>("url")?;
+        let browser_history_index = row.try_get::<Option<i64>, _>("browser_history_index")?;
+        let custom_label = row.try_get::<Option<String>, _>("custom_label")?;
+        let process_label = row.try_get::<Option<String>, _>("process_label")?;
+        let conversation_id = row.try_get::<Option<String>, _>("conversation_id")?;
+        let tab_id: String = row.try_get("tab_id")?;
+
+        let tab = match tab_type.as_str() {
             "terminal" => TabInfo::Terminal {
-                id: row.tab_id,
-                session_id: row.session_id,
-                worktree_id: row.worktree_id,
-                pane_id: row.pane_id,
-                label: row.label,
-                position: row.position,
+                id: tab_id,
+                session_id,
+                worktree_id,
+                pane_id,
+                label,
+                position,
                 created_at,
-                preview: row.preview != 0,
+                preview,
                 has_notification: false,
                 labels: TerminalTabLabels {
-                    custom_label: row.custom_label,
-                    smart_label: row.process_label,
+                    custom_label,
+                    smart_label: process_label,
                     title_label: None,
                 },
             },
             "file" => TabInfo::File {
-                id: row.tab_id,
-                session_id: row.session_id,
-                worktree_id: row.worktree_id,
-                pane_id: row.pane_id,
-                label: row.label,
-                position: row.position,
+                id: tab_id,
+                session_id,
+                worktree_id,
+                pane_id,
+                label,
+                position,
                 created_at,
-                preview: row.preview != 0,
-                path: row.path.unwrap_or_default(),
+                preview,
+                path: path.unwrap_or_default(),
             },
             "git_diff" => TabInfo::GitDiff {
-                id: row.tab_id,
-                session_id: row.session_id,
-                worktree_id: row.worktree_id,
-                pane_id: row.pane_id,
-                label: row.label,
-                position: row.position,
+                id: tab_id,
+                session_id,
+                worktree_id,
+                pane_id,
+                label,
+                position,
                 created_at,
-                preview: row.preview != 0,
-                path: row.path.unwrap_or_default(),
-                scope: match row.scope.as_deref() {
+                preview,
+                path: path.unwrap_or_default(),
+                scope: match scope.as_deref() {
                     Some("staged") => crate::tab::GitDiffScope::Staged,
                     Some("commit") => crate::tab::GitDiffScope::Commit,
                     _ => crate::tab::GitDiffScope::Unstaged,
                 },
-                original_path: row.original_path,
-                commit_id: row.commit_id,
+                original_path,
+                commit_id,
             },
             "browser" => {
-                let history = browser_histories
-                    .get(&row.tab_id)
-                    .cloned()
-                    .unwrap_or_default();
-                let history_index = row.browser_history_index.unwrap_or_default().max(0) as usize;
+                let history = browser_histories.get(&tab_id).cloned().unwrap_or_default();
+                let history_index = browser_history_index.unwrap_or_default().max(0) as usize;
                 let clamped_history_index = history_index.min(history.len().saturating_sub(1));
                 TabInfo::Browser {
-                    id: row.tab_id,
-                    session_id: row.session_id,
-                    worktree_id: row.worktree_id,
-                    pane_id: row.pane_id,
-                    label: row.label,
-                    position: row.position,
+                    id: tab_id,
+                    session_id,
+                    worktree_id,
+                    pane_id,
+                    label,
+                    position,
                     created_at,
-                    preview: row.preview != 0,
-                    url: row.url.unwrap_or_else(|| "about:blank".to_string()),
+                    preview,
+                    url: url.unwrap_or_else(|| "about:blank".to_string()),
                     history,
                     history_index: clamped_history_index,
+                }
+            }
+            "agent_chat" => {
+                let Some(conversation_id) =
+                    conversation_id.filter(|conversation_id| !conversation_id.is_empty())
+                else {
+                    tracing::warn!(
+                        tab_id,
+                        "skipping restored agent chat tab without a conversation id"
+                    );
+                    continue;
+                };
+                TabInfo::AgentChat {
+                    id: tab_id,
+                    session_id,
+                    worktree_id,
+                    pane_id,
+                    label,
+                    position,
+                    created_at,
+                    preview,
+                    conversation_id,
                 }
             }
             _ => continue,
@@ -2152,7 +2214,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, 11);
     }
 
     #[tokio::test]
@@ -2165,7 +2227,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, 11);
     }
 
     #[tokio::test]

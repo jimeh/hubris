@@ -22,6 +22,8 @@ import { DEFAULT_FONT_FAMILY, resolveFont } from "@/lib/terminal/fonts";
 import type {
   AppearanceSettings,
   AppearanceSettingsPatch,
+  ChatSettings,
+  ChatSettingsPatch,
   EditorSettings,
   EditorSettingsPatch,
   HubrisTheme,
@@ -69,6 +71,9 @@ const DEFAULT_SETTINGS: Settings = {
   vscode: {
     runtime: "vscodeCli",
   },
+  chat: {
+    idleTimeoutMinutes: 60,
+  },
 };
 
 const DEFAULT_SETTINGS_STATUS: SettingsStatus = {
@@ -111,6 +116,10 @@ type SettingsStoreState = {
   updateEditor: (partial: EditorSettingsPatch) => void;
   updateWorktree: (partial: WorktreeSettingsPatch) => void;
   updateVscode: (partial: VscodeSettingsPatch) => void;
+  updateChat: (
+    partial: ChatSettingsPatch,
+    options?: SettingsUpdateOptions,
+  ) => void;
 };
 
 type CachedSettingsState = Pick<SettingsState, "settings" | "generation">;
@@ -377,6 +386,30 @@ function normalizeVscodeSettings(candidate: unknown): {
   };
 }
 
+function clampChatIdleTimeoutMinutes(value: number): number {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_SETTINGS.chat.idleTimeoutMinutes;
+  }
+  return Math.max(1, Math.min(120, Math.trunc(value)));
+}
+
+function normalizeChatSettings(candidate: unknown): {
+  settings: ChatSettings;
+  changed: boolean;
+} {
+  const source = (candidate ?? {}) as Partial<ChatSettings>;
+  const idleTimeoutMinutes = clampChatIdleTimeoutMinutes(
+    typeof source.idleTimeoutMinutes === "number"
+      ? source.idleTimeoutMinutes
+      : DEFAULT_SETTINGS.chat.idleTimeoutMinutes,
+  );
+
+  return {
+    settings: { idleTimeoutMinutes },
+    changed: idleTimeoutMinutes !== source.idleTimeoutMinutes,
+  };
+}
+
 function normalizeSettings(candidate: unknown): {
   settings: Settings;
   changed: boolean;
@@ -387,6 +420,7 @@ function normalizeSettings(candidate: unknown): {
   const editor = normalizeEditorSettings(source.editor);
   const worktree = normalizeWorktreeSettings(source.worktree);
   const vscode = normalizeVscodeSettings(source.vscode);
+  const chat = normalizeChatSettings(source.chat);
 
   return {
     settings: {
@@ -395,13 +429,15 @@ function normalizeSettings(candidate: unknown): {
       editor: editor.settings,
       worktree: worktree.settings,
       vscode: vscode.settings,
+      chat: chat.settings,
     },
     changed:
       appearance.changed ||
       terminal.changed ||
       editor.changed ||
       worktree.changed ||
-      vscode.changed,
+      vscode.changed ||
+      chat.changed,
   };
 }
 
@@ -514,6 +550,9 @@ function stripEmptyPatch(patch: SettingsPatch): SettingsPatch {
   if (patch.vscode && Object.keys(patch.vscode).length > 0) {
     next.vscode = patch.vscode;
   }
+  if (patch.chat && Object.keys(patch.chat).length > 0) {
+    next.chat = patch.chat;
+  }
 
   return next;
 }
@@ -526,7 +565,8 @@ function hasPatch(patch: SettingsPatch | null | undefined): boolean {
     stripped.terminal !== undefined ||
     stripped.editor !== undefined ||
     stripped.worktree !== undefined ||
-    stripped.vscode !== undefined
+    stripped.vscode !== undefined ||
+    stripped.chat !== undefined
   );
 }
 
@@ -566,6 +606,10 @@ function applyPatchToSettings(
     vscode: {
       ...settings.vscode,
       ...(patch.vscode ?? {}),
+    },
+    chat: {
+      ...settings.chat,
+      ...(patch.chat ?? {}),
     },
   };
   return normalizeSettings(next).settings;
@@ -764,6 +808,10 @@ function equalVscodeSettings(
   return left.runtime === right.runtime;
 }
 
+function equalChatSettings(left: ChatSettings, right: ChatSettings): boolean {
+  return left.idleTimeoutMinutes === right.idleTimeoutMinutes;
+}
+
 function stabilizeSettingsSections(
   current: Settings,
   next: Settings,
@@ -786,13 +834,17 @@ function stabilizeSettingsSections(
   const vscode = equalVscodeSettings(current.vscode, next.vscode)
     ? current.vscode
     : next.vscode;
+  const chat = equalChatSettings(current.chat, next.chat)
+    ? current.chat
+    : next.chat;
 
   if (
     appearance === current.appearance &&
     terminal === current.terminal &&
     editor === current.editor &&
     worktree === current.worktree &&
-    vscode === current.vscode
+    vscode === current.vscode &&
+    chat === current.chat
   ) {
     return current;
   }
@@ -803,6 +855,7 @@ function stabilizeSettingsSections(
     editor,
     worktree,
     vscode,
+    chat,
   };
 }
 
@@ -1048,6 +1101,9 @@ export const useSettingsStore = create<SettingsStoreState>(() => ({
   },
   updateVscode(partial) {
     applyOptimisticPatch({ vscode: partial });
+  },
+  updateChat(partial, options) {
+    applyOptimisticPatch({ chat: partial }, options);
   },
 }));
 
