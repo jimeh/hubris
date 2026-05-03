@@ -1025,6 +1025,7 @@ pub async fn rename_worktree_branch(
         return Err(StatusCode::BAD_REQUEST);
     }
 
+    let old_branch = worktree.branch.clone();
     let worktree_path = PathBuf::from(&worktree.path);
     git::rename_branch(&worktree_path, &new_branch)
         .await
@@ -1039,10 +1040,16 @@ pub async fn rename_worktree_branch(
         if managed.name.as_deref() == Some(managed.branch.as_str()) {
             managed.name = Some(new_branch.clone());
         }
-        managed.branch = new_branch;
+        managed.branch = new_branch.clone();
     }
     normalize_meta(&mut meta, &local_worktree_id);
     save_meta(&state, &project.id, &meta).await?;
+
+    state
+        .chats
+        .rename_project_branch(&project.id, &old_branch, &new_branch)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     state.worktree_files.evict_tracker(&worktree_id);
 

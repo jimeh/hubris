@@ -1833,6 +1833,20 @@ async fn delete_worktree_rows(
     )
     .execute(&mut *tx)
     .await?;
+    sqlx::query(
+        "
+        UPDATE chat_conversations
+        SET open_tab_id = NULL
+        WHERE open_tab_id IN (
+            SELECT id FROM tabs
+            WHERE project_id = ?1 AND worktree_id = ?2
+        )
+        ",
+    )
+    .bind(project_id)
+    .bind(worktree_id)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         "DELETE FROM tabs WHERE project_id = ?1 AND worktree_id = ?2",
         project_id,
@@ -1885,6 +1899,7 @@ async fn delete_project_rows(
     )
     .execute(&mut *tx)
     .await?;
+    delete_project_chat_rows(&mut tx, project_id).await?;
     sqlx::query!("DELETE FROM tabs WHERE project_id = ?1", project_id)
         .execute(&mut *tx)
         .await?;
@@ -1901,6 +1916,40 @@ async fn delete_project_rows(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+    Ok(())
+}
+
+async fn delete_project_chat_rows(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    project_id: &str,
+) -> Result<(), sqlx::Error> {
+    for table in [
+        "chat_item_outputs",
+        "chat_reconciliations",
+        "chat_context_usage",
+        "chat_diff_summaries",
+        "chat_plans",
+        "chat_pending_requests",
+        "chat_items",
+        "chat_turns",
+        "chat_runs",
+        "chat_messages",
+    ] {
+        let sql = format!(
+            "DELETE FROM {table}
+             WHERE conversation_id IN (
+                 SELECT id FROM chat_conversations WHERE project_id = ?
+             )"
+        );
+        sqlx::query(&sql)
+            .bind(project_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    sqlx::query("DELETE FROM chat_conversations WHERE project_id = ?")
+        .bind(project_id)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 

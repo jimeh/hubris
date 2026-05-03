@@ -13,7 +13,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
-use sqlx::{FromRow, Row, SqlitePool};
+use sqlx::{FromRow, Row, Sqlite, SqlitePool, Transaction};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, broadcast, oneshot};
@@ -320,6 +320,8 @@ pub struct ChatConversationSummary {
     pub session_id: String,
     pub project_id: String,
     pub worktree_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch_name: Option<String>,
     pub provider: ChatProvider,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_thread_id: Option<String>,
@@ -335,6 +337,9 @@ pub struct ChatConversationSummary {
     pub last_message_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
+    pub archived_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -898,6 +903,14 @@ pub struct ChatCreateOptions {
     pub session_id: String,
     pub project_id: String,
     pub worktree_id: String,
+    pub branch_name: String,
+}
+
+/// Conversation list scope used by the worktree chats panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatConversationListScope {
+    Branch,
+    Project,
 }
 
 /// Chat settings owned by the backend.
@@ -1565,6 +1578,7 @@ struct ConversationRow {
     session_id: String,
     project_id: String,
     worktree_id: String,
+    branch_name: Option<String>,
     provider: String,
     provider_thread_id: Option<String>,
     title: String,
@@ -1573,6 +1587,7 @@ struct ConversationRow {
     last_activity_at_ms: i64,
     last_message_at_ms: Option<i64>,
     open_tab_id: Option<String>,
+    archived_at_ms: Option<i64>,
     selected_model: Option<String>,
     selected_effort: Option<String>,
     selected_permission_mode: Option<String>,
@@ -1832,16 +1847,17 @@ impl ChatService {
         sqlx::query(
             "
             INSERT INTO chat_conversations (
-                id, session_id, project_id, worktree_id, provider,
+                id, session_id, project_id, worktree_id, branch_name, provider,
                 title, created_at_ms, updated_at_ms, last_activity_at_ms,
                 last_run_state, revision
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             ",
         )
         .bind(&id)
         .bind(&options.session_id)
         .bind(&options.project_id)
         .bind(&options.worktree_id)
+        .bind(normalize_branch_name(&options.branch_name))
         .bind(ChatProvider::Codex.as_str())
         .bind(DEFAULT_CHAT_TITLE)
         .bind(now)
@@ -1877,10 +1893,10 @@ impl ChatService {
         let row = sqlx::query_as::<_, ConversationRow>(
             "
             SELECT
-                id, session_id, project_id, worktree_id, provider,
+                id, session_id, project_id, worktree_id, branch_name, provider,
                 provider_thread_id, title, created_at_ms, updated_at_ms,
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
-                selected_model, selected_effort, selected_permission_mode,
+                archived_at_ms, selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error,
                 last_reconciliation_state, last_reconciliation_error,
                 (
@@ -1953,15 +1969,20 @@ impl ChatService {
         &self,
         project_id: &str,
         worktree_id: &str,
+        branch_name: &str,
         session_id: &str,
+        scope: ChatConversationListScope,
+        include_archived: bool,
     ) -> Result<Vec<ChatConversationSummary>, ChatServiceError> {
+        let normalized_branch_name = normalize_branch_name(branch_name);
+        let branch_filter = matches!(scope, ChatConversationListScope::Branch);
         let rows = sqlx::query_as::<_, ConversationRow>(
             "
             SELECT
-                id, session_id, project_id, worktree_id, provider,
+                id, session_id, project_id, worktree_id, branch_name, provider,
                 provider_thread_id, title, created_at_ms, updated_at_ms,
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
-                selected_model, selected_effort, selected_permission_mode,
+                archived_at_ms, selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error,
                 last_reconciliation_state, last_reconciliation_error,
                 (
@@ -2020,13 +2041,23 @@ impl ChatService {
                 ) AS latest_pending_request_status,
                 revision
             FROM chat_conversations
-            WHERE project_id = ? AND worktree_id = ? AND session_id = ?
+            WHERE project_id = ?
+                AND session_id = ?
+                AND (
+                    ? = 0
+                    OR branch_name = ?
+                    OR (branch_name IS NULL AND worktree_id = ?)
+                )
+                AND (? = 1 OR archived_at_ms IS NULL)
             ORDER BY updated_at_ms DESC, created_at_ms DESC, id DESC
             ",
         )
         .bind(project_id)
-        .bind(worktree_id)
         .bind(session_id)
+        .bind(if branch_filter { 1_i64 } else { 0_i64 })
+        .bind(normalized_branch_name)
+        .bind(worktree_id)
+        .bind(if include_archived { 1_i64 } else { 0_i64 })
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(conversation_from_row).collect())
@@ -2040,10 +2071,10 @@ impl ChatService {
         let rows = sqlx::query_as::<_, ConversationRow>(
             "
             SELECT
-                id, session_id, project_id, worktree_id, provider,
+                id, session_id, project_id, worktree_id, branch_name, provider,
                 provider_thread_id, title, created_at_ms, updated_at_ms,
                 last_activity_at_ms, last_message_at_ms, open_tab_id,
-                selected_model, selected_effort, selected_permission_mode,
+                archived_at_ms, selected_model, selected_effort, selected_permission_mode,
                 last_run_state, last_error,
                 last_reconciliation_state, last_reconciliation_error,
                 (
@@ -2110,6 +2141,206 @@ impl ChatService {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(conversation_from_row).collect())
+    }
+
+    /// Backfill a legacy conversation branch when the opening worktree is
+    /// unambiguous.
+    pub async fn backfill_conversation_branch(
+        &self,
+        conversation_id: &str,
+        branch_name: &str,
+    ) -> Result<Option<ChatConversationSummary>, ChatServiceError> {
+        let Some(branch_name) = normalize_branch_name(branch_name) else {
+            return self.get_conversation_summary(conversation_id).await;
+        };
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_conversations
+            SET branch_name = ?,
+                updated_at_ms = ?,
+                revision = revision + 1
+            WHERE id = ? AND branch_name IS NULL
+            ",
+        )
+        .bind(branch_name)
+        .bind(now)
+        .bind(conversation_id)
+        .execute(&self.pool)
+        .await?;
+        self.emit_conversation_updated(conversation_id).await
+    }
+
+    /// Move all project chat history from an old branch name to a new one.
+    pub async fn rename_project_branch(
+        &self,
+        project_id: &str,
+        old_branch: &str,
+        new_branch: &str,
+    ) -> Result<Vec<ChatConversationSummary>, ChatServiceError> {
+        let Some(old_branch) = normalize_branch_name(old_branch) else {
+            return Ok(Vec::new());
+        };
+        let Some(new_branch) = normalize_branch_name(new_branch) else {
+            return Ok(Vec::new());
+        };
+        if old_branch == new_branch {
+            return Ok(Vec::new());
+        }
+
+        let ids = sqlx::query_scalar::<_, String>(
+            "
+            SELECT id
+            FROM chat_conversations
+            WHERE project_id = ? AND branch_name = ?
+            ",
+        )
+        .bind(project_id)
+        .bind(&old_branch)
+        .fetch_all(&self.pool)
+        .await?;
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let now = now_ms() as i64;
+        sqlx::query(
+            "
+            UPDATE chat_conversations
+            SET branch_name = ?,
+                updated_at_ms = ?,
+                revision = revision + 1
+            WHERE project_id = ? AND branch_name = ?
+            ",
+        )
+        .bind(new_branch)
+        .bind(now)
+        .bind(project_id)
+        .bind(old_branch)
+        .execute(&self.pool)
+        .await?;
+
+        let mut updated = Vec::new();
+        for id in ids {
+            if let Some(summary) = self.emit_conversation_updated(&id).await? {
+                updated.push(summary);
+            }
+        }
+        Ok(updated)
+    }
+
+    /// Archive or unarchive a persisted conversation.
+    pub async fn set_conversation_archived(
+        &self,
+        conversation_id: &str,
+        archived: bool,
+    ) -> Result<ChatConversationSummary, ChatServiceError> {
+        let existing = self
+            .get_conversation_summary(conversation_id)
+            .await?
+            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+        if archived && self.conversation_has_active_work(conversation_id).await? {
+            return Err(ChatServiceError::new(
+                StatusCode::CONFLICT,
+                "chat has active work",
+            ));
+        }
+
+        let now = now_ms() as i64;
+        let archived_at = if archived { Some(now) } else { None };
+        sqlx::query(
+            "
+            UPDATE chat_conversations
+            SET archived_at_ms = ?,
+                updated_at_ms = ?,
+                revision = revision + 1
+            WHERE id = ?
+            ",
+        )
+        .bind(archived_at)
+        .bind(now)
+        .bind(&existing.id)
+        .execute(&self.pool)
+        .await?;
+        self.emit_conversation_updated(&existing.id)
+            .await?
+            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))
+    }
+
+    /// Permanently delete one conversation and all related persisted state.
+    pub async fn delete_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<ChatConversationSummary, ChatServiceError> {
+        let summary = self
+            .get_conversation_summary(conversation_id)
+            .await?
+            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+        if self.conversation_has_active_work(conversation_id).await? {
+            return Err(ChatServiceError::new(
+                StatusCode::CONFLICT,
+                "chat has active work",
+            ));
+        }
+
+        self.cleanup_conversation_runtime(conversation_id);
+        self.delete_conversation_rows(conversation_id).await?;
+        self.events.emit(EventKind::ChatConversationDeleted {
+            session_id: summary.session_id.clone(),
+            conversation_id: summary.id.clone(),
+            project_id: summary.project_id.clone(),
+            branch_name: summary.branch_name.clone(),
+        });
+        Ok(summary)
+    }
+
+    /// Permanently delete all chat history for a project.
+    pub async fn delete_project_conversations(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<ChatConversationSummary>, ChatServiceError> {
+        let summaries = sqlx::query_as::<_, ConversationRow>(
+            "
+            SELECT
+                id, session_id, project_id, worktree_id, branch_name, provider,
+                provider_thread_id, title, created_at_ms, updated_at_ms,
+                last_activity_at_ms, last_message_at_ms, open_tab_id,
+                archived_at_ms, selected_model, selected_effort,
+                selected_permission_mode, last_run_state, last_error,
+                last_reconciliation_state, last_reconciliation_error,
+                NULL AS context_used_tokens,
+                NULL AS context_max_tokens,
+                NULL AS context_percent_used,
+                NULL AS context_updated_at_ms,
+                0 AS pending_request_count,
+                NULL AS latest_pending_request_id,
+                NULL AS latest_pending_request_kind,
+                NULL AS latest_pending_request_status,
+                revision
+            FROM chat_conversations
+            WHERE project_id = ?
+            ",
+        )
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(conversation_from_row)
+        .collect::<Vec<_>>();
+
+        for summary in &summaries {
+            self.cleanup_conversation_runtime(&summary.id);
+        }
+        self.delete_project_conversation_rows(project_id).await?;
+        for summary in &summaries {
+            self.events.emit(EventKind::ChatConversationDeleted {
+                session_id: summary.session_id.clone(),
+                conversation_id: summary.id.clone(),
+                project_id: summary.project_id.clone(),
+                branch_name: summary.branch_name.clone(),
+            });
+        }
+        Ok(summaries)
     }
 
     /// List lightweight pending requests visible to a session.
@@ -2655,6 +2886,12 @@ impl ChatService {
             .get_conversation_summary(conversation_id)
             .await?
             .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+        if conversation.archived_at.is_some() {
+            return Err(ChatServiceError::new(
+                StatusCode::CONFLICT,
+                "chat is archived",
+            ));
+        }
         let user_message_id = uuid::Uuid::new_v4().to_string();
         let assistant_message_id = uuid::Uuid::new_v4().to_string();
         let run_id = uuid::Uuid::new_v4().to_string();
@@ -7040,6 +7277,73 @@ impl ChatService {
         Ok(Some(summary))
     }
 
+    fn cleanup_conversation_runtime(&self, conversation_id: &str) {
+        self.runtimes.remove(conversation_id);
+        self.op_locks.remove(conversation_id);
+        self.thread_to_conversation
+            .retain(|_, route| route.conversation_id != conversation_id);
+        self.turn_to_conversation
+            .retain(|_, route| route.conversation_id != conversation_id);
+        self.item_to_conversation
+            .retain(|_, route| route.conversation_id != conversation_id);
+        self.server_request_to_conversation
+            .retain(|_, route| route.route.conversation_id != conversation_id);
+        self.pending_server_responders
+            .retain(|_, responder| responder.conversation_id != conversation_id);
+    }
+
+    async fn conversation_has_active_work(
+        &self,
+        conversation_id: &str,
+    ) -> Result<bool, ChatServiceError> {
+        let row: (i64,) = sqlx::query_as(
+            "
+            SELECT EXISTS(
+                SELECT 1
+                FROM chat_runs
+                WHERE conversation_id = ?
+                    AND status IN ('starting', 'running')
+                UNION ALL
+                SELECT 1
+                FROM chat_pending_requests
+                WHERE conversation_id = ?
+                    AND status IN ('pending', 'resolving')
+                UNION ALL
+                SELECT 1
+                FROM chat_reconciliations
+                WHERE conversation_id = ?
+                    AND status IN ('pending', 'running')
+            )
+            ",
+        )
+        .bind(conversation_id)
+        .bind(conversation_id)
+        .bind(conversation_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0 != 0)
+    }
+
+    async fn delete_conversation_rows(
+        &self,
+        conversation_id: &str,
+    ) -> Result<(), ChatServiceError> {
+        let mut tx = self.pool.begin().await?;
+        delete_chat_conversation_rows_in_tx(&mut tx, conversation_id).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn delete_project_conversation_rows(
+        &self,
+        project_id: &str,
+    ) -> Result<(), ChatServiceError> {
+        let mut tx = self.pool.begin().await?;
+        delete_project_chat_rows_in_tx(&mut tx, project_id).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     fn operation_lock(&self, conversation_id: &str) -> Arc<Mutex<()>> {
         self.op_locks
             .entry(conversation_id.to_string())
@@ -7048,12 +7352,85 @@ impl ChatService {
     }
 }
 
+fn normalize_branch_name(value: impl AsRef<str>) -> Option<String> {
+    let trimmed = value.as_ref().trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+async fn delete_chat_conversation_rows_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    conversation_id: &str,
+) -> Result<(), sqlx::Error> {
+    for table in [
+        "chat_item_outputs",
+        "chat_reconciliations",
+        "chat_context_usage",
+        "chat_diff_summaries",
+        "chat_plans",
+        "chat_pending_requests",
+        "chat_items",
+        "chat_turns",
+        "chat_runs",
+        "chat_messages",
+    ] {
+        let sql = format!("DELETE FROM {table} WHERE conversation_id = ?");
+        sqlx::query(&sql)
+            .bind(conversation_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    sqlx::query("DELETE FROM chat_conversations WHERE id = ?")
+        .bind(conversation_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn delete_project_chat_rows_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    project_id: &str,
+) -> Result<(), sqlx::Error> {
+    for table in [
+        "chat_item_outputs",
+        "chat_reconciliations",
+        "chat_context_usage",
+        "chat_diff_summaries",
+        "chat_plans",
+        "chat_pending_requests",
+        "chat_items",
+        "chat_turns",
+        "chat_runs",
+        "chat_messages",
+    ] {
+        let sql = format!(
+            "DELETE FROM {table}
+             WHERE conversation_id IN (
+                 SELECT id FROM chat_conversations WHERE project_id = ?
+             )"
+        );
+        sqlx::query(&sql)
+            .bind(project_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    sqlx::query("DELETE FROM chat_conversations WHERE project_id = ?")
+        .bind(project_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 fn conversation_from_row(row: ConversationRow) -> ChatConversationSummary {
     ChatConversationSummary {
         id: row.id,
         session_id: row.session_id,
         project_id: row.project_id,
         worktree_id: row.worktree_id,
+        branch_name: row.branch_name.and_then(normalize_branch_name),
         provider: parse_provider(&row.provider),
         provider_thread_id: row.provider_thread_id,
         title: row.title,
@@ -7062,6 +7439,7 @@ fn conversation_from_row(row: ConversationRow) -> ChatConversationSummary {
         last_activity_at: row.last_activity_at_ms.max(0) as u64,
         last_message_at: row.last_message_at_ms.map(|value| value.max(0) as u64),
         open_tab_id: row.open_tab_id,
+        archived_at: row.archived_at_ms.map(|value| value.max(0) as u64),
         selected_model: normalize_model_override(row.selected_model),
         selected_effort: row.selected_effort.as_deref().map(parse_reasoning_effort),
         selected_permission_mode: row
@@ -8334,6 +8712,7 @@ mod tests {
             session_id: "default".to_string(),
             project_id: "project-1".to_string(),
             worktree_id: "worktree-1".to_string(),
+            branch_name: Some("main".to_string()),
             provider: ChatProvider::Codex,
             provider_thread_id: Some("thread-1".to_string()),
             title: DEFAULT_CHAT_TITLE.to_string(),
@@ -8342,6 +8721,7 @@ mod tests {
             last_activity_at: 0,
             last_message_at: None,
             open_tab_id: None,
+            archived_at: None,
             selected_model: None,
             selected_effort: None,
             selected_permission_mode: None,
@@ -8454,6 +8834,7 @@ mod tests {
                 session_id: "default".to_string(),
                 project_id: "project-1".to_string(),
                 worktree_id: "worktree-1".to_string(),
+                branch_name: "main".to_string(),
             })
             .await
             .unwrap()
@@ -8516,6 +8897,103 @@ mod tests {
         assert!(has_blank_model_field(&json!({ "model": "  " })));
         assert!(!has_blank_model_field(&json!({ "model": "gpt-5.5" })));
         assert!(!has_blank_model_field(&json!({})));
+    }
+
+    #[tokio::test]
+    async fn conversation_branch_scope_archive_and_delete_round_trip() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        assert_eq!(conversation.branch_name.as_deref(), Some("main"));
+        assert_eq!(conversation.archived_at, None);
+
+        let branch_chats = service
+            .list_conversations(
+                "project-1",
+                "worktree-1",
+                "main",
+                "default",
+                ChatConversationListScope::Branch,
+                false,
+            )
+            .await
+            .unwrap();
+        assert_eq!(branch_chats.len(), 1);
+
+        let other_branch_chats = service
+            .list_conversations(
+                "project-1",
+                "worktree-2",
+                "feature",
+                "default",
+                ChatConversationListScope::Branch,
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(other_branch_chats.is_empty());
+
+        let archived = service
+            .set_conversation_archived(&conversation.id, true)
+            .await
+            .unwrap();
+        assert!(archived.archived_at.is_some());
+        let hidden = service
+            .list_conversations(
+                "project-1",
+                "worktree-1",
+                "main",
+                "default",
+                ChatConversationListScope::Branch,
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(hidden.is_empty());
+        let visible_with_archive = service
+            .list_conversations(
+                "project-1",
+                "worktree-1",
+                "main",
+                "default",
+                ChatConversationListScope::Branch,
+                true,
+            )
+            .await
+            .unwrap();
+        assert_eq!(visible_with_archive.len(), 1);
+
+        let unarchived = service
+            .set_conversation_archived(&conversation.id, false)
+            .await
+            .unwrap();
+        assert_eq!(unarchived.archived_at, None);
+
+        service.delete_conversation(&conversation.id).await.unwrap();
+        assert!(
+            service
+                .get_conversation_summary(&conversation.id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_conversation_branch_backfills_on_open() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        sqlx::query("UPDATE chat_conversations SET branch_name = NULL WHERE id = ?")
+            .bind(&conversation.id)
+            .execute(&service.pool)
+            .await
+            .unwrap();
+
+        let backfilled = service
+            .backfill_conversation_branch(&conversation.id, "feature/demo")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(backfilled.branch_name.as_deref(), Some("feature/demo"));
     }
 
     #[tokio::test]

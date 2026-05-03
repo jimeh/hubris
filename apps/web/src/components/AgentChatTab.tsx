@@ -1825,7 +1825,13 @@ function ContextUsageMeter({ conversationId }: { conversationId: string }) {
   );
 }
 
-function ChatComposer({ conversationId }: { conversationId: string }) {
+function ChatComposer({
+  conversationId,
+  worktreeId,
+}: {
+  conversationId: string;
+  worktreeId: string;
+}) {
   const {
     conversation,
     hasStreamingMessage,
@@ -1839,6 +1845,7 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
   const isRunning = isRuntimeRunning(runtimeStatus?.lifecycle);
   const isRunActive = isRunning || hasStreamingMessage;
   const isReconciling = reconciliation?.status === "running";
+  const isArchived = conversation?.archivedAt != null;
   const activePendingRequestIds = useChatStore(
     useShallow((state) =>
       selectChatActivePendingRequestIds(state, conversationId),
@@ -1877,10 +1884,10 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
       if (!text) {
         return;
       }
-      if (hasBlockingRequest || isReconciling) {
+      if (hasBlockingRequest || isReconciling || isArchived) {
         return;
       }
-      await sendMessage(conversationId, text);
+      await sendMessage(conversationId, text, worktreeId);
     },
     onCancel: async () => {
       await interruptRun(conversationId);
@@ -1925,19 +1932,32 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
     ? "Codex is waiting for approval or input."
     : isReconciling
       ? "Hubris is reconciling Codex thread state."
-      : undefined;
+      : isArchived
+        ? "Unarchive this chat to continue."
+        : undefined;
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <div className="border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/75">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+          {isArchived ? (
+            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              This chat is archived. Unarchive it from the Chats panel to
+              continue.
+            </div>
+          ) : null}
           <PendingRequestPanel conversationId={conversationId} />
           <ComposerPrimitive.Root className="flex flex-col gap-3">
             <ComposerPrimitive.Input
               aria-label="Message Codex"
               data-chat-composer-input="true"
               className="min-h-14 max-h-40 w-full resize-none rounded-xl border bg-card px-3 py-2 text-sm outline-none ring-0 placeholder:text-muted-foreground focus-visible:border-ring"
-              placeholder="Ask Codex about this worktree"
+              disabled={isArchived}
+              placeholder={
+                isArchived
+                  ? "Unarchive this chat to continue"
+                  : "Ask Codex about this worktree"
+              }
               submitMode="enter"
             />
             <div className="flex items-center justify-between gap-3">
@@ -2021,8 +2041,10 @@ function ChatComposer({ conversationId }: { conversationId: string }) {
                 ) : (
                   <ComposerPrimitive.Send
                     className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
-                    disabled={hasBlockingRequest || isReconciling}
-                    aria-disabled={hasBlockingRequest || isReconciling}
+                    disabled={hasBlockingRequest || isReconciling || isArchived}
+                    aria-disabled={
+                      hasBlockingRequest || isReconciling || isArchived
+                    }
                     aria-label="Send message"
                     title={sendDisabledReason ?? "Send message"}
                   >
@@ -2128,7 +2150,10 @@ export default function AgentChatTabView({ tab, visible }: Props) {
       <ChatHeader conversationId={tab.conversation_id} label={tab.label} />
       <ReconciliationBanner conversationId={tab.conversation_id} />
       <ChatTranscript conversationId={tab.conversation_id} />
-      <ChatComposer conversationId={tab.conversation_id} />
+      <ChatComposer
+        conversationId={tab.conversation_id}
+        worktreeId={tab.worktree_id}
+      />
     </div>
   );
 }

@@ -437,6 +437,7 @@ export type ChatConversationSummary = {
   sessionId: string;
   projectId: string;
   worktreeId: string;
+  branchName?: string | null;
   provider: ChatProvider;
   providerThreadId?: string | null;
   title: string;
@@ -445,6 +446,7 @@ export type ChatConversationSummary = {
   lastActivityAt: number;
   lastMessageAt?: number | null;
   openTabId?: string | null;
+  archivedAt?: number | null;
   selectedModel?: string | null;
   selectedEffort?: ChatReasoningEffort | null;
   selectedPermissionMode?: ChatPermissionMode | null;
@@ -1144,6 +1146,15 @@ export type EventKind =
   | {
       type: "chat_conversation_updated";
       data: { session_id: string; conversation: ChatConversationSummary };
+    }
+  | {
+      type: "chat_conversation_deleted";
+      data: {
+        session_id: string;
+        conversation_id: string;
+        project_id: string;
+        branch_name?: string | null;
+      };
     }
   | {
       type: "chat_runtime_updated";

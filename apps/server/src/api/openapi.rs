@@ -1,7 +1,7 @@
 use axum::Json;
 use utoipa::OpenApi;
 
-use crate::api::chats::SendChatMessageRequest;
+use crate::api::chats::{ChatListScopeParam, SendChatMessageRequest};
 use crate::api::editor_themes::{
     DiscoveredExtension, DiscoveredTheme, EditorThemeEntry, ImportThemeRequest, VscodeThemeJson,
     VscodeTokenColor, VscodeTokenColorSettings, VscodeTokenScope,
@@ -92,6 +92,9 @@ use crate::tab::{
         crate::api::chats::list_project_worktree_chats,
         crate::api::chats::list_chat_models,
         crate::api::chats::get_chat,
+        crate::api::chats::archive_chat,
+        crate::api::chats::unarchive_chat,
+        crate::api::chats::delete_chat,
         crate::api::chats::get_chat_activity,
         crate::api::chats::patch_chat_settings,
         crate::api::chats::send_chat_message,
@@ -263,6 +266,7 @@ use crate::tab::{
             ChatRuntimeStatus,
             ChatSettings,
             ChatSettingsPatch,
+            ChatListScopeParam,
             SendChatMessageRequest,
             Settings,
             SettingsPatch,

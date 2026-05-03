@@ -110,6 +110,10 @@ checks enforce this through `mise run check:server`.
   `docs/agents/codex-app-server-GUI-best-practices.md` as the protocol and UI
   normalization reference. Do not render raw JSON-RPC events directly into the
   timeline.
+- **Codex chat history is branch-scoped**: conversations are retained by
+  `session_id + project_id + branch_name`, not by a single worktree. Worktree
+  deletion must preserve chats; project deletion hard-deletes project chat data.
+  Archived chats are read-only until unarchived.
 
 ## Detail Docs
 

@@ -30,7 +30,7 @@ export interface paths {
     get: operations["get_chat"];
     put?: never;
     post?: never;
-    delete?: never;
+    delete: operations["delete_chat"];
     options?: never;
     head?: never;
     patch?: never;
@@ -46,6 +46,22 @@ export interface paths {
     get: operations["get_chat_activity"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}/archive": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["archive_chat"];
     delete?: never;
     options?: never;
     head?: never;
@@ -114,6 +130,22 @@ export interface paths {
     options?: never;
     head?: never;
     patch: operations["patch_chat_settings"];
+    trace?: never;
+  };
+  "/api/chats/{conversation_id}/unarchive": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["unarchive_chat"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   "/api/editor-themes": {
@@ -1012,6 +1044,9 @@ export interface components {
     };
     /** @description Persisted summary for a conversation list row. */
     ChatConversationSummary: {
+      /** Format: int64 */
+      archivedAt?: number | null;
+      branchName?: string | null;
       /** Format: int32 */
       contextMaxTokens?: number | null;
       /** Format: double */
@@ -1151,6 +1186,8 @@ export interface components {
      * @enum {string}
      */
     ChatItemStatus: "started" | "streaming" | "completed" | "failed";
+    /** @enum {string} */
+    ChatListScopeParam: "branch" | "project";
     /** @description Persisted transcript message. */
     ChatMessage: {
       contentText: string;
@@ -1741,6 +1778,7 @@ export interface components {
     };
     SendChatMessageRequest: {
       text: string;
+      worktree_id?: string | null;
     };
     ServerControlMessage:
       | {
@@ -2307,6 +2345,47 @@ export interface operations {
       };
     };
   };
+  delete_chat: {
+    parameters: {
+      query?: {
+        session_id?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Conversation deleted */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Conversation has active work */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
   get_chat_activity: {
     parameters: {
       query?: {
@@ -2334,6 +2413,49 @@ export interface operations {
       };
       /** @description Activity item not found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  archive_chat: {
+    parameters: {
+      query?: {
+        session_id?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Archived conversation summary */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatConversationSummary"];
+        };
+      };
+      /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Conversation has active work */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -2497,6 +2619,40 @@ export interface operations {
     };
     responses: {
       /** @description Updated conversation summary */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ChatConversationSummary"];
+        };
+      };
+      /** @description Conversation not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  unarchive_chat: {
+    parameters: {
+      query?: {
+        session_id?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Unarchived conversation summary */
       200: {
         headers: {
           [name: string]: unknown;
@@ -4264,6 +4420,8 @@ export interface operations {
     parameters: {
       query: {
         session_id: string;
+        scope?: components["schemas"]["ChatListScopeParam"];
+        include_archived?: boolean;
       };
       header?: never;
       path: {

@@ -100,6 +100,10 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
             session_id: event_session_id,
             ..
         }
+        | EventKind::ChatConversationDeleted {
+            session_id: event_session_id,
+            ..
+        }
         | EventKind::ChatRuntimeUpdated {
             session_id: event_session_id,
             ..

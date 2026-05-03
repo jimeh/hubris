@@ -1649,11 +1649,24 @@ pub async fn create_tab(
                 .ok_or_else(|| {
                     TabsApiError::new(StatusCode::NOT_FOUND, "Chat conversation not found.")
                 })?;
-            if summary.worktree_id != worktree_id || summary.project_id != resolved.project_id {
+            let same_branch =
+                summary.branch_name.as_deref() == Some(resolved.worktree.branch.as_str());
+            let legacy_same_worktree = summary.branch_name.is_none()
+                && summary.worktree_id == worktree_id
+                && summary.project_id == resolved.project_id;
+            if summary.project_id != resolved.project_id || (!same_branch && !legacy_same_worktree)
+            {
                 return Err(TabsApiError::new(
                     StatusCode::BAD_REQUEST,
-                    "Chat conversation does not belong to this worktree.",
+                    "Chat conversation does not belong to this branch.",
                 ));
+            }
+            if legacy_same_worktree {
+                state
+                    .chats
+                    .backfill_conversation_branch(&summary.id, &resolved.worktree.branch)
+                    .await
+                    .map_err(|error| TabsApiError::new(error.status, error.message))?;
             }
             summary.id
         } else {
@@ -1663,6 +1676,7 @@ pub async fn create_tab(
                     session_id: "default".to_string(),
                     project_id: resolved.project_id.clone(),
                     worktree_id: worktree_id.clone(),
+                    branch_name: resolved.worktree.branch.clone(),
                 })
                 .await
                 .map_err(|error| TabsApiError::new(error.status, error.message))?
@@ -1818,29 +1832,33 @@ pub async fn create_tab(
     ),
 )]
 pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {
-    let removed = state.tabs.remove(&id);
+    close_tab_by_id(&state, &id).await
+}
+
+pub async fn close_tab_by_id(state: &AppState, id: &str) -> StatusCode {
+    let removed = state.tabs.remove(id);
     let Some((_, removed_tab)) = removed else {
         return StatusCode::NOT_FOUND;
     };
 
-    if let Some((_, runtime)) = state.terminal_tabs.remove(&id) {
+    if let Some((_, runtime)) = state.terminal_tabs.remove(id) {
         runtime.notify_close();
     }
     if removed_tab.is_agent_chat() {
-        let _ = state.chats.clear_open_tab_id_for_tab(&id).await;
+        let _ = state.chats.clear_open_tab_id_for_tab(id).await;
     }
-    state.restored_terminal_tabs.remove(&id);
-    state.terminal_restore_locks.remove(&id);
+    state.restored_terminal_tabs.remove(id);
+    state.terminal_restore_locks.remove(id);
     state
         .persistence
-        .delete_tab_state(id.clone(), removed_tab.worktree_id().to_string());
+        .delete_tab_state(id.to_string(), removed_tab.worktree_id().to_string());
 
     state.events.emit(EventKind::TabClosed {
         session_id: removed_tab.session_id().to_string(),
-        tab_id: id,
+        tab_id: id.to_string(),
     });
-    reconcile_worktree_layout(&state, removed_tab.worktree_id());
-    persist_worktree_snapshot(&state, removed_tab.worktree_id());
+    reconcile_worktree_layout(state, removed_tab.worktree_id());
+    persist_worktree_snapshot(state, removed_tab.worktree_id());
     StatusCode::NO_CONTENT
 }
 

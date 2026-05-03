@@ -34,6 +34,7 @@ const SSE_EVENT_NAMES = [
   "task_removed",
   "chat_conversation_created",
   "chat_conversation_updated",
+  "chat_conversation_deleted",
   "chat_runtime_updated",
   "chat_app_server_updated",
   "chat_thread_stream_updated",

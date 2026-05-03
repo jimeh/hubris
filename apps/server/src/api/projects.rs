@@ -336,6 +336,10 @@ pub async fn delete_project(
         close_tabs_for_worktree(&state, &worktree.id);
     }
 
+    if state.chats.delete_project_conversations(&id).await.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR;
+    }
+
     projects.retain(|p| p.id != id);
     if save_projects(&state, &projects).await.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR;
