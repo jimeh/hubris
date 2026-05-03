@@ -654,6 +654,7 @@ function AssistantTurn({
   const failed = message.status === "failed";
   const interrupted = message.status === "interrupted";
   const fallbackText = assistantFallbackText(message, streaming);
+  const hasContent = message.contentText.trim().length > 0;
 
   return (
     <TimelineRowShell
@@ -687,11 +688,11 @@ function AssistantTurn({
         <div
           className={cn(
             "whitespace-pre-wrap text-sm leading-6",
-            !message.contentText && fallbackText && "text-muted-foreground",
+            !hasContent && fallbackText && "text-muted-foreground",
             failed && "text-destructive",
           )}
         >
-          {message.contentText || fallbackText}
+          {hasContent ? message.contentText : fallbackText}
         </div>
       </div>
     </TimelineRowShell>
@@ -1703,6 +1704,9 @@ function ChatTranscript({ conversationId }: { conversationId: string }) {
   const timelineIds = useChatStore((state) =>
     selectChatTimelineIds(state, conversationId),
   );
+  const detailLoaded = useChatStore(
+    (state) => selectChatDetailState(state, conversationId).status === "loaded",
+  );
   const { rootRef, contentRef } = useTimelineAutoFollow(timelineIds);
 
   return (
@@ -1718,7 +1722,11 @@ function ChatTranscript({ conversationId }: { conversationId: string }) {
           aria-label="Chat timeline"
           className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-4"
         >
-          {timelineIds.length === 0 ? (
+          {!detailLoaded && timelineIds.length === 0 ? (
+            <div className="flex min-h-[28vh] items-center justify-center px-6 text-center text-sm text-muted-foreground">
+              Loading chat history...
+            </div>
+          ) : timelineIds.length === 0 ? (
             <div className="flex min-h-[28vh] flex-col items-center justify-center px-6 text-center">
               <div className="rounded-full bg-primary/10 p-3 text-primary">
                 <MessageSquareText className="h-5 w-5" />
@@ -1775,7 +1783,11 @@ function PendingRequestPanelCard({ requestId }: { requestId: string }) {
   if (!request) {
     return null;
   }
-  return <PendingRequestCard request={request} compact />;
+  return (
+    <div data-chat-pending-request-panel="true">
+      <PendingRequestCard request={request} compact />
+    </div>
+  );
 }
 
 function ContextUsageMeter({ conversationId }: { conversationId: string }) {
@@ -2072,7 +2084,9 @@ export default function AgentChatTabView({ tab, visible }: Props) {
     if (event.altKey && event.key.toLowerCase() === "a" && hasBlockingRequest) {
       event.preventDefault();
       rootRef.current
-        ?.querySelector<HTMLElement>('[data-chat-pending-action="primary"]')
+        ?.querySelector<HTMLElement>(
+          '[data-chat-pending-request-panel="true"] [data-chat-pending-action="primary"]',
+        )
         ?.focus();
     }
   };

@@ -447,6 +447,37 @@ describe("AgentChatTab", () => {
     );
   });
 
+  it("uses fallback text for whitespace-only assistant responses", async () => {
+    await renderChat(
+      makeDetail({
+        messages: [
+          userMessage,
+          {
+            ...assistantMessage,
+            contentText: "   ",
+          },
+        ],
+        pendingRequests: [],
+        latestReconciliation: null,
+      }),
+    );
+
+    expect(
+      await screen.findByText("Codex completed without returning a response."),
+    ).toBeVisible();
+  });
+
+  it("does not show the new chat empty state before history loads", async () => {
+    apiMocks.getChat.mockReturnValue(new Promise(() => {}));
+    apiMocks.getChatActivity.mockResolvedValue({ item: null, outputs: [] });
+    mockModels();
+
+    render(<AgentChatTabView tab={makeTab()} visible />);
+
+    expect(screen.queryByText("New Chat")).toBeNull();
+    expect(await screen.findByText("Loading chat history...")).toBeVisible();
+  });
+
   it("groups completed thinking and activity before the final answer", async () => {
     await renderChat(
       makeDetail({
@@ -682,6 +713,21 @@ describe("AgentChatTab", () => {
       "title",
       "Codex is waiting for approval or input.",
     );
+  });
+
+  it("focuses the active blocking request panel with Alt+A", async () => {
+    await renderChat(makeDetail({ latestReconciliation: null }));
+
+    fireEvent.keyDown(screen.getByTestId("agent-chat-tab"), {
+      altKey: true,
+      key: "a",
+    });
+
+    const focused = document.activeElement as HTMLElement;
+    expect(focused).toHaveAttribute("data-chat-pending-action", "primary");
+    expect(
+      focused.closest('[data-chat-pending-request-panel="true"]'),
+    ).not.toBeNull();
   });
 
   it("supports local keyboard focus and interrupt shortcuts", async () => {

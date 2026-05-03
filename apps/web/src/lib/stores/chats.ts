@@ -435,7 +435,11 @@ function hasAssistantMessageProjection(message: ChatMessage): boolean {
   if (message.contentText.trim().length > 0) {
     return true;
   }
-  return message.status === "failed" || message.status === "interrupted";
+  return (
+    message.status === "completed" ||
+    message.status === "failed" ||
+    message.status === "interrupted"
+  );
 }
 
 type TimelineRow = {
