@@ -1498,7 +1498,16 @@ function WorkGroupRow({
       };
     }),
   );
-  const [userOpen, setUserOpen] = useState(active);
+  const [activeSnapshot, setActiveSnapshot] = useState(active);
+  const [userOpen, setUserOpen] = useState<boolean | null>(
+    active ? true : null,
+  );
+  if (active !== activeSnapshot) {
+    setActiveSnapshot(active);
+    if (active) {
+      setUserOpen((current) => current ?? true);
+    }
+  }
   const activityIds = activityIdsKey ? activityIdsKey.split("\u0000") : [];
   const pendingRequestIds = pendingRequestIdsKey
     ? pendingRequestIdsKey.split("\u0000")
@@ -1525,7 +1534,7 @@ function WorkGroupRow({
     return null;
   }
 
-  const open = active || userOpen;
+  const open = active || userOpen === true;
   const statusLabel = workGroupStatusLabel(active, status);
   const counts = [
     activityIds.length > 0

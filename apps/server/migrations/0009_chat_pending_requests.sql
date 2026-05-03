@@ -17,7 +17,8 @@ CREATE TABLE chat_pending_requests (
     sequence INTEGER NOT NULL,
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL,
-    resolved_at_ms INTEGER
+    resolved_at_ms INTEGER,
+    FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_chat_pending_requests_conversation_sequence

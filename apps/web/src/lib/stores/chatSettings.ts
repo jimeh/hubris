@@ -1,18 +1,21 @@
 import { useShallow } from "zustand/react/shallow";
-import { useSettingsStore } from "@/lib/stores/settings";
+import {
+  type SettingsUpdateOptions,
+  useSettingsStore,
+} from "@/lib/stores/settings";
 import type { ChatSettings, ChatSettingsPatch } from "@/lib/theme/types";
 
 type ChatSettingsStoreSlice = {
   settings: ChatSettings;
   updateSettings: (
     partial: ChatSettingsPatch,
-    options?: { debounceKey?: string; debounceMs?: number },
+    options?: SettingsUpdateOptions,
   ) => void;
 };
 
 function updateChatSettings(
   partial: ChatSettingsPatch,
-  options?: { debounceKey?: string; debounceMs?: number },
+  options?: SettingsUpdateOptions,
 ): void {
   useSettingsStore.getState().updateChat(partial, options);
 }

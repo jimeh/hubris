@@ -1842,20 +1842,28 @@ function applyTurnUpdated(
     ...state.turnsById,
     [turn.id]: turn,
   };
-  return {
+  const turnIdsByConversationId = {
+    ...state.turnIdsByConversationId,
+    [conversationId]: upsertSortedEntity(
+      currentIds,
+      turnsById,
+      turn,
+      sortTurns,
+    ),
+  };
+  const nextState = {
     ...state,
     turnsById,
-    turnIdsByConversationId: {
-      ...state.turnIdsByConversationId,
-      [conversationId]: upsertSortedEntity(
-        currentIds,
-        turnsById,
-        turn,
-        sortTurns,
-      ),
+    turnIdsByConversationId,
+  };
+  return {
+    ...nextState,
+    timelineIdsByConversationId: {
+      ...nextState.timelineIdsByConversationId,
+      [conversationId]: timelineIdsForState(nextState, conversationId),
     },
     detailsByConversationId: {
-      ...state.detailsByConversationId,
+      ...nextState.detailsByConversationId,
       [conversationId]: loadedDetailState(),
     },
   };
@@ -2328,6 +2336,16 @@ export function initializeChatStore(): void {
           ),
         );
         const outputIds = new Set(Object.values(outputIdsByItemId).flat());
+        const detailsByConversationId = Object.fromEntries(
+          Object.entries(state.detailsByConversationId)
+            .filter(([conversationId]) => conversationIds.has(conversationId))
+            .map(([conversationId, detail]) => [
+              conversationId,
+              detail.status === "loaded"
+                ? { ...detail, needsRefresh: true }
+                : detail,
+            ]),
+        );
 
         return {
           appServerStatus: data.chat_app_server ?? null,
@@ -2336,11 +2354,7 @@ export function initializeChatStore(): void {
           threadStreamsByConversationId: indexThreadStreams(
             data.chat_thread_streams,
           ),
-          detailsByConversationId: Object.fromEntries(
-            Object.entries(state.detailsByConversationId).filter(
-              ([conversationId]) => conversationIds.has(conversationId),
-            ),
-          ),
+          detailsByConversationId,
           messageIdsByConversationId,
           messagesById: Object.fromEntries(
             Object.entries(state.messagesById).filter(([messageId]) =>

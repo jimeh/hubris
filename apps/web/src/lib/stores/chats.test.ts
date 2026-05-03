@@ -470,6 +470,10 @@ describe("chat store", () => {
     expect(useChatStore.getState().itemsById["item-1"]?.status).toBe(
       "streaming",
     );
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "work:turn-local-1:initial",
+      "message:assistant:message-1",
+    ]);
 
     mockEvents.emit("chat_turn_updated", {
       session_id: "default",
@@ -481,6 +485,15 @@ describe("chat store", () => {
         updatedAt: 20,
       },
     });
+    flushChatStoreSseBatchForTests();
+
+    expect(useChatStore.getState().turnsById["turn-local-1"]?.status).toBe(
+      "completed",
+    );
+    expect(selectChatTimelineIds(useChatStore.getState(), "chat-1")).toEqual([
+      "message:assistant:message-1",
+    ]);
+
     mockEvents.emit("chat_item_updated", {
       session_id: "default",
       conversation_id: "chat-1",
@@ -493,12 +506,36 @@ describe("chat store", () => {
     });
     flushChatStoreSseBatchForTests();
 
-    expect(useChatStore.getState().turnsById["turn-local-1"]?.status).toBe(
-      "completed",
-    );
     expect(useChatStore.getState().itemsById["item-1"]?.status).toBe(
       "completed",
     );
+  });
+
+  it("marks retained loaded detail as needing refresh after a snapshot", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue(detail);
+
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.needsRefresh,
+    ).toBe(false);
+
+    mockEvents.emit("snapshot", {
+      chat_app_server: null,
+      chat_conversations: [{ ...conversation, revision: 2 }],
+      chat_context_usage: [],
+      chat_pending_requests: [],
+      chat_reconciliations: [],
+      chat_runtimes: [],
+      chat_thread_streams: [],
+    });
+
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"]?.needsRefresh,
+    ).toBe(true);
+    expect(selectChatMessageIds(useChatStore.getState(), "chat-1")).toEqual([
+      "message-1",
+    ]);
   });
 
   it("hydrates and applies plan, diff, and context usage updates", async () => {

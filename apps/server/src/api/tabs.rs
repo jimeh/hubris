@@ -1674,19 +1674,13 @@ pub async fn create_tab(
             .open_tab_id_for_conversation(&resolved_conversation_id)
             .await
             .map_err(|error| TabsApiError::new(error.status, error.message))?
+            && let Some(existing_tab) = state.tabs.get(&existing_tab_id)
+            && existing_tab.session_id() == "default"
+            && existing_tab.worktree_id() == worktree_id
         {
-            if let Some(existing_tab) = state.tabs.get(&existing_tab_id)
-                && existing_tab.session_id() == "default"
-                && existing_tab.worktree_id() == worktree_id
-            {
-                response_status = StatusCode::OK;
-                state.chats.touch_runtime(&resolved_conversation_id).await;
-                return Ok((response_status, Json(existing_tab.value().clone())));
-            }
-            let _ = state
-                .chats
-                .set_open_tab_id(&resolved_conversation_id, None)
-                .await;
+            response_status = StatusCode::OK;
+            state.chats.touch_runtime(&resolved_conversation_id).await;
+            return Ok((response_status, Json(existing_tab.value().clone())));
         }
 
         *conversation_id = Some(resolved_conversation_id);

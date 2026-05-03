@@ -999,6 +999,46 @@ describe("Tab store", () => {
     ).toEqual(["chat-tab-1"]);
   });
 
+  it("openAgentChat dedupes concurrent existing chat opens across panes", async () => {
+    const store = await getStore();
+    let resolveCreate!: (tab: AgentChatTab) => void;
+    mockCreateTab.mockImplementation(
+      () =>
+        new Promise<AgentChatTab>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+
+    const firstPromise = store.useTabStore.getState().openAgentChat({
+      conversationId: "chat-1",
+      paneId: "pane-1",
+      worktreeId: "w1",
+    });
+    const secondPromise = store.useTabStore.getState().openAgentChat({
+      conversationId: "chat-1",
+      paneId: "pane-2",
+      worktreeId: "w1",
+    });
+
+    await vi.waitFor(() => {
+      expect(mockCreateTab).toHaveBeenCalledTimes(1);
+    });
+
+    resolveCreate(
+      makeAgentChatTab({
+        id: "chat-tab-1",
+        pane_id: "pane-1",
+        worktree_id: "w1",
+        conversation_id: "chat-1",
+      }),
+    );
+
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+    expect(first.id).toBe("chat-tab-1");
+    expect(second.id).toBe("chat-tab-1");
+  });
+
   it("openGitDiff upgrades an in-flight preview create to pinned", async () => {
     const store = await getStore();
     let resolveCreate!: (tab: GitDiffTab) => void;

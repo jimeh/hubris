@@ -480,6 +480,48 @@ describe("AgentChatTab", () => {
     expect(within(workRow).getByText("Changes")).toBeVisible();
   });
 
+  it("keeps a work group open after it was active during streaming", async () => {
+    await renderChat(
+      makeDetail({
+        pendingRequests: [],
+        latestReconciliation: null,
+      }),
+    );
+
+    expect(screen.getByLabelText("Expand Codex work")).toBeVisible();
+
+    act(() => {
+      useChatStore.setState((state) => ({
+        turnsById: {
+          ...state.turnsById,
+          "turn-1": {
+            ...state.turnsById["turn-1"]!,
+            status: "running",
+            completedAt: null,
+          },
+        },
+      }));
+    });
+
+    expect(screen.getByLabelText("Collapse Codex work")).toBeVisible();
+
+    act(() => {
+      useChatStore.setState((state) => ({
+        turnsById: {
+          ...state.turnsById,
+          "turn-1": {
+            ...state.turnsById["turn-1"]!,
+            status: "completed",
+            completedAt: 20,
+          },
+        },
+      }));
+    });
+
+    expect(screen.getByLabelText("Collapse Codex work")).toBeVisible();
+    expect(screen.getByText("Thinking")).toBeVisible();
+  });
+
   it("shows active work without an empty assistant bubble", async () => {
     await renderChat(
       makeDetail({

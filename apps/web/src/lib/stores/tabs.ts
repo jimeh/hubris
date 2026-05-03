@@ -721,12 +721,10 @@ function agentChatOpenKey(
   options: OpenAgentChatOptions,
   paneId: string,
 ): string {
-  return [
-    "agent_chat",
-    options.worktreeId,
-    paneId,
-    options.conversationId ?? "new",
-  ].join(":");
+  if (options.conversationId) {
+    return ["agent_chat", options.worktreeId, options.conversationId].join(":");
+  }
+  return ["agent_chat", options.worktreeId, paneId, "new"].join(":");
 }
 
 function disposeDesktopBrowserTab(tab: Tab | null | undefined): void {

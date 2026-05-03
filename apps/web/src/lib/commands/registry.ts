@@ -693,9 +693,11 @@ export const commandRegistry = {
         return disabled("Chat not found");
       }
 
+      const effectiveWorktreeId =
+        args?.worktreeId ?? context.selectedWorktree?.id ?? null;
       if (
-        context.selectedWorktree &&
-        conversation.worktreeId !== context.selectedWorktree.id
+        effectiveWorktreeId &&
+        conversation.worktreeId !== effectiveWorktreeId
       ) {
         return disabled("Chat belongs to another worktree");
       }
