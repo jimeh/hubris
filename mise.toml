@@ -65,20 +65,24 @@ run = ".mise/tasks/build-desktop-target darwin arm64 aarch64-apple-darwin"
 description = "Build the Electron desktop app for macOS arm64"
 
 [tasks."dev:server"]
-run = "systemfd --no-pid -s http::0 -- mise watch --restart dev:server:raw"
+run = '''systemfd --no-pid -s http::0 -- watchexec --restart \
+  --watch Cargo.toml \
+  --watch Cargo.lock \
+  --watch apps/server/Cargo.toml \
+  --watch apps/server/build.rs \
+  --watch apps/server/src \
+  --filter Cargo.toml \
+  --filter Cargo.lock \
+  --filter apps/server/Cargo.toml \
+  --filter apps/server/build.rs \
+  --filter 'apps/server/src/**/*.rs' \
+  -- mise run dev:server:raw'''
 description = "Run server dev process with hot reload"
 
 [tasks."dev:server:raw"]
 run = "cd apps/server && cargo run --bin hubris-server"
 description = "Run server dev process"
 hide = true
-sources = [
-  "Cargo.toml",
-  "Cargo.lock",
-  "apps/server/Cargo.toml",
-  "apps/server/build.rs",
-  "apps/server/src/**/*.rs",
-]
 
 [tasks."dev:web"]
 run = "bun run --filter hubris-web dev"

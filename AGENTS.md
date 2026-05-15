@@ -42,6 +42,11 @@ run web scripts with `bun run --filter hubris-web ...`. The Bun workspace
 manifest and `bun.lock` live at the repo root; there is no `package-lock.json`
 or `pnpm-lock.yaml`.
 
+**IMPORTANT: Do not put `sources` on long-running dev tasks.** Current mise uses
+`sources` as a run cache gate, so `mise run dev:server:raw` can print
+`sources up-to-date, skipping` instead of launching the server. Put file watch
+filters on the watcher task instead.
+
 **IMPORTANT: The backend SQLite state DB uses `sqlx` offline metadata.** After
 changing backend SQL queries or `apps/server/migrations/`, run
 `mise run sqlx:prepare` and commit the resulting `.sqlx/` metadata. Backend
