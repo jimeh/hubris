@@ -2531,8 +2531,26 @@ export interface operations {
         };
         content?: never;
       };
-      /** @description Conversation not found */
+      /** @description Conversation does not belong to the requested project or branch */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Conversation or worktree not found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Chat is archived */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -4441,6 +4459,15 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ChatConversationSummary"][];
+        };
+      };
+      /** @description Worktree not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
         };
       };
     };

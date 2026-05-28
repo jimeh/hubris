@@ -1836,16 +1836,18 @@ pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -
 }
 
 pub async fn close_tab_by_id(state: &AppState, id: &str) -> StatusCode {
-    let removed = state.tabs.remove(id);
-    let Some((_, removed_tab)) = removed else {
+    let Some(removed_tab) = state.tabs.get(id).map(|entry| entry.value().clone()) else {
+        return StatusCode::NOT_FOUND;
+    };
+    if removed_tab.is_agent_chat() && state.chats.clear_open_tab_id_for_tab(id).await.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR;
+    }
+    let Some((_, removed_tab)) = state.tabs.remove(id) else {
         return StatusCode::NOT_FOUND;
     };
 
     if let Some((_, runtime)) = state.terminal_tabs.remove(id) {
         runtime.notify_close();
-    }
-    if removed_tab.is_agent_chat() {
-        let _ = state.chats.clear_open_tab_id_for_tab(id).await;
     }
     state.restored_terminal_tabs.remove(id);
     state.terminal_restore_locks.remove(id);

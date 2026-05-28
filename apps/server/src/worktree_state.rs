@@ -1838,7 +1838,7 @@ async fn delete_worktree_rows(
         UPDATE chat_conversations
         SET open_tab_id = NULL
         WHERE open_tab_id IN (
-            SELECT id FROM tabs
+            SELECT tab_id FROM tabs
             WHERE project_id = ?1 AND worktree_id = ?2
         )
         ",
@@ -2580,6 +2580,52 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(browser_history_count, 0);
+    }
+
+    #[tokio::test]
+    async fn delete_worktree_rows_clears_chat_open_tab_ids() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("state.sqlite3");
+        let mut conn = open_connection(&path).await.unwrap();
+
+        replace_worktree_state(&mut conn, &make_snapshot())
+            .await
+            .unwrap();
+        sqlx::query(
+            "
+            INSERT INTO chat_conversations (
+                id, session_id, project_id, worktree_id, provider, title,
+                created_at_ms, updated_at_ms, last_activity_at_ms, open_tab_id,
+                last_run_state
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ",
+        )
+        .bind("chat-1")
+        .bind("default")
+        .bind("project-1")
+        .bind("worktree-1")
+        .bind("codex")
+        .bind("Chat")
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind(1_i64)
+        .bind("terminal-1")
+        .bind("completed")
+        .execute(&mut conn)
+        .await
+        .unwrap();
+
+        delete_worktree_rows(&mut conn, "project-1", "worktree-1")
+            .await
+            .unwrap();
+
+        let open_tab_id = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT open_tab_id FROM chat_conversations WHERE id = 'chat-1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(open_tab_id, None);
     }
 
     #[tokio::test]

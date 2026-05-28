@@ -2231,10 +2231,12 @@ impl ChatService {
 
     /// Archive or unarchive a persisted conversation.
     pub async fn set_conversation_archived(
-        &self,
+        self: &Arc<Self>,
         conversation_id: &str,
         archived: bool,
     ) -> Result<ChatConversationSummary, ChatServiceError> {
+        let lock = self.operation_lock(conversation_id);
+        let _guard = lock.lock().await;
         let existing = self
             .get_conversation_summary(conversation_id)
             .await?
@@ -2269,9 +2271,11 @@ impl ChatService {
 
     /// Permanently delete one conversation and all related persisted state.
     pub async fn delete_conversation(
-        &self,
+        self: &Arc<Self>,
         conversation_id: &str,
     ) -> Result<ChatConversationSummary, ChatServiceError> {
+        let lock = self.operation_lock(conversation_id);
+        let _guard = lock.lock().await;
         let summary = self
             .get_conversation_summary(conversation_id)
             .await?
@@ -2283,6 +2287,7 @@ impl ChatService {
             ));
         }
 
+        self.unsubscribe_runtime(conversation_id).await?;
         self.cleanup_conversation_runtime(conversation_id);
         self.delete_conversation_rows(conversation_id).await?;
         self.events.emit(EventKind::ChatConversationDeleted {
@@ -2296,7 +2301,7 @@ impl ChatService {
 
     /// Permanently delete all chat history for a project.
     pub async fn delete_project_conversations(
-        &self,
+        self: &Arc<Self>,
         project_id: &str,
     ) -> Result<Vec<ChatConversationSummary>, ChatServiceError> {
         let summaries = sqlx::query_as::<_, ConversationRow>(
@@ -2329,6 +2334,9 @@ impl ChatService {
         .collect::<Vec<_>>();
 
         for summary in &summaries {
+            let lock = self.operation_lock(&summary.id);
+            let _guard = lock.lock().await;
+            self.unsubscribe_runtime(&summary.id).await?;
             self.cleanup_conversation_runtime(&summary.id);
         }
         self.delete_project_conversation_rows(project_id).await?;

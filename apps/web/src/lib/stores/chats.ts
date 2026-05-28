@@ -1679,6 +1679,9 @@ function removeConversationFromStore(conversationId: string): void {
     const turnsById = { ...state.turnsById };
     const itemIdsByConversationId = { ...state.itemIdsByConversationId };
     const itemsById = { ...state.itemsById };
+    const outputIdsByItemId = { ...state.outputIdsByItemId };
+    const outputsById = { ...state.outputsById };
+    const activityDetailsByItemId = { ...state.activityDetailsByItemId };
     const timelineIdsByConversationId = {
       ...state.timelineIdsByConversationId,
     };
@@ -1720,10 +1723,22 @@ function removeConversationFromStore(conversationId: string): void {
 
     for (const id of messageIds) delete messagesById[id];
     for (const id of turnIds) delete turnsById[id];
-    for (const id of itemIds) delete itemsById[id];
+    for (const id of itemIds) {
+      for (const outputId of outputIdsByItemId[id] ?? []) {
+        delete outputsById[outputId];
+      }
+      delete outputIdsByItemId[id];
+      delete activityDetailsByItemId[id];
+      delete itemsById[id];
+    }
     for (const id of pendingRequestIds) {
       delete pendingRequestsById[id];
       delete pendingRequestSummariesById[id];
+    }
+    for (const [id, summary] of Object.entries(pendingRequestSummariesById)) {
+      if (summary.conversationId === conversationId) {
+        delete pendingRequestSummariesById[id];
+      }
     }
     for (const id of planIds) delete plansById[id];
     for (const id of diffIds) delete diffSummariesById[id];
@@ -1739,6 +1754,9 @@ function removeConversationFromStore(conversationId: string): void {
       turnsById,
       itemIdsByConversationId,
       itemsById,
+      outputIdsByItemId,
+      outputsById,
+      activityDetailsByItemId,
       timelineIdsByConversationId,
       pendingRequestIdsByConversationId,
       pendingRequestsById,

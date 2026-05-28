@@ -110,6 +110,7 @@ async fn conversation_for_session(
     ),
     responses(
         (status = 200, description = "Conversation summaries", body = [ChatConversationSummary]),
+        (status = 404, description = "Worktree not found", body = ApiErrorResponse),
     ),
 )]
 pub async fn list_project_worktree_chats(
@@ -349,7 +350,9 @@ pub async fn patch_chat_settings(
     ),
     responses(
         (status = 202, description = "Message accepted"),
-        (status = 404, description = "Conversation not found", body = ApiErrorResponse),
+        (status = 400, description = "Conversation does not belong to the requested project or branch", body = ApiErrorResponse),
+        (status = 404, description = "Conversation or worktree not found", body = ApiErrorResponse),
+        (status = 409, description = "Chat is archived", body = ApiErrorResponse),
         (status = 500, description = "Failed to start Codex runtime", body = ApiErrorResponse),
     ),
 )]

@@ -196,6 +196,7 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7"
+                aria-label="Archive chat"
                 title="Archive chat"
                 onClick={() => void archiveConversation(conversation.id)}
               >
@@ -206,6 +207,7 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7"
+                aria-label="Unarchive chat"
                 title="Unarchive chat"
                 onClick={() => void unarchiveConversation(conversation.id)}
               >
@@ -216,6 +218,7 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
               size="icon"
               variant="ghost"
               className="h-7 w-7 text-destructive hover:text-destructive"
+              aria-label="Delete chat permanently"
               title="Delete chat permanently"
               onClick={() => void handleDelete(conversation)}
             >

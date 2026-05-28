@@ -1963,6 +1963,7 @@ function ChatComposer({
             <div className="flex items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Select
+                  disabled={isArchived}
                   value={selectedPermissionMode}
                   onValueChange={handlePermissionChange}
                 >
@@ -1982,7 +1983,7 @@ function ChatComposer({
                 </Select>
 
                 <Select
-                  disabled={modelOptionsStatus !== "loaded"}
+                  disabled={isArchived || modelOptionsStatus !== "loaded"}
                   value={selectedModel?.model}
                   onValueChange={handleModelChange}
                 >
@@ -2003,7 +2004,11 @@ function ChatComposer({
                 </Select>
 
                 <Select
-                  disabled={!selectedModel || supportedEfforts.length === 0}
+                  disabled={
+                    isArchived ||
+                    !selectedModel ||
+                    supportedEfforts.length === 0
+                  }
                   value={selectedEffort}
                   onValueChange={handleEffortChange}
                 >

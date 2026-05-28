@@ -171,10 +171,12 @@ export function getCommandPaletteItems(
 
   const selectedWorktreeId = context.selectedWorktree?.id;
   const selectedBranch = context.selectedWorktree?.branch;
+  const selectedProjectId = context.selectedWorktree?.project_id;
   const conversations = Object.values(useChatStore.getState().conversationsById)
     .filter(
       (conversation) =>
         conversation.archivedAt == null &&
+        (!selectedProjectId || conversation.projectId === selectedProjectId) &&
         (conversation.branchName && selectedBranch
           ? conversation.branchName === selectedBranch
           : conversation.worktreeId === selectedWorktreeId) &&

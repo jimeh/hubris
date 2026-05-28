@@ -1032,6 +1032,7 @@ pub async fn rename_worktree_branch(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut meta = load_meta(state.project_meta_file(&project.id)).await;
+    let previous_meta = meta.clone();
     if let Some(managed) = meta
         .managed_worktrees
         .iter_mut()
@@ -1045,11 +1046,16 @@ pub async fn rename_worktree_branch(
     normalize_meta(&mut meta, &local_worktree_id);
     save_meta(&state, &project.id, &meta).await?;
 
-    state
+    if state
         .chats
         .rename_project_branch(&project.id, &old_branch, &new_branch)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .is_err()
+    {
+        let _ = git::rename_branch(&worktree_path, &old_branch).await;
+        let _ = save_meta(&state, &project.id, &previous_meta).await;
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
 
     state.worktree_files.evict_tracker(&worktree_id);
 

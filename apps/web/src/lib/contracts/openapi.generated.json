@@ -335,8 +335,28 @@
           "202": {
             "description": "Message accepted"
           },
+          "400": {
+            "description": "Conversation does not belong to the requested project or branch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "Conversation not found",
+            "description": "Conversation or worktree not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Chat is archived",
             "content": {
               "application/json": {
                 "schema": {
@@ -2485,6 +2505,16 @@
                   "items": {
                     "$ref": "#/components/schemas/ChatConversationSummary"
                   }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Worktree not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
