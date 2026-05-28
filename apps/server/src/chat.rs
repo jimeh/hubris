@@ -2288,8 +2288,8 @@ impl ChatService {
         }
 
         self.unsubscribe_runtime(conversation_id).await?;
-        self.cleanup_conversation_runtime(conversation_id);
         self.delete_conversation_rows(conversation_id).await?;
+        self.cleanup_conversation_runtime(conversation_id);
         self.events.emit(EventKind::ChatConversationDeleted {
             session_id: summary.session_id.clone(),
             conversation_id: summary.id.clone(),
@@ -2333,13 +2333,16 @@ impl ChatService {
         .map(conversation_from_row)
         .collect::<Vec<_>>();
 
+        let mut lock_guards = Vec::with_capacity(summaries.len());
         for summary in &summaries {
-            let lock = self.operation_lock(&summary.id);
-            let _guard = lock.lock().await;
+            let guard = self.operation_lock(&summary.id).lock_owned().await;
             self.unsubscribe_runtime(&summary.id).await?;
-            self.cleanup_conversation_runtime(&summary.id);
+            lock_guards.push(guard);
         }
         self.delete_project_conversation_rows(project_id).await?;
+        for summary in &summaries {
+            self.cleanup_conversation_runtime(&summary.id);
+        }
         for summary in &summaries {
             self.events.emit(EventKind::ChatConversationDeleted {
                 session_id: summary.session_id.clone(),
