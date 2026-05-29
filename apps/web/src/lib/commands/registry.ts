@@ -660,10 +660,19 @@ export const commandRegistry = {
         args?.worktreeId,
         conversation?.worktreeId ?? context.selectedWorktree?.id ?? null,
       );
+      const worktree = findWorktreeById(context, worktreeId ?? undefined);
+      const sameProject =
+        !!conversation &&
+        !!worktree &&
+        conversation.projectId === worktree.project_id;
+      const sameBranch =
+        conversation?.branchName && worktree
+          ? conversation.branchName === worktree.branch
+          : conversation?.worktreeId === worktreeId;
       if (
         !conversation ||
         conversation.id !== conversationId ||
-        (worktreeId && conversation.worktreeId !== worktreeId)
+        (worktreeId && (!sameProject || !sameBranch))
       ) {
         return { reason: "No chat selected", status: "unavailable" };
       }
@@ -695,11 +704,18 @@ export const commandRegistry = {
 
       const effectiveWorktreeId =
         args?.worktreeId ?? context.selectedWorktree?.id ?? null;
-      if (
-        effectiveWorktreeId &&
-        conversation.worktreeId !== effectiveWorktreeId
-      ) {
-        return disabled("Chat belongs to another worktree");
+      const worktree = findWorktreeById(
+        context,
+        effectiveWorktreeId ?? undefined,
+      );
+      const sameProject =
+        !!worktree && conversation.projectId === worktree.project_id;
+      const sameBranch =
+        conversation.branchName && worktree
+          ? conversation.branchName === worktree.branch
+          : conversation.worktreeId === effectiveWorktreeId;
+      if (effectiveWorktreeId && (!sameProject || !sameBranch)) {
+        return disabled("Chat belongs to another branch");
       }
 
       return enabled();

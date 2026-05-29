@@ -133,6 +133,14 @@ pub enum EventKind {
         session_id: String,
         conversation: ChatConversationSummary,
     },
+    #[serde(rename = "chat_conversation_deleted")]
+    ChatConversationDeleted {
+        session_id: String,
+        conversation_id: String,
+        project_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch_name: Option<String>,
+    },
     #[serde(rename = "chat_runtime_updated")]
     ChatRuntimeUpdated {
         session_id: String,
@@ -266,6 +274,7 @@ impl EventKind {
             EventKind::TaskRemoved(_) => "task_removed",
             EventKind::ChatConversationCreated { .. } => "chat_conversation_created",
             EventKind::ChatConversationUpdated { .. } => "chat_conversation_updated",
+            EventKind::ChatConversationDeleted { .. } => "chat_conversation_deleted",
             EventKind::ChatRuntimeUpdated { .. } => "chat_runtime_updated",
             EventKind::ChatAppServerUpdated { .. } => "chat_app_server_updated",
             EventKind::ChatThreadStreamUpdated { .. } => "chat_thread_stream_updated",

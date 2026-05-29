@@ -85,6 +85,54 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": ["crate::api::chats"],
+        "operationId": "delete_chat",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Conversation deleted"
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conversation has active work",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/chats/{conversation_id}/activity/{item_id}": {
@@ -132,6 +180,63 @@
           },
           "404": {
             "description": "Activity item not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}/archive": {
+      "post": {
+        "tags": ["crate::api::chats"],
+        "operationId": "archive_chat",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archived conversation summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatConversationSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conversation has active work",
             "content": {
               "application/json": {
                 "schema": {
@@ -230,8 +335,28 @@
           "202": {
             "description": "Message accepted"
           },
+          "400": {
+            "description": "Conversation does not belong to the requested project or branch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "Conversation not found",
+            "description": "Conversation or worktree not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Chat is archived",
             "content": {
               "application/json": {
                 "schema": {
@@ -365,6 +490,53 @@
         "responses": {
           "200": {
             "description": "Updated conversation summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatConversationSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chats/{conversation_id}/unarchive": {
+      "post": {
+        "tags": ["crate::api::chats"],
+        "operationId": "unarchive_chat",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unarchived conversation summary",
             "content": {
               "application/json": {
                 "schema": {
@@ -2305,6 +2477,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ChatListScopeParam"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -2317,6 +2505,16 @@
                   "items": {
                     "$ref": "#/components/schemas/ChatConversationSummary"
                   }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Worktree not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -3285,6 +3483,14 @@
           "revision"
         ],
         "properties": {
+          "archivedAt": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "branchName": {
+            "type": ["string", "null"]
+          },
           "contextMaxTokens": {
             "type": ["integer", "null"],
             "format": "int32",
@@ -3670,6 +3876,10 @@
         "type": "string",
         "description": "Persisted Codex item lifecycle state.",
         "enum": ["started", "streaming", "completed", "failed"]
+      },
+      "ChatListScopeParam": {
+        "type": "string",
+        "enum": ["branch", "project"]
       },
       "ChatMessage": {
         "type": "object",
@@ -5146,6 +5356,9 @@
         "properties": {
           "text": {
             "type": "string"
+          },
+          "worktree_id": {
+            "type": ["string", "null"]
           }
         }
       },

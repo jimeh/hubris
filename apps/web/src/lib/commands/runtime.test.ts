@@ -197,9 +197,41 @@ describe("command runtime", () => {
   });
 
   it("uses explicit worktree args when checking open chat availability", () => {
-    const { worktreeTwo } = seedContext();
+    const { worktreeOne, worktreeTwo } = seedContext();
     useChatStore.setState({
       conversationsById: {
+        "chat-cross-project": {
+          id: "chat-cross-project",
+          sessionId: "default",
+          projectId: worktreeTwo.project_id,
+          worktreeId: worktreeTwo.id,
+          branchName: worktreeOne.branch,
+          provider: "codex",
+          providerThreadId: null,
+          title: "Cross project chat",
+          selectedModel: null,
+          selectedEffort: null,
+          selectedPermissionMode: null,
+          createdAt: 10,
+          updatedAt: 10,
+          lastActivityAt: 10,
+          lastMessageAt: 10,
+          openTabId: null,
+          lastRunState: "completed",
+          lastError: null,
+          lastReconciliationState: "not_needed",
+          lastReconciliationError: null,
+          pendingRequestCount: 0,
+          latestPendingRequestId: null,
+          latestPendingRequestKind: null,
+          latestPendingRequestStatus: null,
+          hasPendingRequestAttention: false,
+          contextUsedTokens: null,
+          contextMaxTokens: null,
+          contextPercentUsed: null,
+          contextUpdatedAt: null,
+          revision: 1,
+        },
         "chat-2": {
           id: "chat-2",
           sessionId: "default",
@@ -240,6 +272,12 @@ describe("command runtime", () => {
         worktreeId: worktreeTwo.id,
       }),
     ).toEqual({ enabled: true, reason: undefined });
+    expect(
+      getCommandAvailability("tab.openChat", {
+        conversationId: "chat-cross-project",
+        worktreeId: worktreeOne.id,
+      }),
+    ).toEqual({ enabled: false, reason: "Chat belongs to another branch" });
   });
 
   it("toggles the registered left sidebar controller", async () => {

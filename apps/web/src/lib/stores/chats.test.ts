@@ -658,6 +658,51 @@ describe("chat store", () => {
     ).toBe("loaded");
   });
 
+  it("removes output and activity state when a conversation is deleted", () => {
+    initializeChatStore();
+    useChatStore.setState({
+      conversationsById: { "chat-1": conversation },
+      itemIdsByConversationId: { "chat-1": ["item-command-1"] },
+      itemsById: { "item-command-1": commandItem },
+      outputIdsByItemId: { "item-command-1": ["output-1"] },
+      outputsById: { "output-1": commandOutput },
+      activityDetailsByItemId: {
+        "item-command-1": { status: "loaded", error: null },
+      },
+      pendingRequestSummariesById: {
+        "request-1": {
+          id: "request-1",
+          conversationId: "chat-1",
+          kind: "command_approval",
+          method: "item/commandExecution/requestApproval",
+          status: "pending",
+          createdAt: 13,
+          updatedAt: 13,
+        },
+      },
+    });
+
+    mockEvents.emit("chat_conversation_deleted", {
+      session_id: "default",
+      conversation_id: "chat-1",
+      project_id: "project-1",
+      branch_name: null,
+    });
+
+    expect(useChatStore.getState().conversationsById["chat-1"]).toBeUndefined();
+    expect(useChatStore.getState().itemsById["item-command-1"]).toBeUndefined();
+    expect(useChatStore.getState().outputIdsByItemId["item-command-1"]).toBe(
+      undefined,
+    );
+    expect(useChatStore.getState().outputsById["output-1"]).toBeUndefined();
+    expect(
+      useChatStore.getState().activityDetailsByItemId["item-command-1"],
+    ).toBeUndefined();
+    expect(
+      useChatStore.getState().pendingRequestSummariesById["request-1"],
+    ).toBeUndefined();
+  });
+
   it("orders turn-owned rows as user, work group, then assistant", async () => {
     initializeChatStore();
     mockGetChat.mockResolvedValue({

@@ -312,7 +312,11 @@ describe("command palette items", () => {
 
   it("keeps open chat items ordered by recent activity", () => {
     const project = makeProject("p1", "Devbox");
+    const otherProject = makeProject("p2", "Other");
     const selectedWorktree = makeWorktree("w1", project.id, "local");
+    const otherWorktree = makeWorktree("w2", otherProject.id, "local", {
+      branch: selectedWorktree.branch,
+    });
     useChatStore.setState({
       conversationsById: {
         old: {
@@ -377,6 +381,38 @@ describe("command palette items", () => {
           updatedAt: 20,
           worktreeId: selectedWorktree.id,
         },
+        otherProject: {
+          contextMaxTokens: null,
+          contextPercentUsed: null,
+          contextUpdatedAt: null,
+          contextUsedTokens: null,
+          createdAt: 3,
+          hasPendingRequestAttention: false,
+          id: "otherProject",
+          lastActivityAt: 30,
+          lastError: null,
+          lastMessageAt: null,
+          lastReconciliationError: null,
+          lastReconciliationState: "not_needed",
+          lastRunState: "completed",
+          latestPendingRequestId: null,
+          latestPendingRequestKind: null,
+          latestPendingRequestStatus: null,
+          openTabId: null,
+          pendingRequestCount: 0,
+          projectId: otherProject.id,
+          provider: "codex",
+          providerThreadId: null,
+          revision: 1,
+          selectedEffort: null,
+          selectedModel: null,
+          selectedPermissionMode: null,
+          sessionId: "default",
+          branchName: selectedWorktree.branch,
+          title: "Other project chat",
+          updatedAt: 30,
+          worktreeId: otherWorktree.id,
+        },
       },
     });
 
@@ -384,11 +420,12 @@ describe("command palette items", () => {
       buildCommandContextSnapshot({
         activeTabId: null,
         focusedPaneByWorktree: {},
-        projects: [project],
+        projects: [project, otherProject],
         selectedWorktreeId: selectedWorktree.id,
         tabs: [],
         worktreesByProject: {
           [project.id]: [selectedWorktree],
+          [otherProject.id]: [otherWorktree],
         },
       }),
     ).filter((item) => item.id === "tab.openChat");

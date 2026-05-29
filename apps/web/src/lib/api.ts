@@ -624,8 +624,18 @@ export async function listProjectWorktreeChats(
   projectId: string,
   worktreeId: string,
   sessionId = "default",
+  options: {
+    scope?: "branch" | "project";
+    includeArchived?: boolean;
+  } = {},
 ): Promise<ChatConversationSummary[]> {
   const params = new URLSearchParams({ session_id: sessionId });
+  if (options.scope) {
+    params.set("scope", options.scope);
+  }
+  if (options.includeArchived) {
+    params.set("include_archived", "true");
+  }
   const res = await fetch(
     `${BASE}/projects/${projectId}/worktrees/${worktreeId}/chats?${params.toString()}`,
   );
@@ -687,14 +697,54 @@ export async function patchChatSettings(
 export async function sendChatMessage(
   conversationId: string,
   text: string,
+  worktreeId?: string,
 ): Promise<void> {
-  const payload: SendChatMessageRequest = { text };
+  const payload: SendChatMessageRequest = {
+    text,
+    ...(worktreeId ? { worktree_id: worktreeId } : {}),
+  };
   const res = await fetch(`${BASE}/chats/${conversationId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+}
+
+export async function archiveChat(
+  conversationId: string,
+): Promise<ChatConversationSummary> {
+  const res = await fetch(`${BASE}/chats/${conversationId}/archive`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function unarchiveChat(
+  conversationId: string,
+): Promise<ChatConversationSummary> {
+  const res = await fetch(`${BASE}/chats/${conversationId}/unarchive`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const message = await readApiErrorMessage(res);
+    throwStatusError(res.status, message ?? undefined);
+  }
+  return res.json();
+}
+
+export async function deleteChat(conversationId: string): Promise<void> {
+  const res = await fetch(`${BASE}/chats/${conversationId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 404) {
     const message = await readApiErrorMessage(res);
     throwStatusError(res.status, message ?? undefined);
   }

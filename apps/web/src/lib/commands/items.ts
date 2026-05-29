@@ -170,10 +170,16 @@ export function getCommandPaletteItems(
   }
 
   const selectedWorktreeId = context.selectedWorktree?.id;
+  const selectedBranch = context.selectedWorktree?.branch;
+  const selectedProjectId = context.selectedWorktree?.project_id;
   const conversations = Object.values(useChatStore.getState().conversationsById)
     .filter(
       (conversation) =>
-        conversation.worktreeId === selectedWorktreeId &&
+        conversation.archivedAt == null &&
+        (!selectedProjectId || conversation.projectId === selectedProjectId) &&
+        (conversation.branchName && selectedBranch
+          ? conversation.branchName === selectedBranch
+          : conversation.worktreeId === selectedWorktreeId) &&
         !context.tabs.some(
           (tab) =>
             tab.type === "agent_chat" &&
@@ -186,7 +192,7 @@ export function getCommandPaletteItems(
     items.push({
       args: {
         conversationId: conversation.id,
-        worktreeId: conversation.worktreeId,
+        worktreeId: selectedWorktreeId ?? conversation.worktreeId,
       },
       group: "Tabs",
       icon: getCommandDefinition("tab.openChat").icon,

@@ -37,8 +37,9 @@ pub use access::{
 };
 use access::{desktop_auth_middleware, desktop_bootstrap_handler};
 use api::chats::{
-    get_chat, get_chat_activity, interrupt_chat, list_chat_models, list_project_worktree_chats,
-    patch_chat_settings, resolve_chat_pending_request, send_chat_message,
+    archive_chat, delete_chat, get_chat, get_chat_activity, interrupt_chat, list_chat_models,
+    list_project_worktree_chats, patch_chat_settings, resolve_chat_pending_request,
+    send_chat_message, unarchive_chat,
 };
 use api::editor_themes::{
     delete_editor_theme, discover_editor_themes, get_editor_theme, import_extension_theme,
@@ -410,7 +411,12 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
         .route("/tabs/reorder", put(reorder_tabs))
         .route("/tabs/{id}", delete(delete_tab).patch(update_tab))
         .route("/chats/models", get(list_chat_models))
-        .route("/chats/{conversation_id}", get(get_chat))
+        .route(
+            "/chats/{conversation_id}",
+            get(get_chat).delete(delete_chat),
+        )
+        .route("/chats/{conversation_id}/archive", post(archive_chat))
+        .route("/chats/{conversation_id}/unarchive", post(unarchive_chat))
         .route(
             "/chats/{conversation_id}/activity/{item_id}",
             get(get_chat_activity),
