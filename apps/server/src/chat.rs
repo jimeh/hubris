@@ -3189,7 +3189,14 @@ impl ChatService {
                         let Some((conversation_id, runtime)) =
                             service.runtime_for_provider_event(&route_hints).await
                         else {
-                            tracing::warn!(method, "unroutable codex app-server notification");
+                            if is_global_provider_notification(&method) {
+                                tracing::debug!(
+                                    method,
+                                    "unroutable global codex app-server notification"
+                                );
+                            } else {
+                                tracing::warn!(method, "unroutable codex app-server notification");
+                            }
                             continue;
                         };
                         service
@@ -8397,6 +8404,13 @@ fn item_role_for_kind(kind: ChatItemKind) -> Option<ChatMessageRole> {
         | ChatItemKind::ModelReroute
         | ChatItemKind::Unknown => None,
     }
+}
+
+fn is_global_provider_notification(method: &str) -> bool {
+    matches!(
+        method,
+        "remoteControl/status/changed" | "mcpServer/startupStatus/updated"
+    )
 }
 
 fn item_metadata_json(value: &Value) -> String {

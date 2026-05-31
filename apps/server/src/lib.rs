@@ -36,6 +36,7 @@ pub use access::{
     DESKTOP_BOOTSTRAP_PATH, DESKTOP_SESSION_COOKIE_NAME, DesktopAccess, ServerAccess,
 };
 use access::{desktop_auth_middleware, desktop_bootstrap_handler};
+use api::ag_ui::run_codex_ag_ui_chat;
 use api::chats::{
     archive_chat, delete_chat, get_chat, get_chat_activity, interrupt_chat, list_chat_models,
     list_project_worktree_chats, patch_chat_settings, resolve_chat_pending_request,
@@ -426,6 +427,7 @@ pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Rou
             patch(patch_chat_settings),
         )
         .route("/chats/{conversation_id}/messages", post(send_chat_message))
+        .route("/chats/{conversation_id}/ag-ui", post(run_codex_ag_ui_chat))
         .route(
             "/chats/{conversation_id}/requests/{request_id}/resolve",
             post(resolve_chat_pending_request),

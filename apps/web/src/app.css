@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@copilotkit/react-core/v2/styles.css";
 @import "./lib/theme/defaults.generated.css";
 
 @custom-variant dark (&:is(.dark *));
