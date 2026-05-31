@@ -1,12 +1,22 @@
 import {
   CopilotChat,
+  CopilotChatAssistantMessage,
+  CopilotChatMessageView,
+  CopilotChatReasoningMessage,
   CopilotKitProvider,
   HttpAgent,
+  useRenderActivityMessage,
+  type CopilotChatMessageViewProps,
   type ReactActivityMessageRenderer,
   type Message,
 } from "@copilotkit/react-core/v2";
-import { LoaderCircle, MessageSquareText, Wrench } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import {
+  ChevronRight,
+  LoaderCircle,
+  MessageSquareText,
+  Wrench,
+} from "lucide-react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { codexAgUiChatUrl } from "@/lib/api";
@@ -39,6 +49,9 @@ type Props = {
 };
 
 type ChatStoreSnapshot = Parameters<typeof selectChatTimelineIds>[0];
+
+type ActivityMessage = Extract<Message, { role: "activity" }>;
+type ReasoningMessage = Extract<Message, { role: "reasoning" }>;
 
 type CodexActivityContent = {
   id?: string;
@@ -389,38 +402,318 @@ function CodexActivityMessage({
   activityType: string;
   content: CodexActivityContent;
 }) {
+  const [open, setOpen] = useState(false);
   const title = titleFromActivity(activityType, content);
   const summary = content.summary ?? content.content ?? null;
   const lines = detailLines(content);
 
   return (
-    <div className="mx-auto my-1 w-full max-w-3xl px-4">
-      <div className="rounded-md border bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
-        <div className="flex min-w-0 items-center gap-2">
-          <Wrench className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate font-medium text-foreground">{title}</span>
-          {content.status ? (
-            <span className="ml-auto shrink-0 text-[10px] uppercase">
-              {content.status}
-            </span>
+    <div className="w-full rounded-md border bg-muted/35 text-xs text-muted-foreground">
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <ChevronRight
+          className={`h-3.5 w-3.5 shrink-0 transition-transform ${
+            open ? "rotate-90" : ""
+          }`}
+        />
+        <Wrench className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+          {title}
+        </span>
+        {content.status ? (
+          <span className="shrink-0 text-[10px] uppercase">
+            {content.status}
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="border-t px-3 py-2">
+          {summary ? (
+            <div className="whitespace-pre-wrap break-words">{summary}</div>
+          ) : null}
+          {lines.length > 0 ? (
+            <dl className="mt-2 grid gap-1">
+              {lines.map((line) => (
+                <div key={line} className="min-w-0 truncate">
+                  {line}
+                </div>
+              ))}
+            </dl>
           ) : null}
         </div>
-        {summary ? (
-          <div className="mt-1 line-clamp-2 break-words">{summary}</div>
+      ) : summary ? (
+        <div className="px-3 pb-2 pl-12">
+          <div className="line-clamp-1 break-words">{summary}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function isActivityMessage(message: Message): message is ActivityMessage {
+  return message.role === "activity";
+}
+
+function isReasoningMessage(message: Message): message is ReasoningMessage {
+  return message.role === "reasoning";
+}
+
+function collectFollowingActivities(
+  messages: readonly Message[],
+  startIndex: number,
+): { activities: ActivityMessage[]; nextIndex: number } {
+  const activities: ActivityMessage[] = [];
+  let index = startIndex;
+  while (index < messages.length) {
+    const message = messages[index];
+    if (!message || !isActivityMessage(message)) {
+      break;
+    }
+    activities.push(message);
+    index += 1;
+  }
+  return { activities, nextIndex: index };
+}
+
+function elementForMessage(
+  elementsByMessageId: Map<string, ReactElement>,
+  message: Message,
+): ReactElement | null {
+  return elementsByMessageId.get(message.id) ?? null;
+}
+
+function CodexActivityList({
+  activities,
+}: {
+  activities: readonly ActivityMessage[];
+}) {
+  const { renderActivityMessage } = useRenderActivityMessage();
+
+  if (activities.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      {activities.map((activity) => (
+        <div key={activity.id}>{renderActivityMessage(activity)}</div>
+      ))}
+    </div>
+  );
+}
+
+function CodexReasoningContent({
+  activities,
+  isStreaming,
+  hasContent,
+  className,
+  children,
+  ...props
+}: {
+  activities: readonly ActivityMessage[];
+  isStreaming?: boolean;
+  hasContent?: boolean;
+  className?: string;
+  children?: React.ReactNode;
+}) {
+  const content = typeof children === "string" ? children : "";
+  const hasReasoningContent = hasContent && content.trim().length > 0;
+
+  if (!hasReasoningContent && activities.length === 0 && !isStreaming) {
+    return null;
+  }
+
+  return (
+    <div className={`pb-2 pt-1 ${className ?? ""}`} {...props}>
+      <div className="text-sm text-muted-foreground">
+        {hasReasoningContent ? (
+          <CopilotChatAssistantMessage.MarkdownRenderer content={content} />
         ) : null}
-        {lines.length > 0 ? (
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-            {lines.map((line) => (
-              <span key={line} className="max-w-full truncate">
-                {line}
-              </span>
-            ))}
-          </div>
+        <CodexActivityList activities={activities} />
+        {isStreaming && hasReasoningContent ? (
+          <span className="ml-1 inline-flex items-center align-middle">
+            <span className="h-2 w-2 rounded-full bg-muted-foreground" />
+          </span>
         ) : null}
       </div>
     </div>
   );
 }
+
+function CodexReasoningMessage({
+  message,
+  messages,
+  isRunning,
+  activities,
+}: {
+  message: ReasoningMessage;
+  messages: Message[];
+  isRunning?: boolean;
+  activities: readonly ActivityMessage[];
+}) {
+  const displayMessage =
+    activities.length > 0 && message.content.length === 0
+      ? { ...message, content: " " }
+      : message;
+  const contentView = useMemo(
+    () =>
+      function CodexReasoningContentSlot(
+        props: Omit<Parameters<typeof CodexReasoningContent>[0], "activities">,
+      ) {
+        return <CodexReasoningContent {...props} activities={activities} />;
+      },
+    [activities],
+  );
+
+  return (
+    <CopilotChatReasoningMessage
+      message={displayMessage}
+      messages={messages}
+      isRunning={isRunning}
+      contentView={contentView}
+    />
+  );
+}
+
+function CodexActivityGroup({
+  activities,
+  messages,
+  isRunning,
+}: {
+  activities: readonly ActivityMessage[];
+  messages: Message[];
+  isRunning?: boolean;
+}) {
+  if (activities.length === 0) {
+    return null;
+  }
+
+  const message = {
+    id: `activity-reasoning-${activities[0]?.id ?? "unknown"}`,
+    role: "reasoning",
+    content: " ",
+  } as ReasoningMessage;
+
+  return (
+    <CodexReasoningMessage
+      message={message}
+      messages={messages}
+      isRunning={isRunning}
+      activities={activities}
+    />
+  );
+}
+
+function CodexMessageView({
+  messages = [],
+  isRunning = false,
+  ...props
+}: CopilotChatMessageViewProps) {
+  return (
+    <CopilotChatMessageView
+      messages={messages}
+      isRunning={isRunning}
+      {...props}
+    >
+      {({ messageElements, interruptElement }) => {
+        const elementsByMessageId = new Map<string, ReactElement>();
+        for (const element of messageElements) {
+          if (typeof element.key === "string") {
+            elementsByMessageId.set(element.key, element);
+          }
+        }
+
+        const rendered: ReactElement[] = [];
+        for (let index = 0; index < messages.length; index += 1) {
+          const message = messages[index];
+
+          if (isReasoningMessage(message)) {
+            const { activities, nextIndex } = collectFollowingActivities(
+              messages,
+              index + 1,
+            );
+            if (message.content.trim().length > 0 || activities.length > 0) {
+              rendered.push(
+                <CodexReasoningMessage
+                  key={message.id}
+                  message={message}
+                  messages={messages}
+                  isRunning={isRunning}
+                  activities={activities}
+                />,
+              );
+              index = nextIndex - 1;
+              continue;
+            }
+          }
+
+          if (isActivityMessage(message)) {
+            const { activities, nextIndex } = collectFollowingActivities(
+              messages,
+              index,
+            );
+            const nextMessage = messages[nextIndex];
+            if (
+              nextMessage &&
+              isReasoningMessage(nextMessage) &&
+              nextMessage.content.trim().length > 0
+            ) {
+              const following = collectFollowingActivities(
+                messages,
+                nextIndex + 1,
+              );
+              rendered.push(
+                <CodexReasoningMessage
+                  key={nextMessage.id}
+                  message={nextMessage}
+                  messages={messages}
+                  isRunning={isRunning}
+                  activities={[...activities, ...following.activities]}
+                />,
+              );
+              index = following.nextIndex - 1;
+              continue;
+            }
+            rendered.push(
+              <CodexActivityGroup
+                key={`activity-group-${message.id}`}
+                activities={activities}
+                messages={messages}
+                isRunning={isRunning}
+              />,
+            );
+            index = nextIndex - 1;
+            continue;
+          }
+
+          const element = elementForMessage(elementsByMessageId, message);
+          if (element) {
+            rendered.push(element);
+          }
+        }
+
+        return (
+          <div
+            data-copilotkit
+            data-testid="copilot-message-list"
+            className="copilotKitMessages flex flex-col"
+          >
+            {rendered}
+            {interruptElement}
+          </div>
+        );
+      }}
+    </CopilotChatMessageView>
+  );
+}
+
+const CodexMessageViewSlot = Object.assign(CodexMessageView, {
+  Cursor: CopilotChatMessageView.Cursor,
+}) as typeof CopilotChatMessageView;
 
 function isRuntimeRunning(lifecycle: string | undefined): boolean {
   return lifecycle === "starting" || lifecycle === "running";
@@ -535,6 +828,7 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
             <CopilotChat
               agentId="codex"
               className="h-full"
+              messageView={CodexMessageViewSlot}
               labels={{
                 chatInputPlaceholder: "Ask Codex",
                 modalHeaderTitle: "Codex",
