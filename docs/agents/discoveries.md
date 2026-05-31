@@ -7,6 +7,12 @@ but too specific for the root `AGENTS.md` map.
 - Keep TypeScript pinned to 5.9.x for now. The workspace shares one TypeScript
   version across `apps/web` and `apps/desktop`, and `openapi-typescript@7.13.0`
   still declares a `^5.x` TypeScript peer.
+- Keep `eslint-plugin-react-hooks` pinned to `7.0.1` until existing frontend
+  patterns are cleaned up. `7.1.1` enables stricter ref/effect rules that fail
+  current web lint in unrelated components.
+- Keep `material-icon-theme` pinned at `5.33.1` until its dependency graph is
+  reviewed. Updating to `5.35.0` pulls old `biome`/`request` transitives and
+  adds critical Bun audit findings.
 - `code-server` release handling needs two HTTP client modes: `/releases/latest`
   must disable redirects so version parsing can read the `Location` header, but
   release asset downloads must follow redirects or the extractor will read
