@@ -42,6 +42,12 @@ run web scripts with `bun run --filter hubris-web ...`. The Bun workspace
 manifest and `bun.lock` live at the repo root; there is no `package-lock.json`
 or `pnpm-lock.yaml`.
 
+**IMPORTANT: Desktop packaging currently avoids Node 24.16+.** With Node
+24.16.0, Electron Packager 18.4.4 can exit successfully during Electron template
+extraction before creating `dist/`. Node 24.15.0 has been verified for
+`mise run build:desktop`; keep the mise Node pin there until the packaging
+toolchain is upgraded and verified.
+
 **IMPORTANT: Do not put `sources` on long-running dev tasks.** Current mise uses
 `sources` as a run cache gate, so `mise run dev:server:raw` can print
 `sources up-to-date, skipping` instead of launching the server. Put file watch

@@ -1,6 +1,7 @@
 [tools]
 rust = "latest"
 bun = "latest"
+node = "24.15.0"
 "github:mitsuhiko/systemfd" = "latest"
 zig = "latest"
 cargo-binstall = "latest"
