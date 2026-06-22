@@ -1,0 +1,57 @@
+pre-commit:
+  parallel: false
+  commands:
+    full-check:
+      skip:
+        - run: 'test "${HUBRIS_PRECOMMIT_FULL:-}" != "1"'
+      run: mise run check
+
+    whitespace:
+      skip:
+        - run: 'test "${HUBRIS_PRECOMMIT_FULL:-}" = "1"'
+      run: git diff --cached --check
+
+    shell-syntax:
+      glob:
+        - "**/*.sh"
+        - "**/*.bash"
+        - ".mise/tasks/*"
+      skip:
+        - run: 'test "${HUBRIS_PRECOMMIT_FULL:-}" = "1"'
+      run: for file in {staged_files}; do bash -n "$file"; done
+
+    server:
+      glob:
+        - "*.rs"
+        - "Cargo.toml"
+        - "Cargo.lock"
+        - "rustfmt.toml"
+        - ".sqlx/**"
+        - "apps/server/**"
+      skip:
+        - run: 'test "${HUBRIS_PRECOMMIT_FULL:-}" = "1"'
+      run: mise run check:server
+
+    web:
+      glob:
+        - "package.json"
+        - "bun.lock"
+        - "apps/web/**"
+      skip:
+        - run: 'test "${HUBRIS_PRECOMMIT_FULL:-}" = "1"'
+      run: mise run check:web
+
+    desktop:
+      glob:
+        - "package.json"
+        - "bun.lock"
+        - "apps/desktop/**"
+      skip:
+        - run: 'test "${HUBRIS_PRECOMMIT_FULL:-}" = "1"'
+      run: mise run check:desktop
+
+    markdown:
+      glob: "**/*.md"
+      skip:
+        - run: 'test "${HUBRIS_PRECOMMIT_FULL:-}" = "1"'
+      run: mise run check:markdown

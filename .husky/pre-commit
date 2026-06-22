@@ -1,5 +1,0 @@
-if [ "${HUBRIS_PRECOMMIT_FULL:-}" = "1" ]; then
-  mise run check
-else
-  bun run precommit
-fi
