@@ -52,6 +52,14 @@ type ChatStoreSnapshot = Parameters<typeof selectChatTimelineIds>[0];
 
 type ActivityMessage = Extract<Message, { role: "activity" }>;
 type ReasoningMessage = Extract<Message, { role: "reasoning" }>;
+type WorkMessage = ActivityMessage | ReasoningMessage;
+
+type WorkMessageBlock = {
+  message: ReasoningMessage;
+  activities: ActivityMessage[];
+  workMessages: WorkMessage[];
+  nextIndex: number;
+};
 
 type CodexActivityContent = {
   id?: string;
@@ -462,21 +470,61 @@ function isReasoningMessage(message: Message): message is ReasoningMessage {
   return message.role === "reasoning";
 }
 
-function collectFollowingActivities(
+function isWorkMessage(message: Message): message is WorkMessage {
+  return isReasoningMessage(message) || isActivityMessage(message);
+}
+
+function collectFollowingWorkMessages(
   messages: readonly Message[],
   startIndex: number,
-): { activities: ActivityMessage[]; nextIndex: number } {
+): {
+  activities: ActivityMessage[];
+  reasonings: ReasoningMessage[];
+  workMessages: WorkMessage[];
+  nextIndex: number;
+} {
   const activities: ActivityMessage[] = [];
+  const reasonings: ReasoningMessage[] = [];
+  const workMessages: WorkMessage[] = [];
   let index = startIndex;
   while (index < messages.length) {
     const message = messages[index];
-    if (!message || !isActivityMessage(message)) {
+    if (!message || !isWorkMessage(message)) {
       break;
     }
-    activities.push(message);
+    workMessages.push(message);
+    if (isReasoningMessage(message)) {
+      reasonings.push(message);
+    } else {
+      activities.push(message);
+    }
     index += 1;
   }
-  return { activities, nextIndex: index };
+  return { activities, reasonings, workMessages, nextIndex: index };
+}
+
+function codexWorkBlock(
+  messages: readonly Message[],
+  startIndex: number,
+): WorkMessageBlock {
+  const { activities, reasonings, workMessages, nextIndex } =
+    collectFollowingWorkMessages(messages, startIndex);
+  const first = reasonings[0] ?? activities[0];
+  const content = reasonings
+    .map((reasoning) => reasoning.content.trim())
+    .filter(Boolean)
+    .join("\n\n");
+
+  return {
+    message: {
+      id: first?.id ? `work-reasoning-${first.id}` : "work-reasoning-pending",
+      role: "reasoning",
+      content: content || " ",
+    },
+    activities,
+    workMessages,
+    nextIndex,
+  };
 }
 
 function elementForMessage(
@@ -508,6 +556,7 @@ function CodexActivityList({
 
 function CodexReasoningContent({
   activities,
+  workMessages,
   isStreaming,
   hasContent,
   className,
@@ -515,13 +564,20 @@ function CodexReasoningContent({
   ...props
 }: {
   activities: readonly ActivityMessage[];
+  workMessages?: readonly WorkMessage[];
   isStreaming?: boolean;
   hasContent?: boolean;
   className?: string;
   children?: React.ReactNode;
 }) {
+  const { renderActivityMessage } = useRenderActivityMessage();
   const content = typeof children === "string" ? children : "";
-  const hasReasoningContent = hasContent && content.trim().length > 0;
+  const hasWorkContent =
+    workMessages?.some((message) =>
+      isReasoningMessage(message) ? message.content.trim().length > 0 : true,
+    ) ?? false;
+  const hasReasoningContent =
+    (hasContent && content.trim().length > 0) || hasWorkContent;
 
   if (!hasReasoningContent && activities.length === 0 && !isStreaming) {
     return null;
@@ -530,10 +586,26 @@ function CodexReasoningContent({
   return (
     <div className={`pb-2 pt-1 ${className ?? ""}`} {...props}>
       <div className="text-sm text-muted-foreground">
-        {hasReasoningContent ? (
+        {workMessages ? (
+          <div className="space-y-3">
+            {workMessages.map((message) =>
+              isReasoningMessage(message) ? (
+                message.content.trim().length > 0 ? (
+                  <div key={message.id}>
+                    <CopilotChatAssistantMessage.MarkdownRenderer
+                      content={message.content}
+                    />
+                  </div>
+                ) : null
+              ) : (
+                <div key={message.id}>{renderActivityMessage(message)}</div>
+              ),
+            )}
+          </div>
+        ) : hasReasoningContent ? (
           <CopilotChatAssistantMessage.MarkdownRenderer content={content} />
         ) : null}
-        <CodexActivityList activities={activities} />
+        {workMessages ? null : <CodexActivityList activities={activities} />}
         {isStreaming && hasReasoningContent ? (
           <span className="ml-1 inline-flex items-center align-middle">
             <span className="h-2 w-2 rounded-full bg-muted-foreground" />
@@ -549,11 +621,13 @@ function CodexReasoningMessage({
   messages,
   isRunning,
   activities,
+  workMessages,
 }: {
   message: ReasoningMessage;
-  messages: Message[];
+  messages: readonly Message[];
   isRunning?: boolean;
   activities: readonly ActivityMessage[];
+  workMessages?: readonly WorkMessage[];
 }) {
   const displayMessage =
     activities.length > 0 && message.content.length === 0
@@ -562,63 +636,50 @@ function CodexReasoningMessage({
   const contentView = useMemo(
     () =>
       function CodexReasoningContentSlot(
-        props: Omit<Parameters<typeof CodexReasoningContent>[0], "activities">,
+        props: Omit<
+          Parameters<typeof CodexReasoningContent>[0],
+          "activities" | "workMessages"
+        >,
       ) {
-        return <CodexReasoningContent {...props} activities={activities} />;
+        return (
+          <CodexReasoningContent
+            {...props}
+            activities={activities}
+            workMessages={workMessages}
+          />
+        );
       },
-    [activities],
+    [activities, workMessages],
   );
 
   return (
     <CopilotChatReasoningMessage
       message={displayMessage}
-      messages={messages}
+      messages={isRunning ? [...messages, displayMessage] : [...messages]}
       isRunning={isRunning}
       contentView={contentView}
     />
   );
 }
 
-function CodexActivityGroup({
-  activities,
-  messages,
-  isRunning,
-}: {
-  activities: readonly ActivityMessage[];
-  messages: Message[];
-  isRunning?: boolean;
-}) {
-  if (activities.length === 0) {
-    return null;
-  }
-
-  const message = {
-    id: `activity-reasoning-${activities[0]?.id ?? "unknown"}`,
-    role: "reasoning",
-    content: " ",
-  } as ReasoningMessage;
-
+function CodexTimelineLane({ children }: { children: React.ReactNode }) {
   return (
-    <CodexReasoningMessage
-      message={message}
-      messages={messages}
-      isRunning={isRunning}
-      activities={activities}
-    />
+    <div className="cpk:mx-auto cpk:w-full cpk:max-w-3xl cpk:px-4">
+      {children}
+    </div>
   );
 }
 
 function CodexMessageView({
   messages = [],
   isRunning = false,
+  hubrisIsRunning = false,
   ...props
-}: CopilotChatMessageViewProps) {
+}: CopilotChatMessageViewProps & { hubrisIsRunning?: boolean }) {
+  const running = isRunning || hubrisIsRunning;
+
   return (
-    <CopilotChatMessageView
-      messages={messages}
-      isRunning={isRunning}
-      {...props}
-    >
+    <CopilotChatMessageView messages={messages} isRunning={running} {...props}>
       {({ messageElements, interruptElement }) => {
         const elementsByMessageId = new Map<string, ReactElement>();
         for (const element of messageElements) {
@@ -631,60 +692,35 @@ function CodexMessageView({
         for (let index = 0; index < messages.length; index += 1) {
           const message = messages[index];
 
-          if (isReasoningMessage(message)) {
-            const { activities, nextIndex } = collectFollowingActivities(
-              messages,
-              index + 1,
-            );
-            if (message.content.trim().length > 0 || activities.length > 0) {
-              rendered.push(
-                <CodexReasoningMessage
-                  key={message.id}
-                  message={message}
-                  messages={messages}
-                  isRunning={isRunning}
-                  activities={activities}
-                />,
-              );
+          if (isWorkMessage(message)) {
+            const {
+              message: workMessage,
+              activities,
+              workMessages,
+              nextIndex,
+            } = codexWorkBlock(messages, index);
+            const isStreaming = running && nextIndex >= messages.length;
+            const displayWorkMessage =
+              isStreaming && workMessage.content.trim().length === 0
+                ? { ...workMessage, content: "Thinking..." }
+                : workMessage;
+            if (
+              displayWorkMessage.content.trim().length === 0 &&
+              activities.length === 0
+            ) {
               index = nextIndex - 1;
               continue;
             }
-          }
-
-          if (isActivityMessage(message)) {
-            const { activities, nextIndex } = collectFollowingActivities(
-              messages,
-              index,
-            );
-            const nextMessage = messages[nextIndex];
-            if (
-              nextMessage &&
-              isReasoningMessage(nextMessage) &&
-              nextMessage.content.trim().length > 0
-            ) {
-              const following = collectFollowingActivities(
-                messages,
-                nextIndex + 1,
-              );
-              rendered.push(
-                <CodexReasoningMessage
-                  key={nextMessage.id}
-                  message={nextMessage}
-                  messages={messages}
-                  isRunning={isRunning}
-                  activities={[...activities, ...following.activities]}
-                />,
-              );
-              index = following.nextIndex - 1;
-              continue;
-            }
             rendered.push(
-              <CodexActivityGroup
-                key={`activity-group-${message.id}`}
-                activities={activities}
-                messages={messages}
-                isRunning={isRunning}
-              />,
+              <CodexTimelineLane key={displayWorkMessage.id}>
+                <CodexReasoningMessage
+                  message={displayWorkMessage}
+                  messages={messages}
+                  isRunning={isStreaming}
+                  activities={activities}
+                  workMessages={workMessages}
+                />
+              </CodexTimelineLane>,
             );
             index = nextIndex - 1;
             continue;
@@ -692,15 +728,36 @@ function CodexMessageView({
 
           const element = elementForMessage(elementsByMessageId, message);
           if (element) {
-            rendered.push(element);
+            rendered.push(
+              <CodexTimelineLane key={message.id}>{element}</CodexTimelineLane>,
+            );
           }
+        }
+
+        const latestMessage = messages.at(-1);
+        if (running && latestMessage?.role === "user") {
+          const message = {
+            id: `work-reasoning-pending-${latestMessage.id}`,
+            role: "reasoning",
+            content: "Thinking...",
+          } as ReasoningMessage;
+          rendered.push(
+            <CodexTimelineLane key={message.id}>
+              <CodexReasoningMessage
+                message={message}
+                messages={messages}
+                isRunning
+                activities={[]}
+              />
+            </CodexTimelineLane>,
+          );
         }
 
         return (
           <div
             data-copilotkit
             data-testid="copilot-message-list"
-            className="copilotKitMessages flex flex-col"
+            className="copilotKitMessages cpk:flex cpk:flex-col"
           >
             {rendered}
             {interruptElement}
@@ -711,9 +768,15 @@ function CodexMessageView({
   );
 }
 
-const CodexMessageViewSlot = Object.assign(CodexMessageView, {
-  Cursor: CopilotChatMessageView.Cursor,
-}) as typeof CopilotChatMessageView;
+function codexMessageViewSlot(hubrisIsRunning: boolean) {
+  function CodexMessageViewWithHubrisState(props: CopilotChatMessageViewProps) {
+    return <CodexMessageView {...props} hubrisIsRunning={hubrisIsRunning} />;
+  }
+
+  return Object.assign(CodexMessageViewWithHubrisState, {
+    Cursor: CopilotChatMessageView.Cursor,
+  }) as typeof CopilotChatMessageView;
+}
 
 function isRuntimeRunning(lifecycle: string | undefined): boolean {
   return lifecycle === "starting" || lifecycle === "running";
@@ -726,6 +789,12 @@ function CopilotChatHeader({
   conversationId: string;
   label: string;
 }) {
+  const copilotKitThemeMode = useChatUiStyle(
+    (state) => state.copilotKitThemeMode,
+  );
+  const setCopilotKitThemeMode = useChatUiStyle(
+    (state) => state.setCopilotKitThemeMode,
+  );
   const setStyle = useChatUiStyle((state) => state.setStyle);
   const { hasStreamingMessage, runtime } = useChatStore(
     useShallow((state) => selectChatHeaderSlice(state, conversationId)),
@@ -746,14 +815,32 @@ function CopilotChatHeader({
           </div>
         </div>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => setStyle("classic")}
-      >
-        Classic
-      </Button>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          type="button"
+          variant={copilotKitThemeMode === "hubris" ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => setCopilotKitThemeMode("hubris")}
+        >
+          Hubris colors
+        </Button>
+        <Button
+          type="button"
+          variant={copilotKitThemeMode === "stock" ? "secondary" : "ghost"}
+          size="sm"
+          onClick={() => setCopilotKitThemeMode("stock")}
+        >
+          Stock
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setStyle("classic")}
+        >
+          Classic
+        </Button>
+      </div>
     </div>
   );
 }
@@ -776,6 +863,13 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
     (state) => state.refreshConversation,
   );
   const interruptRun = useChatStore((state) => state.interruptRun);
+  const copilotKitThemeMode = useChatUiStyle(
+    (state) => state.copilotKitThemeMode,
+  );
+  const { hasStreamingMessage, runtime } = useChatStore(
+    useShallow((state) => selectChatHeaderSlice(state, conversationId)),
+  );
+  const running = isRuntimeRunning(runtime?.lifecycle) || hasStreamingMessage;
 
   useEffect(() => {
     if (!visible) {
@@ -810,12 +904,14 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
     [conversation?.title, conversationId, initialMessages, tab.label],
   );
   const agents = useMemo(() => ({ codex: agent }), [agent]);
+  const messageView = useMemo(() => codexMessageViewSlot(running), [running]);
 
   return (
     <div
       className="flex h-full min-h-0 flex-col bg-background"
       data-testid="agent-chat-tab"
       data-chat-ui-style="copilotkit"
+      data-copilotkit-theme={copilotKitThemeMode}
       aria-label="Codex chat tab"
     >
       <CopilotChatHeader conversationId={conversationId} label={tab.label} />
@@ -828,7 +924,7 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
             <CopilotChat
               agentId="codex"
               className="h-full"
-              messageView={CodexMessageViewSlot}
+              messageView={messageView}
               labels={{
                 chatInputPlaceholder: "Ask Codex",
                 modalHeaderTitle: "Codex",

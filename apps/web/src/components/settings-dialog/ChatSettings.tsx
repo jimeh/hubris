@@ -14,7 +14,13 @@ export default function ChatSettings() {
   const updateSettings = useChatSettings((state) => state.updateSettings);
   const writesBlocked = useSettingsStore((state) => state.status.writesBlocked);
   const chatUiStyle = useChatUiStyle((state) => state.style);
+  const copilotKitThemeMode = useChatUiStyle(
+    (state) => state.copilotKitThemeMode,
+  );
   const setChatUiStyle = useChatUiStyle((state) => state.setStyle);
+  const setCopilotKitThemeMode = useChatUiStyle(
+    (state) => state.setCopilotKitThemeMode,
+  );
 
   return (
     <section className="space-y-3">
@@ -40,6 +46,27 @@ export default function ChatSettings() {
             onClick={() => setChatUiStyle("copilotkit")}
           >
             CopilotKit
+          </Button>
+        </div>
+      </div>
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          CopilotKit Theme
+        </Label>
+        <div className="flex flex-wrap gap-1">
+          <Button
+            variant={copilotKitThemeMode === "hubris" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setCopilotKitThemeMode("hubris")}
+          >
+            Hubris colors
+          </Button>
+          <Button
+            variant={copilotKitThemeMode === "stock" ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setCopilotKitThemeMode("stock")}
+          >
+            Stock
           </Button>
         </div>
       </div>
