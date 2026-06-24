@@ -1,0 +1,8 @@
+copy = [
+    ".gitnexus",
+    "tmp/data/projects.json",
+    "tmp/data/settings.toml",
+    "tmp/data/project-meta",
+]
+
+commands = ["mise run setup", "mise run gitnexus:analyze"]

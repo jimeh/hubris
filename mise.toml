@@ -1,69 +1,68 @@
+# ------------------------------------------------------------------------------
+# Settings
+# ------------------------------------------------------------------------------
+
+[settings]
+lockfile = true
+minimum_release_age = "3d"
+minimum_release_age_excludes = ["github:jimeh/treeboot"]
+
+[settings.npm]
+package_manager = "bun"
+
+[settings.task]
+run_auto_install = true
+
+# ------------------------------------------------------------------------------
+# Tools
+# ------------------------------------------------------------------------------
+
 [tools]
-rust = "latest"
-bun = "latest"
-node = "24.15.0"
+"github:jimeh/treeboot" = "latest"
 "github:mitsuhiko/systemfd" = "latest"
-zig = "latest"
+"npm:react-doctor" = "latest"
+bun = "latest"
 cargo-binstall = "latest"
-"npm:gitnexus" = "latest"
+node = "24"
 portless = "latest"
+rust = "latest"
+sccache = "latest"
+zig = "latest"
 
-[tasks.build]
-depends = ["build:web", "build:server"]
-description = "Build web app + server (release)"
+[tools."npm:gitnexus"]
+version = "latest"
+bun_args = "--trust"
 
-[tasks."build:web"]
-run = ["bun install", "bun run --filter hubris-web build"]
-description = "Install deps and build web app"
+# ------------------------------------------------------------------------------
+# Environment settings
+# ------------------------------------------------------------------------------
 
-[tasks."build:server"]
-depends = ["build:web"]
-run = "cargo build --release --features embed-frontend"
-description = "Build server binary (release)"
+[env]
+RUSTC_WRAPPER = "sccache"
 
-[tasks."build:desktop-runtime"]
-run = "cargo build --release --bin hubris-desktop-runtime"
-description = "Build the desktop runtime binary (release)"
+# ------------------------------------------------------------------------------
+# Tasks
+# ------------------------------------------------------------------------------
 
-[tasks."build:server:linux-x64"]
-depends = ["build:web"]
-run = ".mise/tasks/build-rust-target hubris-server x86_64-unknown-linux-gnu --features embed-frontend"
-description = "Build the standalone server for Linux x64"
+# Bootstrap
 
-[tasks."build:server:linux-arm64"]
-depends = ["build:web"]
-run = ".mise/tasks/build-rust-target hubris-server aarch64-unknown-linux-gnu --features embed-frontend"
-description = "Build the standalone server for Linux arm64"
+[tasks.setup]
+run = ["mise run setup:web", "mise run setup:server", "mise run hooks:install"]
+description = "Install all dependencies"
 
-[tasks."build:server:macos-x64"]
-depends = ["build:web"]
-run = ".mise/tasks/build-rust-target hubris-server x86_64-apple-darwin --features embed-frontend"
-description = "Build the standalone server for macOS x64"
+[tasks."setup:web"]
+run = "bun install"
+description = "Install web dependencies"
 
-[tasks."build:server:macos-arm64"]
-depends = ["build:web"]
-run = ".mise/tasks/build-rust-target hubris-server aarch64-apple-darwin --features embed-frontend"
-description = "Build the standalone server for macOS arm64"
+[tasks."setup:server"]
+run = ["cargo fetch", ".mise/tasks/ensure-sqlx-cli"]
+description = "Fetch server dependencies"
 
-[tasks."build:desktop-runtime:macos-x64"]
-run = ".mise/tasks/build-rust-target hubris-desktop-runtime x86_64-apple-darwin"
-description = "Build the desktop runtime for macOS x64"
+[tasks.treeboot]
+description = "Bootstrap the current worktree with treeboot"
+run = "treeboot"
 
-[tasks."build:desktop-runtime:macos-arm64"]
-run = ".mise/tasks/build-rust-target hubris-desktop-runtime aarch64-apple-darwin"
-description = "Build the desktop runtime for macOS arm64"
-
-[tasks."build:desktop"]
-run = ".mise/tasks/build-desktop-native"
-description = "Build the Electron desktop app"
-
-[tasks."build:desktop:macos-x64"]
-run = ".mise/tasks/build-desktop-target darwin x64 x86_64-apple-darwin"
-description = "Build the Electron desktop app for macOS x64"
-
-[tasks."build:desktop:macos-arm64"]
-run = ".mise/tasks/build-desktop-target darwin arm64 aarch64-apple-darwin"
-description = "Build the Electron desktop app for macOS arm64"
+# Development
 
 [tasks."dev:server"]
 run = '''systemfd --no-pid -s http::0 -- watchexec --restart \
@@ -105,6 +104,67 @@ description = "Run server + web dev processes behind portless"
 run = ".mise/tasks/dev-desktop"
 description = "Run the Electron desktop app in dev mode"
 
+# Builds
+
+[tasks.build]
+depends = ["build:web", "build:server"]
+description = "Build web app + server (release)"
+
+[tasks."build:web"]
+run = ["bun install", "bun run --filter hubris-web build"]
+description = "Install deps and build web app"
+
+[tasks."build:server"]
+depends = ["build:web"]
+run = "cargo build --release --features embed-frontend"
+description = "Build server binary (release)"
+
+[tasks."build:server:linux-x64"]
+depends = ["build:web"]
+run = ".mise/tasks/build-rust-target hubris-server x86_64-unknown-linux-gnu --features embed-frontend"
+description = "Build the standalone server for Linux x64"
+
+[tasks."build:server:linux-arm64"]
+depends = ["build:web"]
+run = ".mise/tasks/build-rust-target hubris-server aarch64-unknown-linux-gnu --features embed-frontend"
+description = "Build the standalone server for Linux arm64"
+
+[tasks."build:server:macos-x64"]
+depends = ["build:web"]
+run = ".mise/tasks/build-rust-target hubris-server x86_64-apple-darwin --features embed-frontend"
+description = "Build the standalone server for macOS x64"
+
+[tasks."build:server:macos-arm64"]
+depends = ["build:web"]
+run = ".mise/tasks/build-rust-target hubris-server aarch64-apple-darwin --features embed-frontend"
+description = "Build the standalone server for macOS arm64"
+
+[tasks."build:desktop-runtime"]
+run = "cargo build --release --bin hubris-desktop-runtime"
+description = "Build the desktop runtime binary (release)"
+
+[tasks."build:desktop-runtime:macos-x64"]
+run = ".mise/tasks/build-rust-target hubris-desktop-runtime x86_64-apple-darwin"
+description = "Build the desktop runtime for macOS x64"
+
+[tasks."build:desktop-runtime:macos-arm64"]
+run = ".mise/tasks/build-rust-target hubris-desktop-runtime aarch64-apple-darwin"
+description = "Build the desktop runtime for macOS arm64"
+
+[tasks."build:desktop"]
+run = ".mise/tasks/build-desktop-native"
+description = "Build the Electron desktop app"
+
+[tasks."build:desktop:macos-x64"]
+run = ".mise/tasks/build-desktop-target darwin x64 x86_64-apple-darwin"
+description = "Build the Electron desktop app for macOS x64"
+
+[tasks."build:desktop:macos-arm64"]
+run = ".mise/tasks/build-desktop-target darwin arm64 aarch64-apple-darwin"
+description = "Build the Electron desktop app for macOS arm64"
+
+# Checks
+
 [tasks."check:desktop"]
 run = [
   "bun run --filter hubris-desktop lint",
@@ -137,6 +197,8 @@ depends = ["check:server", "check:web", "check:desktop", "check:markdown"]
 description = "Alias for check"
 depends = ["check"]
 
+# Formatting
+
 [tasks."format:server"]
 description = "Format server Rust code"
 run = "cargo fmt --all"
@@ -152,6 +214,8 @@ description = "Format Markdown files"
 [tasks.format]
 description = "Format all code"
 depends = ["format:server", "format:web", "format:markdown"]
+
+# Tests
 
 [tasks."test:web"]
 run = [
@@ -188,13 +252,7 @@ run = ["docker build -f Dockerfile.test -t hubris-test .", '''docker run --rm \
 description = "Run all tests"
 run = ["mise run test:server", "mise run test:web", "mise run test:desktop"]
 
-[tasks."setup:web"]
-run = "bun install"
-description = "Install web dependencies"
-
-[tasks."setup:server"]
-run = ["cargo fetch", ".mise/tasks/ensure-sqlx-cli"]
-description = "Fetch server dependencies"
+# Database
 
 [tasks."sqlx:prepare"]
 run = ".mise/tasks/sqlx-prepare"
@@ -204,13 +262,13 @@ description = "Refresh checked-in sqlx offline metadata"
 run = ".mise/tasks/sqlx-prepare-check"
 description = "Check sqlx offline metadata is current"
 
+# Git hooks
+
 [tasks."hooks:install"]
 run = "bun run prepare"
 description = "Install Husky-managed Git hooks"
 
-[tasks.setup]
-run = ["mise run setup:web", "mise run setup:server", "mise run hooks:install"]
-description = "Install all dependencies"
+# Project tooling
 
 [tasks."gitnexus:analyze"]
 run = [
