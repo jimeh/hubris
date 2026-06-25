@@ -1,13 +1,13 @@
 # Dev Environment Gotchas
 
-- **Git hooks are Husky-managed**: `mise run setup` runs `hooks:install`, which
-  delegates to the root `prepare` script. The pre-commit hook runs lint-staged,
-  which checks staged whitespace, syntax-checks staged shell scripts, and
-  selects `check:server`, `check:web`, `check:desktop`, and/or `check:markdown`
-  from staged paths. Use `HUBRIS_PRECOMMIT_FULL=1` to force `mise run check`
-  from the hook, or Git's `--no-verify` after manually running relevant checks.
-  Hook installation is skipped when `CI=true`, `NODE_ENV=production`, or
-  `HUSKY=0`.
+- **Git hooks are Lefthook-managed**: `mise run setup` runs `hooks:install`,
+  which installs hooks with the mise-managed `lefthook` tool and resets any
+  stale Husky `core.hooksPath`. The pre-commit hook checks staged whitespace,
+  syntax-checks staged shell scripts, and selects `check:server`, `check:web`,
+  `check:desktop`, and/or `check:markdown` from staged paths. Use
+  `HUBRIS_PRECOMMIT_FULL=1` to force `mise run check` from the hook, or Git's
+  `--no-verify` after manually running relevant checks. Use `LEFTHOOK=0` to
+  disable Lefthook for a one-off Git command.
 - **Dev task wrapper defaults to portless web**: `.mise/tasks/dev` generates
   random `HUBRIS_DEV_ID`, sets `HUBRIS_DEV_TMP`, and runs backend plus
   `dev:web:portless` in parallel. Use `mise run dev:raw` for the old full-stack

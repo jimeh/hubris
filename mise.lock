@@ -67,7 +67,17 @@ checksum = "sha256:f12954bc382e1d0b2df3fbfb217a05d92c25570e4517841e0613499a24f45
 url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.20.1/cargo-binstall-x86_64-unknown-linux-musl.tgz"
 provenance = "github-attestations"
 
+[tools.cargo-binstall."platforms.linux-x64-baseline"]
+checksum = "sha256:f12954bc382e1d0b2df3fbfb217a05d92c25570e4517841e0613499a24f4594e"
+url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.20.1/cargo-binstall-x86_64-unknown-linux-musl.tgz"
+provenance = "github-attestations"
+
 [tools.cargo-binstall."platforms.linux-x64-musl"]
+checksum = "sha256:f12954bc382e1d0b2df3fbfb217a05d92c25570e4517841e0613499a24f4594e"
+url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.20.1/cargo-binstall-x86_64-unknown-linux-musl.tgz"
+provenance = "github-attestations"
+
+[tools.cargo-binstall."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:f12954bc382e1d0b2df3fbfb217a05d92c25570e4517841e0613499a24f4594e"
 url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.20.1/cargo-binstall-x86_64-unknown-linux-musl.tgz"
 provenance = "github-attestations"
@@ -82,7 +92,17 @@ checksum = "sha256:349f5ec5f8b996e990993c90c504211321d8bf839e11e409e8fa3b628eefc
 url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.20.1/cargo-binstall-x86_64-apple-darwin.zip"
 provenance = "github-attestations"
 
+[tools.cargo-binstall."platforms.macos-x64-baseline"]
+checksum = "sha256:349f5ec5f8b996e990993c90c504211321d8bf839e11e409e8fa3b628eefc56f"
+url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.20.1/cargo-binstall-x86_64-apple-darwin.zip"
+provenance = "github-attestations"
+
 [tools.cargo-binstall."platforms.windows-x64"]
+checksum = "sha256:89123c22482e2503a5fa861fa30cd61c59c708a97e8550143c1a11de98ae2658"
+url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.20.1/cargo-binstall-x86_64-pc-windows-msvc.zip"
+provenance = "github-attestations"
+
+[tools.cargo-binstall."platforms.windows-x64-baseline"]
 checksum = "sha256:89123c22482e2503a5fa861fa30cd61c59c708a97e8550143c1a11de98ae2658"
 url = "https://github.com/cargo-bins/cargo-binstall/releases/download/v1.20.1/cargo-binstall-x86_64-pc-windows-msvc.zip"
 provenance = "github-attestations"
@@ -90,6 +110,72 @@ provenance = "github-attestations"
 [[tools."github:jimeh/treeboot"]]
 version = "0.4.1"
 backend = "github:jimeh/treeboot"
+
+[tools."github:jimeh/treeboot"."platforms.linux-arm64"]
+checksum = "sha256:db516c0079ad3ab512aff5850aa0a78ee15334d052a3134edf0a0ff4a3357c9d"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182968"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.linux-arm64-musl"]
+checksum = "sha256:db516c0079ad3ab512aff5850aa0a78ee15334d052a3134edf0a0ff4a3357c9d"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182968"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.linux-x64"]
+checksum = "sha256:e4c288e00ca2ebc3c49f9a8bfe22fd3c7b03524213d8622663d0bbb6e475f6a1"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182987"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.linux-x64-baseline"]
+checksum = "sha256:e4c288e00ca2ebc3c49f9a8bfe22fd3c7b03524213d8622663d0bbb6e475f6a1"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182987"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.linux-x64-musl"]
+checksum = "sha256:e4c288e00ca2ebc3c49f9a8bfe22fd3c7b03524213d8622663d0bbb6e475f6a1"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182987"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.linux-x64-musl-baseline"]
+checksum = "sha256:e4c288e00ca2ebc3c49f9a8bfe22fd3c7b03524213d8622663d0bbb6e475f6a1"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182987"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.macos-arm64"]
+checksum = "sha256:79343d7884d4a4d0b9d6929259953d8b7b83d01edd08261f34750a53fd25dfda"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182954"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.macos-x64"]
+checksum = "sha256:5acddd4947535fe7b7317faf6586ee2847a9cf7503f102c3bfcfb7f92d4f0ba3"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182982"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.macos-x64-baseline"]
+checksum = "sha256:5acddd4947535fe7b7317faf6586ee2847a9cf7503f102c3bfcfb7f92d4f0ba3"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182982"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.windows-x64"]
+checksum = "sha256:636c376589a8884c8c1a242bbe01160ddd1a24e21921453a6bc4b2ce03c5f29d"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182984"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.windows-x64-baseline"]
+checksum = "sha256:636c376589a8884c8c1a242bbe01160ddd1a24e21921453a6bc4b2ce03c5f29d"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.4.1/treeboot-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/455182984"
+provenance = "github-attestations"
 
 [[tools."github:mitsuhiko/systemfd"]]
 version = "0.4.6"
@@ -110,7 +196,17 @@ checksum = "sha256:4bf7763505d755db4055b8e97d405205dc7b1cf3c7e4635952d9a08515c7c
 url = "https://github.com/mitsuhiko/systemfd/releases/download/0.4.6/systemfd-x86_64-unknown-linux-gnu.tar.xz"
 url_api = "https://api.github.com/repos/mitsuhiko/systemfd/releases/assets/221600954"
 
+[tools."github:mitsuhiko/systemfd"."platforms.linux-x64-baseline"]
+checksum = "sha256:4bf7763505d755db4055b8e97d405205dc7b1cf3c7e4635952d9a08515c7c9d1"
+url = "https://github.com/mitsuhiko/systemfd/releases/download/0.4.6/systemfd-x86_64-unknown-linux-gnu.tar.xz"
+url_api = "https://api.github.com/repos/mitsuhiko/systemfd/releases/assets/221600954"
+
 [tools."github:mitsuhiko/systemfd"."platforms.linux-x64-musl"]
+checksum = "sha256:32a4c1a48580c93affaef23c31ed6ea6afe2afdd2d996af2ef042f1df6ee1953"
+url = "https://github.com/mitsuhiko/systemfd/releases/download/0.4.6/systemfd-x86_64-unknown-linux-musl.tar.xz"
+url_api = "https://api.github.com/repos/mitsuhiko/systemfd/releases/assets/221600956"
+
+[tools."github:mitsuhiko/systemfd"."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:32a4c1a48580c93affaef23c31ed6ea6afe2afdd2d996af2ef042f1df6ee1953"
 url = "https://github.com/mitsuhiko/systemfd/releases/download/0.4.6/systemfd-x86_64-unknown-linux-musl.tar.xz"
 url_api = "https://api.github.com/repos/mitsuhiko/systemfd/releases/assets/221600956"
@@ -125,10 +221,79 @@ checksum = "sha256:2a7d6775c8a87124eaa66c772c441212f60f2fb983b5e8995613223740f5e
 url = "https://github.com/mitsuhiko/systemfd/releases/download/0.4.6/systemfd-x86_64-apple-darwin.tar.xz"
 url_api = "https://api.github.com/repos/mitsuhiko/systemfd/releases/assets/221600949"
 
+[tools."github:mitsuhiko/systemfd"."platforms.macos-x64-baseline"]
+checksum = "sha256:2a7d6775c8a87124eaa66c772c441212f60f2fb983b5e8995613223740f5e814"
+url = "https://github.com/mitsuhiko/systemfd/releases/download/0.4.6/systemfd-x86_64-apple-darwin.tar.xz"
+url_api = "https://api.github.com/repos/mitsuhiko/systemfd/releases/assets/221600949"
+
 [tools."github:mitsuhiko/systemfd"."platforms.windows-x64"]
 checksum = "sha256:3098ddc24d146f71d75b1c8042e78524d19eb6aacd44baf2e68ab95afbd6764d"
 url = "https://github.com/mitsuhiko/systemfd/releases/download/0.4.6/systemfd-x86_64-pc-windows-msvc.zip"
 url_api = "https://api.github.com/repos/mitsuhiko/systemfd/releases/assets/221600951"
+
+[tools."github:mitsuhiko/systemfd"."platforms.windows-x64-baseline"]
+checksum = "sha256:3098ddc24d146f71d75b1c8042e78524d19eb6aacd44baf2e68ab95afbd6764d"
+url = "https://github.com/mitsuhiko/systemfd/releases/download/0.4.6/systemfd-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/mitsuhiko/systemfd/releases/assets/221600951"
+
+[[tools.lefthook]]
+version = "2.1.9"
+backend = "aqua:evilmartians/lefthook"
+
+[tools.lefthook."platforms.linux-arm64"]
+checksum = "sha256:d1bae1c9c26b35270dd675c93c33cecead885368ed078b3976ec23cdcedd28e8"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_Linux_aarch64.gz"
+provenance = "github-attestations"
+
+[tools.lefthook."platforms.linux-arm64-musl"]
+checksum = "sha256:d1bae1c9c26b35270dd675c93c33cecead885368ed078b3976ec23cdcedd28e8"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_Linux_aarch64.gz"
+provenance = "github-attestations"
+
+[tools.lefthook."platforms.linux-x64"]
+checksum = "sha256:e938f34bd05bafe1155888879a045ef4ee8cf5b4a56c9e5e9b0c2649f295636e"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_Linux_x86_64.gz"
+provenance = "github-attestations"
+
+[tools.lefthook."platforms.linux-x64-baseline"]
+checksum = "sha256:e938f34bd05bafe1155888879a045ef4ee8cf5b4a56c9e5e9b0c2649f295636e"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_Linux_x86_64.gz"
+provenance = "github-attestations"
+
+[tools.lefthook."platforms.linux-x64-musl"]
+checksum = "sha256:e938f34bd05bafe1155888879a045ef4ee8cf5b4a56c9e5e9b0c2649f295636e"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_Linux_x86_64.gz"
+provenance = "github-attestations"
+
+[tools.lefthook."platforms.linux-x64-musl-baseline"]
+checksum = "sha256:e938f34bd05bafe1155888879a045ef4ee8cf5b4a56c9e5e9b0c2649f295636e"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_Linux_x86_64.gz"
+provenance = "github-attestations"
+
+[tools.lefthook."platforms.macos-arm64"]
+checksum = "sha256:808f8ef81a61e01eb41c1a2951e5639804f2372dc6a484bbeff726406745c77f"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_MacOS_arm64.gz"
+provenance = "github-attestations"
+
+[tools.lefthook."platforms.macos-x64"]
+checksum = "sha256:371c3c75cb07a8cdf41295596d3981adc1f92dee7795001f7d471e1f36fe2a0e"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_MacOS_x86_64.gz"
+provenance = "github-attestations"
+
+[tools.lefthook."platforms.macos-x64-baseline"]
+checksum = "sha256:371c3c75cb07a8cdf41295596d3981adc1f92dee7795001f7d471e1f36fe2a0e"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_MacOS_x86_64.gz"
+provenance = "github-attestations"
+
+[tools.lefthook."platforms.windows-x64"]
+checksum = "sha256:1f29681dfbc36b9bdde52139cca6c4668ea4d51fd81e9127a3b78f49369db67e"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_Windows_x86_64.gz"
+provenance = "github-attestations"
+
+[tools.lefthook."platforms.windows-x64-baseline"]
+checksum = "sha256:1f29681dfbc36b9bdde52139cca6c4668ea4d51fd81e9127a3b78f49369db67e"
+url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthook_2.1.9_Windows_x86_64.gz"
+provenance = "github-attestations"
 
 [[tools.node]]
 version = "24.17.0"
@@ -146,7 +311,15 @@ url = "https://unofficial-builds.nodejs.org/download/release/v24.17.0/node-v24.1
 checksum = "sha256:e0472427aa791ad80bdc426ff7cc73cdd28ed0f616d1ff9689a23a7f47f1265f"
 url = "https://nodejs.org/dist/v24.17.0/node-v24.17.0-linux-x64.tar.gz"
 
+[tools.node."platforms.linux-x64-baseline"]
+checksum = "sha256:e0472427aa791ad80bdc426ff7cc73cdd28ed0f616d1ff9689a23a7f47f1265f"
+url = "https://nodejs.org/dist/v24.17.0/node-v24.17.0-linux-x64.tar.gz"
+
 [tools.node."platforms.linux-x64-musl"]
+checksum = "sha256:f884c958c0652f7cd0ea43fdc39dddd1a98456ea9b1adeca85964847e2e39fb0"
+url = "https://unofficial-builds.nodejs.org/download/release/v24.17.0/node-v24.17.0-linux-x64-musl.tar.gz"
+
+[tools.node."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:f884c958c0652f7cd0ea43fdc39dddd1a98456ea9b1adeca85964847e2e39fb0"
 url = "https://unofficial-builds.nodejs.org/download/release/v24.17.0/node-v24.17.0-linux-x64-musl.tar.gz"
 
@@ -158,7 +331,15 @@ url = "https://nodejs.org/dist/v24.17.0/node-v24.17.0-darwin-arm64.tar.gz"
 checksum = "sha256:80da552fe037290cb130e9dea590f5eeeb7aa450636f0c89ab41415511c1ec27"
 url = "https://nodejs.org/dist/v24.17.0/node-v24.17.0-darwin-x64.tar.gz"
 
+[tools.node."platforms.macos-x64-baseline"]
+checksum = "sha256:80da552fe037290cb130e9dea590f5eeeb7aa450636f0c89ab41415511c1ec27"
+url = "https://nodejs.org/dist/v24.17.0/node-v24.17.0-darwin-x64.tar.gz"
+
 [tools.node."platforms.windows-x64"]
+checksum = "sha256:f2aa33b35b75aca5f3f7b85675a6f6423201053e9381911e64961f3bda2528ab"
+url = "https://nodejs.org/dist/v24.17.0/node-v24.17.0-win-x64.zip"
+
+[tools.node."platforms.windows-x64-baseline"]
 checksum = "sha256:f2aa33b35b75aca5f3f7b85675a6f6423201053e9381911e64961f3bda2528ab"
 url = "https://nodejs.org/dist/v24.17.0/node-v24.17.0-win-x64.zip"
 
@@ -197,7 +378,15 @@ url = "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.1
 checksum = "sha256:aec995a83ad3dff3d14b6314e08858b7b73d35ca85a5bcf3d3a9ec07dee35588"
 url = "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.16.0-x86_64-unknown-linux-musl.tar.gz"
 
+[tools.sccache."platforms.linux-x64-baseline"]
+checksum = "sha256:aec995a83ad3dff3d14b6314e08858b7b73d35ca85a5bcf3d3a9ec07dee35588"
+url = "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.16.0-x86_64-unknown-linux-musl.tar.gz"
+
 [tools.sccache."platforms.linux-x64-musl"]
+checksum = "sha256:aec995a83ad3dff3d14b6314e08858b7b73d35ca85a5bcf3d3a9ec07dee35588"
+url = "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.16.0-x86_64-unknown-linux-musl.tar.gz"
+
+[tools.sccache."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:aec995a83ad3dff3d14b6314e08858b7b73d35ca85a5bcf3d3a9ec07dee35588"
 url = "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.16.0-x86_64-unknown-linux-musl.tar.gz"
 
@@ -209,7 +398,15 @@ url = "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.1
 checksum = "sha256:f7dbd055db75a938ab1539f5316c5d08e73a1b94c40ab170ddcc617f5bf18343"
 url = "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.16.0-x86_64-apple-darwin.tar.gz"
 
+[tools.sccache."platforms.macos-x64-baseline"]
+checksum = "sha256:f7dbd055db75a938ab1539f5316c5d08e73a1b94c40ab170ddcc617f5bf18343"
+url = "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.16.0-x86_64-apple-darwin.tar.gz"
+
 [tools.sccache."platforms.windows-x64"]
+checksum = "sha256:c82319cc392b693e9fc72e6567cce47e218308f00fbf1df942e39b62e30f98da"
+url = "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.16.0-x86_64-pc-windows-msvc.tar.gz"
+
+[tools.sccache."platforms.windows-x64-baseline"]
 checksum = "sha256:c82319cc392b693e9fc72e6567cce47e218308f00fbf1df942e39b62e30f98da"
 url = "https://github.com/mozilla/sccache/releases/download/v0.16.0/sccache-v0.16.0-x86_64-pc-windows-msvc.tar.gz"
 
@@ -229,7 +426,15 @@ url = "https://ziglang.org/download/0.16.0/zig-aarch64-linux-0.16.0.tar.xz"
 checksum = "sha256:70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
 url = "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
 
+[tools.zig."platforms.linux-x64-baseline"]
+checksum = "sha256:70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+url = "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
+
 [tools.zig."platforms.linux-x64-musl"]
+checksum = "sha256:70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+url = "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
+
+[tools.zig."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
 url = "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
 
@@ -241,6 +446,14 @@ url = "https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz"
 checksum = "sha256:0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7"
 url = "https://ziglang.org/download/0.16.0/zig-x86_64-macos-0.16.0.tar.xz"
 
+[tools.zig."platforms.macos-x64-baseline"]
+checksum = "sha256:0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7"
+url = "https://ziglang.org/download/0.16.0/zig-x86_64-macos-0.16.0.tar.xz"
+
 [tools.zig."platforms.windows-x64"]
+checksum = "sha256:68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e"
+url = "https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip"
+
+[tools.zig."platforms.windows-x64-baseline"]
 checksum = "sha256:68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e"
 url = "https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip"

@@ -25,6 +25,7 @@ bun = "latest"
 cargo-binstall = "latest"
 node = "24"
 portless = "latest"
+lefthook = "latest"
 rust = "latest"
 sccache = "latest"
 zig = "latest"
@@ -265,8 +266,8 @@ description = "Check sqlx offline metadata is current"
 # Git hooks
 
 [tasks."hooks:install"]
-run = "bun run prepare"
-description = "Install Husky-managed Git hooks"
+run = "lefthook install --reset-hooks-path"
+description = "Install Lefthook-managed Git hooks"
 
 # Project tooling
 

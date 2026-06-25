@@ -20,7 +20,7 @@ mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
 mise run test      # web tests + cargo test
 mise run generate  # run all code generators
-mise run hooks:install  # install Husky-managed pre-commit checks
+mise run hooks:install  # install Lefthook-managed pre-commit checks
 ```
 
 Sub-tasks: `check:server`, `check:web`, `format:server`, `format:web`. `lint` is
@@ -30,11 +30,11 @@ Tools: mise (see `mise.toml`). Packages: Cargo (backend), **bun** (frontend).
 
 **IMPORTANT: Always run `mise run check` before committing or opening PRs.** CI
 runs the same checks — format (`cargo fmt`, `prettier`), lint (`clippy`,
-`eslint`), and type check (`tsc`). `mise run setup` installs Husky-managed Git
-hooks, and the pre-commit hook runs lint-staged checks against staged files. Use
-`HUBRIS_PRECOMMIT_FULL=1 git commit ...` to force the full check lane from the
-hook, or Git's `--no-verify` only when you have already run the relevant checks
-manually.
+`eslint`), and type check (`tsc`). `mise run setup` installs Lefthook-managed
+Git hooks via mise's Lefthook tool, and the pre-commit hook selects checks from
+staged paths. Use `HUBRIS_PRECOMMIT_FULL=1 git commit ...` to force the full
+check lane from the hook, or Git's `--no-verify` only when you have already run
+the relevant checks manually.
 
 **IMPORTANT: The frontend uses bun, NOT npm or pnpm.** All frontend commands
 must use `bun`. Install dependencies from the repo root with `bun install`, and
