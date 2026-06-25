@@ -96,6 +96,12 @@ export default defineConfig(async () => {
         "@": path.resolve("./src"),
         ...(isVitest
           ? {
+              "@copilotkit/react-core/dist/v2/index.css": path.resolve(
+                "./src/test/emptyStyle.ts",
+              ),
+              "@copilotkit/react-core/v2/styles.css": path.resolve(
+                "./src/test/emptyStyle.ts",
+              ),
               "@xterm/xterm/css/xterm.css": path.resolve(
                 "./src/test/emptyStyle.ts",
               ),
@@ -130,6 +136,11 @@ export default defineConfig(async () => {
       globals: true,
       setupFiles: ["./src/test/setup.ts"],
       css: false,
+      server: {
+        deps: {
+          inline: ["@copilotkit/react-core"],
+        },
+      },
       include: ["src/**/*.{test,spec}.{ts,tsx}", "scripts/**/*.test.ts"],
       exclude: [
         "src/lib/components/**",

@@ -1887,6 +1887,10 @@ impl ChatService {
         events: Arc<crate::events::EventBus>,
         settings: Arc<SettingsManager>,
     ) -> std::io::Result<Self> {
+        if let Some(parent) = db_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
         let options = SqliteConnectOptions::new()
             .filename(db_path)
             .create_if_missing(true)
