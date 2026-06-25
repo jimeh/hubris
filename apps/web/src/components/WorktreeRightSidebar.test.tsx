@@ -24,6 +24,10 @@ import {
 } from "@/lib/stores/worktreeFileManager";
 import { resetWorktreeGitStatusViewStoreForTests } from "@/lib/stores/worktreeGitStatusView";
 import {
+  resetSettingsStoreForTests,
+  useSettingsStore,
+} from "@/lib/stores/settings";
+import {
   resetWorktreeStoreForTests,
   useWorktreeStore,
 } from "@/lib/stores/worktrees";
@@ -108,6 +112,7 @@ async function resetStores(): Promise<void> {
   resetWorktreeFileManagerStoreForTests();
   resetWorktreeGitStatusViewStoreForTests();
   resetWorktreeStoreForTests();
+  resetSettingsStoreForTests();
 }
 
 function setElementWidths(
@@ -256,6 +261,15 @@ describe("WorktreeRightSidebar", () => {
       runtimesByConversationId: {},
       detailsByConversationId: {},
     });
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimental: {
+          ...state.settings.experimental,
+          chatEnabled: true,
+        },
+      },
+    }));
 
     render(<WorktreeRightSidebar worktree={worktree} active />);
 
@@ -485,7 +499,6 @@ describe("WorktreeRightSidebar", () => {
         },
       },
     });
-
     render(<WorktreeRightSidebar worktree={worktree} active />);
 
     expect(screen.getByRole("button", { name: /Changes/ })).toHaveTextContent(

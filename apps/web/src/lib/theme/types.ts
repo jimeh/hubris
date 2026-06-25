@@ -129,6 +129,9 @@ export type EditorSettings = RequiredFields<
 export type WorktreeSettings = RequiredFields<
   NonNullable<RestSettings["worktree"]>
 >;
+export type ExperimentalSettings = RequiredFields<
+  NonNullable<RestSettings["experimental"]>
+>;
 export type VscodeSettings = RequiredFields<
   NonNullable<RestSettings["vscode"]>
 >;
@@ -138,6 +141,7 @@ export type Settings = {
   terminal: TerminalSettings;
   editor: EditorSettings;
   worktree: WorktreeSettings;
+  experimental: ExperimentalSettings;
   vscode: VscodeSettings;
   chat: ChatSettings;
 };
@@ -162,6 +166,9 @@ export type EditorSettingsPatch = NullableToOptional<
 export type WorktreeSettingsPatch = NullableToOptional<
   NonNullable<RestSettingsPatch["worktree"]>
 >;
+export type ExperimentalSettingsPatch = NullableToOptional<
+  NonNullable<RestSettingsPatch["experimental"]>
+>;
 export type VscodeSettingsPatch = NullableToOptional<
   NonNullable<RestSettingsPatch["vscode"]>
 >;
@@ -173,6 +180,7 @@ export type SettingsPatch = {
   terminal?: TerminalSettingsPatch;
   editor?: EditorSettingsPatch;
   worktree?: WorktreeSettingsPatch;
+  experimental?: ExperimentalSettingsPatch;
   vscode?: VscodeSettingsPatch;
   chat?: ChatSettingsPatch;
 };

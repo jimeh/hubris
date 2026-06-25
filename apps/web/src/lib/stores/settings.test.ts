@@ -134,6 +134,9 @@ function createSettingsState(
     worktree: Partial<{
       locationMode: "dataDir" | "repoLocalDotHubris";
     }>;
+    experimental: Partial<{
+      chatEnabled: boolean;
+    }>;
     status: typeof okStatus | typeof invalidStatus;
   }>,
 ) {
@@ -165,6 +168,10 @@ function createSettingsState(
       worktree: {
         locationMode: "dataDir" as const,
         ...(overrides?.worktree ?? {}),
+      },
+      experimental: {
+        chatEnabled: false,
+        ...(overrides?.experimental ?? {}),
       },
     },
     generation,

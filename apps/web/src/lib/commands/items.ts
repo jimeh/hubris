@@ -1,6 +1,7 @@
 import { projectForWorktree } from "@/lib/commands/context";
 import { commandIds, getCommandDefinition } from "@/lib/commands/registry";
 import { useChatStore } from "@/lib/stores/chats";
+import { useSettingsStore } from "@/lib/stores/settings";
 import type {
   AnyCommandPaletteItem,
   CommandContextSnapshot,
@@ -48,6 +49,12 @@ function shouldIncludeStaticPaletteCommand(
   id: (typeof STATIC_PALETTE_COMMANDS)[number],
   context: CommandContextSnapshot,
 ) {
+  const chatEnabled =
+    useSettingsStore.getState().settings.experimental.chatEnabled;
+  if (id === "tab.newChat" && !chatEnabled) {
+    return false;
+  }
+
   if (id === "worktree.create" && context.projects.length > 0) {
     return false;
   }
@@ -172,9 +179,12 @@ export function getCommandPaletteItems(
   const selectedWorktreeId = context.selectedWorktree?.id;
   const selectedBranch = context.selectedWorktree?.branch;
   const selectedProjectId = context.selectedWorktree?.project_id;
+  const chatEnabled =
+    useSettingsStore.getState().settings.experimental.chatEnabled;
   const conversations = Object.values(useChatStore.getState().conversationsById)
     .filter(
       (conversation) =>
+        chatEnabled &&
         conversation.archivedAt == null &&
         (!selectedProjectId || conversation.projectId === selectedProjectId) &&
         (conversation.branchName && selectedBranch

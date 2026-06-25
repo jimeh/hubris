@@ -34,6 +34,7 @@ const settingsSections = [
   "Keyboard Shortcuts",
   "VS Code",
   "Worktrees",
+  "Experimental",
 ] as const satisfies readonly SectionName[];
 
 const settingsSectionOptions = settingsSections.map((section) => ({

@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS chat_item_outputs;
+DROP TABLE IF EXISTS chat_reconciliations;
+DROP TABLE IF EXISTS chat_context_usage;
+DROP TABLE IF EXISTS chat_diff_summaries;
+DROP TABLE IF EXISTS chat_plans;
+DROP TABLE IF EXISTS chat_pending_requests;
+DROP TABLE IF EXISTS chat_items;
+DROP TABLE IF EXISTS chat_turns;
+DROP TABLE IF EXISTS chat_runs;
+DROP TABLE IF EXISTS chat_messages;
+DROP TABLE IF EXISTS chat_conversations;

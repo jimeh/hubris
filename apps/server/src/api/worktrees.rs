@@ -460,7 +460,7 @@ pub async fn resolve_worktree(
     Ok(None)
 }
 
-pub fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) {
+pub async fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) {
     state.clear_worktree_runtime_state(worktree_id);
     let tab_ids: Vec<String> = state
         .tabs
@@ -471,6 +471,15 @@ pub fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) {
 
     for tab_id in tab_ids {
         if let Some((_, tab)) = state.tabs.remove(&tab_id) {
+            if tab.is_agent_chat()
+                && let Err(error) = state.chats.clear_open_tab_id_for_tab(&tab_id).await
+            {
+                tracing::warn!(
+                    tab_id,
+                    "failed to clear closed chat tab id: {}",
+                    error.message
+                );
+            }
             if tab.is_terminal()
                 && let Some((_, runtime)) = state.terminal_tabs.remove(&tab_id)
             {
@@ -1600,7 +1609,7 @@ pub async fn delete_project_worktree(
         return StatusCode::INTERNAL_SERVER_ERROR;
     }
 
-    close_tabs_for_worktree(&state, &worktree_id);
+    close_tabs_for_worktree(&state, &worktree_id).await;
     state
         .persistence
         .delete_worktree(project.id.clone(), worktree_id.clone());

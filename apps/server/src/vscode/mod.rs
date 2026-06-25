@@ -2349,6 +2349,7 @@ mod tests {
                 terminal: None,
                 editor: None,
                 worktree: None,
+                experimental: None,
                 vscode: Some(VscodeSettingsPatch {
                     runtime: Some(VscodeRuntimeKind::CodeServer),
                 }),
@@ -3563,6 +3564,7 @@ mod tests {
                 terminal: None,
                 editor: None,
                 worktree: None,
+                experimental: None,
                 vscode: Some(VscodeSettingsPatch {
                     runtime: Some(VscodeRuntimeKind::CodeServer),
                 }),

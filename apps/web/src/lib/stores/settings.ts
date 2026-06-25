@@ -26,6 +26,8 @@ import type {
   ChatSettingsPatch,
   EditorSettings,
   EditorSettingsPatch,
+  ExperimentalSettings,
+  ExperimentalSettingsPatch,
   HubrisTheme,
   Settings,
   SettingsPatch,
@@ -67,6 +69,9 @@ const DEFAULT_SETTINGS: Settings = {
   },
   worktree: {
     locationMode: "dataDir",
+  },
+  experimental: {
+    chatEnabled: false,
   },
   vscode: {
     runtime: "vscodeCli",
@@ -115,6 +120,7 @@ type SettingsStoreState = {
   ) => void;
   updateEditor: (partial: EditorSettingsPatch) => void;
   updateWorktree: (partial: WorktreeSettingsPatch) => void;
+  updateExperimental: (partial: ExperimentalSettingsPatch) => void;
   updateVscode: (partial: VscodeSettingsPatch) => void;
   updateChat: (
     partial: ChatSettingsPatch,
@@ -370,6 +376,24 @@ function normalizeWorktreeSettings(candidate: unknown): {
   };
 }
 
+function normalizeExperimentalSettings(candidate: unknown): {
+  settings: ExperimentalSettings;
+  changed: boolean;
+} {
+  const source = (candidate ?? {}) as Partial<ExperimentalSettings>;
+  const chatEnabled =
+    typeof source.chatEnabled === "boolean"
+      ? source.chatEnabled
+      : DEFAULT_SETTINGS.experimental.chatEnabled;
+
+  return {
+    settings: {
+      chatEnabled,
+    },
+    changed: chatEnabled !== source.chatEnabled,
+  };
+}
+
 function normalizeVscodeSettings(candidate: unknown): {
   settings: VscodeSettings;
   changed: boolean;
@@ -419,6 +443,7 @@ function normalizeSettings(candidate: unknown): {
   const terminal = normalizeTerminalSettings(source.terminal);
   const editor = normalizeEditorSettings(source.editor);
   const worktree = normalizeWorktreeSettings(source.worktree);
+  const experimental = normalizeExperimentalSettings(source.experimental);
   const vscode = normalizeVscodeSettings(source.vscode);
   const chat = normalizeChatSettings(source.chat);
 
@@ -428,6 +453,7 @@ function normalizeSettings(candidate: unknown): {
       terminal: terminal.settings,
       editor: editor.settings,
       worktree: worktree.settings,
+      experimental: experimental.settings,
       vscode: vscode.settings,
       chat: chat.settings,
     },
@@ -436,6 +462,7 @@ function normalizeSettings(candidate: unknown): {
       terminal.changed ||
       editor.changed ||
       worktree.changed ||
+      experimental.changed ||
       vscode.changed ||
       chat.changed,
   };
@@ -547,6 +574,9 @@ function stripEmptyPatch(patch: SettingsPatch): SettingsPatch {
   if (patch.worktree && Object.keys(patch.worktree).length > 0) {
     next.worktree = patch.worktree;
   }
+  if (patch.experimental && Object.keys(patch.experimental).length > 0) {
+    next.experimental = patch.experimental;
+  }
   if (patch.vscode && Object.keys(patch.vscode).length > 0) {
     next.vscode = patch.vscode;
   }
@@ -565,6 +595,7 @@ function hasPatch(patch: SettingsPatch | null | undefined): boolean {
     stripped.terminal !== undefined ||
     stripped.editor !== undefined ||
     stripped.worktree !== undefined ||
+    stripped.experimental !== undefined ||
     stripped.vscode !== undefined ||
     stripped.chat !== undefined
   );
@@ -602,6 +633,10 @@ function applyPatchToSettings(
     worktree: {
       ...settings.worktree,
       ...(patch.worktree ?? {}),
+    },
+    experimental: {
+      ...settings.experimental,
+      ...(patch.experimental ?? {}),
     },
     vscode: {
       ...settings.vscode,
@@ -801,6 +836,13 @@ function equalWorktreeSettings(
   return left.locationMode === right.locationMode;
 }
 
+function equalExperimentalSettings(
+  left: ExperimentalSettings,
+  right: ExperimentalSettings,
+): boolean {
+  return left.chatEnabled === right.chatEnabled;
+}
+
 function equalVscodeSettings(
   left: VscodeSettings,
   right: VscodeSettings,
@@ -831,6 +873,12 @@ function stabilizeSettingsSections(
   const worktree = equalWorktreeSettings(current.worktree, next.worktree)
     ? current.worktree
     : next.worktree;
+  const experimental = equalExperimentalSettings(
+    current.experimental,
+    next.experimental,
+  )
+    ? current.experimental
+    : next.experimental;
   const vscode = equalVscodeSettings(current.vscode, next.vscode)
     ? current.vscode
     : next.vscode;
@@ -843,6 +891,7 @@ function stabilizeSettingsSections(
     terminal === current.terminal &&
     editor === current.editor &&
     worktree === current.worktree &&
+    experimental === current.experimental &&
     vscode === current.vscode &&
     chat === current.chat
   ) {
@@ -854,6 +903,7 @@ function stabilizeSettingsSections(
     terminal,
     editor,
     worktree,
+    experimental,
     vscode,
     chat,
   };
@@ -1098,6 +1148,9 @@ export const useSettingsStore = create<SettingsStoreState>(() => ({
   },
   updateWorktree(partial) {
     applyOptimisticPatch({ worktree: partial });
+  },
+  updateExperimental(partial) {
+    applyOptimisticPatch({ experimental: partial });
   },
   updateVscode(partial) {
     applyOptimisticPatch({ vscode: partial });

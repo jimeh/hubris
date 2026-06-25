@@ -26,6 +26,7 @@ import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useChatStore } from "@/lib/stores/chats";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
+import { useSettingsStore } from "@/lib/stores/settings";
 import { useTabStore } from "@/lib/stores/tabs";
 import {
   getCurrentWorktreeHistoryItems,
@@ -58,6 +59,10 @@ function disabled(reason: string): CommandAvailability {
 
 function success(): CommandResult {
   return { status: "success" };
+}
+
+function chatFeatureEnabled(): boolean {
+  return useSettingsStore.getState().settings.experimental.chatEnabled;
 }
 
 function cancelled(): CommandResult {
@@ -589,6 +594,9 @@ export const commandRegistry = {
   }),
   "tab.newChat": defineCommand({
     async execute(context, args) {
+      if (!chatFeatureEnabled()) {
+        return { reason: "Chat is disabled", status: "unavailable" };
+      }
       const worktreeId = resolveWorktreeId(
         args?.worktreeId,
         context.selectedWorktree?.id ?? null,
@@ -607,6 +615,9 @@ export const commandRegistry = {
     icon: MessageSquarePlus,
     id: "tab.newChat",
     isAvailable(context, args) {
+      if (!chatFeatureEnabled()) {
+        return disabled("Enable Chat in Experimental settings");
+      }
       const worktreeId = resolveWorktreeId(
         args?.worktreeId,
         context.selectedWorktree?.id ?? null,
@@ -649,6 +660,9 @@ export const commandRegistry = {
   }),
   "tab.openChat": defineCommand({
     async execute(context, args) {
+      if (!chatFeatureEnabled()) {
+        return { reason: "Chat is disabled", status: "unavailable" };
+      }
       const conversationId = args?.conversationId;
       if (!conversationId) {
         return { reason: "No chat selected", status: "unavailable" };
@@ -691,6 +705,9 @@ export const commandRegistry = {
     icon: MessageSquare,
     id: "tab.openChat",
     isAvailable(context, args) {
+      if (!chatFeatureEnabled()) {
+        return disabled("Enable Chat in Experimental settings");
+      }
       const conversationId = args?.conversationId;
       if (!conversationId) {
         return disabled("No chat selected");

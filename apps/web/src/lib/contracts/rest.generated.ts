@@ -1604,6 +1604,12 @@ export interface components {
       name: string;
       type: string;
     };
+    ExperimentalSettings: {
+      chatEnabled?: boolean;
+    };
+    ExperimentalSettingsPatch: {
+      chatEnabled?: boolean | null;
+    };
     GitCommitDetailsResponse: {
       author: components["schemas"]["GitCommitPerson"];
       committer: components["schemas"]["GitCommitPerson"];
@@ -1809,6 +1815,7 @@ export interface components {
       appearance?: components["schemas"]["AppearanceSettings"];
       chat?: components["schemas"]["ChatSettings"];
       editor?: components["schemas"]["EditorSettings"];
+      experimental?: components["schemas"]["ExperimentalSettings"];
       terminal?: components["schemas"]["TerminalSettings"];
       vscode?: components["schemas"]["VscodeSettings"];
       worktree?: components["schemas"]["WorktreeSettings"];
@@ -1817,6 +1824,7 @@ export interface components {
       appearance?: null | components["schemas"]["AppearanceSettingsPatch"];
       chat?: null | components["schemas"]["ChatSettingsPatch"];
       editor?: null | components["schemas"]["EditorSettingsPatch"];
+      experimental?: null | components["schemas"]["ExperimentalSettingsPatch"];
       terminal?: null | components["schemas"]["TerminalSettingsPatch"];
       vscode?: null | components["schemas"]["VscodeSettingsPatch"];
       worktree?: null | components["schemas"]["WorktreeSettingsPatch"];

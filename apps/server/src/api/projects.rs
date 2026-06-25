@@ -333,7 +333,7 @@ pub async fn delete_project(
     }
 
     for worktree in worktrees {
-        close_tabs_for_worktree(&state, &worktree.id);
+        close_tabs_for_worktree(&state, &worktree.id).await;
     }
 
     if state.chats.delete_project_conversations(&id).await.is_err() {

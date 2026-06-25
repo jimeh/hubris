@@ -8,6 +8,10 @@ import {
 } from "@/lib/stores/appSidebar";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useProjectStore } from "@/lib/stores/projects";
+import {
+  resetSettingsStoreForTests,
+  useSettingsStore,
+} from "@/lib/stores/settings";
 import { resetChatStoreForTests, useChatStore } from "@/lib/stores/chats";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeHistorySwitcherStore } from "@/lib/stores/worktreeHistorySwitcher";
@@ -113,6 +117,16 @@ describe("command runtime", () => {
     resetBootstrapForTests();
     resetAppSidebarStoreForTests();
     resetChatStoreForTests();
+    resetSettingsStoreForTests();
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimental: {
+          ...state.settings.experimental,
+          chatEnabled: true,
+        },
+      },
+    }));
     resetWorktreeRightSidebarStoreForTests();
     useWorktreeHistorySwitcherStore.getState().cancel();
     vi.restoreAllMocks();

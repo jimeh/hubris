@@ -13,9 +13,10 @@ use tokio::sync::RwLock;
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 use crate::api::settings::{
-    AppearanceSettingsPatch, ChatSettingsPatch, EditorSettingsPatch, Settings, SettingsPatch,
-    SettingsState, SettingsStatus, TerminalSettingsPatch, VscodeSettingsPatch,
-    WorktreeSettingsPatch, clamp_client_scrollback_rows, clamp_server_scrollback_bytes,
+    AppearanceSettingsPatch, ChatSettingsPatch, EditorSettingsPatch, ExperimentalSettingsPatch,
+    Settings, SettingsPatch, SettingsState, SettingsStatus, TerminalSettingsPatch,
+    VscodeSettingsPatch, WorktreeSettingsPatch, clamp_client_scrollback_rows,
+    clamp_server_scrollback_bytes,
 };
 use crate::chat::clamp_chat_idle_timeout_minutes;
 use crate::events::{EventBus, EventKind};
@@ -385,6 +386,9 @@ fn apply_patch_to_settings(settings: &mut Settings, patch: &SettingsPatch) {
     if let Some(worktree) = &patch.worktree {
         apply_worktree_patch(&mut settings.worktree, worktree);
     }
+    if let Some(experimental) = &patch.experimental {
+        apply_experimental_patch(&mut settings.experimental, experimental);
+    }
     if let Some(vscode) = &patch.vscode {
         apply_vscode_patch(&mut settings.vscode, vscode);
     }
@@ -459,6 +463,15 @@ fn apply_worktree_patch(
 ) {
     if let Some(location_mode) = patch.location_mode {
         settings.location_mode = location_mode;
+    }
+}
+
+fn apply_experimental_patch(
+    settings: &mut crate::api::settings::ExperimentalSettings,
+    patch: &ExperimentalSettingsPatch,
+) {
+    if let Some(chat_enabled) = patch.chat_enabled {
+        settings.chat_enabled = chat_enabled;
     }
 }
 
@@ -558,6 +571,13 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
         }
     }
 
+    if let Some(experimental) = &patch.experimental {
+        let table = ensure_table(document, "experimental");
+        if let Some(chat_enabled) = experimental.chat_enabled {
+            table.insert("chatEnabled", value(chat_enabled));
+        }
+    }
+
     if let Some(vscode) = &patch.vscode {
         let table = ensure_table(document, "vscode");
         if let Some(runtime) = vscode.runtime {
@@ -635,6 +655,9 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
         "locationMode",
         value(settings.worktree.location_mode.as_str()),
     );
+
+    let experimental = ensure_table(document, "experimental");
+    experimental.insert("chatEnabled", value(settings.experimental.chat_enabled));
 
     let vscode = ensure_table(document, "vscode");
     vscode.insert("runtime", value(settings.vscode.runtime.as_str()));

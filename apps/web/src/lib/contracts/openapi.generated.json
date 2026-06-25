@@ -4865,6 +4865,22 @@
           }
         }
       },
+      "ExperimentalSettings": {
+        "type": "object",
+        "properties": {
+          "chatEnabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ExperimentalSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "chatEnabled": {
+            "type": ["boolean", "null"]
+          }
+        }
+      },
       "GitCommitDetailsResponse": {
         "type": "object",
         "required": [
@@ -5446,6 +5462,9 @@
           "editor": {
             "$ref": "#/components/schemas/EditorSettings"
           },
+          "experimental": {
+            "$ref": "#/components/schemas/ExperimentalSettings"
+          },
           "terminal": {
             "$ref": "#/components/schemas/TerminalSettings"
           },
@@ -5487,6 +5506,16 @@
               },
               {
                 "$ref": "#/components/schemas/EditorSettingsPatch"
+              }
+            ]
+          },
+          "experimental": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExperimentalSettingsPatch"
               }
             ]
           },

@@ -1640,6 +1640,20 @@ pub async fn create_tab(
         conversation_id, ..
     } = &mut req
     {
+        if !state
+            .settings
+            .get()
+            .await
+            .settings
+            .experimental
+            .chat_enabled
+        {
+            return Err(TabsApiError::new(
+                StatusCode::FORBIDDEN,
+                "Chat is disabled in Experimental settings.",
+            ));
+        }
+
         let resolved_conversation_id = if let Some(existing_id) = conversation_id.as_deref() {
             let summary = state
                 .chats

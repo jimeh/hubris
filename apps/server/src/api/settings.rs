@@ -291,6 +291,13 @@ pub struct WorktreeSettings {
     pub location_mode: WorktreeLocationMode,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ExperimentalSettings {
+    #[serde(default)]
+    pub chat_enabled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct VscodeSettings {
@@ -316,6 +323,8 @@ pub struct Settings {
     pub editor: EditorSettings,
     #[serde(default)]
     pub worktree: WorktreeSettings,
+    #[serde(default)]
+    pub experimental: ExperimentalSettings,
     #[serde(default)]
     pub vscode: VscodeSettings,
     #[serde(default)]
@@ -374,6 +383,13 @@ pub struct WorktreeSettingsPatch {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct ExperimentalSettingsPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct VscodeSettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<VscodeRuntimeKind>,
@@ -396,6 +412,8 @@ pub struct SettingsPatch {
     pub editor: Option<EditorSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<WorktreeSettingsPatch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experimental: Option<ExperimentalSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vscode: Option<VscodeSettingsPatch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

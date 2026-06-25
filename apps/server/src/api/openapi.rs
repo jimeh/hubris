@@ -23,9 +23,9 @@ use crate::api::projects::{
 };
 use crate::api::settings::{
     AppearanceSettings, AppearanceSettingsPatch, ChatSettingsPatch, ColorScheme, EditorSettings,
-    EditorSettingsPatch, Settings, SettingsPatch, SettingsState, SettingsStatus,
-    SettingsStatusKind, TerminalFontSource, TerminalSettings, TerminalSettingsPatch,
-    WorktreeLocationMode, WorktreeSettings, WorktreeSettingsPatch,
+    EditorSettingsPatch, ExperimentalSettings, ExperimentalSettingsPatch, Settings, SettingsPatch,
+    SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings,
+    TerminalSettingsPatch, WorktreeLocationMode, WorktreeSettings, WorktreeSettingsPatch,
 };
 use crate::api::system::SystemInfo;
 use crate::api::tabs::{
@@ -224,6 +224,8 @@ use crate::tab::{
             EditorSettingsPatch,
             WorktreeSettings,
             WorktreeSettingsPatch,
+            ExperimentalSettings,
+            ExperimentalSettingsPatch,
             ChatProvider,
             ChatPermissionMode,
             ChatReasoningEffort,

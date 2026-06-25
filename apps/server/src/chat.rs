@@ -12,6 +12,7 @@ use axum::http::StatusCode;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{FromRow, Row, Sqlite, SqlitePool, Transaction};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -34,6 +35,7 @@ use protocol::{ParsedLine, RouteHints};
 pub const DEFAULT_CHAT_TITLE: &str = "New Chat";
 const DEFAULT_IDLE_TIMEOUT_MINUTES: u32 = 60;
 const CHAT_DB_MAX_CONNECTIONS: u32 = 1;
+static CHAT_DB_MIGRATOR: Migrator = sqlx::migrate!("./chat-migrations");
 const MAX_INACTIVE_THREAD_STREAMS: usize = 4;
 const UNSUBSCRIBE_RETRY_DELAY: Duration = Duration::from_secs(15);
 const CODEX_TEXT_TRACE_ENV: &str = "HUBRIS_CODEX_TEXT_TRACE";
@@ -1802,10 +1804,86 @@ pub struct ChatService {
     app_event_loop_started: AtomicBool,
 }
 
+const CHAT_HISTORY_TABLES: &[&str] = &[
+    "chat_conversations",
+    "chat_messages",
+    "chat_runs",
+    "chat_turns",
+    "chat_items",
+    "chat_item_outputs",
+    "chat_pending_requests",
+    "chat_plans",
+    "chat_diff_summaries",
+    "chat_context_usage",
+    "chat_reconciliations",
+];
+
+async fn migrate_legacy_chat_history(
+    legacy_state_db_path: &Path,
+    pool: &SqlitePool,
+) -> std::io::Result<()> {
+    if !legacy_state_db_path.exists() {
+        return Ok(());
+    }
+
+    let mut conn = pool.acquire().await.map_err(std::io::Error::other)?;
+    let legacy_path = legacy_state_db_path.to_string_lossy().to_string();
+    sqlx::query("ATTACH DATABASE ? AS legacy_state")
+        .bind(legacy_path)
+        .execute(&mut *conn)
+        .await
+        .map_err(std::io::Error::other)?;
+
+    let result = async {
+        let has_chat_conversations =
+            legacy_chat_table_exists(&mut conn, "chat_conversations").await?;
+        if !has_chat_conversations {
+            return Ok::<(), sqlx::Error>(());
+        }
+
+        for table in CHAT_HISTORY_TABLES {
+            if legacy_chat_table_exists(&mut conn, table).await? {
+                let sql =
+                    format!("INSERT OR IGNORE INTO {table} SELECT * FROM legacy_state.{table}");
+                sqlx::query(&sql).execute(&mut *conn).await?;
+            }
+        }
+
+        Ok(())
+    }
+    .await;
+
+    let detach_result = sqlx::query("DETACH DATABASE legacy_state")
+        .execute(&mut *conn)
+        .await;
+
+    result
+        .and(detach_result.map(|_| ()))
+        .map_err(std::io::Error::other)
+}
+
+async fn legacy_chat_table_exists(
+    conn: &mut sqlx::pool::PoolConnection<Sqlite>,
+    table: &str,
+) -> Result<bool, sqlx::Error> {
+    let row = sqlx::query(
+        "
+        SELECT 1
+        FROM legacy_state.sqlite_master
+        WHERE type = 'table' AND name = ?
+        ",
+    )
+    .bind(table)
+    .fetch_optional(&mut **conn)
+    .await?;
+    Ok(row.is_some())
+}
+
 impl ChatService {
-    /// Open the shared state database and prepare chat services.
+    /// Open the chat history database and prepare chat services.
     pub async fn new(
         db_path: &Path,
+        legacy_state_db_path: &Path,
         events: Arc<crate::events::EventBus>,
         settings: Arc<SettingsManager>,
     ) -> std::io::Result<Self> {
@@ -1820,6 +1898,11 @@ impl ChatService {
             .connect_with(options)
             .await
             .map_err(std::io::Error::other)?;
+        CHAT_DB_MIGRATOR
+            .run(&pool)
+            .await
+            .map_err(std::io::Error::other)?;
+        migrate_legacy_chat_history(legacy_state_db_path, &pool).await?;
         Ok(Self {
             pool,
             events,
@@ -8729,7 +8812,7 @@ mod tests {
     use super::*;
     use sqlx::migrate::Migrator;
 
-    static TEST_MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+    static TEST_MIGRATOR: Migrator = sqlx::migrate!("./chat-migrations");
 
     fn test_conversation() -> ChatConversationSummary {
         ChatConversationSummary {

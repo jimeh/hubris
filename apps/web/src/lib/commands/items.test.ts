@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { buildCommandContextSnapshot } from "@/lib/commands/context";
 import { getCommandPaletteItems } from "@/lib/commands/items";
 import { useChatStore } from "@/lib/stores/chats";
+import {
+  resetSettingsStoreForTests,
+  useSettingsStore,
+} from "@/lib/stores/settings";
 
 function makeProject(id: string, name: string) {
   return {
@@ -57,6 +61,16 @@ function makeTerminalTab(
 
 describe("command palette items", () => {
   beforeEach(() => {
+    resetSettingsStoreForTests();
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimental: {
+          ...state.settings.experimental,
+          chatEnabled: true,
+        },
+      },
+    }));
     useChatStore.setState({
       conversationsById: {},
     });

@@ -1006,6 +1006,9 @@ describe("API client", () => {
         worktree: {
           locationMode: "repoLocalDotHubris" as const,
         },
+        experimental: {
+          chatEnabled: false,
+        },
         vscode: {
           runtime: "vscodeCli" as const,
         },
@@ -1070,6 +1073,9 @@ describe("API client", () => {
           worktree: {
             locationMode: "dataDir",
           },
+          experimental: {
+            chatEnabled: false,
+          },
           vscode: {
             runtime: "vscodeCli",
           },
@@ -1113,6 +1119,9 @@ describe("API client", () => {
           },
           worktree: {
             locationMode: "dataDir",
+          },
+          experimental: {
+            chatEnabled: false,
           },
           vscode: {
             runtime: "vscodeCli",

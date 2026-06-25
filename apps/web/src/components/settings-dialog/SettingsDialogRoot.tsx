@@ -32,8 +32,8 @@ import {
   SidebarProvider,
 } from "@/components/ui/sidebar";
 import AppearanceSettings from "./AppearanceSettings";
-import ChatSettings from "./ChatSettings";
 import EditorSettings from "./EditorSettings";
+import ExperimentalSettings from "./ExperimentalSettings";
 import KeyboardShortcutsSettings from "./KeyboardShortcutsSettings";
 import TerminalSettings from "./TerminalSettings";
 import VscodeSettings from "./VscodeSettings";
@@ -181,7 +181,9 @@ function SettingsDialogBody({
               ) : null}
               {activeSection === "VS Code" ? <VscodeSettings /> : null}
               {activeSection === "Worktrees" ? <WorktreeSettings /> : null}
-              {activeSection === "Chats" ? <ChatSettings /> : null}
+              {activeSection === "Experimental" ? (
+                <ExperimentalSettings />
+              ) : null}
             </div>
           </main>
         </SidebarProvider>

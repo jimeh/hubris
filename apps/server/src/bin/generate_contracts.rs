@@ -10,9 +10,9 @@ use hubris_server::api::processes::{
 };
 use hubris_server::api::projects::Project;
 use hubris_server::api::settings::{
-    AppearanceSettings, ColorScheme, EditorSettings, EditorSettingsPatch, Settings, SettingsState,
-    SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings, VscodeRuntimeKind,
-    VscodeSettings, WorktreeLocationMode, WorktreeSettings,
+    AppearanceSettings, ColorScheme, EditorSettings, EditorSettingsPatch, ExperimentalSettings,
+    Settings, SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource,
+    TerminalSettings, VscodeRuntimeKind, VscodeSettings, WorktreeLocationMode, WorktreeSettings,
 };
 use hubris_server::api::tasks::{
     TaskDefinition, TaskDefinitionInputField, TaskInputFieldKind, TaskInvocationStatus,
@@ -111,6 +111,7 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<EditorSettings>(&mut sse, &cfg)?;
     push_ts_export::<EditorSettingsPatch>(&mut sse, &cfg)?;
     push_ts_export::<WorktreeSettings>(&mut sse, &cfg)?;
+    push_ts_export::<ExperimentalSettings>(&mut sse, &cfg)?;
     push_ts_export::<VscodeRuntimeKind>(&mut sse, &cfg)?;
     push_ts_export::<VscodeSettings>(&mut sse, &cfg)?;
     push_ts_export::<ChatProvider>(&mut sse, &cfg)?;

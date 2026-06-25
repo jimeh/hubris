@@ -72,6 +72,22 @@ async fn prepare_run(
     (ChatConversationDetail, broadcast::Receiver<Arc<Event>>),
     (StatusCode, Json<ApiErrorResponse>),
 > {
+    if !state
+        .settings
+        .get()
+        .await
+        .settings
+        .experimental
+        .chat_enabled
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ApiErrorResponse {
+                message: "chat is disabled in Experimental settings".to_string(),
+            }),
+        ));
+    }
+
     let before = state
         .chats
         .get_conversation_detail(conversation_id)
