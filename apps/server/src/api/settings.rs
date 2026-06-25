@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use utoipa::ToSchema;
 
-use crate::chat::ChatSettings;
+use crate::chat::{ChatSettings, ChatUiStyle, CopilotKitThemeMode};
 use crate::events::EventKind;
 use crate::settings_manager::SettingsManagerError;
 use crate::state::AppState;
@@ -400,6 +400,10 @@ pub struct VscodeSettingsPatch {
 pub struct ChatSettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_timeout_minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_style: Option<ChatUiStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copilotkit_theme_mode: Option<CopilotKitThemeMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]

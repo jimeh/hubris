@@ -10,7 +10,11 @@ CREATE TABLE chat_turns (
     completed_at_ms INTEGER,
     error_message TEXT,
     created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER NOT NULL
+    updated_at_ms INTEGER NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (run_id) REFERENCES chat_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_message_id) REFERENCES chat_messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (assistant_message_id) REFERENCES chat_messages(id) ON DELETE SET NULL
 );
 
 CREATE TABLE chat_items (
@@ -28,7 +32,9 @@ CREATE TABLE chat_items (
     metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL,
-    completed_at_ms INTEGER
+    completed_at_ms INTEGER,
+    FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (turn_id) REFERENCES chat_turns(id) ON DELETE SET NULL
 );
 
 ALTER TABLE chat_messages

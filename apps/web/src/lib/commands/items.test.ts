@@ -59,6 +59,26 @@ function makeTerminalTab(
   };
 }
 
+function makeAgentChatTab(
+  id: string,
+  worktreeId: string,
+  label: string,
+  position: number,
+) {
+  return {
+    id,
+    label,
+    position,
+    worktree_id: worktreeId,
+    pane_id: "pane-1",
+    session_id: "default",
+    type: "agent_chat" as const,
+    created_at: 0,
+    preview: false,
+    conversation_id: "chat-1",
+  };
+}
+
 describe("command palette items", () => {
   beforeEach(() => {
     resetSettingsStoreForTests();
@@ -194,6 +214,43 @@ describe("command palette items", () => {
     expect(items.some((item) => item.id === "tab.close")).toBe(false);
     expect(items.some((item) => item.id === "tab.newTerminal")).toBe(false);
     expect(items.some((item) => item.id === "tab.newChat")).toBe(false);
+  });
+
+  it("hides chat focus items when chat is disabled", () => {
+    const project = makeProject("p1", "Devbox");
+    const worktree = makeWorktree("w1", project.id, "local");
+    const terminalTab = makeTerminalTab("t1", worktree.id, "Shell", 1);
+    const chatTab = makeAgentChatTab("chat-tab-1", worktree.id, "Chat", 2);
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        experimental: {
+          ...state.settings.experimental,
+          chatEnabled: false,
+        },
+      },
+    }));
+
+    const items = getCommandPaletteItems(
+      buildCommandContextSnapshot({
+        activeTabId: null,
+        focusedPaneByWorktree: { [worktree.id]: "pane-1" },
+        projects: [project],
+        selectedWorktreeId: worktree.id,
+        tabs: [terminalTab, chatTab],
+        worktreesByProject: {
+          [project.id]: [worktree],
+        },
+      }),
+    );
+
+    expect(items.some((item) => item.key === "tab.newChat")).toBe(false);
+    expect(items.some((item) => item.key === `tab.focus:${chatTab.id}`)).toBe(
+      false,
+    );
+    expect(
+      items.some((item) => item.key === `tab.focus:${terminalTab.id}`),
+    ).toBe(true);
   });
 
   it("skips dynamic items that would duplicate the current selection", () => {

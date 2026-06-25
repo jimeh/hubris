@@ -488,6 +488,12 @@ fn apply_chat_patch(settings: &mut crate::chat::ChatSettings, patch: &ChatSettin
     if let Some(idle_timeout_minutes) = patch.idle_timeout_minutes {
         settings.idle_timeout_minutes = clamp_chat_idle_timeout_minutes(idle_timeout_minutes);
     }
+    if let Some(ui_style) = patch.ui_style {
+        settings.ui_style = ui_style;
+    }
+    if let Some(copilotkit_theme_mode) = patch.copilotkit_theme_mode {
+        settings.copilotkit_theme_mode = copilotkit_theme_mode;
+    }
 }
 
 fn ensure_table<'a>(document: &'a mut DocumentMut, key: &str) -> &'a mut dyn TableLike {
@@ -595,6 +601,12 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
                 ))),
             );
         }
+        if let Some(ui_style) = chat.ui_style {
+            table.insert("uiStyle", value(ui_style.as_str()));
+        }
+        if let Some(copilotkit_theme_mode) = chat.copilotkit_theme_mode {
+            table.insert("copilotkitThemeMode", value(copilotkit_theme_mode.as_str()));
+        }
     }
 }
 
@@ -668,6 +680,11 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
         value(i64::from(clamp_chat_idle_timeout_minutes(
             settings.chat.idle_timeout_minutes,
         ))),
+    );
+    chat.insert("uiStyle", value(settings.chat.ui_style.as_str()));
+    chat.insert(
+        "copilotkitThemeMode",
+        value(settings.chat.copilotkit_theme_mode.as_str()),
     );
 }
 

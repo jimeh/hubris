@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useChatSettings } from "@/lib/stores/chatSettings";
-import { useChatUiStyle } from "@/lib/stores/chatUiStyle";
 
 const settingsRowClass =
   "grid gap-2 sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center sm:gap-3";
@@ -13,14 +12,6 @@ export default function ChatSettings() {
   const settings = useChatSettings((state) => state.settings);
   const updateSettings = useChatSettings((state) => state.updateSettings);
   const writesBlocked = useSettingsStore((state) => state.status.writesBlocked);
-  const chatUiStyle = useChatUiStyle((state) => state.style);
-  const copilotKitThemeMode = useChatUiStyle(
-    (state) => state.copilotKitThemeMode,
-  );
-  const setChatUiStyle = useChatUiStyle((state) => state.setStyle);
-  const setCopilotKitThemeMode = useChatUiStyle(
-    (state) => state.setCopilotKitThemeMode,
-  );
 
   return (
     <section className="space-y-3">
@@ -34,16 +25,18 @@ export default function ChatSettings() {
         </Label>
         <div className="flex flex-wrap gap-1">
           <Button
-            variant={chatUiStyle === "classic" ? "secondary" : "ghost"}
+            variant={settings.uiStyle === "classic" ? "secondary" : "ghost"}
             size="sm"
-            onClick={() => setChatUiStyle("classic")}
+            disabled={writesBlocked}
+            onClick={() => updateSettings({ uiStyle: "classic" })}
           >
             Classic
           </Button>
           <Button
-            variant={chatUiStyle === "copilotkit" ? "secondary" : "ghost"}
+            variant={settings.uiStyle === "copilotkit" ? "secondary" : "ghost"}
             size="sm"
-            onClick={() => setChatUiStyle("copilotkit")}
+            disabled={writesBlocked}
+            onClick={() => updateSettings({ uiStyle: "copilotkit" })}
           >
             CopilotKit
           </Button>
@@ -55,16 +48,22 @@ export default function ChatSettings() {
         </Label>
         <div className="flex flex-wrap gap-1">
           <Button
-            variant={copilotKitThemeMode === "hubris" ? "secondary" : "ghost"}
+            variant={
+              settings.copilotkitThemeMode === "hubris" ? "secondary" : "ghost"
+            }
             size="sm"
-            onClick={() => setCopilotKitThemeMode("hubris")}
+            disabled={writesBlocked}
+            onClick={() => updateSettings({ copilotkitThemeMode: "hubris" })}
           >
             Hubris colors
           </Button>
           <Button
-            variant={copilotKitThemeMode === "stock" ? "secondary" : "ghost"}
+            variant={
+              settings.copilotkitThemeMode === "stock" ? "secondary" : "ghost"
+            }
             size="sm"
-            onClick={() => setCopilotKitThemeMode("stock")}
+            disabled={writesBlocked}
+            onClick={() => updateSettings({ copilotkitThemeMode: "stock" })}
           >
             Stock
           </Button>

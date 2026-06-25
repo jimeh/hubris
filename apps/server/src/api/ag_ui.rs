@@ -201,6 +201,9 @@ fn ag_ui_body_stream(
                         continue;
                     };
                     let terminal = update_is_terminal(&update);
+                    keepalive
+                        .as_mut()
+                        .reset(tokio::time::Instant::now() + Duration::from_secs(120));
                     for event in translator.update_events(&initial.thread_id, &initial.run_id, update) {
                         if let Some(frame) = encode_event(&encoder, event) {
                             yield Ok(frame);
@@ -298,7 +301,7 @@ fn update_is_terminal(update: &CodexAgUiUpdate) -> bool {
 }
 
 fn detail_to_snapshot(detail: &ChatConversationDetail, input: &RunAgentInput) -> CodexAgUiSnapshot {
-    let activities = detail
+    let mut activities: Vec<_> = detail
         .items
         .iter()
         .filter(|item| is_activity_item_kind(item.kind))
@@ -312,6 +315,7 @@ fn detail_to_snapshot(detail: &ChatConversationDetail, input: &RunAgentInput) ->
         .chain(detail.plans.iter().map(plan_to_activity))
         .chain(detail.diff_summaries.iter().map(diff_summary_to_activity))
         .collect();
+    activities.sort_by_key(|activity| activity.sequence);
     CodexAgUiSnapshot {
         thread_id: input.thread_id.clone(),
         run_id: input.run_id.clone(),

@@ -66,7 +66,7 @@ import {
   selectChatWorkGroupSlice,
   useChatStore,
 } from "@/lib/stores/chats";
-import { useChatUiStyle } from "@/lib/stores/chatUiStyle";
+import { useChatSettings } from "@/lib/stores/chatSettings";
 import { useTabStore } from "@/lib/stores/tabs";
 import type {
   AgentChatTab,
@@ -708,7 +708,7 @@ function ChatHeader({
   conversationId: string;
   label: string;
 }) {
-  const setStyle = useChatUiStyle((state) => state.setStyle);
+  const updateChatSettings = useChatSettings((state) => state.updateSettings);
   const {
     conversation,
     detailError,
@@ -755,7 +755,7 @@ function ChatHeader({
         type="button"
         variant="outline"
         size="sm"
-        onClick={() => setStyle("copilotkit")}
+        onClick={() => updateChatSettings({ uiStyle: "copilotkit" })}
       >
         CopilotKit
       </Button>
@@ -2175,8 +2175,8 @@ export function AgentChatTabClassicView({ tab, visible }: Props) {
 }
 
 export default function AgentChatTabView(props: Props) {
-  const style = useChatUiStyle((state) => state.style);
-  if (style === "copilotkit") {
+  const uiStyle = useChatSettings((state) => state.settings.uiStyle);
+  if (uiStyle === "copilotkit") {
     return <CopilotKitAgentChatTabView {...props} />;
   }
   return <AgentChatTabClassicView {...props} />;

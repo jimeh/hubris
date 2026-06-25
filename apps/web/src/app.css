@@ -325,14 +325,9 @@
 }
 
 [data-chat-ui-style="copilotkit"][data-copilotkit-theme="hubris"]
-  [data-testid="copilot-input-overlay"] {
+  .copilotKitInput {
   padding-inline: 1rem;
   padding-bottom: 0.75rem;
-}
-
-[data-chat-ui-style="copilotkit"][data-copilotkit-theme="hubris"]
-  [data-copilotkit]
-  .copilotKitInput {
   background-color: var(--popover) !important;
   color: var(--popover-foreground) !important;
   max-width: var(--cpk-container-3xl, 48rem);

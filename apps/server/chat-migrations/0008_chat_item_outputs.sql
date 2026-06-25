@@ -7,7 +7,9 @@ CREATE TABLE chat_item_outputs (
     content_text TEXT NOT NULL,
     byte_count INTEGER NOT NULL,
     created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER NOT NULL
+    updated_at_ms INTEGER NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (item_id) REFERENCES chat_items(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_chat_item_outputs_item_sequence

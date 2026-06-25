@@ -1014,6 +1014,8 @@ describe("API client", () => {
         },
         chat: {
           idleTimeoutMinutes: 5,
+          uiStyle: "classic" as const,
+          copilotkitThemeMode: "hubris" as const,
         },
       };
       const response = {
@@ -1081,6 +1083,8 @@ describe("API client", () => {
           },
           chat: {
             idleTimeoutMinutes: 5,
+            uiStyle: "classic" as const,
+            copilotkitThemeMode: "hubris" as const,
           },
         }),
       ).rejects.toThrow("500");
@@ -1128,6 +1132,8 @@ describe("API client", () => {
           },
           chat: {
             idleTimeoutMinutes: 5,
+            uiStyle: "classic" as const,
+            copilotkitThemeMode: "hubris" as const,
           },
         }),
       ).rejects.toMatchObject({

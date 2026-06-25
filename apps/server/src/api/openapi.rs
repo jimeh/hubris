@@ -57,7 +57,7 @@ use crate::chat::{
     ChatPermissionMode, ChatPlan, ChatPlanKind, ChatPlanStatus, ChatProvider, ChatReasoningEffort,
     ChatReconciliation, ChatReconciliationStatus, ChatRun, ChatRunStatus, ChatRuntimeLifecycle,
     ChatRuntimeStatus, ChatSettings, ChatThreadStreamResumeState, ChatThreadStreamStatus, ChatTurn,
-    ChatTurnStatus, ResolveChatPendingRequestRequest,
+    ChatTurnStatus, ChatUiStyle, CopilotKitThemeMode, ResolveChatPendingRequestRequest,
 };
 use crate::tab::{
     GitDiffScope, TabInfo, TabPaneSplitAxis, WorktreePaneNode, WorktreePaneTabs, WorktreeTabLayout,
@@ -266,6 +266,8 @@ use crate::tab::{
             ChatReconciliation,
             ChatConversationDetail,
             ChatRuntimeStatus,
+            ChatUiStyle,
+            CopilotKitThemeMode,
             ChatSettings,
             ChatSettingsPatch,
             ChatListScopeParam,

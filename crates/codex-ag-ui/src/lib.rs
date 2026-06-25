@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use agui_rs_core::types::{AssistantMessage, ReasoningMessage, UserMessage};
 use agui_rs_core::{
@@ -141,7 +141,10 @@ pub enum CodexAgUiUpdate {
 #[derive(Debug, Default)]
 pub struct CodexAgUiTranslator {
     started_text_messages: HashSet<String>,
+    ended_text_messages: HashSet<String>,
     started_reasoning_messages: HashSet<String>,
+    ended_reasoning_messages: HashSet<String>,
+    reasoning_text_lengths: HashMap<String, usize>,
 }
 
 impl CodexAgUiTranslator {
@@ -152,6 +155,7 @@ impl CodexAgUiTranslator {
 
     /// Converts a full Codex conversation snapshot into initial AG-UI events.
     pub fn snapshot_events(&mut self, snapshot: &CodexAgUiSnapshot) -> Vec<Event> {
+        self.seed_from_snapshot(snapshot);
         let mut events = vec![
             factory::create_run_started_event(
                 &snapshot.thread_id,
@@ -163,7 +167,11 @@ impl CodexAgUiTranslator {
             ),
             factory::create_state_snapshot_event(snapshot.state.clone(), None, None),
             factory::create_messages_snapshot_event(
-                snapshot.messages.iter().map(to_ag_ui_message).collect(),
+                snapshot
+                    .messages
+                    .iter()
+                    .flat_map(to_ag_ui_messages)
+                    .collect(),
                 None,
                 None,
             ),
@@ -184,6 +192,28 @@ impl CodexAgUiTranslator {
         }
 
         events
+    }
+
+    fn seed_from_snapshot(&mut self, snapshot: &CodexAgUiSnapshot) {
+        for message in &snapshot.messages {
+            if message.role != CodexAgUiMessageRole::Assistant {
+                continue;
+            }
+            if !message.content.is_empty() {
+                self.started_text_messages.insert(message.id.clone());
+                if message.status.is_terminal() {
+                    self.ended_text_messages.insert(message.id.clone());
+                }
+            }
+            if !message.reasoning.is_empty() {
+                self.started_reasoning_messages.insert(message.id.clone());
+                self.reasoning_text_lengths
+                    .insert(message.id.clone(), message.reasoning.len());
+                if message.status.is_terminal() {
+                    self.ended_reasoning_messages.insert(message.id.clone());
+                }
+            }
+        }
     }
 
     /// Converts one normalized Codex update into AG-UI events.
@@ -250,33 +280,52 @@ impl CodexAgUiTranslator {
                         ));
                     }
                 }
-                if message.status.is_terminal() {
+                if message.status.is_terminal()
+                    && self.ended_text_messages.insert(message.id.clone())
+                {
                     events.push(factory::create_text_message_end_event(
                         &message.id,
                         None,
                         None,
                     ));
                 }
-                if !message.reasoning.is_empty()
-                    && self.started_reasoning_messages.insert(message.id.clone())
-                {
-                    events.extend([
-                        factory::create_reasoning_start_event(&message.id, None, None),
-                        factory::create_reasoning_message_start_event(
+                if !message.reasoning.is_empty() {
+                    if self.started_reasoning_messages.insert(message.id.clone()) {
+                        events.extend([
+                            factory::create_reasoning_start_event(&message.id, None, None),
+                            factory::create_reasoning_message_start_event(
+                                &message.id,
+                                None,
+                                None,
+                                None,
+                            ),
+                        ]);
+                    }
+                    let previous_len = self
+                        .reasoning_text_lengths
+                        .get(&message.id)
+                        .copied()
+                        .unwrap_or(0);
+                    if let Some(delta) = message.reasoning.get(previous_len..)
+                        && !delta.is_empty()
+                    {
+                        events.push(factory::create_reasoning_message_content_event(
                             &message.id,
+                            delta.to_string(),
                             None,
                             None,
-                            None,
-                        ),
-                        factory::create_reasoning_message_content_event(
-                            &message.id,
-                            message.reasoning,
-                            None,
-                            None,
-                        ),
-                        factory::create_reasoning_message_end_event(&message.id, None, None),
-                        factory::create_reasoning_end_event(&message.id, None, None),
-                    ]);
+                        ));
+                        self.reasoning_text_lengths
+                            .insert(message.id.clone(), message.reasoning.len());
+                    }
+                    if message.status.is_terminal()
+                        && self.ended_reasoning_messages.insert(message.id.clone())
+                    {
+                        events.extend([
+                            factory::create_reasoning_message_end_event(&message.id, None, None),
+                            factory::create_reasoning_end_event(&message.id, None, None),
+                        ]);
+                    }
                 }
                 events
             }
@@ -298,30 +347,42 @@ pub fn input_last_user_text(input: &RunAgentInput) -> Option<(&str, &str)> {
     })
 }
 
-fn to_ag_ui_message(message: &CodexAgUiMessage) -> Message {
+fn to_ag_ui_messages(message: &CodexAgUiMessage) -> Vec<Message> {
     match message.role {
-        CodexAgUiMessageRole::User => Message::User(UserMessage {
+        CodexAgUiMessageRole::User => vec![Message::User(UserMessage {
             id: message.id.clone(),
             content: UserMessageContent::Text(message.content.clone()),
             name: None,
             encrypted_value: None,
-        }),
+        })],
         CodexAgUiMessageRole::Assistant => {
-            if message.content.is_empty() && !message.reasoning.is_empty() {
-                Message::Reasoning(ReasoningMessage {
-                    id: message.id.clone(),
-                    content: message.reasoning.clone(),
-                    encrypted_value: None,
-                })
-            } else {
-                Message::Assistant(AssistantMessage {
+            let mut messages = Vec::new();
+            if !message.content.is_empty() {
+                messages.push(Message::Assistant(AssistantMessage {
                     id: message.id.clone(),
                     content: Some(message.content.clone()),
                     name: None,
                     tool_calls: None,
                     encrypted_value: None,
-                })
+                }));
             }
+            if !message.reasoning.is_empty() {
+                messages.push(Message::Reasoning(ReasoningMessage {
+                    id: message.id.clone(),
+                    content: message.reasoning.clone(),
+                    encrypted_value: None,
+                }));
+            }
+            if messages.is_empty() {
+                messages.push(Message::Assistant(AssistantMessage {
+                    id: message.id.clone(),
+                    content: Some(String::new()),
+                    name: None,
+                    tool_calls: None,
+                    encrypted_value: None,
+                }));
+            }
+            messages
         }
     }
 }
@@ -431,5 +492,119 @@ mod tests {
         assert_eq!(first.len(), 2);
         assert_eq!(second.len(), 1);
         assert!(matches!(second[0], Event::TextMessageContent(_)));
+    }
+
+    #[test]
+    fn snapshot_seeds_started_messages() {
+        let mut translator = CodexAgUiTranslator::new();
+        let snapshot = CodexAgUiSnapshot {
+            thread_id: "thread-1".to_string(),
+            run_id: "run-1".to_string(),
+            messages: vec![CodexAgUiMessage {
+                id: "msg-1".to_string(),
+                role: CodexAgUiMessageRole::Assistant,
+                status: CodexAgUiMessageStatus::Streaming,
+                content: "hello".to_string(),
+                reasoning: "checking".to_string(),
+                sequence: 0,
+            }],
+            activities: vec![],
+            run_status: None,
+            state: json!({}),
+        };
+
+        let snapshot_events = translator.snapshot_events(&snapshot);
+        let update_events = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::MessageUpdated(CodexAgUiMessage {
+                id: "msg-1".to_string(),
+                role: CodexAgUiMessageRole::Assistant,
+                status: CodexAgUiMessageStatus::Streaming,
+                content: "hello".to_string(),
+                reasoning: "checking more".to_string(),
+                sequence: 0,
+            }),
+        );
+
+        assert!(matches!(snapshot_events[2], Event::MessagesSnapshot(_)));
+        assert!(
+            !update_events
+                .iter()
+                .any(|event| matches!(event, Event::TextMessageStart(_)))
+        );
+        assert!(update_events.iter().any(|event| {
+            matches!(
+                event,
+                Event::ReasoningMessageContent(content) if content.delta == " more"
+            )
+        }));
+    }
+
+    #[test]
+    fn assistant_snapshot_preserves_content_and_reasoning() {
+        let message = CodexAgUiMessage {
+            id: "msg-1".to_string(),
+            role: CodexAgUiMessageRole::Assistant,
+            status: CodexAgUiMessageStatus::Completed,
+            content: "visible".to_string(),
+            reasoning: "private work".to_string(),
+            sequence: 0,
+        };
+
+        let messages = to_ag_ui_messages(&message);
+
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(messages[0], Message::Assistant(_)));
+        assert!(matches!(messages[1], Message::Reasoning(_)));
+    }
+
+    #[test]
+    fn reasoning_update_emits_suffix_until_terminal() {
+        let mut translator = CodexAgUiTranslator::new();
+
+        let first = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::MessageUpdated(CodexAgUiMessage {
+                id: "msg-1".to_string(),
+                role: CodexAgUiMessageRole::Assistant,
+                status: CodexAgUiMessageStatus::Streaming,
+                content: String::new(),
+                reasoning: "one".to_string(),
+                sequence: 0,
+            }),
+        );
+        let second = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::MessageUpdated(CodexAgUiMessage {
+                id: "msg-1".to_string(),
+                role: CodexAgUiMessageRole::Assistant,
+                status: CodexAgUiMessageStatus::Completed,
+                content: String::new(),
+                reasoning: "one two".to_string(),
+                sequence: 0,
+            }),
+        );
+
+        assert!(matches!(first[0], Event::TextMessageStart(_)));
+        assert!(first.iter().any(|event| {
+            matches!(
+                event,
+                Event::ReasoningMessageContent(content) if content.delta == "one"
+            )
+        }));
+        assert!(second.iter().any(|event| {
+            matches!(
+                event,
+                Event::ReasoningMessageContent(content) if content.delta == " two"
+            )
+        }));
+        assert!(
+            second
+                .iter()
+                .any(|event| matches!(event, Event::ReasoningMessageEnd(_)))
+        );
     }
 }

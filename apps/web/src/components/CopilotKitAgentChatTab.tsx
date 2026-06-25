@@ -11,15 +11,24 @@ import {
   type Message,
 } from "@copilotkit/react-core/v2";
 import {
+  AlertCircle,
   ChevronRight,
   LoaderCircle,
   MessageSquareText,
   Wrench,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactElement,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { codexAgUiChatUrl } from "@/lib/api";
+import { useChatSettings } from "@/lib/stores/chatSettings";
 import {
   selectChatDiffSummary,
   selectChatConversation,
@@ -33,7 +42,7 @@ import {
   selectChatWorkGroupSlice,
   useChatStore,
 } from "@/lib/stores/chats";
-import { useChatUiStyle } from "@/lib/stores/chatUiStyle";
+import { useSettingsStore } from "@/lib/stores/settings";
 import type {
   AgentChatTab,
   ChatDiffSummary,
@@ -789,13 +798,11 @@ function CopilotChatHeader({
   conversationId: string;
   label: string;
 }) {
-  const copilotKitThemeMode = useChatUiStyle(
-    (state) => state.copilotKitThemeMode,
+  const copilotKitThemeMode = useChatSettings(
+    (state) => state.settings.copilotkitThemeMode,
   );
-  const setCopilotKitThemeMode = useChatUiStyle(
-    (state) => state.setCopilotKitThemeMode,
-  );
-  const setStyle = useChatUiStyle((state) => state.setStyle);
+  const updateChatSettings = useChatSettings((state) => state.updateSettings);
+  const writesBlocked = useSettingsStore((state) => state.status.writesBlocked);
   const { hasStreamingMessage, runtime } = useChatStore(
     useShallow((state) => selectChatHeaderSlice(state, conversationId)),
   );
@@ -820,7 +827,8 @@ function CopilotChatHeader({
           type="button"
           variant={copilotKitThemeMode === "hubris" ? "secondary" : "ghost"}
           size="sm"
-          onClick={() => setCopilotKitThemeMode("hubris")}
+          disabled={writesBlocked}
+          onClick={() => updateChatSettings({ copilotkitThemeMode: "hubris" })}
         >
           Hubris colors
         </Button>
@@ -828,7 +836,8 @@ function CopilotChatHeader({
           type="button"
           variant={copilotKitThemeMode === "stock" ? "secondary" : "ghost"}
           size="sm"
-          onClick={() => setCopilotKitThemeMode("stock")}
+          disabled={writesBlocked}
+          onClick={() => updateChatSettings({ copilotkitThemeMode: "stock" })}
         >
           Stock
         </Button>
@@ -836,7 +845,8 @@ function CopilotChatHeader({
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => setStyle("classic")}
+          disabled={writesBlocked}
+          onClick={() => updateChatSettings({ uiStyle: "classic" })}
         >
           Classic
         </Button>
@@ -847,6 +857,7 @@ function CopilotChatHeader({
 
 export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
   const conversationId = tab.conversation_id;
+  const rootRef = useRef<HTMLDivElement>(null);
   const detailState = useChatStore((state) =>
     selectChatDetailState(state, conversationId),
   );
@@ -863,8 +874,8 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
     (state) => state.refreshConversation,
   );
   const interruptRun = useChatStore((state) => state.interruptRun);
-  const copilotKitThemeMode = useChatUiStyle(
-    (state) => state.copilotKitThemeMode,
+  const copilotKitThemeMode = useChatSettings(
+    (state) => state.settings.copilotkitThemeMode,
   );
   const { hasStreamingMessage, runtime } = useChatStore(
     useShallow((state) => selectChatHeaderSlice(state, conversationId)),
@@ -905,14 +916,25 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
   );
   const agents = useMemo(() => ({ codex: agent }), [agent]);
   const messageView = useMemo(() => codexMessageViewSlot(running), [running]);
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    if (event.key === "Escape" && running) {
+      event.preventDefault();
+      void interruptRun(conversationId);
+    }
+  };
 
   return (
     <div
+      ref={rootRef}
       className="flex h-full min-h-0 flex-col bg-background"
       data-testid="agent-chat-tab"
       data-chat-ui-style="copilotkit"
       data-copilotkit-theme={copilotKitThemeMode}
       aria-label="Codex chat tab"
+      onKeyDown={handleKeyDown}
     >
       <CopilotChatHeader conversationId={conversationId} label={tab.label} />
       {detailState.status === "loaded" ? (
@@ -934,6 +956,30 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
             />
           </div>
         </CopilotKitProvider>
+      ) : detailState.status === "error" ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
+          <div className="flex max-w-md items-start gap-3 rounded-md border bg-muted/35 p-4">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <div className="min-w-0 space-y-3">
+              <div>
+                <div className="font-medium text-foreground">
+                  Failed to load chat history
+                </div>
+                <div className="mt-1 break-words">
+                  {detailState.error ?? "Unable to load this conversation."}
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void refreshConversation(conversationId)}
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
           Loading chat history...

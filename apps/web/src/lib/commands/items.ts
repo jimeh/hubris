@@ -225,6 +225,9 @@ export function getCommandPaletteItems(
     if (tab.id === context.activeTab?.id) {
       continue;
     }
+    if (!chatEnabled && tab.type === "agent_chat") {
+      continue;
+    }
 
     items.push({
       args: { tabId: tab.id },

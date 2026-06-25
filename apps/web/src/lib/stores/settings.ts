@@ -78,6 +78,8 @@ const DEFAULT_SETTINGS: Settings = {
   },
   chat: {
     idleTimeoutMinutes: 60,
+    uiStyle: "classic",
+    copilotkitThemeMode: "hubris",
   },
 };
 
@@ -427,10 +429,22 @@ function normalizeChatSettings(candidate: unknown): {
       ? source.idleTimeoutMinutes
       : DEFAULT_SETTINGS.chat.idleTimeoutMinutes,
   );
+  const uiStyle =
+    source.uiStyle === "classic" || source.uiStyle === "copilotkit"
+      ? source.uiStyle
+      : DEFAULT_SETTINGS.chat.uiStyle;
+  const copilotkitThemeMode =
+    source.copilotkitThemeMode === "hubris" ||
+    source.copilotkitThemeMode === "stock"
+      ? source.copilotkitThemeMode
+      : DEFAULT_SETTINGS.chat.copilotkitThemeMode;
 
   return {
-    settings: { idleTimeoutMinutes },
-    changed: idleTimeoutMinutes !== source.idleTimeoutMinutes,
+    settings: { idleTimeoutMinutes, uiStyle, copilotkitThemeMode },
+    changed:
+      idleTimeoutMinutes !== source.idleTimeoutMinutes ||
+      uiStyle !== source.uiStyle ||
+      copilotkitThemeMode !== source.copilotkitThemeMode,
   };
 }
 
@@ -851,7 +865,11 @@ function equalVscodeSettings(
 }
 
 function equalChatSettings(left: ChatSettings, right: ChatSettings): boolean {
-  return left.idleTimeoutMinutes === right.idleTimeoutMinutes;
+  return (
+    left.idleTimeoutMinutes === right.idleTimeoutMinutes &&
+    left.uiStyle === right.uiStyle &&
+    left.copilotkitThemeMode === right.copilotkitThemeMode
+  );
 }
 
 function stabilizeSettingsSections(

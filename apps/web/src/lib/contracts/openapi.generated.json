@@ -4447,22 +4447,48 @@
       "ChatSettings": {
         "type": "object",
         "description": "Chat settings owned by the backend.",
-        "required": ["idleTimeoutMinutes"],
+        "required": ["idleTimeoutMinutes", "uiStyle", "copilotkitThemeMode"],
         "properties": {
+          "copilotkitThemeMode": {
+            "$ref": "#/components/schemas/CopilotKitThemeMode"
+          },
           "idleTimeoutMinutes": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "uiStyle": {
+            "$ref": "#/components/schemas/ChatUiStyle"
           }
         }
       },
       "ChatSettingsPatch": {
         "type": "object",
         "properties": {
+          "copilotkitThemeMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CopilotKitThemeMode"
+              }
+            ]
+          },
           "idleTimeoutMinutes": {
             "type": ["integer", "null"],
             "format": "int32",
             "minimum": 0
+          },
+          "uiStyle": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatUiStyle"
+              }
+            ]
           }
         }
       },
@@ -4604,6 +4630,11 @@
         "description": "Persisted Codex turn lifecycle state.",
         "enum": ["starting", "running", "completed", "interrupted", "failed"]
       },
+      "ChatUiStyle": {
+        "type": "string",
+        "description": "Chat UI implementation selected by the user.",
+        "enum": ["classic", "copilotkit"]
+      },
       "ClientControlMessage": {
         "oneOf": [
           {
@@ -4634,6 +4665,11 @@
       "ColorScheme": {
         "type": "string",
         "enum": ["auto", "light", "dark"]
+      },
+      "CopilotKitThemeMode": {
+        "type": "string",
+        "description": "CopilotKit visual theme mode selected by the user.",
+        "enum": ["hubris", "stock"]
       },
       "CreateTabRequest": {
         "oneOf": [

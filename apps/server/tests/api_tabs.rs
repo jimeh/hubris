@@ -369,6 +369,30 @@ async fn test_create_tab_invalid_worktree() {
 }
 
 #[tokio::test]
+async fn test_create_chat_tab_disabled_before_worktree_lookup() {
+    let _lock = lock_terminal_test().await;
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let res = client
+        .post(format!("{}/api/tabs", base))
+        .json(&serde_json::json!({
+            "type": "agent_chat",
+            "worktree_id": "nonexistent"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(
+        body["message"],
+        "Chat is disabled in Experimental settings."
+    );
+}
+
+#[tokio::test]
 async fn test_create_commit_diff_tab_requires_commit_id() {
     let _lock = lock_terminal_test().await;
     let (base, _tmp) = start_test_server().await;

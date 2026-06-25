@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/sidebar";
 import AppearanceSettings from "./AppearanceSettings";
 import EditorSettings from "./EditorSettings";
-import ExperimentalSettings from "./ExperimentalSettings";
+import ExperimentalSettings from "@/components/settings-dialog/ExperimentalSettings";
 import KeyboardShortcutsSettings from "./KeyboardShortcutsSettings";
 import TerminalSettings from "./TerminalSettings";
 import VscodeSettings from "./VscodeSettings";

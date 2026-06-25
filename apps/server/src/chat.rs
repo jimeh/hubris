@@ -920,6 +920,44 @@ pub enum ChatConversationListScope {
 #[serde(rename_all = "camelCase")]
 pub struct ChatSettings {
     pub idle_timeout_minutes: u32,
+    pub ui_style: ChatUiStyle,
+    pub copilotkit_theme_mode: CopilotKitThemeMode,
+}
+
+/// Chat UI implementation selected by the user.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ChatUiStyle {
+    #[default]
+    Classic,
+    Copilotkit,
+}
+
+impl ChatUiStyle {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Classic => "classic",
+            Self::Copilotkit => "copilotkit",
+        }
+    }
+}
+
+/// CopilotKit visual theme mode selected by the user.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CopilotKitThemeMode {
+    #[default]
+    Hubris,
+    Stock,
+}
+
+impl CopilotKitThemeMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Hubris => "hubris",
+            Self::Stock => "stock",
+        }
+    }
 }
 
 /// Conversation-level model preferences that apply to future turns.
@@ -935,6 +973,8 @@ impl Default for ChatSettings {
     fn default() -> Self {
         Self {
             idle_timeout_minutes: DEFAULT_IDLE_TIMEOUT_MINUTES,
+            ui_style: ChatUiStyle::default(),
+            copilotkit_theme_mode: CopilotKitThemeMode::default(),
         }
     }
 }
@@ -1804,18 +1844,217 @@ pub struct ChatService {
     app_event_loop_started: AtomicBool,
 }
 
-const CHAT_HISTORY_TABLES: &[&str] = &[
-    "chat_conversations",
-    "chat_messages",
-    "chat_runs",
-    "chat_turns",
-    "chat_items",
-    "chat_item_outputs",
-    "chat_pending_requests",
-    "chat_plans",
-    "chat_diff_summaries",
-    "chat_context_usage",
-    "chat_reconciliations",
+struct ChatHistoryTable {
+    name: &'static str,
+    columns: &'static [&'static str],
+}
+
+const CHAT_HISTORY_TABLES: &[ChatHistoryTable] = &[
+    ChatHistoryTable {
+        name: "chat_conversations",
+        columns: &[
+            "id",
+            "session_id",
+            "project_id",
+            "worktree_id",
+            "provider",
+            "provider_thread_id",
+            "title",
+            "created_at_ms",
+            "updated_at_ms",
+            "last_activity_at_ms",
+            "last_message_at_ms",
+            "open_tab_id",
+            "last_run_state",
+            "last_error",
+            "revision",
+            "selected_model",
+            "selected_effort",
+            "selected_permission_mode",
+            "last_reconciliation_state",
+            "last_reconciliation_error",
+            "branch_name",
+            "archived_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_messages",
+        columns: &[
+            "id",
+            "conversation_id",
+            "provider_turn_id",
+            "role",
+            "status",
+            "content_text",
+            "sequence",
+            "created_at_ms",
+            "updated_at_ms",
+            "reasoning_text",
+            "turn_id",
+            "item_id",
+            "provider_item_id",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_runs",
+        columns: &[
+            "id",
+            "conversation_id",
+            "provider_turn_id",
+            "status",
+            "started_at_ms",
+            "finished_at_ms",
+            "error_message",
+            "turn_id",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_turns",
+        columns: &[
+            "id",
+            "conversation_id",
+            "run_id",
+            "user_message_id",
+            "assistant_message_id",
+            "provider_turn_id",
+            "status",
+            "started_at_ms",
+            "completed_at_ms",
+            "error_message",
+            "created_at_ms",
+            "updated_at_ms",
+            "reconciliation_status",
+            "reconciled_at_ms",
+            "reconciliation_error",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_items",
+        columns: &[
+            "id",
+            "conversation_id",
+            "turn_id",
+            "provider_turn_id",
+            "provider_item_id",
+            "kind",
+            "status",
+            "role",
+            "sequence",
+            "title",
+            "summary",
+            "metadata_json",
+            "created_at_ms",
+            "updated_at_ms",
+            "completed_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_item_outputs",
+        columns: &[
+            "id",
+            "conversation_id",
+            "item_id",
+            "stream_kind",
+            "sequence",
+            "content_text",
+            "byte_count",
+            "created_at_ms",
+            "updated_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_pending_requests",
+        columns: &[
+            "id",
+            "conversation_id",
+            "turn_id",
+            "item_id",
+            "provider_request_id",
+            "provider_turn_id",
+            "provider_item_id",
+            "method",
+            "kind",
+            "status",
+            "decision",
+            "payload_json",
+            "response_json",
+            "error_message",
+            "owner_generation",
+            "sequence",
+            "created_at_ms",
+            "updated_at_ms",
+            "resolved_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_plans",
+        columns: &[
+            "id",
+            "conversation_id",
+            "turn_id",
+            "item_id",
+            "provider_turn_id",
+            "provider_item_id",
+            "kind",
+            "status",
+            "content_text",
+            "steps_json",
+            "metadata_json",
+            "owner_generation",
+            "sequence",
+            "created_at_ms",
+            "updated_at_ms",
+            "completed_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_diff_summaries",
+        columns: &[
+            "id",
+            "conversation_id",
+            "turn_id",
+            "provider_turn_id",
+            "changed_file_count",
+            "additions",
+            "deletions",
+            "files_json",
+            "metadata_json",
+            "owner_generation",
+            "sequence",
+            "created_at_ms",
+            "updated_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_context_usage",
+        columns: &[
+            "id",
+            "conversation_id",
+            "provider_thread_id",
+            "used_tokens",
+            "max_tokens",
+            "percent_used",
+            "total_processed_tokens",
+            "metadata_json",
+            "updated_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_reconciliations",
+        columns: &[
+            "id",
+            "conversation_id",
+            "provider_thread_id",
+            "status",
+            "reason",
+            "started_at_ms",
+            "finished_at_ms",
+            "error_message",
+            "owner_generation",
+            "created_at_ms",
+            "updated_at_ms",
+        ],
+    },
 ];
 
 async fn migrate_legacy_chat_history(
@@ -1842,9 +2081,13 @@ async fn migrate_legacy_chat_history(
         }
 
         for table in CHAT_HISTORY_TABLES {
-            if legacy_chat_table_exists(&mut conn, table).await? {
-                let sql =
-                    format!("INSERT OR IGNORE INTO {table} SELECT * FROM legacy_state.{table}");
+            if legacy_chat_table_exists(&mut conn, table.name).await? {
+                let columns = table.columns.join(", ");
+                let sql = format!(
+                    "INSERT OR IGNORE INTO {table} ({columns}) \
+                     SELECT {columns} FROM legacy_state.{table}",
+                    table = table.name,
+                );
                 sqlx::query(&sql).execute(&mut *conn).await?;
             }
         }
@@ -1896,7 +2139,7 @@ impl ChatService {
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
-            .foreign_keys(false);
+            .foreign_keys(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(CHAT_DB_MAX_CONNECTIONS)
             .connect_with(options)
