@@ -983,6 +983,20 @@ tabLabelMode = "title"
         assert!(settings.terminal.escape_sequence_titles);
     }
 
+    #[test]
+    fn parse_settings_document_defaults_new_chat_fields() {
+        let (_, settings) = parse_settings_document(
+            r#"[chat]
+idleTimeoutMinutes = 15
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(settings.chat.idle_timeout_minutes, 15);
+        assert_eq!(settings.chat.ui_style.as_str(), "classic");
+        assert_eq!(settings.chat.copilotkit_theme_mode.as_str(), "hubris");
+    }
+
     #[tokio::test]
     async fn terminal_settings_writes_scrollback_and_naming_keys() {
         let tmp = TempDir::new().unwrap();

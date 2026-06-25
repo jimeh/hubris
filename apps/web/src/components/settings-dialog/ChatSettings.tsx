@@ -27,6 +27,7 @@ export default function ChatSettings() {
           <Button
             variant={settings.uiStyle === "classic" ? "secondary" : "ghost"}
             size="sm"
+            aria-pressed={settings.uiStyle === "classic"}
             disabled={writesBlocked}
             onClick={() => updateSettings({ uiStyle: "classic" })}
           >
@@ -35,6 +36,7 @@ export default function ChatSettings() {
           <Button
             variant={settings.uiStyle === "copilotkit" ? "secondary" : "ghost"}
             size="sm"
+            aria-pressed={settings.uiStyle === "copilotkit"}
             disabled={writesBlocked}
             onClick={() => updateSettings({ uiStyle: "copilotkit" })}
           >
@@ -52,6 +54,7 @@ export default function ChatSettings() {
               settings.copilotkitThemeMode === "hubris" ? "secondary" : "ghost"
             }
             size="sm"
+            aria-pressed={settings.copilotkitThemeMode === "hubris"}
             disabled={writesBlocked}
             onClick={() => updateSettings({ copilotkitThemeMode: "hubris" })}
           >
@@ -62,6 +65,7 @@ export default function ChatSettings() {
               settings.copilotkitThemeMode === "stock" ? "secondary" : "ghost"
             }
             size="sm"
+            aria-pressed={settings.copilotkitThemeMode === "stock"}
             disabled={writesBlocked}
             onClick={() => updateSettings({ copilotkitThemeMode: "stock" })}
           >

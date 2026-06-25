@@ -919,8 +919,11 @@ pub enum ChatConversationListScope {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSettings {
+    #[serde(default = "default_chat_idle_timeout_minutes")]
     pub idle_timeout_minutes: u32,
+    #[serde(default)]
     pub ui_style: ChatUiStyle,
+    #[serde(default)]
     pub copilotkit_theme_mode: CopilotKitThemeMode,
 }
 
@@ -972,11 +975,15 @@ pub struct ChatConversationSettingsPatch {
 impl Default for ChatSettings {
     fn default() -> Self {
         Self {
-            idle_timeout_minutes: DEFAULT_IDLE_TIMEOUT_MINUTES,
+            idle_timeout_minutes: default_chat_idle_timeout_minutes(),
             ui_style: ChatUiStyle::default(),
             copilotkit_theme_mode: CopilotKitThemeMode::default(),
         }
     }
+}
+
+fn default_chat_idle_timeout_minutes() -> u32 {
+    DEFAULT_IDLE_TIMEOUT_MINUTES
 }
 
 pub fn clamp_chat_idle_timeout_minutes(value: u32) -> u32 {
@@ -2074,25 +2081,41 @@ async fn migrate_legacy_chat_history(
         .map_err(std::io::Error::other)?;
 
     let result = async {
-        let has_chat_conversations =
-            legacy_chat_table_exists(&mut conn, "chat_conversations").await?;
-        if !has_chat_conversations {
-            return Ok::<(), sqlx::Error>(());
-        }
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
 
-        for table in CHAT_HISTORY_TABLES {
-            if legacy_chat_table_exists(&mut conn, table.name).await? {
-                let columns = table.columns.join(", ");
-                let sql = format!(
-                    "INSERT OR IGNORE INTO {table} ({columns}) \
-                     SELECT {columns} FROM legacy_state.{table}",
-                    table = table.name,
-                );
-                sqlx::query(&sql).execute(&mut *conn).await?;
+        let copy_result = async {
+            let has_chat_conversations =
+                legacy_chat_table_exists(&mut conn, "chat_conversations").await?;
+            if !has_chat_conversations {
+                return Ok::<(), sqlx::Error>(());
+            }
+
+            for table in CHAT_HISTORY_TABLES {
+                if legacy_chat_table_exists(&mut conn, table.name).await? {
+                    let columns = table.columns.join(", ");
+                    let sql = format!(
+                        "INSERT OR IGNORE INTO {table} ({columns}) \
+                         SELECT {columns} FROM legacy_state.{table}",
+                        table = table.name,
+                    );
+                    sqlx::query(&sql).execute(&mut *conn).await?;
+                }
+            }
+
+            Ok(())
+        }
+        .await;
+
+        match copy_result {
+            Ok(()) => {
+                sqlx::query("COMMIT").execute(&mut *conn).await?;
+                Ok(())
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                Err(error)
             }
         }
-
-        Ok(())
     }
     .await;
 
