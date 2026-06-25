@@ -4,5 +4,8 @@
   "workspaces": [
     "apps/web",
     "apps/desktop"
-  ]
+  ],
+  "overrides": {
+    "@assistant-ui/store": "0.2.9"
+  }
 }
