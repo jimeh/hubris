@@ -1446,12 +1446,16 @@ export interface components {
     };
     /** @description Chat settings owned by the backend. */
     ChatSettings: {
+      copilotkitThemeMode: components["schemas"]["CopilotKitThemeMode"];
       /** Format: int32 */
       idleTimeoutMinutes: number;
+      uiStyle: components["schemas"]["ChatUiStyle"];
     };
     ChatSettingsPatch: {
+      copilotkitThemeMode?: null | components["schemas"]["CopilotKitThemeMode"];
       /** Format: int32 */
       idleTimeoutMinutes?: number | null;
+      uiStyle?: null | components["schemas"]["ChatUiStyle"];
     };
     /**
      * @description Per-conversation Codex thread stream resume state.
@@ -1512,6 +1516,11 @@ export interface components {
       | "completed"
       | "interrupted"
       | "failed";
+    /**
+     * @description Chat UI implementation selected by the user.
+     * @enum {string}
+     */
+    ChatUiStyle: "classic" | "copilotkit";
     ClientControlMessage: {
       /** Format: int32 */
       cols: number;
@@ -1523,6 +1532,11 @@ export interface components {
     };
     /** @enum {string} */
     ColorScheme: "auto" | "light" | "dark";
+    /**
+     * @description CopilotKit visual theme mode selected by the user.
+     * @enum {string}
+     */
+    CopilotKitThemeMode: "hubris" | "stock";
     CreateTabRequest:
       | {
           pane_id?: string | null;
@@ -1603,6 +1617,12 @@ export interface components {
       id: string;
       name: string;
       type: string;
+    };
+    ExperimentalSettings: {
+      chatEnabled?: boolean;
+    };
+    ExperimentalSettingsPatch: {
+      chatEnabled?: boolean | null;
     };
     GitCommitDetailsResponse: {
       author: components["schemas"]["GitCommitPerson"];
@@ -1809,6 +1829,7 @@ export interface components {
       appearance?: components["schemas"]["AppearanceSettings"];
       chat?: components["schemas"]["ChatSettings"];
       editor?: components["schemas"]["EditorSettings"];
+      experimental?: components["schemas"]["ExperimentalSettings"];
       terminal?: components["schemas"]["TerminalSettings"];
       vscode?: components["schemas"]["VscodeSettings"];
       worktree?: components["schemas"]["WorktreeSettings"];
@@ -1817,6 +1838,7 @@ export interface components {
       appearance?: null | components["schemas"]["AppearanceSettingsPatch"];
       chat?: null | components["schemas"]["ChatSettingsPatch"];
       editor?: null | components["schemas"]["EditorSettingsPatch"];
+      experimental?: null | components["schemas"]["ExperimentalSettingsPatch"];
       terminal?: null | components["schemas"]["TerminalSettingsPatch"];
       vscode?: null | components["schemas"]["VscodeSettingsPatch"];
       worktree?: null | components["schemas"]["WorktreeSettingsPatch"];

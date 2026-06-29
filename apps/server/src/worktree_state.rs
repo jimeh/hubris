@@ -1833,20 +1833,6 @@ async fn delete_worktree_rows(
     )
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
-        "
-        UPDATE chat_conversations
-        SET open_tab_id = NULL
-        WHERE open_tab_id IN (
-            SELECT tab_id FROM tabs
-            WHERE project_id = ?1 AND worktree_id = ?2
-        )
-        ",
-    )
-    .bind(project_id)
-    .bind(worktree_id)
-    .execute(&mut *tx)
-    .await?;
     sqlx::query!(
         "DELETE FROM tabs WHERE project_id = ?1 AND worktree_id = ?2",
         project_id,
@@ -1899,7 +1885,6 @@ async fn delete_project_rows(
     )
     .execute(&mut *tx)
     .await?;
-    delete_project_chat_rows(&mut tx, project_id).await?;
     sqlx::query!("DELETE FROM tabs WHERE project_id = ?1", project_id)
         .execute(&mut *tx)
         .await?;
@@ -1916,40 +1901,6 @@ async fn delete_project_rows(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(())
-}
-
-async fn delete_project_chat_rows(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    project_id: &str,
-) -> Result<(), sqlx::Error> {
-    for table in [
-        "chat_item_outputs",
-        "chat_reconciliations",
-        "chat_context_usage",
-        "chat_diff_summaries",
-        "chat_plans",
-        "chat_pending_requests",
-        "chat_items",
-        "chat_turns",
-        "chat_runs",
-        "chat_messages",
-    ] {
-        let sql = format!(
-            "DELETE FROM {table}
-             WHERE conversation_id IN (
-                 SELECT id FROM chat_conversations WHERE project_id = ?
-             )"
-        );
-        sqlx::query(&sql)
-            .bind(project_id)
-            .execute(&mut **tx)
-            .await?;
-    }
-    sqlx::query("DELETE FROM chat_conversations WHERE project_id = ?")
-        .bind(project_id)
-        .execute(&mut **tx)
-        .await?;
     Ok(())
 }
 
@@ -2263,7 +2214,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(migration_count, 12);
+        assert_eq!(migration_count, 13);
     }
 
     #[tokio::test]
@@ -2276,7 +2227,7 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(migration_count, 12);
+        assert_eq!(migration_count, 13);
     }
 
     #[tokio::test]
@@ -2580,52 +2531,6 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(browser_history_count, 0);
-    }
-
-    #[tokio::test]
-    async fn delete_worktree_rows_clears_chat_open_tab_ids() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("state.sqlite3");
-        let mut conn = open_connection(&path).await.unwrap();
-
-        replace_worktree_state(&mut conn, &make_snapshot())
-            .await
-            .unwrap();
-        sqlx::query(
-            "
-            INSERT INTO chat_conversations (
-                id, session_id, project_id, worktree_id, provider, title,
-                created_at_ms, updated_at_ms, last_activity_at_ms, open_tab_id,
-                last_run_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ",
-        )
-        .bind("chat-1")
-        .bind("default")
-        .bind("project-1")
-        .bind("worktree-1")
-        .bind("codex")
-        .bind("Chat")
-        .bind(1_i64)
-        .bind(1_i64)
-        .bind(1_i64)
-        .bind("terminal-1")
-        .bind("completed")
-        .execute(&mut conn)
-        .await
-        .unwrap();
-
-        delete_worktree_rows(&mut conn, "project-1", "worktree-1")
-            .await
-            .unwrap();
-
-        let open_tab_id = sqlx::query_scalar::<_, Option<String>>(
-            "SELECT open_tab_id FROM chat_conversations WHERE id = 'chat-1'",
-        )
-        .fetch_one(&mut conn)
-        .await
-        .unwrap();
-        assert_eq!(open_tab_id, None);
     }
 
     #[tokio::test]

@@ -83,6 +83,26 @@ fn chat_not_found() -> (StatusCode, Json<ApiErrorResponse>) {
     )
 }
 
+async fn ensure_chat_enabled(state: &AppState) -> Result<(), (StatusCode, Json<ApiErrorResponse>)> {
+    if state
+        .settings
+        .get()
+        .await
+        .settings
+        .experimental
+        .chat_enabled
+    {
+        return Ok(());
+    }
+
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(ApiErrorResponse {
+            message: "chat is disabled in Experimental settings".to_string(),
+        }),
+    ))
+}
+
 async fn conversation_for_session(
     state: &AppState,
     conversation_id: &str,
@@ -118,6 +138,7 @@ pub async fn list_project_worktree_chats(
     Path((project_id, worktree_id)): Path<(String, String)>,
     Query(params): Query<ListChatsParams>,
 ) -> Result<Json<Vec<ChatConversationSummary>>, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     let resolved = resolve_worktree(&state, &worktree_id)
         .await
         .map_err(|status| {
@@ -163,6 +184,7 @@ pub async fn list_project_worktree_chats(
 pub async fn list_chat_models(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ChatModelOption>>, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     let models = state.chats.list_models().await.map_err(map_chat_error)?;
     Ok(Json(models))
 }
@@ -184,6 +206,7 @@ pub async fn get_chat(
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
 ) -> Result<Json<ChatConversationDetail>, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let detail = state
         .chats
@@ -212,6 +235,7 @@ pub async fn archive_chat(
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
 ) -> Result<Json<ChatConversationSummary>, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let summary = state
         .chats
@@ -238,6 +262,7 @@ pub async fn unarchive_chat(
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
 ) -> Result<Json<ChatConversationSummary>, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let summary = state
         .chats
@@ -265,6 +290,7 @@ pub async fn delete_chat(
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
 ) -> Result<StatusCode, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     let summary = conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     state
         .chats
@@ -295,6 +321,7 @@ pub async fn get_chat_activity(
     Path((conversation_id, item_id)): Path<(String, String)>,
     Query(params): Query<ChatSessionParams>,
 ) -> Result<Json<ChatActivityDetail>, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let detail = state
         .chats
@@ -331,6 +358,7 @@ pub async fn patch_chat_settings(
     Query(params): Query<ChatSessionParams>,
     Json(request): Json<ChatConversationSettingsPatch>,
 ) -> Result<Json<ChatConversationSummary>, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let summary = state
         .chats
@@ -362,6 +390,7 @@ pub async fn send_chat_message(
     Query(params): Query<ChatSessionParams>,
     Json(request): Json<SendChatMessageRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     let conversation =
         conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     if conversation.archived_at.is_some() {
@@ -455,6 +484,7 @@ pub async fn interrupt_chat(
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
 ) -> Result<StatusCode, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     state
         .chats
@@ -485,6 +515,7 @@ pub async fn resolve_chat_pending_request(
     Query(params): Query<ChatSessionParams>,
     Json(request): Json<ResolveChatPendingRequestRequest>,
 ) -> Result<Json<ChatPendingRequest>, (StatusCode, Json<ApiErrorResponse>)> {
+    ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let pending = state
         .chats

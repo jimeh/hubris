@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
 import { executeCommand } from "@/lib/commands";
 import { useChatStore } from "@/lib/stores/chats";
+import { useSettingsStore } from "@/lib/stores/settings";
 import { useTabStore } from "@/lib/stores/tabs";
 import type {
   ChatConversationSummary,
@@ -54,6 +55,9 @@ function runtimeLabel(
 export default function WorktreeChatsPanel({ worktree }: Props) {
   const [scope, setScope] = useState<"branch" | "project">("branch");
   const [showArchived, setShowArchived] = useState(false);
+  const chatEnabled = useSettingsStore(
+    (state) => state.settings.experimental.chatEnabled,
+  );
   const activeTabId = useTabStore((state) => state.activeTabId);
   const tabs = useTabStore((state) => state.tabs);
   const conversationsById = useChatStore((state) => state.conversationsById);
@@ -94,6 +98,14 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
   const runtimesByConversationId = useChatStore(
     (state) => state.runtimesByConversationId,
   );
+
+  if (!chatEnabled) {
+    return (
+      <div className="p-3 text-sm text-muted-foreground">
+        Chat is disabled in Experimental settings.
+      </div>
+    );
+  }
 
   function isConversationActive(
     conversation: ChatConversationSummary,

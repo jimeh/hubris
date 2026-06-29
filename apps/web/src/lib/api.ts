@@ -714,6 +714,10 @@ export async function sendChatMessage(
   }
 }
 
+export function codexAgUiChatUrl(conversationId: string): string {
+  return `${BASE}/chats/${conversationId}/ag-ui`;
+}
+
 export async function archiveChat(
   conversationId: string,
 ): Promise<ChatConversationSummary> {

@@ -1006,11 +1006,16 @@ describe("API client", () => {
         worktree: {
           locationMode: "repoLocalDotHubris" as const,
         },
+        experimental: {
+          chatEnabled: false,
+        },
         vscode: {
           runtime: "vscodeCli" as const,
         },
         chat: {
           idleTimeoutMinutes: 5,
+          uiStyle: "classic" as const,
+          copilotkitThemeMode: "hubris" as const,
         },
       };
       const response = {
@@ -1070,11 +1075,16 @@ describe("API client", () => {
           worktree: {
             locationMode: "dataDir",
           },
+          experimental: {
+            chatEnabled: false,
+          },
           vscode: {
             runtime: "vscodeCli",
           },
           chat: {
             idleTimeoutMinutes: 5,
+            uiStyle: "classic" as const,
+            copilotkitThemeMode: "hubris" as const,
           },
         }),
       ).rejects.toThrow("500");
@@ -1114,11 +1124,16 @@ describe("API client", () => {
           worktree: {
             locationMode: "dataDir",
           },
+          experimental: {
+            chatEnabled: false,
+          },
           vscode: {
             runtime: "vscodeCli",
           },
           chat: {
             idleTimeoutMinutes: 5,
+            uiStyle: "classic" as const,
+            copilotkitThemeMode: "hubris" as const,
           },
         }),
       ).rejects.toMatchObject({

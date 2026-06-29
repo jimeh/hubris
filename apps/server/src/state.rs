@@ -50,14 +50,23 @@ pub struct AppState {
 impl AppState {
     pub async fn try_new(data_dir: PathBuf) -> std::io::Result<Self> {
         let events = Arc::new(EventBus::new());
-        let persistence =
-            Arc::new(WorktreeStateService::new(data_dir.join("state.sqlite3")).await?);
+        let state_db_path = data_dir.join("state.sqlite3");
         let settings = Arc::new(
             SettingsManager::new(data_dir.join("settings.toml"))
                 .await
                 .map_err(std::io::Error::other)?,
         );
         settings.start_sync(events.clone());
+        let chats = Arc::new(
+            ChatService::new(
+                &data_dir.join("chat-history.sqlite3"),
+                &state_db_path,
+                events.clone(),
+                settings.clone(),
+            )
+            .await?,
+        );
+        let persistence = Arc::new(WorktreeStateService::new(state_db_path).await?);
         let keybindings = Arc::new(
             KeybindingsManager::new(data_dir.join("keybindings.toml"))
                 .await
@@ -83,14 +92,6 @@ impl AppState {
             code_server.clone(),
             vscode_cli.clone(),
         ));
-        let chats = Arc::new(
-            ChatService::new(
-                &data_dir.join("state.sqlite3"),
-                events.clone(),
-                settings.clone(),
-            )
-            .await?,
-        );
         register_vscode_tasks(&tasks, code_server.clone(), vscode_cli.clone());
         processes.register_controller(code_server.clone());
         processes.register_controller(vscode_cli.clone());

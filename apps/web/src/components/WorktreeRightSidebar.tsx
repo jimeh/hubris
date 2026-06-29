@@ -36,6 +36,7 @@ import {
   WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB,
   type WorktreeRightSidebarTabId,
 } from "@/lib/worktreeRightSidebar";
+import { useSettingsStore } from "@/lib/stores/settings";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar";
 import type { Worktree } from "@/lib/types";
@@ -93,12 +94,14 @@ function RightSidebarHeader({
   onTabChange,
   badgeCounts,
   actions,
+  tabs,
   closeAction,
 }: {
   activeTab: WorktreeRightSidebarTabId;
   onTabChange: (tabId: WorktreeRightSidebarTabId) => void;
   badgeCounts: Partial<Record<WorktreeRightSidebarTabId, number | null>>;
   actions: ReactNode;
+  tabs: WorktreeRightSidebarTabDefinition[];
   closeAction?: ReactNode;
 }) {
   const headerRef = useRef<HTMLDivElement | null>(null);
@@ -241,9 +244,7 @@ function RightSidebarHeader({
           data-worktree-right-sidebar-tabs
           className="-ml-1 flex items-center gap-1"
         >
-          {Object.values(RIGHT_SIDEBAR_TABS).map((tab) =>
-            renderTabButton(tab, "visible"),
-          )}
+          {tabs.map((tab) => renderTabButton(tab, "visible"))}
         </div>
       </div>
       <div
@@ -261,9 +262,7 @@ function RightSidebarHeader({
         className="pointer-events-none absolute top-2 left-3 invisible h-0 overflow-hidden whitespace-nowrap"
       >
         <div className="-ml-1 flex items-center gap-1">
-          {Object.values(RIGHT_SIDEBAR_TABS).map((tab) =>
-            renderTabButton(tab, "measure"),
-          )}
+          {tabs.map((tab) => renderTabButton(tab, "measure"))}
         </div>
       </div>
     </div>
@@ -279,6 +278,9 @@ export default function WorktreeRightSidebar({ worktree, active }: Props) {
   );
   const mobileOpen = useWorktreeRightSidebarStore((state) => state.mobileOpen);
   const activeTab = useWorktreeRightSidebarStore((state) => state.activeTab);
+  const chatEnabled = useSettingsStore(
+    (state) => state.settings.experimental.chatEnabled,
+  );
   const setMobileOpen = useWorktreeRightSidebarStore(
     (state) => state.setMobileOpen,
   );
@@ -309,12 +311,24 @@ export default function WorktreeRightSidebar({ worktree, active }: Props) {
     (state) => state.setViewMode,
   );
 
-  const tab = useMemo(
+  const availableTabs = useMemo(
     () =>
-      RIGHT_SIDEBAR_TABS[activeTab] ??
-      RIGHT_SIDEBAR_TABS[DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB],
-    [activeTab],
+      Object.values(RIGHT_SIDEBAR_TABS).filter(
+        (candidate) =>
+          chatEnabled || candidate.id !== WORKTREE_RIGHT_SIDEBAR_CHATS_TAB,
+      ),
+    [chatEnabled],
   );
+  const tab = useMemo(() => {
+    if (!chatEnabled && activeTab === WORKTREE_RIGHT_SIDEBAR_CHATS_TAB) {
+      return RIGHT_SIDEBAR_TABS[DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB];
+    }
+    return (
+      RIGHT_SIDEBAR_TABS[activeTab] ??
+      RIGHT_SIDEBAR_TABS[DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB]
+    );
+  }, [activeTab, chatEnabled]);
+  const effectiveActiveTab = tab.id;
   const TabContent = tab.Content;
   const allFilesLoading =
     worktreeState?.directories[""]?.status === "loading-initial" ||
@@ -342,7 +356,7 @@ export default function WorktreeRightSidebar({ worktree, active }: Props) {
   );
 
   const tabActions = useMemo(() => {
-    if (activeTab === WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB) {
+    if (effectiveActiveTab === WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB) {
       return (
         <Button
           variant="ghost"
@@ -358,7 +372,7 @@ export default function WorktreeRightSidebar({ worktree, active }: Props) {
       );
     }
 
-    if (activeTab === WORKTREE_RIGHT_SIDEBAR_CHATS_TAB) {
+    if (effectiveActiveTab === WORKTREE_RIGHT_SIDEBAR_CHATS_TAB) {
       return null;
     }
 
@@ -382,7 +396,7 @@ export default function WorktreeRightSidebar({ worktree, active }: Props) {
       </>
     );
   }, [
-    activeTab,
+    effectiveActiveTab,
     allFilesLoading,
     changesLoading,
     handleAllFilesRefresh,
@@ -405,7 +419,8 @@ export default function WorktreeRightSidebar({ worktree, active }: Props) {
           </SheetHeader>
           <div className="flex h-full min-h-0 flex-col overflow-hidden">
             <RightSidebarHeader
-              activeTab={activeTab}
+              activeTab={effectiveActiveTab}
+              tabs={availableTabs}
               onTabChange={setActiveTab}
               badgeCounts={{
                 [WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB]: changesBadgeCount,
@@ -467,7 +482,8 @@ export default function WorktreeRightSidebar({ worktree, active }: Props) {
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <RightSidebarHeader
-            activeTab={activeTab}
+            activeTab={effectiveActiveTab}
+            tabs={availableTabs}
             onTabChange={setActiveTab}
             badgeCounts={{
               [WORKTREE_RIGHT_SIDEBAR_CHANGES_TAB]: changesBadgeCount,

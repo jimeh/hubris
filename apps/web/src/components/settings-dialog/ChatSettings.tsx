@@ -21,6 +21,60 @@ export default function ChatSettings() {
       </div>
       <div className={settingsRowClass}>
         <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          Chat UI
+        </Label>
+        <div className="flex flex-wrap gap-1">
+          <Button
+            variant={settings.uiStyle === "classic" ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={settings.uiStyle === "classic"}
+            disabled={writesBlocked}
+            onClick={() => updateSettings({ uiStyle: "classic" })}
+          >
+            Classic
+          </Button>
+          <Button
+            variant={settings.uiStyle === "copilotkit" ? "secondary" : "ghost"}
+            size="sm"
+            aria-pressed={settings.uiStyle === "copilotkit"}
+            disabled={writesBlocked}
+            onClick={() => updateSettings({ uiStyle: "copilotkit" })}
+          >
+            CopilotKit
+          </Button>
+        </div>
+      </div>
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
+          CopilotKit Theme
+        </Label>
+        <div className="flex flex-wrap gap-1">
+          <Button
+            variant={
+              settings.copilotkitThemeMode === "hubris" ? "secondary" : "ghost"
+            }
+            size="sm"
+            aria-pressed={settings.copilotkitThemeMode === "hubris"}
+            disabled={writesBlocked}
+            onClick={() => updateSettings({ copilotkitThemeMode: "hubris" })}
+          >
+            Hubris colors
+          </Button>
+          <Button
+            variant={
+              settings.copilotkitThemeMode === "stock" ? "secondary" : "ghost"
+            }
+            size="sm"
+            aria-pressed={settings.copilotkitThemeMode === "stock"}
+            disabled={writesBlocked}
+            onClick={() => updateSettings({ copilotkitThemeMode: "stock" })}
+          >
+            Stock
+          </Button>
+        </div>
+      </div>
+      <div className={settingsRowClass}>
+        <Label className="text-xs font-medium text-muted-foreground sm:text-sm">
           Inactive Stream Timeout
         </Label>
         <div className="space-y-2">

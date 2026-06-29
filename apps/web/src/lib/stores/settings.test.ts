@@ -134,6 +134,17 @@ function createSettingsState(
     worktree: Partial<{
       locationMode: "dataDir" | "repoLocalDotHubris";
     }>;
+    experimental: Partial<{
+      chatEnabled: boolean;
+    }>;
+    vscode: Partial<{
+      runtime: "vscodeCli" | "codeServer";
+    }>;
+    chat: Partial<{
+      idleTimeoutMinutes: number;
+      uiStyle: "classic" | "copilotkit";
+      copilotkitThemeMode: "hubris" | "stock";
+    }>;
     status: typeof okStatus | typeof invalidStatus;
   }>,
 ) {
@@ -165,6 +176,20 @@ function createSettingsState(
       worktree: {
         locationMode: "dataDir" as const,
         ...(overrides?.worktree ?? {}),
+      },
+      experimental: {
+        chatEnabled: false,
+        ...(overrides?.experimental ?? {}),
+      },
+      vscode: {
+        runtime: "vscodeCli" as const,
+        ...(overrides?.vscode ?? {}),
+      },
+      chat: {
+        idleTimeoutMinutes: 60,
+        uiStyle: "classic" as const,
+        copilotkitThemeMode: "hubris" as const,
+        ...(overrides?.chat ?? {}),
       },
     },
     generation,

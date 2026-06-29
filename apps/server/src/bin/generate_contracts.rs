@@ -10,9 +10,9 @@ use hubris_server::api::processes::{
 };
 use hubris_server::api::projects::Project;
 use hubris_server::api::settings::{
-    AppearanceSettings, ColorScheme, EditorSettings, EditorSettingsPatch, Settings, SettingsState,
-    SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings, VscodeRuntimeKind,
-    VscodeSettings, WorktreeLocationMode, WorktreeSettings,
+    AppearanceSettings, ColorScheme, EditorSettings, EditorSettingsPatch, ExperimentalSettings,
+    Settings, SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource,
+    TerminalSettings, VscodeRuntimeKind, VscodeSettings, WorktreeLocationMode, WorktreeSettings,
 };
 use hubris_server::api::tasks::{
     TaskDefinition, TaskDefinitionInputField, TaskInputFieldKind, TaskInvocationStatus,
@@ -34,7 +34,7 @@ use hubris_server::chat::{
     ChatPermissionMode, ChatPlan, ChatPlanKind, ChatPlanStatus, ChatProvider, ChatReasoningEffort,
     ChatReconciliation, ChatReconciliationStatus, ChatRun, ChatRunStatus, ChatRuntimeLifecycle,
     ChatRuntimeStatus, ChatSettings, ChatThreadStreamResumeState, ChatThreadStreamStatus, ChatTurn,
-    ChatTurnStatus, ResolveChatPendingRequestRequest,
+    ChatTurnStatus, ChatUiStyle, CopilotKitThemeMode, ResolveChatPendingRequestRequest,
 };
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
@@ -111,6 +111,7 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<EditorSettings>(&mut sse, &cfg)?;
     push_ts_export::<EditorSettingsPatch>(&mut sse, &cfg)?;
     push_ts_export::<WorktreeSettings>(&mut sse, &cfg)?;
+    push_ts_export::<ExperimentalSettings>(&mut sse, &cfg)?;
     push_ts_export::<VscodeRuntimeKind>(&mut sse, &cfg)?;
     push_ts_export::<VscodeSettings>(&mut sse, &cfg)?;
     push_ts_export::<ChatProvider>(&mut sse, &cfg)?;
@@ -153,6 +154,8 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<ChatReconciliation>(&mut sse, &cfg)?;
     push_ts_export::<ChatConversationDetail>(&mut sse, &cfg)?;
     push_ts_export::<ChatRuntimeStatus>(&mut sse, &cfg)?;
+    push_ts_export::<ChatUiStyle>(&mut sse, &cfg)?;
+    push_ts_export::<CopilotKitThemeMode>(&mut sse, &cfg)?;
     push_ts_export::<ChatSettings>(&mut sse, &cfg)?;
     push_ts_export::<Settings>(&mut sse, &cfg)?;
     push_ts_export::<SettingsStatusKind>(&mut sse, &cfg)?;

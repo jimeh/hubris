@@ -39,6 +39,7 @@ import {
 import { executeCommand } from "@/lib/commands";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
 import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
+import { useSettingsStore } from "@/lib/stores/settings";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import { useWorktreeRightSidebarWidthStore } from "@/lib/stores/worktreeRightSidebarWidth";
@@ -76,7 +77,7 @@ type PaneLeafProps = {
   onCloseTab: (tabId: string) => void;
   onAddTerminal: () => void;
   onAddBrowser: () => Promise<void>;
-  onAddChat: () => Promise<void>;
+  onAddChat?: () => Promise<void>;
   onSplitRight: () => void;
   onSplitDown: () => void;
   onResetTerminalTabName: (tabId: string) => Promise<void>;
@@ -453,6 +454,9 @@ function PaneTreeView({
 }
 
 export default function WorktreeView({ worktree, active }: Props) {
+  const chatEnabled = useSettingsStore(
+    (state) => state.settings.experimental.chatEnabled,
+  );
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [draggingTabWidth, setDraggingTabWidth] = useState<number | null>(null);
@@ -994,13 +998,17 @@ export default function WorktreeView({ worktree, active }: Props) {
               source: "button",
             });
           }}
-          onAddChat={async () => {
-            await executeCommand({
-              args: { paneId, worktreeId: worktree.id },
-              id: "tab.newChat",
-              source: "button",
-            });
-          }}
+          onAddChat={
+            chatEnabled
+              ? async () => {
+                  await executeCommand({
+                    args: { paneId, worktreeId: worktree.id },
+                    id: "tab.newChat",
+                    source: "button",
+                  });
+                }
+              : undefined
+          }
           onSplitRight={() => {
             void executeCommand({
               args: {
@@ -1032,6 +1040,7 @@ export default function WorktreeView({ worktree, active }: Props) {
     },
     [
       activePaneTabIds,
+      chatEnabled,
       dirtyTabIds,
       dragOverId,
       draggingTabId,
@@ -1164,8 +1173,12 @@ export default function WorktreeView({ worktree, active }: Props) {
                       />
                     ) : tab.type === "browser" ? (
                       <BrowserTab tab={tab} visible={visible} />
-                    ) : tab.type === "agent_chat" ? (
+                    ) : tab.type === "agent_chat" && chatEnabled ? (
                       <AgentChatTabView tab={tab} visible={visible} />
+                    ) : tab.type === "agent_chat" ? (
+                      <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
+                        Chat is disabled in Experimental settings.
+                      </div>
                     ) : null}
                   </div>
                 );

@@ -13,9 +13,10 @@ use tokio::sync::RwLock;
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 use crate::api::settings::{
-    AppearanceSettingsPatch, ChatSettingsPatch, EditorSettingsPatch, Settings, SettingsPatch,
-    SettingsState, SettingsStatus, TerminalSettingsPatch, VscodeSettingsPatch,
-    WorktreeSettingsPatch, clamp_client_scrollback_rows, clamp_server_scrollback_bytes,
+    AppearanceSettingsPatch, ChatSettingsPatch, EditorSettingsPatch, ExperimentalSettingsPatch,
+    Settings, SettingsPatch, SettingsState, SettingsStatus, TerminalSettingsPatch,
+    VscodeSettingsPatch, WorktreeSettingsPatch, clamp_client_scrollback_rows,
+    clamp_server_scrollback_bytes,
 };
 use crate::chat::clamp_chat_idle_timeout_minutes;
 use crate::events::{EventBus, EventKind};
@@ -385,6 +386,9 @@ fn apply_patch_to_settings(settings: &mut Settings, patch: &SettingsPatch) {
     if let Some(worktree) = &patch.worktree {
         apply_worktree_patch(&mut settings.worktree, worktree);
     }
+    if let Some(experimental) = &patch.experimental {
+        apply_experimental_patch(&mut settings.experimental, experimental);
+    }
     if let Some(vscode) = &patch.vscode {
         apply_vscode_patch(&mut settings.vscode, vscode);
     }
@@ -462,6 +466,15 @@ fn apply_worktree_patch(
     }
 }
 
+fn apply_experimental_patch(
+    settings: &mut crate::api::settings::ExperimentalSettings,
+    patch: &ExperimentalSettingsPatch,
+) {
+    if let Some(chat_enabled) = patch.chat_enabled {
+        settings.chat_enabled = chat_enabled;
+    }
+}
+
 fn apply_vscode_patch(
     settings: &mut crate::api::settings::VscodeSettings,
     patch: &VscodeSettingsPatch,
@@ -474,6 +487,12 @@ fn apply_vscode_patch(
 fn apply_chat_patch(settings: &mut crate::chat::ChatSettings, patch: &ChatSettingsPatch) {
     if let Some(idle_timeout_minutes) = patch.idle_timeout_minutes {
         settings.idle_timeout_minutes = clamp_chat_idle_timeout_minutes(idle_timeout_minutes);
+    }
+    if let Some(ui_style) = patch.ui_style {
+        settings.ui_style = ui_style;
+    }
+    if let Some(copilotkit_theme_mode) = patch.copilotkit_theme_mode {
+        settings.copilotkit_theme_mode = copilotkit_theme_mode;
     }
 }
 
@@ -558,6 +577,13 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
         }
     }
 
+    if let Some(experimental) = &patch.experimental {
+        let table = ensure_table(document, "experimental");
+        if let Some(chat_enabled) = experimental.chat_enabled {
+            table.insert("chatEnabled", value(chat_enabled));
+        }
+    }
+
     if let Some(vscode) = &patch.vscode {
         let table = ensure_table(document, "vscode");
         if let Some(runtime) = vscode.runtime {
@@ -574,6 +600,12 @@ fn apply_patch_to_document(document: &mut DocumentMut, patch: &SettingsPatch) {
                     idle_timeout_minutes,
                 ))),
             );
+        }
+        if let Some(ui_style) = chat.ui_style {
+            table.insert("uiStyle", value(ui_style.as_str()));
+        }
+        if let Some(copilotkit_theme_mode) = chat.copilotkit_theme_mode {
+            table.insert("copilotkitThemeMode", value(copilotkit_theme_mode.as_str()));
         }
     }
 }
@@ -636,6 +668,9 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
         value(settings.worktree.location_mode.as_str()),
     );
 
+    let experimental = ensure_table(document, "experimental");
+    experimental.insert("chatEnabled", value(settings.experimental.chat_enabled));
+
     let vscode = ensure_table(document, "vscode");
     vscode.insert("runtime", value(settings.vscode.runtime.as_str()));
 
@@ -645,6 +680,11 @@ fn apply_settings_to_document(document: &mut DocumentMut, settings: &Settings) {
         value(i64::from(clamp_chat_idle_timeout_minutes(
             settings.chat.idle_timeout_minutes,
         ))),
+    );
+    chat.insert("uiStyle", value(settings.chat.ui_style.as_str()));
+    chat.insert(
+        "copilotkitThemeMode",
+        value(settings.chat.copilotkit_theme_mode.as_str()),
     );
 }
 
@@ -941,6 +981,20 @@ tabLabelMode = "title"
 
         assert!(settings.terminal.smart_tab_naming);
         assert!(settings.terminal.escape_sequence_titles);
+    }
+
+    #[test]
+    fn parse_settings_document_defaults_new_chat_fields() {
+        let (_, settings) = parse_settings_document(
+            r#"[chat]
+idleTimeoutMinutes = 15
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(settings.chat.idle_timeout_minutes, 15);
+        assert_eq!(settings.chat.ui_style.as_str(), "classic");
+        assert_eq!(settings.chat.copilotkit_theme_mode.as_str(), "hubris");
     }
 
     #[tokio::test]

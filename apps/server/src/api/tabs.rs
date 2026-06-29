@@ -1616,6 +1616,21 @@ pub async fn create_tab(
 ) -> Result<(StatusCode, Json<TabInfo>), TabsApiError> {
     validate_create_tab_request(&mut req)?;
 
+    if matches!(req, CreateTabRequest::AgentChat { .. })
+        && !state
+            .settings
+            .get()
+            .await
+            .settings
+            .experimental
+            .chat_enabled
+    {
+        return Err(TabsApiError::new(
+            StatusCode::FORBIDDEN,
+            "Chat is disabled in Experimental settings.",
+        ));
+    }
+
     let worktree_id = worktree_id_for_create(&req).to_string();
     let resolved = resolve_worktree(&state, &worktree_id)
         .await

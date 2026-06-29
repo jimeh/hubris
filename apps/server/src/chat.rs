@@ -12,6 +12,7 @@ use axum::http::StatusCode;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{FromRow, Row, Sqlite, SqlitePool, Transaction};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -34,6 +35,7 @@ use protocol::{ParsedLine, RouteHints};
 pub const DEFAULT_CHAT_TITLE: &str = "New Chat";
 const DEFAULT_IDLE_TIMEOUT_MINUTES: u32 = 60;
 const CHAT_DB_MAX_CONNECTIONS: u32 = 1;
+static CHAT_DB_MIGRATOR: Migrator = sqlx::migrate!("./chat-migrations");
 const MAX_INACTIVE_THREAD_STREAMS: usize = 4;
 const UNSUBSCRIBE_RETRY_DELAY: Duration = Duration::from_secs(15);
 const CODEX_TEXT_TRACE_ENV: &str = "HUBRIS_CODEX_TEXT_TRACE";
@@ -917,7 +919,48 @@ pub enum ChatConversationListScope {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSettings {
+    #[serde(default = "default_chat_idle_timeout_minutes")]
     pub idle_timeout_minutes: u32,
+    #[serde(default)]
+    pub ui_style: ChatUiStyle,
+    #[serde(default)]
+    pub copilotkit_theme_mode: CopilotKitThemeMode,
+}
+
+/// Chat UI implementation selected by the user.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ChatUiStyle {
+    #[default]
+    Classic,
+    Copilotkit,
+}
+
+impl ChatUiStyle {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Classic => "classic",
+            Self::Copilotkit => "copilotkit",
+        }
+    }
+}
+
+/// CopilotKit visual theme mode selected by the user.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CopilotKitThemeMode {
+    #[default]
+    Hubris,
+    Stock,
+}
+
+impl CopilotKitThemeMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Hubris => "hubris",
+            Self::Stock => "stock",
+        }
+    }
 }
 
 /// Conversation-level model preferences that apply to future turns.
@@ -932,9 +975,15 @@ pub struct ChatConversationSettingsPatch {
 impl Default for ChatSettings {
     fn default() -> Self {
         Self {
-            idle_timeout_minutes: DEFAULT_IDLE_TIMEOUT_MINUTES,
+            idle_timeout_minutes: default_chat_idle_timeout_minutes(),
+            ui_style: ChatUiStyle::default(),
+            copilotkit_theme_mode: CopilotKitThemeMode::default(),
         }
     }
+}
+
+fn default_chat_idle_timeout_minutes() -> u32 {
+    DEFAULT_IDLE_TIMEOUT_MINUTES
 }
 
 pub fn clamp_chat_idle_timeout_minutes(value: u32) -> u32 {
@@ -1802,24 +1851,328 @@ pub struct ChatService {
     app_event_loop_started: AtomicBool,
 }
 
+struct ChatHistoryTable {
+    name: &'static str,
+    columns: &'static [&'static str],
+}
+
+const CHAT_HISTORY_TABLES: &[ChatHistoryTable] = &[
+    ChatHistoryTable {
+        name: "chat_conversations",
+        columns: &[
+            "id",
+            "session_id",
+            "project_id",
+            "worktree_id",
+            "provider",
+            "provider_thread_id",
+            "title",
+            "created_at_ms",
+            "updated_at_ms",
+            "last_activity_at_ms",
+            "last_message_at_ms",
+            "open_tab_id",
+            "last_run_state",
+            "last_error",
+            "revision",
+            "selected_model",
+            "selected_effort",
+            "selected_permission_mode",
+            "last_reconciliation_state",
+            "last_reconciliation_error",
+            "branch_name",
+            "archived_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_messages",
+        columns: &[
+            "id",
+            "conversation_id",
+            "provider_turn_id",
+            "role",
+            "status",
+            "content_text",
+            "sequence",
+            "created_at_ms",
+            "updated_at_ms",
+            "reasoning_text",
+            "turn_id",
+            "item_id",
+            "provider_item_id",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_runs",
+        columns: &[
+            "id",
+            "conversation_id",
+            "provider_turn_id",
+            "status",
+            "started_at_ms",
+            "finished_at_ms",
+            "error_message",
+            "turn_id",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_turns",
+        columns: &[
+            "id",
+            "conversation_id",
+            "run_id",
+            "user_message_id",
+            "assistant_message_id",
+            "provider_turn_id",
+            "status",
+            "started_at_ms",
+            "completed_at_ms",
+            "error_message",
+            "created_at_ms",
+            "updated_at_ms",
+            "reconciliation_status",
+            "reconciled_at_ms",
+            "reconciliation_error",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_items",
+        columns: &[
+            "id",
+            "conversation_id",
+            "turn_id",
+            "provider_turn_id",
+            "provider_item_id",
+            "kind",
+            "status",
+            "role",
+            "sequence",
+            "title",
+            "summary",
+            "metadata_json",
+            "created_at_ms",
+            "updated_at_ms",
+            "completed_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_item_outputs",
+        columns: &[
+            "id",
+            "conversation_id",
+            "item_id",
+            "stream_kind",
+            "sequence",
+            "content_text",
+            "byte_count",
+            "created_at_ms",
+            "updated_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_pending_requests",
+        columns: &[
+            "id",
+            "conversation_id",
+            "turn_id",
+            "item_id",
+            "provider_request_id",
+            "provider_turn_id",
+            "provider_item_id",
+            "method",
+            "kind",
+            "status",
+            "decision",
+            "payload_json",
+            "response_json",
+            "error_message",
+            "owner_generation",
+            "sequence",
+            "created_at_ms",
+            "updated_at_ms",
+            "resolved_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_plans",
+        columns: &[
+            "id",
+            "conversation_id",
+            "turn_id",
+            "item_id",
+            "provider_turn_id",
+            "provider_item_id",
+            "kind",
+            "status",
+            "content_text",
+            "steps_json",
+            "metadata_json",
+            "owner_generation",
+            "sequence",
+            "created_at_ms",
+            "updated_at_ms",
+            "completed_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_diff_summaries",
+        columns: &[
+            "id",
+            "conversation_id",
+            "turn_id",
+            "provider_turn_id",
+            "changed_file_count",
+            "additions",
+            "deletions",
+            "files_json",
+            "metadata_json",
+            "owner_generation",
+            "sequence",
+            "created_at_ms",
+            "updated_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_context_usage",
+        columns: &[
+            "id",
+            "conversation_id",
+            "provider_thread_id",
+            "used_tokens",
+            "max_tokens",
+            "percent_used",
+            "total_processed_tokens",
+            "metadata_json",
+            "updated_at_ms",
+        ],
+    },
+    ChatHistoryTable {
+        name: "chat_reconciliations",
+        columns: &[
+            "id",
+            "conversation_id",
+            "provider_thread_id",
+            "status",
+            "reason",
+            "started_at_ms",
+            "finished_at_ms",
+            "error_message",
+            "owner_generation",
+            "created_at_ms",
+            "updated_at_ms",
+        ],
+    },
+];
+
+async fn migrate_legacy_chat_history(
+    legacy_state_db_path: &Path,
+    pool: &SqlitePool,
+) -> std::io::Result<()> {
+    if !legacy_state_db_path.exists() {
+        return Ok(());
+    }
+
+    let mut conn = pool.acquire().await.map_err(std::io::Error::other)?;
+    let legacy_path = legacy_state_db_path.to_string_lossy().to_string();
+    sqlx::query("ATTACH DATABASE ? AS legacy_state")
+        .bind(legacy_path)
+        .execute(&mut *conn)
+        .await
+        .map_err(std::io::Error::other)?;
+
+    let result = async {
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+
+        let copy_result = async {
+            let has_chat_conversations =
+                legacy_chat_table_exists(&mut conn, "chat_conversations").await?;
+            if !has_chat_conversations {
+                return Ok::<(), sqlx::Error>(());
+            }
+
+            for table in CHAT_HISTORY_TABLES {
+                if legacy_chat_table_exists(&mut conn, table.name).await? {
+                    let columns = table.columns.join(", ");
+                    let sql = format!(
+                        "INSERT OR IGNORE INTO {table} ({columns}) \
+                         SELECT {columns} FROM legacy_state.{table}",
+                        table = table.name,
+                    );
+                    sqlx::query(&sql).execute(&mut *conn).await?;
+                }
+            }
+
+            Ok(())
+        }
+        .await;
+
+        match copy_result {
+            Ok(()) => {
+                sqlx::query("COMMIT").execute(&mut *conn).await?;
+                Ok(())
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                Err(error)
+            }
+        }
+    }
+    .await;
+
+    let detach_result = sqlx::query("DETACH DATABASE legacy_state")
+        .execute(&mut *conn)
+        .await;
+
+    result
+        .and(detach_result.map(|_| ()))
+        .map_err(std::io::Error::other)
+}
+
+async fn legacy_chat_table_exists(
+    conn: &mut sqlx::pool::PoolConnection<Sqlite>,
+    table: &str,
+) -> Result<bool, sqlx::Error> {
+    let row = sqlx::query(
+        "
+        SELECT 1
+        FROM legacy_state.sqlite_master
+        WHERE type = 'table' AND name = ?
+        ",
+    )
+    .bind(table)
+    .fetch_optional(&mut **conn)
+    .await?;
+    Ok(row.is_some())
+}
+
 impl ChatService {
-    /// Open the shared state database and prepare chat services.
+    /// Open the chat history database and prepare chat services.
     pub async fn new(
         db_path: &Path,
+        legacy_state_db_path: &Path,
         events: Arc<crate::events::EventBus>,
         settings: Arc<SettingsManager>,
     ) -> std::io::Result<Self> {
+        if let Some(parent) = db_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
         let options = SqliteConnectOptions::new()
             .filename(db_path)
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
-            .foreign_keys(false);
+            .foreign_keys(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(CHAT_DB_MAX_CONNECTIONS)
             .connect_with(options)
             .await
             .map_err(std::io::Error::other)?;
+        CHAT_DB_MIGRATOR
+            .run(&pool)
+            .await
+            .map_err(std::io::Error::other)?;
+        migrate_legacy_chat_history(legacy_state_db_path, &pool).await?;
         Ok(Self {
             pool,
             events,
@@ -3189,7 +3542,14 @@ impl ChatService {
                         let Some((conversation_id, runtime)) =
                             service.runtime_for_provider_event(&route_hints).await
                         else {
-                            tracing::warn!(method, "unroutable codex app-server notification");
+                            if is_global_provider_notification(&method) {
+                                tracing::debug!(
+                                    method,
+                                    "unroutable global codex app-server notification"
+                                );
+                            } else {
+                                tracing::warn!(method, "unroutable codex app-server notification");
+                            }
                             continue;
                         };
                         service
@@ -8399,6 +8759,13 @@ fn item_role_for_kind(kind: ChatItemKind) -> Option<ChatMessageRole> {
     }
 }
 
+fn is_global_provider_notification(method: &str) -> bool {
+    matches!(
+        method,
+        "remoteControl/status/changed" | "mcpServer/startupStatus/updated"
+    )
+}
+
 fn item_metadata_json(value: &Value) -> String {
     let item = value.get("item").unwrap_or(value);
     let metadata = json!({
@@ -8715,7 +9082,7 @@ mod tests {
     use super::*;
     use sqlx::migrate::Migrator;
 
-    static TEST_MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+    static TEST_MIGRATOR: Migrator = sqlx::migrate!("./chat-migrations");
 
     fn test_conversation() -> ChatConversationSummary {
         ChatConversationSummary {

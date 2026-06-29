@@ -23,9 +23,9 @@ use crate::api::projects::{
 };
 use crate::api::settings::{
     AppearanceSettings, AppearanceSettingsPatch, ChatSettingsPatch, ColorScheme, EditorSettings,
-    EditorSettingsPatch, Settings, SettingsPatch, SettingsState, SettingsStatus,
-    SettingsStatusKind, TerminalFontSource, TerminalSettings, TerminalSettingsPatch,
-    WorktreeLocationMode, WorktreeSettings, WorktreeSettingsPatch,
+    EditorSettingsPatch, ExperimentalSettings, ExperimentalSettingsPatch, Settings, SettingsPatch,
+    SettingsState, SettingsStatus, SettingsStatusKind, TerminalFontSource, TerminalSettings,
+    TerminalSettingsPatch, WorktreeLocationMode, WorktreeSettings, WorktreeSettingsPatch,
 };
 use crate::api::system::SystemInfo;
 use crate::api::tabs::{
@@ -57,7 +57,7 @@ use crate::chat::{
     ChatPermissionMode, ChatPlan, ChatPlanKind, ChatPlanStatus, ChatProvider, ChatReasoningEffort,
     ChatReconciliation, ChatReconciliationStatus, ChatRun, ChatRunStatus, ChatRuntimeLifecycle,
     ChatRuntimeStatus, ChatSettings, ChatThreadStreamResumeState, ChatThreadStreamStatus, ChatTurn,
-    ChatTurnStatus, ResolveChatPendingRequestRequest,
+    ChatTurnStatus, ChatUiStyle, CopilotKitThemeMode, ResolveChatPendingRequestRequest,
 };
 use crate::tab::{
     GitDiffScope, TabInfo, TabPaneSplitAxis, WorktreePaneNode, WorktreePaneTabs, WorktreeTabLayout,
@@ -224,6 +224,8 @@ use crate::tab::{
             EditorSettingsPatch,
             WorktreeSettings,
             WorktreeSettingsPatch,
+            ExperimentalSettings,
+            ExperimentalSettingsPatch,
             ChatProvider,
             ChatPermissionMode,
             ChatReasoningEffort,
@@ -264,6 +266,8 @@ use crate::tab::{
             ChatReconciliation,
             ChatConversationDetail,
             ChatRuntimeStatus,
+            ChatUiStyle,
+            CopilotKitThemeMode,
             ChatSettings,
             ChatSettingsPatch,
             ChatListScopeParam,

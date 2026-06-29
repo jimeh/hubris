@@ -276,23 +276,21 @@ export default function TabBar({
         >
           <Globe className="h-2.5 w-2.5" />
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="New Chat"
-          title="New Chat"
-          className="h-6 w-6"
-          disabled={!onAddChat}
-          onClick={() => {
-            if (!onAddChat) {
-              return;
-            }
-            void onAddChat();
-          }}
-        >
-          <MessageSquare className="h-2.5 w-2.5" />
-        </Button>
+        {onAddChat ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="New Chat"
+            title="New Chat"
+            className="h-6 w-6"
+            onClick={() => {
+              void onAddChat();
+            }}
+          >
+            <MessageSquare className="h-2.5 w-2.5" />
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="ghost"

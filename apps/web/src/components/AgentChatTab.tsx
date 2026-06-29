@@ -36,6 +36,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
+import CopilotKitAgentChatTabView from "@/components/CopilotKitAgentChatTab";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -65,6 +66,7 @@ import {
   selectChatWorkGroupSlice,
   useChatStore,
 } from "@/lib/stores/chats";
+import { useChatSettings } from "@/lib/stores/chatSettings";
 import { useTabStore } from "@/lib/stores/tabs";
 import type {
   AgentChatTab,
@@ -706,6 +708,7 @@ function ChatHeader({
   conversationId: string;
   label: string;
 }) {
+  const updateChatSettings = useChatSettings((state) => state.updateSettings);
   const {
     conversation,
     detailError,
@@ -748,6 +751,14 @@ function ChatHeader({
           {latestError}
         </div>
       ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => updateChatSettings({ uiStyle: "copilotkit" })}
+      >
+        CopilotKit
+      </Button>
     </div>
   );
 }
@@ -2065,7 +2076,7 @@ function ChatComposer({
   );
 }
 
-export default function AgentChatTabView({ tab, visible }: Props) {
+export function AgentChatTabClassicView({ tab, visible }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const detailState = useChatStore((state) =>
     selectChatDetailState(state, tab.conversation_id),
@@ -2161,4 +2172,12 @@ export default function AgentChatTabView({ tab, visible }: Props) {
       />
     </div>
   );
+}
+
+export default function AgentChatTabView(props: Props) {
+  const uiStyle = useChatSettings((state) => state.settings.uiStyle);
+  if (uiStyle === "copilotkit") {
+    return <CopilotKitAgentChatTabView {...props} />;
+  }
+  return <AgentChatTabClassicView {...props} />;
 }
