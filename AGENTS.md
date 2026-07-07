@@ -19,6 +19,7 @@ mise run build:server:linux-x64  # target-specific standalone server binary
 mise run check     # format check + lint + type check (all)
 mise run format    # auto-format all code
 mise run test      # web tests + cargo test
+mise run test:e2e:real  # real-server Playwright smoke lane (builds web+server; HUBRIS_E2E_SKIP_BUILD=1 to reuse artifacts)
 mise run generate  # run all code generators
 mise run hooks:install  # install Lefthook-managed pre-commit checks
 ```
