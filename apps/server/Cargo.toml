@@ -47,6 +47,7 @@ agui-rs-encoder = "0.1.1"
 codex-ag-ui = { path = "../../crates/codex-ag-ui" }
 
 [dev-dependencies]
+anyhow = "1"
 tempfile = "3"
 reqwest = { version = "0.13", features = ["json"] }
 tokio-test = "0.4"

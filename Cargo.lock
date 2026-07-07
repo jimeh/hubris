@@ -964,6 +964,7 @@ version = "0.1.0"
 dependencies = [
  "agui-rs-core",
  "agui-rs-encoder",
+ "anyhow",
  "async-stream",
  "axum",
  "bytes",

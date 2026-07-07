@@ -818,7 +818,7 @@ impl LiveTab {
         child: Box<dyn Child + Send + Sync>,
         scrollback_size: usize,
         initial_size: TerminalSize,
-    ) -> Self {
+    ) -> std::io::Result<Self> {
         let spawn = LiveTabSpawn {
             info,
             shell_process_name,
@@ -842,7 +842,7 @@ impl LiveTab {
         child: Box<dyn Child + Send + Sync>,
         scrollback_size: usize,
         restored: RestoredTerminalState,
-    ) -> Self {
+    ) -> std::io::Result<Self> {
         let spawn = LiveTabSpawn {
             info,
             shell_process_name,
@@ -862,7 +862,7 @@ impl LiveTab {
         spawn: LiveTabSpawn,
         initial_size: TerminalSize,
         output_state: OutputState,
-    ) -> Self {
+    ) -> std::io::Result<Self> {
         let LiveTabSpawn {
             info,
             shell_process_name,
@@ -871,8 +871,11 @@ impl LiveTab {
             child,
             scrollback_size,
         } = spawn;
-        let mut reader = master.try_clone_reader().unwrap();
-        let writer = master.take_writer().unwrap();
+        // A PTY driver that fails to hand back a reader/writer must surface as
+        // a recoverable error to the API/WS caller rather than panicking and
+        // taking down the whole server.
+        let mut reader = master.try_clone_reader().map_err(std::io::Error::other)?;
+        let writer = master.take_writer().map_err(std::io::Error::other)?;
 
         let output_state = Arc::new(Mutex::new(output_state));
         let (output_tx, _) = broadcast::channel(64);
@@ -915,7 +918,7 @@ impl LiveTab {
             let _ = ctx.send(());
         });
 
-        Self {
+        Ok(Self {
             info: Mutex::new(info),
             shell_process_name,
             worktree_root,
@@ -935,7 +938,7 @@ impl LiveTab {
             process_label_cache: Mutex::new(ProcessLabelCache::default()),
             resize_update_lock: Mutex::new(()),
             _reader_handle: reader_handle,
-        }
+        })
     }
 
     /// Get a snapshot of current tab metadata.
@@ -1575,7 +1578,7 @@ mod tests {
     use std::time::Duration as StdDuration;
     use std::time::Duration;
 
-    use portable_pty::{CommandBuilder, NativePtySystem, PtySystem};
+    use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
     use tokio::time::Instant;
 
     use super::{
@@ -1942,30 +1945,33 @@ mod tests {
         let child = pair.slave.spawn_command(cmd).unwrap();
         drop(pair.slave);
 
-        Arc::new(LiveTab::spawn(
-            TabInfo::Terminal {
-                id: "tab".to_string(),
-                session_id: "default".to_string(),
-                worktree_id: "worktree".to_string(),
-                pane_id: "pane-1".to_string(),
-                label: "Terminal 1".to_string(),
-                position: 1.0,
-                created_at: 0,
-                preview: false,
-                has_notification: false,
-                labels: crate::tab::TerminalTabLabels {
-                    custom_label: None,
-                    smart_label: None,
-                    title_label: None,
+        Arc::new(
+            LiveTab::spawn(
+                TabInfo::Terminal {
+                    id: "tab".to_string(),
+                    session_id: "default".to_string(),
+                    worktree_id: "worktree".to_string(),
+                    pane_id: "pane-1".to_string(),
+                    label: "Terminal 1".to_string(),
+                    position: 1.0,
+                    created_at: 0,
+                    preview: false,
+                    has_notification: false,
+                    labels: crate::tab::TerminalTabLabels {
+                        custom_label: None,
+                        smart_label: None,
+                        title_label: None,
+                    },
                 },
-            },
-            Some("sh".to_string()),
-            PathBuf::from("/tmp/worktree"),
-            pair.master,
-            child,
-            DEFAULT_SCROLLBACK,
-            TerminalSize::default_pty(),
-        ))
+                Some("sh".to_string()),
+                PathBuf::from("/tmp/worktree"),
+                pair.master,
+                child,
+                DEFAULT_SCROLLBACK,
+                TerminalSize::default_pty(),
+            )
+            .expect("spawn test live tab"),
+        )
     }
 
     fn spawn_test_restored_tab(history: Vec<u8>, size: TerminalSize) -> Arc<LiveTab> {
@@ -1982,7 +1988,94 @@ mod tests {
         let child = pair.slave.spawn_command(cmd).unwrap();
         drop(pair.slave);
 
-        Arc::new(LiveTab::spawn_restored(
+        Arc::new(
+            LiveTab::spawn_restored(
+                TabInfo::Terminal {
+                    id: "tab".to_string(),
+                    session_id: "default".to_string(),
+                    worktree_id: "worktree".to_string(),
+                    pane_id: "pane-1".to_string(),
+                    label: "Terminal 1".to_string(),
+                    position: 1.0,
+                    created_at: 0,
+                    preview: false,
+                    has_notification: false,
+                    labels: crate::tab::TerminalTabLabels {
+                        custom_label: None,
+                        smart_label: None,
+                        title_label: None,
+                    },
+                },
+                Some("sh".to_string()),
+                PathBuf::from("/tmp/worktree"),
+                pair.master,
+                child,
+                DEFAULT_SCROLLBACK,
+                RestoredTerminalState {
+                    size,
+                    buffers: RestoredTerminalBuffers { history },
+                },
+            )
+            .expect("spawn test restored tab"),
+        )
+    }
+
+    /// A `MasterPty` whose reader/writer handles always fail, used to drive
+    /// the spawn error path.
+    #[cfg(unix)]
+    #[derive(Debug)]
+    struct FailingMaster;
+
+    #[cfg(unix)]
+    impl MasterPty for FailingMaster {
+        fn resize(&self, _size: PtySize) -> Result<(), anyhow::Error> {
+            Ok(())
+        }
+
+        fn get_size(&self) -> Result<PtySize, anyhow::Error> {
+            Ok(PtySize::default())
+        }
+
+        fn try_clone_reader(&self) -> Result<Box<dyn std::io::Read + Send>, anyhow::Error> {
+            Err(anyhow::anyhow!("pty reader unavailable"))
+        }
+
+        fn take_writer(&self) -> Result<Box<dyn std::io::Write + Send>, anyhow::Error> {
+            Err(anyhow::anyhow!("pty writer unavailable"))
+        }
+
+        fn process_group_leader(&self) -> Option<libc::pid_t> {
+            None
+        }
+
+        fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+            None
+        }
+
+        fn tty_name(&self) -> Option<PathBuf> {
+            None
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spawn_returns_error_when_pty_reader_unavailable() {
+        let pty_system = NativePtySystem::default();
+        let pair = pty_system
+            .openpty(TerminalSize::default_pty().to_pty_size())
+            .unwrap();
+
+        let mut cmd = CommandBuilder::new(test_cat_path());
+        cmd.set_controlling_tty(false);
+        cmd.cwd("/");
+        cmd.env("TERM", "xterm-256color");
+        let child = pair.slave.spawn_command(cmd).unwrap();
+        drop(pair.slave);
+        // Drop the real master and hand spawn one that refuses to yield a
+        // reader, exercising the spawn failure path.
+        drop(pair.master);
+
+        let result = LiveTab::spawn(
             TabInfo::Terminal {
                 id: "tab".to_string(),
                 session_id: "default".to_string(),
@@ -2001,14 +2094,13 @@ mod tests {
             },
             Some("sh".to_string()),
             PathBuf::from("/tmp/worktree"),
-            pair.master,
+            Box::new(FailingMaster),
             child,
             DEFAULT_SCROLLBACK,
-            RestoredTerminalState {
-                size,
-                buffers: RestoredTerminalBuffers { history },
-            },
-        ))
+            TerminalSize::default_pty(),
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]
