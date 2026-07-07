@@ -38,9 +38,9 @@ if [[ ! -f "$RESOURCES_DIR/hubris-desktop-runtime" ]]; then
   exit 1
 fi
 
-shopt -s globstar nullglob
+shopt -s nullglob
 artifacts=($ARTIFACT_GLOB)
-shopt -u globstar nullglob
+shopt -u nullglob
 
 if [[ ${#artifacts[@]} -ne 1 ]]; then
   echo "expected exactly one artifact matching $ARTIFACT_GLOB" >&2
