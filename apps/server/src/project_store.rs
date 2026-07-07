@@ -186,6 +186,14 @@ impl ProjectStore {
         if project_ids.len() != projects.len() {
             return Ok(ReorderOutcome::InvalidIds);
         }
+        // Require a true permutation: distinct ids that each match a stored
+        // project. A duplicated-but-covering input like [A, A] against
+        // stored [A, B] would otherwise pass and leave B's position stale.
+        let distinct: std::collections::HashSet<&str> =
+            project_ids.iter().map(String::as_str).collect();
+        if distinct.len() != project_ids.len() {
+            return Ok(ReorderOutcome::InvalidIds);
+        }
         let all_exist = project_ids
             .iter()
             .all(|id| projects.iter().any(|p| p.id == *id));

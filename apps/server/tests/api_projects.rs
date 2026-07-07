@@ -613,6 +613,31 @@ async fn test_reorder_projects_invalid_ids() {
 }
 
 #[tokio::test]
+async fn test_reorder_projects_rejects_duplicate_ids() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo1 = init_git_repo();
+    let repo2 = init_git_repo();
+
+    let p1 = create_project(&client, &base, repo1.path().to_str().unwrap()).await;
+    create_project(&client, &base, repo2.path().to_str().unwrap()).await;
+    let p1_id = p1["id"].as_str().unwrap();
+
+    // [A, A] passes a bare length + existence check but is not a
+    // permutation; it must be rejected rather than leaving the other
+    // project's position stale.
+    let res = client
+        .put(format!("{}/api/projects/reorder", base))
+        .json(&serde_json::json!({
+            "project_ids": [p1_id, p1_id]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_delete_project_remove_only_leaves_managed_worktree_on_disk() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();
