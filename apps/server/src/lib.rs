@@ -315,6 +315,152 @@ const API_METHODS: [Method; 5] = [
 
 const SERVER_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Declares the `/api` route table once, producing both the axum
+/// sub-router constructor and the public [`API_ROUTES`] manifest so
+/// the registered routes and the OpenAPI spec cannot silently drift
+/// apart (see `tests/contracts.rs`).
+macro_rules! api_routes {
+    ($(
+        $path:literal => {
+            $first_method:ident: $first_handler:expr
+            $(, $method:ident: $handler:expr)* $(,)?
+        }
+    )+) => {
+        /// Every `(HTTP method, path)` pair registered on the `/api`
+        /// sub-router, in registration order. Paths are relative to
+        /// the `/api` prefix and use axum `{param}` syntax. Contract
+        /// tests compare this manifest against the OpenAPI spec, so
+        /// route and spec changes must land together.
+        pub const API_ROUTES: &[(&str, &str)] = &[
+            $(
+                (stringify!($first_method), $path),
+                $((stringify!($method), $path),)*
+            )+
+        ];
+
+        /// Build the `/api` sub-router from the shared route table.
+        fn api_router() -> Router<AppState> {
+            Router::new()
+                $(.route(
+                    $path,
+                    $first_method($first_handler)$(.$method($handler))*,
+                ))+
+        }
+    };
+}
+
+api_routes! {
+    "/openapi.json" => { get: openapi_json }
+    "/files" => { get: list_files }
+    "/projects" => { get: list_projects, post: add_project }
+    "/projects/reorder" => { put: reorder_projects }
+    "/projects/{id}" => { delete: delete_project, patch: update_project }
+    "/projects/{id}/worktrees" => {
+        get: list_project_worktrees,
+        post: create_project_worktree,
+    }
+    "/projects/{id}/worktrees/start-points" => {
+        get: list_project_worktree_start_points,
+    }
+    "/projects/{id}/worktrees/reorder" => { put: reorder_project_worktrees }
+    "/projects/{id}/worktrees/importable" => { get: list_importable_worktrees }
+    "/projects/{id}/worktrees/import" => { post: import_project_worktree }
+    "/projects/{id}/worktrees/{worktree_id}" => {
+        delete: delete_project_worktree,
+        patch: update_project_worktree,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/tab-layout" => {
+        put: update_worktree_tab_layout,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/restore-state" => {
+        put: put_worktree_restore_state,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/git-status" => {
+        get: get_project_worktree_git_status,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}" => {
+        get: get_project_worktree_commit_details,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/git/stage" => {
+        post: stage_project_worktree_path,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/git/unstage" => {
+        post: unstage_project_worktree_path,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/git/discard" => {
+        post: discard_project_worktree_path,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/git/rename-branch" => {
+        post: rename_worktree_branch,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/files" => {
+        get: list_project_worktree_files,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/files/content" => {
+        get: get_project_worktree_file_content,
+        put: put_project_worktree_file_content,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/files/rename" => {
+        post: rename_project_worktree_file,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/git/diff" => {
+        get: get_project_worktree_git_diff,
+    }
+    "/projects/{id}/worktrees/{worktree_id}/chats" => {
+        get: list_project_worktree_chats,
+    }
+    "/tabs" => { get: list_tabs, post: create_tab }
+    "/tabs/reorder" => { put: reorder_tabs }
+    "/tabs/{id}" => { delete: delete_tab, patch: update_tab }
+    "/chats/models" => { get: list_chat_models }
+    "/chats/{conversation_id}" => { get: get_chat, delete: delete_chat }
+    "/chats/{conversation_id}/archive" => { post: archive_chat }
+    "/chats/{conversation_id}/unarchive" => { post: unarchive_chat }
+    "/chats/{conversation_id}/activity/{item_id}" => {
+        get: get_chat_activity,
+    }
+    "/chats/{conversation_id}/settings" => { patch: patch_chat_settings }
+    "/chats/{conversation_id}/messages" => { post: send_chat_message }
+    "/chats/{conversation_id}/ag-ui" => { post: run_codex_ag_ui_chat }
+    "/chats/{conversation_id}/requests/{request_id}/resolve" => {
+        post: resolve_chat_pending_request,
+    }
+    "/chats/{conversation_id}/interrupt" => { post: interrupt_chat }
+    "/events" => { get: event_stream }
+    "/terminal/ws" => { get: ws_handler }
+    "/system" => { get: get_system_info }
+    "/processes" => { get: list_managed_processes }
+    "/processes/{id}" => { get: get_managed_process }
+    "/processes/{id}/start" => { post: start_managed_process }
+    "/processes/{id}/stop" => { post: stop_managed_process }
+    "/processes/{id}/restart" => { post: restart_managed_process }
+    "/tasks/definitions" => { get: list_task_definitions }
+    "/tasks" => { get: list_tasks, post: start_task }
+    "/tasks/{id}" => { get: get_task }
+    "/vscode" => { get: get_vscode_status }
+    "/vscode/check-update" => { post: check_vscode_update }
+    "/vscode/install" => { post: install_vscode }
+    "/vscode/start" => { post: start_vscode }
+    "/vscode/stop" => { post: stop_vscode }
+    "/vscode/restart" => { post: restart_vscode }
+    "/settings" => {
+        get: get_settings,
+        put: put_settings,
+        patch: patch_settings,
+    }
+    "/keybindings" => { get: get_keybindings, put: put_keybindings }
+    "/editor-themes" => {
+        get: list_editor_themes,
+        post: upload_editor_theme,
+    }
+    "/editor-themes/discover" => { get: discover_editor_themes }
+    "/editor-themes/import" => { post: import_extension_theme }
+    "/editor-themes/{id}" => {
+        get: get_editor_theme,
+        delete: delete_editor_theme,
+    }
+}
+
 /// Build the API router for a given AppState.
 pub fn build_router(state: AppState) -> Router {
     build_router_with_options(state, ServerOptions::default())
@@ -323,148 +469,7 @@ pub fn build_router(state: AppState) -> Router {
 /// Build the API router with explicit runtime options.
 pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Router {
     let ServerOptions { frontend, access } = options;
-    let api = Router::new()
-        .route("/openapi.json", get(openapi_json))
-        .route("/files", get(list_files))
-        .route("/projects", get(list_projects).post(add_project))
-        .route("/projects/reorder", put(reorder_projects))
-        .route(
-            "/projects/{id}",
-            delete(delete_project).patch(update_project),
-        )
-        .route(
-            "/projects/{id}/worktrees",
-            get(list_project_worktrees).post(create_project_worktree),
-        )
-        .route(
-            "/projects/{id}/worktrees/start-points",
-            get(list_project_worktree_start_points),
-        )
-        .route(
-            "/projects/{id}/worktrees/reorder",
-            put(reorder_project_worktrees),
-        )
-        .route(
-            "/projects/{id}/worktrees/importable",
-            get(list_importable_worktrees),
-        )
-        .route(
-            "/projects/{id}/worktrees/import",
-            post(import_project_worktree),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}",
-            delete(delete_project_worktree).patch(update_project_worktree),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/tab-layout",
-            put(update_worktree_tab_layout),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/restore-state",
-            put(put_worktree_restore_state),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/git-status",
-            get(get_project_worktree_git_status),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}",
-            get(get_project_worktree_commit_details),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/git/stage",
-            post(stage_project_worktree_path),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/git/unstage",
-            post(unstage_project_worktree_path),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/git/discard",
-            post(discard_project_worktree_path),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/git/rename-branch",
-            post(rename_worktree_branch),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/files",
-            get(list_project_worktree_files),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/files/content",
-            get(get_project_worktree_file_content).put(put_project_worktree_file_content),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/files/rename",
-            post(rename_project_worktree_file),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/git/diff",
-            get(get_project_worktree_git_diff),
-        )
-        .route(
-            "/projects/{id}/worktrees/{worktree_id}/chats",
-            get(list_project_worktree_chats),
-        )
-        .route("/tabs", get(list_tabs).post(create_tab))
-        .route("/tabs/reorder", put(reorder_tabs))
-        .route("/tabs/{id}", delete(delete_tab).patch(update_tab))
-        .route("/chats/models", get(list_chat_models))
-        .route(
-            "/chats/{conversation_id}",
-            get(get_chat).delete(delete_chat),
-        )
-        .route("/chats/{conversation_id}/archive", post(archive_chat))
-        .route("/chats/{conversation_id}/unarchive", post(unarchive_chat))
-        .route(
-            "/chats/{conversation_id}/activity/{item_id}",
-            get(get_chat_activity),
-        )
-        .route(
-            "/chats/{conversation_id}/settings",
-            patch(patch_chat_settings),
-        )
-        .route("/chats/{conversation_id}/messages", post(send_chat_message))
-        .route("/chats/{conversation_id}/ag-ui", post(run_codex_ag_ui_chat))
-        .route(
-            "/chats/{conversation_id}/requests/{request_id}/resolve",
-            post(resolve_chat_pending_request),
-        )
-        .route("/chats/{conversation_id}/interrupt", post(interrupt_chat))
-        .route("/events", get(event_stream))
-        .route("/terminal/ws", get(ws_handler))
-        .route("/system", get(get_system_info))
-        .route("/processes", get(list_managed_processes))
-        .route("/processes/{id}", get(get_managed_process))
-        .route("/processes/{id}/start", post(start_managed_process))
-        .route("/processes/{id}/stop", post(stop_managed_process))
-        .route("/processes/{id}/restart", post(restart_managed_process))
-        .route("/tasks/definitions", get(list_task_definitions))
-        .route("/tasks", get(list_tasks).post(start_task))
-        .route("/tasks/{id}", get(get_task))
-        .route("/vscode", get(get_vscode_status))
-        .route("/vscode/check-update", post(check_vscode_update))
-        .route("/vscode/install", post(install_vscode))
-        .route("/vscode/start", post(start_vscode))
-        .route("/vscode/stop", post(stop_vscode))
-        .route("/vscode/restart", post(restart_vscode))
-        .route(
-            "/settings",
-            get(get_settings).put(put_settings).patch(patch_settings),
-        )
-        .route("/keybindings", get(get_keybindings).put(put_keybindings))
-        .route(
-            "/editor-themes",
-            get(list_editor_themes).post(upload_editor_theme),
-        )
-        .route("/editor-themes/discover", get(discover_editor_themes))
-        .route("/editor-themes/import", post(import_extension_theme))
-        .route(
-            "/editor-themes/{id}",
-            get(get_editor_theme).delete(delete_editor_theme),
-        );
+    let api = api_router();
 
     let cors = if cfg!(debug_assertions) && !access.is_desktop_locked() {
         CorsLayer::new()

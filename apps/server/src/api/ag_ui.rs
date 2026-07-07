@@ -29,6 +29,25 @@ use crate::events::{Event, EventKind};
 use crate::state::AppState;
 
 /// Runs a Codex chat turn through the AG-UI HTTP event protocol.
+#[utoipa::path(
+    post,
+    path = "/api/chats/{conversation_id}/ag-ui",
+    request_body(
+        content = serde_json::Value,
+        description = "AG-UI `RunAgentInput` run payload",
+    ),
+    params(
+        ("conversation_id" = String, Path, description = "Conversation ID"),
+    ),
+    responses(
+        (status = 200, description = "AG-UI server-sent event stream"),
+        (status = 403, description = "Chat is disabled in Experimental settings", body = ApiErrorResponse),
+        (status = 404, description = "Conversation or worktree not found", body = ApiErrorResponse),
+        (status = 409, description = "Chat is archived", body = ApiErrorResponse),
+        (status = 500, description = "Chat storage or Codex runtime failure", body = ApiErrorResponse),
+        (status = 502, description = "Codex app-server communication failure", body = ApiErrorResponse),
+    ),
+)]
 pub async fn run_codex_ag_ui_chat(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,

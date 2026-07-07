@@ -52,6 +52,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/chats/{conversation_id}/ag-ui": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Runs a Codex chat turn through the AG-UI HTTP event protocol. */
+    post: operations["run_codex_ag_ui_chat"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/chats/{conversation_id}/archive": {
     parameters: {
       query?: never;
@@ -2435,6 +2452,77 @@ export interface operations {
       };
       /** @description Activity item not found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+    };
+  };
+  run_codex_ag_ui_chat: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Conversation ID */
+        conversation_id: string;
+      };
+      cookie?: never;
+    };
+    /** @description AG-UI `RunAgentInput` run payload */
+    requestBody: {
+      content: {
+        "application/json": unknown;
+      };
+    };
+    responses: {
+      /** @description AG-UI server-sent event stream */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Chat is disabled in Experimental settings */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Conversation or worktree not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Chat is archived */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Chat storage or Codex runtime failure */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApiErrorResponse"];
+        };
+      };
+      /** @description Codex app-server communication failure */
+      502: {
         headers: {
           [name: string]: unknown;
         };

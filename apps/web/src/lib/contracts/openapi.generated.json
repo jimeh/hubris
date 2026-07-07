@@ -191,6 +191,88 @@
         }
       }
     },
+    "/api/chats/{conversation_id}/ag-ui": {
+      "post": {
+        "tags": ["crate::api::ag_ui"],
+        "summary": "Runs a Codex chat turn through the AG-UI HTTP event protocol.",
+        "operationId": "run_codex_ag_ui_chat",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "description": "Conversation ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "AG-UI `RunAgentInput` run payload",
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "AG-UI server-sent event stream"
+          },
+          "403": {
+            "description": "Chat is disabled in Experimental settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation or worktree not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Chat is archived",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Chat storage or Codex runtime failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Codex app-server communication failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/chats/{conversation_id}/archive": {
       "post": {
         "tags": ["crate::api::chats"],
