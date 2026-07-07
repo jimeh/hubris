@@ -8,6 +8,7 @@ pub mod git;
 pub mod instance_lock;
 mod keybindings_manager;
 pub mod process_manager;
+pub mod project_store;
 pub mod pty;
 mod settings_manager;
 pub mod state;
@@ -154,7 +155,7 @@ pub async fn create_app_state(data_dir: std::path::PathBuf) -> std::io::Result<A
 
 async fn hydrate_persisted_worktree_state(state: &AppState) -> std::io::Result<()> {
     let mut existing_worktrees = Vec::new();
-    for project in state.load_projects().await? {
+    for project in state.projects.list().await {
         match list_project_worktrees_for_hydration(state, &project).await {
             Ok(worktrees) => {
                 for worktree in worktrees {

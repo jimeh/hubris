@@ -219,12 +219,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         .map(|entry| (entry.key().clone(), entry.value().clone()))
         .collect();
 
-    let mut projects = state.load_projects().await.unwrap_or_default();
-    projects.sort_by(|a, b| {
-        a.position
-            .partial_cmp(&b.position)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let projects = state.projects.list().await;
 
     let mut worktrees = HashMap::new();
     let mut project_errors = HashMap::new();
