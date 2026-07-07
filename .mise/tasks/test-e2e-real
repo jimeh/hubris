@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#MISE description="Build web + server and run the real-server e2e smoke lane"
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
+
+# Set HUBRIS_E2E_SKIP_BUILD=1 to reuse existing build artifacts when
+# iterating on the spec or harness.
+if [[ "${HUBRIS_E2E_SKIP_BUILD:-0}" != "1" ]]; then
+  bun install
+  bun run --filter hubris-web build
+  # Debug profile keeps compile times sane; embed-frontend makes the
+  # binary serve apps/web/dist itself so the browser exercises the real
+  # frontend↔backend seam (REST, SSE, and the terminal WebSocket).
+  cargo build --bin hubris-server --features embed-frontend
+fi
+
+TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+export HUBRIS_E2E_SERVER_BIN="${HUBRIS_E2E_SERVER_BIN:-$TARGET_DIR/debug/hubris-server}"
+
+# No-op when the browser is already in Playwright's cache.
+bun x playwright install chromium
+
+bun run --filter hubris-web test:e2e:real

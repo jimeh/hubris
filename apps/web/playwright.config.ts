@@ -2,6 +2,9 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
+  // The real-server smoke lane has its own harness and config
+  // (playwright.e2e-smoke.config.ts); keep it out of the mocked suite.
+  testIgnore: "**/e2e-smoke.spec.ts",
   timeout: 30_000,
   use: {
     baseURL: "http://localhost:4173",
