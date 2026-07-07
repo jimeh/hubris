@@ -916,14 +916,21 @@ pub enum ChatConversationListScope {
 }
 
 /// Chat settings owned by the backend.
+//
+// Serde defaults tolerate missing fields in the settings TOML file, while
+// `schema(required = true)` keeps the API contract required because the
+// server always serializes every field in responses and SSE snapshots.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSettings {
     #[serde(default = "default_chat_idle_timeout_minutes")]
+    #[schema(required = true)]
     pub idle_timeout_minutes: u32,
     #[serde(default)]
+    #[schema(required = true)]
     pub ui_style: ChatUiStyle,
     #[serde(default)]
+    #[schema(required = true)]
     pub copilotkit_theme_mode: CopilotKitThemeMode,
 }
 
