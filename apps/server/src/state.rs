@@ -4,11 +4,11 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::Mutex;
 
-use crate::api::projects::Project;
 use crate::chat::ChatService;
 use crate::events::EventBus;
 use crate::keybindings_manager::KeybindingsManager;
 use crate::process_manager::ManagedProcessService;
+use crate::project_store::ProjectStore;
 use crate::pty::live_tab::LiveTab;
 use crate::settings_manager::SettingsManager;
 use crate::tab::{TabInfo, WorktreeTabLayout};
@@ -37,6 +37,7 @@ pub struct AppState {
     pub events: Arc<EventBus>,
     pub next_terminal_num_by_worktree: Arc<DashMap<String, u32>>,
     pub data_dir: PathBuf,
+    pub projects: Arc<ProjectStore>,
     pub persistence: Arc<WorktreeStateService>,
     pub processes: Arc<ManagedProcessService>,
     pub tasks: Arc<TaskService>,
@@ -51,6 +52,11 @@ impl AppState {
     pub async fn try_new(data_dir: PathBuf) -> std::io::Result<Self> {
         let events = Arc::new(EventBus::new());
         let state_db_path = data_dir.join("state.sqlite3");
+        let projects = Arc::new(
+            ProjectStore::load(data_dir.join("projects.json"))
+                .await
+                .map_err(std::io::Error::other)?,
+        );
         let settings = Arc::new(
             SettingsManager::new(data_dir.join("settings.toml"))
                 .await
@@ -110,6 +116,7 @@ impl AppState {
             events: events.clone(),
             next_terminal_num_by_worktree: Arc::new(DashMap::new()),
             data_dir,
+            projects,
             persistence,
             processes,
             tasks,
@@ -127,37 +134,12 @@ impl AppState {
             .unwrap_or_else(|error| panic!("failed to initialize app state: {error}"))
     }
 
-    pub fn projects_file(&self) -> PathBuf {
-        self.data_dir.join("projects.json")
-    }
-
     pub fn project_meta_dir(&self) -> PathBuf {
         self.data_dir.join("project-meta")
     }
 
     pub fn project_meta_file(&self, project_id: &str) -> PathBuf {
         self.project_meta_dir().join(format!("{project_id}.json"))
-    }
-
-    /// Load projects from disk. Single source of truth
-    /// (eliminates the duplicated load_projects in
-    /// terminal.rs and projects.rs).
-    pub fn load_projects(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Vec<Project>, std::io::Error>> + Send + 'static
-    {
-        let path = self.projects_file();
-        async move {
-            match tokio::fs::read_to_string(&path).await {
-                Ok(contents) => {
-                    let projects: Vec<Project> =
-                        serde_json::from_str(&contents).unwrap_or_default();
-                    Ok(projects)
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
-                Err(e) => Err(e),
-            }
-        }
     }
 
     pub fn remember_worktree_project(&self, worktree_id: &str, project_id: &str) {
@@ -241,5 +223,20 @@ mod tests {
         assert!(!state.terminal_restore_locks.contains_key("tab-1"));
         assert!(state.restored_terminal_tabs.contains_key("tab-2"));
         assert!(state.terminal_restore_locks.contains_key("tab-2"));
+    }
+
+    #[tokio::test]
+    async fn try_new_fails_loudly_on_corrupt_projects_file() {
+        let tmp = TempDir::new().unwrap();
+        let projects_path = tmp.path().join("projects.json");
+        let garbage = "{ definitely not a project list";
+        std::fs::write(&projects_path, garbage).unwrap();
+
+        let result = AppState::try_new(tmp.path().to_path_buf()).await;
+        assert!(result.is_err());
+
+        // The corrupt file must be preserved for recovery.
+        let contents = std::fs::read_to_string(&projects_path).unwrap();
+        assert_eq!(contents, garbage);
     }
 }

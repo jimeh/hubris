@@ -982,7 +982,11 @@ fn spawn_terminal_runtime(
             server_scrollback_bytes,
             initial_size,
         ),
-    };
+    }
+    .map_err(|error| {
+        tracing::error!("failed to start live tab: {}", error);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let close_rx = live_tab.close_tx.subscribe();
     let tab = Arc::new(live_tab);

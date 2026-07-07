@@ -1,9 +1,5 @@
 use std::path::Path;
 use std::process::Command;
-use std::{fs, io};
-
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 
 use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
@@ -45,31 +41,6 @@ fn run_git(repo_path: &Path, args: &[&str]) {
         .status()
         .unwrap();
     assert!(status.success(), "git failed: {:?}", args);
-}
-
-#[cfg(unix)]
-fn set_read_only(path: &Path) -> io::Result<()> {
-    let mut permissions = fs::metadata(path)?.permissions();
-    permissions.set_mode(0o400);
-    fs::set_permissions(path, permissions)
-}
-
-#[cfg(not(unix))]
-fn set_read_only(path: &Path) -> io::Result<()> {
-    let mut permissions = fs::metadata(path)?.permissions();
-    permissions.set_readonly(true);
-    fs::set_permissions(path, permissions)
-}
-
-#[cfg(unix)]
-fn restore_permissions(path: &Path, permissions: fs::Permissions) -> io::Result<()> {
-    fs::set_permissions(path, permissions)
-}
-
-#[cfg(not(unix))]
-fn restore_permissions(path: &Path, mut permissions: fs::Permissions) -> io::Result<()> {
-    permissions.set_readonly(false);
-    fs::set_permissions(path, permissions)
 }
 
 async fn create_project(client: &reqwest::Client, base: &str, path: &str) -> Value {
@@ -461,9 +432,12 @@ async fn test_delete_project_keeps_project_when_save_fails() {
     let project = create_project(&client, &base, repo.path().to_str().unwrap()).await;
     let id = project["id"].as_str().unwrap();
 
+    // Replace projects.json with a directory so the atomic
+    // persist (temp file + rename) fails at the rename step.
     let projects_file = tmp.path().join("projects.json");
-    let original_permissions = fs::metadata(&projects_file).unwrap().permissions();
-    set_read_only(&projects_file).unwrap();
+    let original_contents = std::fs::read_to_string(&projects_file).unwrap();
+    std::fs::remove_file(&projects_file).unwrap();
+    std::fs::create_dir(&projects_file).unwrap();
 
     let res = client
         .delete(format!("{}/api/projects/{}", base, id))
@@ -472,7 +446,8 @@ async fn test_delete_project_keeps_project_when_save_fails() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
-    restore_permissions(&projects_file, original_permissions).unwrap();
+    std::fs::remove_dir(&projects_file).unwrap();
+    std::fs::write(&projects_file, original_contents).unwrap();
 
     let res = client
         .get(format!("{}/api/projects", base))
@@ -630,6 +605,31 @@ async fn test_reorder_projects_invalid_ids() {
         .put(format!("{}/api/projects/reorder", base))
         .json(&serde_json::json!({
             "project_ids": [p1_id, "not-a-real-id"]
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_reorder_projects_rejects_duplicate_ids() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo1 = init_git_repo();
+    let repo2 = init_git_repo();
+
+    let p1 = create_project(&client, &base, repo1.path().to_str().unwrap()).await;
+    create_project(&client, &base, repo2.path().to_str().unwrap()).await;
+    let p1_id = p1["id"].as_str().unwrap();
+
+    // [A, A] passes a bare length + existence check but is not a
+    // permutation; it must be rejected rather than leaving the other
+    // project's position stale.
+    let res = client
+        .put(format!("{}/api/projects/reorder", base))
+        .json(&serde_json::json!({
+            "project_ids": [p1_id, p1_id]
         }))
         .send()
         .await

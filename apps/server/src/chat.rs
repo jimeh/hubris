@@ -35,6 +35,13 @@ use protocol::{ParsedLine, RouteHints};
 pub const DEFAULT_CHAT_TITLE: &str = "New Chat";
 const DEFAULT_IDLE_TIMEOUT_MINUTES: u32 = 60;
 const CHAT_DB_MAX_CONNECTIONS: u32 = 1;
+// `connect_with` opens (and tests) the pool's first connection eagerly, bounded
+// by the acquire timeout. sqlx defaults this to 30s, which parallel `cargo test`
+// runs can blow through: dozens of test binaries each build a full `AppState`,
+// starving the CPU while establishing this connection and surfacing a spurious
+// "pool timed out" at construction. A larger ceiling has no effect on the happy
+// path (connections open in milliseconds) but removes the flake.
+const CHAT_DB_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(60);
 static CHAT_DB_MIGRATOR: Migrator = sqlx::migrate!("./chat-migrations");
 const MAX_INACTIVE_THREAD_STREAMS: usize = 4;
 const UNSUBSCRIBE_RETRY_DELAY: Duration = Duration::from_secs(15);
@@ -2172,6 +2179,7 @@ impl ChatService {
             .foreign_keys(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(CHAT_DB_MAX_CONNECTIONS)
+            .acquire_timeout(CHAT_DB_ACQUIRE_TIMEOUT)
             .connect_with(options)
             .await
             .map_err(std::io::Error::other)?;
@@ -5378,7 +5386,15 @@ impl ChatService {
             None,
         )
         .await?;
-        let reconciliation = self.latest_reconciliation(conversation_id).await?.unwrap();
+        let reconciliation = self
+            .latest_reconciliation(conversation_id)
+            .await?
+            .ok_or_else(|| {
+                ChatServiceError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "reconciliation row missing after marking it running",
+                )
+            })?;
         if let Some(summary) = self.get_conversation_summary(conversation_id).await? {
             self.events.emit(EventKind::ChatReconciliationStarted {
                 session_id: summary.session_id,

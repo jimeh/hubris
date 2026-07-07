@@ -617,7 +617,12 @@ impl InMemoryTaskBackend {
 
         tokio::spawn(async move {
             while let Some(invocation) = receiver.recv().await {
-                let permit = semaphore.clone().acquire_owned().await.unwrap();
+                // The semaphore is only ever closed when the backend is being
+                // torn down; treat that as a shutdown signal and stop the
+                // worker loop instead of panicking.
+                let Ok(permit) = semaphore.clone().acquire_owned().await else {
+                    break;
+                };
                 let handle = invocation.handle.clone();
                 let executor = executor.clone();
                 tokio::spawn(async move {

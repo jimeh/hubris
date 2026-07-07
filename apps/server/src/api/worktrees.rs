@@ -435,10 +435,7 @@ pub async fn resolve_worktree(
     state: &AppState,
     worktree_id: &str,
 ) -> Result<Option<ResolvedWorktree>, StatusCode> {
-    let projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let projects = state.projects.list().await;
 
     for project in projects {
         let worktrees = match list_worktrees_for_project(state, &project).await {
@@ -585,10 +582,7 @@ pub async fn list_project_worktrees(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
 ) -> Result<Json<ListWorktreesResponse>, StatusCode> {
-    let projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
@@ -625,10 +619,7 @@ pub async fn update_project_worktree(
     Path((project_id, worktree_id)): Path<(String, String)>,
     Json(req): Json<UpdateWorktreeRequest>,
 ) -> Result<Json<Worktree>, StatusCode> {
-    let projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|project| project.id == project_id)
@@ -730,10 +721,7 @@ pub async fn create_project_worktree(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
@@ -1020,10 +1008,7 @@ pub async fn rename_worktree_branch(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
@@ -1166,10 +1151,7 @@ pub async fn list_project_worktree_start_points(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
 ) -> Result<Json<ListWorktreeStartPointsResponse>, StatusCode> {
-    let projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
@@ -1291,10 +1273,7 @@ pub async fn reorder_project_worktrees(
     Path(project_id): Path<String>,
     Json(req): Json<ReorderWorktreesRequest>,
 ) -> Result<Json<Vec<Worktree>>, StatusCode> {
-    let projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
@@ -1353,10 +1332,7 @@ pub async fn list_importable_worktrees(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
 ) -> Result<Json<ListImportableWorktreesResponse>, StatusCode> {
-    let projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
@@ -1440,10 +1416,7 @@ pub async fn import_project_worktree(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
@@ -1562,10 +1535,7 @@ pub async fn delete_project_worktree(
     Path((project_id, worktree_id)): Path<(String, String)>,
     Query(params): Query<DeleteWorktreeParams>,
 ) -> StatusCode {
-    let projects = match state.load_projects().await {
-        Ok(projects) => projects,
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
-    };
+    let projects = state.projects.list().await;
     let project = match projects.iter().find(|p| p.id == project_id) {
         Some(project) => project,
         None => return StatusCode::NOT_FOUND,

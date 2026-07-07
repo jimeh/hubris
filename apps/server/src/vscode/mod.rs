@@ -1410,7 +1410,9 @@ async fn download_runtime_archive_from_base_url(
     if runtime_dir_is_complete(&runtime_dir).await? && !request.force {
         return Ok(InstalledRuntime {
             version: version.clone(),
-            version_semver: Version::parse(&version).expect("validated version"),
+            version_semver: Version::parse(&version).map_err(|_| {
+                CodeServerError::InvalidVersion(format!("invalid code-server version: {version}"))
+            })?,
             platform: request.platform,
             runtime_dir,
             binary_path,
@@ -1524,7 +1526,9 @@ async fn download_runtime_archive_from_base_url(
 
     Ok(InstalledRuntime {
         version: version.clone(),
-        version_semver: Version::parse(&version).expect("validated version"),
+        version_semver: Version::parse(&version).map_err(|_| {
+            CodeServerError::InvalidVersion(format!("invalid code-server version: {version}"))
+        })?,
         platform: request.platform,
         runtime_dir,
         binary_path,
@@ -1844,7 +1848,9 @@ async fn download_vscode_cli_archive(
     {
         return Ok(InstalledVscodeCliRuntime {
             version: version.clone(),
-            version_semver: Version::parse(&version).expect("validated version"),
+            version_semver: Version::parse(&version).map_err(|_| {
+                VscodeCliError::InvalidVersion(format!("invalid VS Code version: {version}"))
+            })?,
             platform: request.platform,
             runtime_dir,
             binary_path,
@@ -1970,7 +1976,9 @@ async fn download_vscode_cli_archive(
 
     Ok(InstalledVscodeCliRuntime {
         version: version.clone(),
-        version_semver: Version::parse(&version).expect("validated version"),
+        version_semver: Version::parse(&version).map_err(|_| {
+            VscodeCliError::InvalidVersion(format!("invalid VS Code version: {version}"))
+        })?,
         platform: request.platform,
         runtime_dir,
         binary_path,

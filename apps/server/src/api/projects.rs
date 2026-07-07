@@ -12,6 +12,7 @@ use crate::api::worktrees::{
 };
 use crate::events::EventKind;
 use crate::git;
+use crate::project_store::ReorderOutcome;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
@@ -49,16 +50,6 @@ pub struct DeleteProjectParams {
     pub delete_managed_worktrees: bool,
 }
 
-async fn save_projects(state: &AppState, projects: &[Project]) -> Result<(), std::io::Error> {
-    let path = state.projects_file();
-    let mut to_store = projects.to_vec();
-    for project in &mut to_store {
-        project.git_error = None;
-    }
-    let contents = serde_json::to_string_pretty(&to_store).map_err(std::io::Error::other)?;
-    tokio::fs::write(&path, contents).await
-}
-
 async fn with_git_errors(mut projects: Vec<Project>) -> Vec<Project> {
     for project in &mut projects {
         let path = PathBuf::from(&project.path);
@@ -80,15 +71,7 @@ async fn with_git_errors(mut projects: Vec<Project>) -> Vec<Project> {
 pub async fn list_projects(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Project>>, StatusCode> {
-    let mut projects = state
-        .load_projects()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    projects.sort_by(|a, b| {
-        a.position
-            .partial_cmp(&b.position)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let projects = state.projects.list().await;
     Ok(Json(with_git_errors(projects).await))
 }
 
@@ -120,33 +103,22 @@ pub async fn add_project(
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let canonical_path = local_root.to_string_lossy().to_string();
-    let mut projects = state.load_projects().await.unwrap_or_default();
-    if let Some(existing) = projects
-        .iter()
-        .find(|project| project.path == canonical_path)
-        .cloned()
-    {
-        return Ok((StatusCode::OK, Json(existing)));
-    }
-
     let name = local_root
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unnamed")
         .to_string();
-    let max_pos = projects.iter().map(|p| p.position).fold(0.0_f64, f64::max);
-    let project = Project {
-        id: uuid::Uuid::new_v4().to_string(),
-        name,
-        path: canonical_path,
-        position: max_pos + 1.0,
-        git_error: None,
-    };
 
-    projects.push(project.clone());
-    save_projects(&state, &projects)
+    let outcome = state
+        .projects
+        .add(canonical_path, name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !outcome.created {
+        return Ok((StatusCode::OK, Json(outcome.project)));
+    }
+
+    let project = outcome.project;
     state.events.emit(EventKind::ProjectAdded(project.clone()));
     match list_worktrees_for_project(&state, &project).await {
         Ok(worktrees) => {
@@ -185,21 +157,12 @@ pub async fn update_project(
     Path(id): Path<String>,
     Json(req): Json<UpdateProjectRequest>,
 ) -> Result<Json<Project>, StatusCode> {
-    let mut projects = state
-        .load_projects()
+    let updated = state
+        .projects
+        .update(&id, req.name)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let project = projects
-        .iter_mut()
-        .find(|p| p.id == id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-    if let Some(name) = req.name {
-        project.name = name;
-    }
-    let updated = project.clone();
-    save_projects(&state, &projects)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     state
         .events
         .emit(EventKind::ProjectUpdated(updated.clone()));
@@ -220,36 +183,15 @@ pub async fn reorder_projects(
     State(state): State<AppState>,
     Json(req): Json<ReorderProjectsRequest>,
 ) -> Result<Json<Vec<Project>>, StatusCode> {
-    let mut projects = state
-        .load_projects()
+    let projects = match state
+        .projects
+        .reorder(&req.project_ids)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if req.project_ids.len() != projects.len() {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    let all_exist = req
-        .project_ids
-        .iter()
-        .all(|id| projects.iter().any(|p| p.id == *id));
-    if !all_exist {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    for (i, id) in req.project_ids.iter().enumerate() {
-        if let Some(p) = projects.iter_mut().find(|p| p.id == *id) {
-            p.position = (i + 1) as f64;
-        }
-    }
-    projects.sort_by(|a, b| {
-        a.position
-            .partial_cmp(&b.position)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    save_projects(&state, &projects)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        ReorderOutcome::Reordered(projects) => projects,
+        ReorderOutcome::InvalidIds => return Err(StatusCode::BAD_REQUEST),
+    };
     state
         .events
         .emit(EventKind::ProjectsReordered(projects.clone()));
@@ -279,12 +221,7 @@ pub async fn delete_project(
     Path(id): Path<String>,
     Query(params): Query<DeleteProjectParams>,
 ) -> StatusCode {
-    let mut projects = match state.load_projects().await {
-        Ok(projects) => projects,
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
-    };
-
-    let project = match projects.iter().find(|p| p.id == id).cloned() {
+    let project = match state.projects.get(&id).await {
         Some(project) => project,
         None => return StatusCode::NOT_FOUND,
     };
@@ -342,8 +279,7 @@ pub async fn delete_project(
         return StatusCode::INTERNAL_SERVER_ERROR;
     }
 
-    projects.retain(|p| p.id != id);
-    if save_projects(&state, &projects).await.is_err() {
+    if state.projects.remove(&id).await.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR;
     }
 

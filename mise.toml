@@ -233,6 +233,10 @@ description = "Run desktop tests"
 run = "cd apps/server && cargo test"
 description = "Run server tests"
 
+[tasks."test:e2e:real"]
+run = ".mise/tasks/test-e2e-real"
+description = "Run the real-server Playwright e2e smoke lane"
+
 [tasks."docker:test"]
 description = "Run server + web tests in Linux via Docker"
 run = ["docker build -f Dockerfile.test -t hubris-test .", '''docker run --rm \

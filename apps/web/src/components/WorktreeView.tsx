@@ -26,7 +26,7 @@ import {
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import BrowserTab from "@/components/BrowserTab";
-import AgentChatTabView from "@/components/AgentChatTab";
+import AgentChatTabView from "@/components/AgentChatTabSwitch";
 import TabBar, { type TabBarAction } from "@/components/TabBar";
 import TerminalTab from "@/components/TerminalTab";
 import WorktreeRightSidebar from "@/components/WorktreeRightSidebar";
@@ -58,6 +58,18 @@ function EditorTabFallback() {
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
       <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
       Loading editor
+    </div>
+  );
+}
+
+// Chat tab views are code-split (see AgentChatTabSwitch); their lazy
+// components suspend to this boundary while the selected chat stack's
+// bundle loads.
+function ChatTabFallback() {
+  return (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+      Loading chat
     </div>
   );
 }
@@ -1192,7 +1204,9 @@ export default function WorktreeView({ worktree, active }: Props) {
                     ) : tab.type === "browser" ? (
                       <BrowserTab tab={tab} visible={visible} />
                     ) : tab.type === "agent_chat" && chatEnabled ? (
-                      <AgentChatTabView tab={tab} visible={visible} />
+                      <Suspense fallback={<ChatTabFallback />}>
+                        <AgentChatTabView tab={tab} visible={visible} />
+                      </Suspense>
                     ) : tab.type === "agent_chat" ? (
                       <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
                         Chat is disabled in Experimental settings.
