@@ -18,7 +18,7 @@ import {
   hasDesktopBrowserBridge,
 } from "@/lib/desktopBrowser";
 import { getEventClient } from "@/lib/events";
-import { scheduleDisposeTabModels } from "@/lib/monaco";
+import { scheduleDisposeTabModels } from "@/lib/monacoLazy";
 import {
   collapseLayoutToTabs,
   collectPaneIds,

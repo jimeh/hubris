@@ -38,7 +38,7 @@ vi.mock("@/lib/api", () => ({
     mockUpdateWorktreeRestoreState(...args),
 }));
 
-vi.mock("@/lib/monaco", () => ({
+vi.mock("@/lib/monacoLazy", () => ({
   scheduleDisposeTabModels: (...args: unknown[]) =>
     mockScheduleDisposeTabModels(...args),
 }));

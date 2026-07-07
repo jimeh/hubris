@@ -7,6 +7,7 @@ import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import type { VscodeThemeJson } from "@/lib/api";
 import { convertVscodeThemeToMonaco } from "@/lib/editorTheme";
+import { registerMonacoBridge } from "@/lib/monacoLazy";
 import type { HubrisTheme } from "@/lib/theme/types";
 import type { FileTab, GitDiffTab, Tab } from "@/lib/types";
 
@@ -209,5 +210,10 @@ export function scheduleDisposeTabModels(tab: Tab): void {
 
   window.setTimeout(action, 0);
 }
+
+// Hook this module up to the boot-safe lazy indirection so calls
+// made before Monaco loaded (theme sync, tab model disposal) start
+// routing here, and the latest theme is replayed on load.
+registerMonacoBridge({ applyMonacoTheme, scheduleDisposeTabModels });
 
 export { monaco, HUBRIS_THEME_NAME };
