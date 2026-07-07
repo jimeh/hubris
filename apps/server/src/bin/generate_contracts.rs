@@ -77,6 +77,25 @@ fn push_ts_export<T: TS + 'static>(out: &mut String, cfg: &Config) -> Result<(),
     Ok(())
 }
 
+/// Renders the exhaustive SSE event-name registry from
+/// `EventKind::EVENT_NAMES` so the frontend `EventClient` can attach one
+/// `EventSource` listener per server-emitted event without hand-copying
+/// names. The `satisfies` clause keeps every entry a valid `EventKind` tag.
+fn render_sse_event_names() -> String {
+    let mut out = String::from(
+        "/**\n * Every SSE event name the server can emit, in `EventKind`\n \
+         * variant order. Derived from `EventKind::EVENT_NAMES`.\n */\n\
+         export const SSE_EVENT_NAMES = [\n",
+    );
+    for name in EventKind::EVENT_NAMES {
+        out.push_str("  \"");
+        out.push_str(name);
+        out.push_str("\",\n");
+    }
+    out.push_str("] as const satisfies ReadonlyArray<EventKind[\"type\"]>;\n");
+    out
+}
+
 fn write_openapi(dir: &Path) -> Result<(), Box<dyn Error>> {
     let spec = openapi_spec();
     let body = serde_json::to_string_pretty(&spec)?;
@@ -185,6 +204,7 @@ fn write_ts_contracts(dir: &Path) -> Result<(), Box<dyn Error>> {
     push_ts_export::<TaskUpdated>(&mut sse, &cfg)?;
     push_ts_export::<TaskRemoved>(&mut sse, &cfg)?;
     push_ts_export::<EventKind>(&mut sse, &cfg)?;
+    sse.push_str(&render_sse_event_names());
     fs::write(&sse_path, sse)?;
 
     let mut ws = String::from("// Generated file. Do not edit.\n\n");

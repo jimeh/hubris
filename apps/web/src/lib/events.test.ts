@@ -1,5 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EventClient } from "./events";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { ChatReconciliation } from "@/lib/contracts/sse.generated";
+import { SSE_EVENT_NAMES } from "@/lib/contracts/sse.generated";
+import {
+  initializeChatStore,
+  resetChatStoreForTests,
+  useChatStore,
+} from "@/lib/stores/chats";
+import { EventClient, getEventClient } from "./events";
 
 // Mock EventSource
 class MockEventSource {
@@ -53,6 +60,18 @@ describe("EventClient", () => {
         }
       },
     );
+  });
+
+  it("attaches a listener for every generated SSE event name", () => {
+    const client = new EventClient();
+    client.connect();
+
+    for (const name of SSE_EVENT_NAMES) {
+      expect(
+        mockEs.listeners.has(name),
+        `missing EventSource listener for "${name}"`,
+      ).toBe(true);
+    }
   });
 
   it("connect() creates EventSource with session_id", () => {
@@ -184,5 +203,61 @@ describe("EventClient", () => {
 
     expect(constructorCalls).toHaveLength(2);
     expect(mockEs.url).toBe("/api/events?session_id=other");
+  });
+});
+
+describe("EventClient store integration", () => {
+  let mockEs: MockEventSource;
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "EventSource",
+      class extends MockEventSource {
+        constructor(url: string) {
+          super(url);
+          // eslint-disable-next-line @typescript-eslint/no-this-alias
+          mockEs = this;
+        }
+      },
+    );
+  });
+
+  afterEach(() => {
+    resetChatStoreForTests();
+    getEventClient().disconnect();
+    vi.unstubAllGlobals();
+  });
+
+  // Regression test: chat_reconciliation_* were missing from the
+  // handwritten event-name list, so the chats store handlers never
+  // fired in production even though store tests (which bypass
+  // EventSource via MockEventClient) passed. This test goes through
+  // the real EventClient listener-registration path.
+  it("delivers reconciliation events to chat store handlers", () => {
+    initializeChatStore();
+    getEventClient().connect();
+
+    const reconciliation: ChatReconciliation = {
+      id: "recon-1",
+      conversationId: "chat-1",
+      providerThreadId: "thread-1",
+      status: "running",
+      reason: "stream_resume",
+      startedAt: 100,
+      finishedAt: null,
+      errorMessage: null,
+      ownerGeneration: 1,
+      createdAt: 100,
+      updatedAt: 100,
+    };
+
+    mockEs.simulateEvent("chat_reconciliation_started", {
+      type: "chat_reconciliation_started",
+      data: { session_id: "default", reconciliation },
+    });
+
+    expect(
+      useChatStore.getState().reconciliationsByConversationId["chat-1"],
+    ).toEqual(reconciliation);
   });
 });

@@ -54,6 +54,17 @@ pub enum EventKind {
         managed_processes: Vec<ManagedProcessStatus>,
         tasks: Vec<TaskInvocationStatus>,
     },
+    /// Sent instead of `snapshot` when the server fails to assemble the
+    /// initial snapshot. Clients should surface the failure and offer a
+    /// reconnect/retry instead of silently showing empty state.
+    #[serde(rename = "snapshot_unavailable")]
+    SnapshotUnavailable {
+        /// Which part of the snapshot failed to load (e.g.
+        /// `chat_conversations`).
+        scope: String,
+        /// Human-readable failure description.
+        message: String,
+    },
     #[serde(rename = "tab_created")]
     TabCreated { session_id: String, tab: TabInfo },
     #[serde(rename = "tab_closed")]
@@ -247,55 +258,75 @@ pub enum EventKind {
     },
 }
 
-impl EventKind {
-    pub fn event_name(&self) -> &'static str {
-        match self {
-            EventKind::Snapshot { .. } => "snapshot",
-            EventKind::TabCreated { .. } => "tab_created",
-            EventKind::TabClosed { .. } => "tab_closed",
-            EventKind::TabUpdated { .. } => "tab_updated",
-            EventKind::TabsReordered { .. } => "tabs_reordered",
-            EventKind::WorktreeTabLayoutUpdated { .. } => "worktree_tab_layout_updated",
-            EventKind::ProjectAdded(_) => "project_added",
-            EventKind::ProjectRemoved { .. } => "project_removed",
-            EventKind::ProjectUpdated(_) => "project_updated",
-            EventKind::ProjectsReordered(_) => "projects_reordered",
-            EventKind::WorktreeCreated(_) => "worktree_created",
-            EventKind::WorktreeDeleted { .. } => "worktree_deleted",
-            EventKind::WorktreesReordered { .. } => "worktrees_reordered",
-            EventKind::ProjectWorktreesUpdated { .. } => "project_worktrees_updated",
-            EventKind::WorktreeFilesUpdated { .. } => "worktree_files_updated",
-            EventKind::WorktreeGitStatusUpdated { .. } => "worktree_git_status_updated",
-            EventKind::SettingsUpdated(_) => "settings_updated",
-            EventKind::KeybindingsUpdated(_) => "keybindings_updated",
-            EventKind::VscodeUpdated(_) => "vscode_updated",
-            EventKind::ManagedProcessUpdated(_) => "managed_process_updated",
-            EventKind::TaskUpdated(_) => "task_updated",
-            EventKind::TaskRemoved(_) => "task_removed",
-            EventKind::ChatConversationCreated { .. } => "chat_conversation_created",
-            EventKind::ChatConversationUpdated { .. } => "chat_conversation_updated",
-            EventKind::ChatConversationDeleted { .. } => "chat_conversation_deleted",
-            EventKind::ChatRuntimeUpdated { .. } => "chat_runtime_updated",
-            EventKind::ChatAppServerUpdated { .. } => "chat_app_server_updated",
-            EventKind::ChatThreadStreamUpdated { .. } => "chat_thread_stream_updated",
-            EventKind::ChatMessageDelta { .. } => "chat_message_delta",
-            EventKind::ChatMessageUpdated { .. } => "chat_message_updated",
-            EventKind::ChatRunUpdated { .. } => "chat_run_updated",
-            EventKind::ChatTurnUpdated { .. } => "chat_turn_updated",
-            EventKind::ChatItemUpdated { .. } => "chat_item_updated",
-            EventKind::ChatActivityDelta { .. } => "chat_activity_delta",
-            EventKind::ChatActivityUpdated { .. } => "chat_activity_updated",
-            EventKind::ChatPendingRequestCreated { .. } => "chat_pending_request_created",
-            EventKind::ChatPendingRequestUpdated { .. } => "chat_pending_request_updated",
-            EventKind::ChatPendingRequestResolved { .. } => "chat_pending_request_resolved",
-            EventKind::ChatPlanUpdated { .. } => "chat_plan_updated",
-            EventKind::ChatDiffUpdated { .. } => "chat_diff_updated",
-            EventKind::ChatContextUsageUpdated { .. } => "chat_context_usage_updated",
-            EventKind::ChatReconciliationStarted { .. } => "chat_reconciliation_started",
-            EventKind::ChatReconciliationCompleted { .. } => "chat_reconciliation_completed",
-            EventKind::ChatReconciliationFailed { .. } => "chat_reconciliation_failed",
+/// Defines `EventKind::event_name` and `EventKind::EVENT_NAMES` from a single
+/// variant-to-name mapping. The generated `match` is exhaustive, so adding an
+/// `EventKind` variant without extending this mapping is a compile error, and
+/// the name list can never drift from `event_name`.
+macro_rules! event_kind_names {
+    ($($variant:ident => $name:literal),+ $(,)?) => {
+        impl EventKind {
+            /// Every SSE event name, in variant declaration order. This is
+            /// the source for the generated frontend event-name registry
+            /// (`SSE_EVENT_NAMES` in `sse.generated.ts`).
+            pub const EVENT_NAMES: &'static [&'static str] = &[$($name),+];
+
+            /// SSE event name for this event. Must match the serde `type`
+            /// tag; `tests::event_names_match_serde_tags` enforces this.
+            pub fn event_name(&self) -> &'static str {
+                match self {
+                    $(EventKind::$variant { .. } => $name,)+
+                }
+            }
         }
-    }
+    };
+}
+
+event_kind_names! {
+    Snapshot => "snapshot",
+    SnapshotUnavailable => "snapshot_unavailable",
+    TabCreated => "tab_created",
+    TabClosed => "tab_closed",
+    TabUpdated => "tab_updated",
+    TabsReordered => "tabs_reordered",
+    WorktreeTabLayoutUpdated => "worktree_tab_layout_updated",
+    ProjectAdded => "project_added",
+    ProjectRemoved => "project_removed",
+    ProjectUpdated => "project_updated",
+    ProjectsReordered => "projects_reordered",
+    WorktreeCreated => "worktree_created",
+    WorktreeDeleted => "worktree_deleted",
+    WorktreesReordered => "worktrees_reordered",
+    ProjectWorktreesUpdated => "project_worktrees_updated",
+    WorktreeFilesUpdated => "worktree_files_updated",
+    WorktreeGitStatusUpdated => "worktree_git_status_updated",
+    SettingsUpdated => "settings_updated",
+    KeybindingsUpdated => "keybindings_updated",
+    VscodeUpdated => "vscode_updated",
+    ManagedProcessUpdated => "managed_process_updated",
+    TaskUpdated => "task_updated",
+    TaskRemoved => "task_removed",
+    ChatConversationCreated => "chat_conversation_created",
+    ChatConversationUpdated => "chat_conversation_updated",
+    ChatConversationDeleted => "chat_conversation_deleted",
+    ChatRuntimeUpdated => "chat_runtime_updated",
+    ChatAppServerUpdated => "chat_app_server_updated",
+    ChatThreadStreamUpdated => "chat_thread_stream_updated",
+    ChatMessageDelta => "chat_message_delta",
+    ChatMessageUpdated => "chat_message_updated",
+    ChatRunUpdated => "chat_run_updated",
+    ChatTurnUpdated => "chat_turn_updated",
+    ChatItemUpdated => "chat_item_updated",
+    ChatActivityDelta => "chat_activity_delta",
+    ChatActivityUpdated => "chat_activity_updated",
+    ChatPendingRequestCreated => "chat_pending_request_created",
+    ChatPendingRequestUpdated => "chat_pending_request_updated",
+    ChatPendingRequestResolved => "chat_pending_request_resolved",
+    ChatPlanUpdated => "chat_plan_updated",
+    ChatDiffUpdated => "chat_diff_updated",
+    ChatContextUsageUpdated => "chat_context_usage_updated",
+    ChatReconciliationStarted => "chat_reconciliation_started",
+    ChatReconciliationCompleted => "chat_reconciliation_completed",
+    ChatReconciliationFailed => "chat_reconciliation_failed",
 }
 
 pub struct EventBus {
@@ -375,6 +406,43 @@ mod tests {
             session_id: "default".into(),
             tab_id: "x".into(),
         });
+    }
+
+    /// Extracts the serde `type` tag string literals from the generated
+    /// TypeScript declaration of `EventKind`, in variant declaration order.
+    /// Tag keys are the only quoted keys in the ts-rs output, so matching on
+    /// `"type"` never picks up payload fields.
+    fn extract_type_tags(decl: &str) -> Vec<String> {
+        let mut tags = Vec::new();
+        let mut rest = decl;
+        while let Some(idx) = rest.find("\"type\"") {
+            rest = &rest[idx + "\"type\"".len()..];
+            let Some(after) = rest.trim_start().strip_prefix(':') else {
+                continue;
+            };
+            let Some(after) = after.trim_start().strip_prefix('"') else {
+                continue;
+            };
+            let Some(end) = after.find('"') else {
+                break;
+            };
+            tags.push(after[..end].to_string());
+            rest = &after[end..];
+        }
+        tags
+    }
+
+    /// Locks `EventKind::event_name` / `EventKind::EVENT_NAMES` to the serde
+    /// `type` tags. ts-rs derives the tags from the same `#[serde(rename)]`
+    /// attributes serde uses when serializing, so any drift between
+    /// `event_kind_names!` and the serde tags fails here; a missing macro
+    /// entry for a new variant already fails to compile.
+    #[test]
+    fn event_names_match_serde_tags() {
+        let decl = EventKind::export_to_string(&ts_rs::Config::from_env())
+            .expect("failed to render EventKind TypeScript declaration");
+        let tags = extract_type_tags(&decl);
+        assert_eq!(tags, EventKind::EVENT_NAMES);
     }
 
     #[test]
