@@ -13,7 +13,9 @@ PACKAGE_ROOT="$(pwd)/dist/Hubris-$PLATFORM-$ARCH"
 case "$PLATFORM" in
   darwin)
     RESOURCES_DIR="$PACKAGE_ROOT/Hubris.app/Contents/Resources"
-    ARTIFACT_GLOB="dist/make/**/*.zip"
+    # Target-specific glob so back-to-back builds of different archs do not
+    # trip the exactly-one-artifact check on each other's output.
+    ARTIFACT_GLOB="dist/make/zip/$PLATFORM/$ARCH/*.zip"
     ;;
   *)
     echo "unsupported platform: $PLATFORM" >&2
@@ -36,9 +38,9 @@ if [[ ! -f "$RESOURCES_DIR/hubris-desktop-runtime" ]]; then
   exit 1
 fi
 
-shopt -s globstar nullglob
+shopt -s nullglob
 artifacts=($ARTIFACT_GLOB)
-shopt -u globstar nullglob
+shopt -u nullglob
 
 if [[ ${#artifacts[@]} -ne 1 ]]; then
   echo "expected exactly one artifact matching $ARTIFACT_GLOB" >&2

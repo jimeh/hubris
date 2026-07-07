@@ -30,8 +30,17 @@ if [[ ! -f "$RUNTIME_PATH" ]]; then
   exit 1
 fi
 
+# Remove any previous output for this target so stale artifacts cannot mask
+# a packaging run that exits 0 without producing anything (Electron Packager
+# has done exactly that on Node 24.16+ during template extraction).
+rm -rf \
+  "$(pwd)/dist/Hubris-$PLATFORM-$ARCH" \
+  "$(pwd)/dist/make/zip/$PLATFORM/$ARCH"
+
 export HUBRIS_DESKTOP_RUNTIME_PATH="$RUNTIME_PATH"
 bun run --filter hubris-desktop make \
   --platform "$PLATFORM" \
   --arch "$ARCH" \
   --targets "@electron-forge/maker-zip"
+
+bash scripts/verify-desktop-package.sh "$PLATFORM" "$ARCH"
