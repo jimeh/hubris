@@ -33,7 +33,7 @@ import WorktreeHistorySwitcher from "@/components/WorktreeHistorySwitcher";
 import WorktreeView from "@/components/WorktreeView";
 import { Button } from "@/components/ui/button";
 import { executeCommand } from "@/lib/commands";
-import { applyMonacoTheme } from "@/lib/monaco";
+import { applyMonacoTheme } from "@/lib/monacoLazy";
 import { useAppSidebarStore } from "@/lib/stores/appSidebar";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";

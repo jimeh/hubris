@@ -11,8 +11,10 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, LoaderCircle } from "lucide-react";
 import {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -24,8 +26,6 @@ import {
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import BrowserTab from "@/components/BrowserTab";
-import FileEditorTab from "@/components/FileEditorTab";
-import GitDiffTab from "@/components/GitDiffTab";
 import AgentChatTabView from "@/components/AgentChatTab";
 import TabBar, { type TabBarAction } from "@/components/TabBar";
 import TerminalTab from "@/components/TerminalTab";
@@ -47,6 +47,20 @@ import { buildPaneTree, createSinglePaneLayout } from "@/lib/tabLayout";
 import type { PaneDropPlacement, PaneTree } from "@/lib/tabLayout";
 import type { Tab, Worktree } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+// Monaco-backed editor tabs are code-split so the multi-MB Monaco
+// bundle only loads when a file or diff tab is actually opened.
+const FileEditorTab = lazy(() => import("@/components/FileEditorTab"));
+const GitDiffTab = lazy(() => import("@/components/GitDiffTab"));
+
+function EditorTabFallback() {
+  return (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+      Loading editor
+    </div>
+  );
+}
 
 type Props = {
   worktree: Worktree;
@@ -1157,20 +1171,24 @@ export default function WorktreeView({ worktree, active }: Props) {
                         onClosed={handleTabClosed}
                       />
                     ) : tab.type === "file" ? (
-                      <FileEditorTab
-                        projectId={worktree.project_id}
-                        worktreeId={worktree.id}
-                        tab={tab}
-                        visible={visible}
-                      />
+                      <Suspense fallback={<EditorTabFallback />}>
+                        <FileEditorTab
+                          projectId={worktree.project_id}
+                          worktreeId={worktree.id}
+                          tab={tab}
+                          visible={visible}
+                        />
+                      </Suspense>
                     ) : tab.type === "git_diff" ? (
-                      <GitDiffTab
-                        projectId={worktree.project_id}
-                        worktreeId={worktree.id}
-                        tab={tab}
-                        visible={visible}
-                        setTabBarActionsForTab={setTabBarActionsForTab}
-                      />
+                      <Suspense fallback={<EditorTabFallback />}>
+                        <GitDiffTab
+                          projectId={worktree.project_id}
+                          worktreeId={worktree.id}
+                          tab={tab}
+                          visible={visible}
+                          setTabBarActionsForTab={setTabBarActionsForTab}
+                        />
+                      </Suspense>
                     ) : tab.type === "browser" ? (
                       <BrowserTab tab={tab} visible={visible} />
                     ) : tab.type === "agent_chat" && chatEnabled ? (
