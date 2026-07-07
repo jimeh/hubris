@@ -109,12 +109,6 @@ jobs:
           bun x prettier --check '**/*.md'
           '!node_modules' '!apps/web/node_modules'
 
-  # NOTE: contract-generation drift (generate_contracts +
-  # generate:contracts:rest + git diff over apps/web/src/lib/contracts)
-  # is intentionally NOT enforced here yet: the contracts checked in on
-  # main are currently stale (ChatSettings serde defaults landed without
-  # regenerating), so the check would fail on every push until
-  # `mise run generate` output is recommitted.
   generated:
     name: Generated Files
     runs-on: ubuntu-latest
@@ -123,6 +117,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
+      - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c # v1.15.2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -130,8 +125,16 @@ jobs:
       - name: Run generators
         run: bun run --filter hubris-web generate:theme-defaults
 
+      - name: Generate backend API contracts
+        run: cargo run -p hubris-server --bin generate_contracts
+
+      - name: Generate frontend contract types
+        run: bun run --filter hubris-web generate:contracts:rest
+
       - name: Check for uncommitted changes
-        run: git diff --exit-code -- '*.generated.*'
+        run: |
+          git diff --exit-code -- '*.generated.*' \
+            apps/web/src/lib/contracts
 
   rust-format:
     name: Rust Format
