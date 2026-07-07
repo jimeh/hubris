@@ -13,7 +13,9 @@ PACKAGE_ROOT="$(pwd)/dist/Hubris-$PLATFORM-$ARCH"
 case "$PLATFORM" in
   darwin)
     RESOURCES_DIR="$PACKAGE_ROOT/Hubris.app/Contents/Resources"
-    ARTIFACT_GLOB="dist/make/**/*.zip"
+    # Target-specific glob so back-to-back builds of different archs do not
+    # trip the exactly-one-artifact check on each other's output.
+    ARTIFACT_GLOB="dist/make/zip/$PLATFORM/$ARCH/*.zip"
     ;;
   *)
     echo "unsupported platform: $PLATFORM" >&2
