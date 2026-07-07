@@ -36,7 +36,6 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
-import CopilotKitAgentChatTabView from "@/components/CopilotKitAgentChatTab";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -2174,10 +2173,8 @@ export function AgentChatTabClassicView({ tab, visible }: Props) {
   );
 }
 
-export default function AgentChatTabView(props: Props) {
-  const uiStyle = useChatSettings((state) => state.settings.uiStyle);
-  if (uiStyle === "copilotkit") {
-    return <CopilotKitAgentChatTabView {...props} />;
-  }
-  return <AgentChatTabClassicView {...props} />;
-}
+// The uiStyle dispatch between the classic and CopilotKit views lives
+// in AgentChatTabSwitch so this module (and its @assistant-ui
+// dependency) never loads when CopilotKit chat is selected, and vice
+// versa.
+export default AgentChatTabClassicView;
