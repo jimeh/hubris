@@ -174,6 +174,9 @@ async function waitForPort(
   );
 }
 
+/** Fatal readiness failure that must not be retried by the poll loop. */
+class WrongServerBuildError extends Error {}
+
 async function waitForHttpReady(
   baseUrl: string,
   server: SpawnedServer,
@@ -198,7 +201,7 @@ async function waitForHttpReady(
         const root = await fetch(baseUrl);
         const body = await root.text();
         if (body.includes("frontend not embedded")) {
-          throw new Error(
+          throw new WrongServerBuildError(
             `hubris-server at ${baseUrl} was built without the ` +
               `embed-frontend feature. Rebuild with "cargo build --bin ` +
               `hubris-server --features embed-frontend" (or rerun without ` +
@@ -208,7 +211,7 @@ async function waitForHttpReady(
         return;
       }
     } catch (error) {
-      if (error instanceof Error && error.message.includes("embed-frontend")) {
+      if (error instanceof WrongServerBuildError) {
         throw error;
       }
       // Server not accepting connections yet; keep polling.
