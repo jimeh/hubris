@@ -1,6 +1,8 @@
 import { lazy } from "react";
 import { useChatSettings } from "@/lib/stores/chatSettings";
-import type { AgentChatTab } from "@/lib/types";
+// Type-only import: erased at compile time, so it does not undo the
+// code-splitting of the lazy() imports below.
+import type { AgentChatTabProps } from "@/components/AgentChatTab";
 
 // Both chat stacks are code-split so neither ships in the entry
 // bundle: the classic (@assistant-ui) and CopilotKit (@copilotkit +
@@ -13,16 +15,11 @@ const CopilotKitAgentChatTabView = lazy(
   () => import("@/components/CopilotKitAgentChatTab"),
 );
 
-type Props = {
-  tab: AgentChatTab;
-  visible: boolean;
-};
-
 /**
  * Chat tab entry point that dispatches to the chat UI selected by the
  * `chat.uiStyle` setting, lazy-loading only that stack's bundle.
  */
-export default function AgentChatTabSwitch(props: Props) {
+export default function AgentChatTabSwitch(props: AgentChatTabProps) {
   const uiStyle = useChatSettings((state) => state.settings.uiStyle);
   if (uiStyle === "copilotkit") {
     return <CopilotKitAgentChatTabView {...props} />;

@@ -84,7 +84,7 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Props = {
+export type AgentChatTabProps = {
   tab: AgentChatTab;
   visible: boolean;
 };
@@ -2075,7 +2075,7 @@ function ChatComposer({
   );
 }
 
-export function AgentChatTabClassicView({ tab, visible }: Props) {
+export function AgentChatTabClassicView({ tab, visible }: AgentChatTabProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const detailState = useChatStore((state) =>
     selectChatDetailState(state, tab.conversation_id),
