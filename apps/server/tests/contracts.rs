@@ -1,3 +1,6 @@
+use std::collections::BTreeSet;
+
+use hubris_server::API_ROUTES;
 use hubris_server::api::terminal::ServerControlMessage;
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
@@ -80,4 +83,104 @@ fn openapi_contains_core_paths_and_schemas() {
     assert!(spec["components"]["schemas"]["SettingsState"].is_object());
     assert!(spec["components"]["schemas"]["ThemeMeta"].is_null());
     assert!(spec["components"]["schemas"]["ThemeFile"].is_null());
+}
+
+/// Replace every `{param}` path segment with `{}` so router and spec
+/// paths compare equal even when the two sides name a parameter
+/// differently (for example `{id}` vs `{project_id}`). Wildcard
+/// segments (`{*path}`) normalize to the distinct token `{*}` so a
+/// wildcard on one side never matches a single-segment parameter on
+/// the other.
+fn normalize_route_path(path: &str) -> String {
+    path.split('/')
+        .map(|segment| {
+            if segment.starts_with("{*") && segment.ends_with('}') {
+                "{*}"
+            } else if segment.starts_with('{') && segment.ends_with('}') {
+                "{}"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Normalize raw `(method, path)` pairs into a set, asserting that
+/// normalization does not collapse two distinct routes. A collapse
+/// would mean either a duplicate registration or two routes that
+/// differ only by parameter name, and would let the parity check
+/// silently miss real drift.
+fn normalized_route_set(label: &str, raw: &[(String, String)]) -> BTreeSet<(String, String)> {
+    let set: BTreeSet<(String, String)> = raw
+        .iter()
+        .map(|(method, path)| (method.clone(), normalize_route_path(path)))
+        .collect();
+    assert_eq!(
+        set.len(),
+        raw.len(),
+        "{label} routes collapsed under parameter-name \
+         normalization; two routes are duplicates or differ only by \
+         parameter name: {raw:?}"
+    );
+    set
+}
+
+/// Collect raw `(method, path)` pairs from the OpenAPI spec.
+fn spec_raw_routes(spec: &serde_json::Value) -> Vec<(String, String)> {
+    const HTTP_METHODS: [&str; 8] = [
+        "get", "post", "put", "delete", "patch", "head", "options", "trace",
+    ];
+
+    let mut routes = Vec::new();
+    let paths = spec["paths"]
+        .as_object()
+        .expect("OpenAPI document must contain a `paths` object");
+    for (path, item) in paths {
+        // Every documented endpoint lives under /api. The router
+        // manifest only covers the nested /api sub-router, so
+        // non-API surfaces (static frontend fallback, the /code
+        // proxy, desktop bootstrap/WS upgrade plumbing) stay out of
+        // scope on both sides of this comparison.
+        assert!(
+            path.starts_with("/api/"),
+            "OpenAPI path {path} is outside /api; extend the router \
+             parity test if the spec grows non-/api surfaces"
+        );
+        let operations = item
+            .as_object()
+            .expect("every OpenAPI path item must be a JSON object");
+        for method in operations.keys() {
+            if HTTP_METHODS.contains(&method.as_str()) {
+                routes.push((method.clone(), path.clone()));
+            }
+        }
+    }
+    routes
+}
+
+#[test]
+fn router_routes_match_openapi_paths() {
+    let spec = serde_json::to_value(openapi_spec()).unwrap();
+    let spec_routes = normalized_route_set("OpenAPI spec", &spec_raw_routes(&spec));
+
+    let router_raw: Vec<(String, String)> = API_ROUTES
+        .iter()
+        .map(|(method, path)| ((*method).to_string(), format!("/api{path}")))
+        .collect();
+    let router_routes = normalized_route_set("router", &router_raw);
+
+    let missing_in_spec: Vec<_> = router_routes.difference(&spec_routes).collect();
+    let missing_in_router: Vec<_> = spec_routes.difference(&router_routes).collect();
+
+    assert!(
+        missing_in_spec.is_empty() && missing_in_router.is_empty(),
+        "router and OpenAPI spec drifted.\n\
+         In router but missing from spec (add a #[utoipa::path] \
+         annotation to the handler and list it in paths(...) in \
+         api/openapi.rs, then run `mise run generate`): \
+         {missing_in_spec:?}\n\
+         In spec but missing from router (register the route in the \
+         api_routes! table in lib.rs): {missing_in_router:?}"
+    );
 }

@@ -100,6 +100,7 @@ use crate::tab::{
         crate::api::chats::send_chat_message,
         crate::api::chats::resolve_chat_pending_request,
         crate::api::chats::interrupt_chat,
+        crate::api::ag_ui::run_codex_ag_ui_chat,
         crate::api::projects::list_projects,
         crate::api::projects::add_project,
         crate::api::projects::update_project,
