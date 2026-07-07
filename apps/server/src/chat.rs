@@ -3110,8 +3110,14 @@ impl ChatService {
 
     /// Touch an existing runtime without starting a new process.
     pub async fn touch_runtime(&self, conversation_id: &str) {
-        if let Some(runtime) = self.runtimes.get(conversation_id) {
-            let mut state = runtime.state.lock().await;
+        // Clone the Arc'd state out of the DashMap so the shard guard is
+        // dropped before awaiting the runtime mutex.
+        let runtime_state = self
+            .runtimes
+            .get(conversation_id)
+            .map(|entry| entry.state.clone());
+        if let Some(runtime_state) = runtime_state {
+            let mut state = runtime_state.lock().await;
             state.idle_generation = state.idle_generation.saturating_add(1);
             state.inactive_deadline_at = None;
         }
@@ -3127,13 +3133,24 @@ impl ChatService {
         &self,
         session_id: &str,
     ) -> Result<Vec<ChatThreadStreamStatus>, ChatServiceError> {
+        // Snapshot the map before awaiting so no DashMap shard guard is
+        // held across the per-runtime mutex awaits.
+        let runtimes = self
+            .runtimes
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect::<Vec<_>>();
         let mut statuses = Vec::new();
-        for runtime in &self.runtimes {
+        for (conversation_id, runtime) in runtimes {
             let state = runtime.state.lock().await.clone();
             if state.session_id != session_id {
                 continue;
             }
-            statuses.push(thread_stream_status_from_state(runtime.key(), state, None));
+            statuses.push(thread_stream_status_from_state(
+                &conversation_id,
+                state,
+                None,
+            ));
         }
         statuses.sort_by(|left, right| {
             left.updated_at
@@ -3149,14 +3166,21 @@ impl ChatService {
         &self,
         session_id: &str,
     ) -> Result<Vec<ChatRuntimeStatus>, ChatServiceError> {
+        // Snapshot the map before awaiting so no DashMap shard guard is
+        // held across the per-runtime mutex awaits.
+        let runtimes = self
+            .runtimes
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect::<Vec<_>>();
         let mut statuses = Vec::new();
-        for runtime in &self.runtimes {
+        for (conversation_id, runtime) in runtimes {
             let state = runtime.state.lock().await;
             if state.session_id != session_id {
                 continue;
             }
             statuses.push(ChatRuntimeStatus {
-                conversation_id: runtime.key().clone(),
+                conversation_id,
                 session_id: state.session_id.clone(),
                 project_id: state.project_id.clone(),
                 worktree_id: state.worktree_id.clone(),
@@ -3600,32 +3624,43 @@ impl ChatService {
         &self,
         route_hints: &RouteHints,
     ) -> Option<(String, RuntimeEntry)> {
-        if let Some(thread_id) = route_hints.thread_id.as_deref()
-            && let Some(runtime) = self
-                .runtime_for_route_entry(self.thread_to_conversation.get(thread_id).as_deref())
-                .await
-        {
-            return Some(runtime);
+        // Clone route entries out of the DashMaps so no shard guard is held
+        // across the awaited runtime lookups below.
+        if let Some(thread_id) = route_hints.thread_id.as_deref() {
+            let route = self
+                .thread_to_conversation
+                .get(thread_id)
+                .map(|entry| entry.value().clone());
+            if let Some(runtime) = self.runtime_for_route_entry(route.as_ref()).await {
+                return Some(runtime);
+            }
         }
-        if let Some(turn_id) = route_hints.turn_id.as_deref()
-            && let Some(runtime) = self
-                .runtime_for_route_entry(self.turn_to_conversation.get(turn_id).as_deref())
-                .await
-        {
-            return Some(runtime);
+        if let Some(turn_id) = route_hints.turn_id.as_deref() {
+            let route = self
+                .turn_to_conversation
+                .get(turn_id)
+                .map(|entry| entry.value().clone());
+            if let Some(runtime) = self.runtime_for_route_entry(route.as_ref()).await {
+                return Some(runtime);
+            }
         }
-        if let Some(item_id) = route_hints.item_id.as_deref()
-            && let Some(runtime) = self
-                .runtime_for_route_entry(self.item_to_conversation.get(item_id).as_deref())
-                .await
-        {
-            return Some(runtime);
+        if let Some(item_id) = route_hints.item_id.as_deref() {
+            let route = self
+                .item_to_conversation
+                .get(item_id)
+                .map(|entry| entry.value().clone());
+            if let Some(runtime) = self.runtime_for_route_entry(route.as_ref()).await {
+                return Some(runtime);
+            }
         }
-        if let Some(request_id) = route_hints.request_id.as_deref()
-            && let Some(route) = self.server_request_to_conversation.get(request_id)
-            && let Some(runtime) = self.runtime_for_route_entry(Some(&route.route)).await
-        {
-            return Some(runtime);
+        if let Some(request_id) = route_hints.request_id.as_deref() {
+            let route = self
+                .server_request_to_conversation
+                .get(request_id)
+                .map(|entry| entry.route.clone());
+            if let Some(runtime) = self.runtime_for_route_entry(route.as_ref()).await {
+                return Some(runtime);
+            }
         }
 
         let runtimes = self
@@ -4980,15 +5015,27 @@ impl ChatService {
         timeout: Duration,
     ) {
         let deadline = now_ms().saturating_add(timeout.as_millis() as u64);
-        if let Some(runtime) = self.runtimes.get(&conversation_id) {
-            let mut state = runtime.state.lock().await;
+        // Clone the Arc'd state out of the DashMap so the shard guard is
+        // dropped before awaiting the runtime mutex.
+        let runtime_state = self
+            .runtimes
+            .get(&conversation_id)
+            .map(|entry| entry.state.clone());
+        if let Some(runtime_state) = runtime_state {
+            let mut state = runtime_state.lock().await;
             if state.idle_generation == generation {
                 state.inactive_deadline_at = Some(deadline);
             }
         }
         tokio::time::sleep(timeout).await;
-        let should_unsubscribe = if let Some(runtime) = self.runtimes.get(&conversation_id) {
-            let state = runtime.state.lock().await;
+        // Re-fetch after the sleep; the runtime may have been replaced or
+        // removed while this task was suspended.
+        let runtime_state = self
+            .runtimes
+            .get(&conversation_id)
+            .map(|entry| entry.state.clone());
+        let should_unsubscribe = if let Some(runtime_state) = runtime_state {
+            let state = runtime_state.lock().await;
             state.active_run_id.is_none()
                 && state.idle_generation == generation
                 && state.provider_thread_id.is_some()
@@ -9253,6 +9300,57 @@ mod tests {
             state.lifecycle = ChatRuntimeLifecycle::Running;
         }
         (user_message_id, assistant_message_id, run_id, turn_id)
+    }
+
+    /// Regression test: `touch_runtime` used to hold a DashMap shard read
+    /// guard across the runtime mutex await. On a single-threaded runtime
+    /// that deadlocks as soon as another task does a blocking insert into
+    /// the same shard while the mutex is contended. The scenario runs on a
+    /// dedicated runtime thread so a regression fails via timeout instead
+    /// of hanging the whole test suite.
+    #[test]
+    fn touch_runtime_does_not_hold_shard_guard_across_await() {
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async move {
+                let service = test_service().await;
+                let runtime =
+                    insert_test_runtime(&service, "chat-guard", "thread-guard", false, 1).await;
+
+                // Hold the runtime mutex so the touch task suspends at its
+                // `.lock().await` point.
+                let state_guard = runtime.state.lock().await;
+                let toucher = {
+                    let service = service.clone();
+                    tokio::spawn(async move { service.touch_runtime("chat-guard").await })
+                };
+                // Let the touch task run until it parks on the mutex.
+                for _ in 0..8 {
+                    tokio::task::yield_now().await;
+                }
+
+                // Same key, therefore same shard: if the suspended touch
+                // task still owned the shard read guard, this blocking
+                // write would deadlock the only executor thread.
+                service.runtimes.insert(
+                    "chat-guard".to_string(),
+                    RuntimeEntry {
+                        state: runtime.state.clone(),
+                    },
+                );
+
+                drop(state_guard);
+                toucher.await.unwrap();
+            });
+            let _ = done_tx.send(());
+        });
+        done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("touch_runtime deadlocked holding a DashMap shard guard across an await");
     }
 
     #[test]

@@ -1703,13 +1703,21 @@ pub async fn create_tab(
             .open_tab_id_for_conversation(&resolved_conversation_id)
             .await
             .map_err(|error| TabsApiError::new(error.status, error.message))?
-            && let Some(existing_tab) = state.tabs.get(&existing_tab_id)
-            && existing_tab.session_id() == "default"
-            && existing_tab.worktree_id() == worktree_id
         {
-            response_status = StatusCode::OK;
-            state.chats.touch_runtime(&resolved_conversation_id).await;
-            return Ok((response_status, Json(existing_tab.value().clone())));
+            // Clone the tab out of the DashMap so the shard guard is
+            // dropped before awaiting touch_runtime below.
+            let existing_tab = state
+                .tabs
+                .get(&existing_tab_id)
+                .map(|entry| entry.value().clone());
+            if let Some(existing_tab) = existing_tab
+                && existing_tab.session_id() == "default"
+                && existing_tab.worktree_id() == worktree_id
+            {
+                response_status = StatusCode::OK;
+                state.chats.touch_runtime(&resolved_conversation_id).await;
+                return Ok((response_status, Json(existing_tab)));
+            }
         }
 
         *conversation_id = Some(resolved_conversation_id);
@@ -1769,12 +1777,18 @@ pub async fn create_tab(
             .map_err(|error| TabsApiError::new(error.status, error.message))?;
         if claimed_tab_id != info.id() {
             for _ in 0..5 {
-                if let Some(existing_tab) = state.tabs.get(&claimed_tab_id)
+                // Clone the tab out of the DashMap so the shard guard is
+                // dropped before awaiting touch_runtime below.
+                let existing_tab = state
+                    .tabs
+                    .get(&claimed_tab_id)
+                    .map(|entry| entry.value().clone());
+                if let Some(existing_tab) = existing_tab
                     && existing_tab.session_id() == info.session_id()
                     && existing_tab.worktree_id() == info.worktree_id()
                 {
                     state.chats.touch_runtime(conversation_id).await;
-                    return Ok((StatusCode::OK, Json(existing_tab.value().clone())));
+                    return Ok((StatusCode::OK, Json(existing_tab)));
                 }
                 time::sleep(Duration::from_millis(20)).await;
             }
