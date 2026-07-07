@@ -191,9 +191,26 @@ async function waitForHttpReady(
     try {
       const res = await fetch(`${baseUrl}/api/projects`);
       if (res.ok) {
+        // The API answers even from a binary built without embed-frontend
+        // (e.g. a plain `cargo test`/`cargo build` overwrote the debug
+        // binary); catch that here with a clear message instead of letting
+        // the spec time out on a blank page.
+        const root = await fetch(baseUrl);
+        const body = await root.text();
+        if (body.includes("frontend not embedded")) {
+          throw new Error(
+            `hubris-server at ${baseUrl} was built without the ` +
+              `embed-frontend feature. Rebuild with "cargo build --bin ` +
+              `hubris-server --features embed-frontend" (or rerun without ` +
+              `HUBRIS_E2E_SKIP_BUILD=1).`,
+          );
+        }
         return;
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("embed-frontend")) {
+        throw error;
+      }
       // Server not accepting connections yet; keep polling.
     }
 

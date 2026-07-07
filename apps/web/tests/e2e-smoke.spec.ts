@@ -58,7 +58,7 @@ test.afterEach(async ({ page: _page }, testInfo) => {
 
 test("registers a project, runs a real PTY, and shows git status", async ({
   page,
-}) => {
+}, testInfo) => {
   const baseUrl = requiredEnv("HUBRIS_E2E_BASE_URL");
   const fixtureRepo = requiredEnv("HUBRIS_E2E_FIXTURE_REPO");
   const fixtureName = path.basename(fixtureRepo);
@@ -74,13 +74,29 @@ test("registers a project, runs a real PTY, and shows git status", async ({
       page.getByRole("button", { name: "Add project" }),
     ).toBeVisible();
     // Fresh data dir: the fixture project must not exist yet. This
-    // guards against accidentally talking to a non-isolated server.
-    await expect(
-      sidebar.getByRole("button", { name: fixtureName }),
-    ).toHaveCount(0);
+    // guards against accidentally talking to a non-isolated server. The
+    // server instance is shared across CI retries (globalSetup does not
+    // rerun), so a retry legitimately finds the project already there —
+    // only assert isolation on the first attempt.
+    if (testInfo.retry === 0) {
+      await expect(
+        sidebar.getByRole("button", { name: fixtureName }),
+      ).toHaveCount(0);
+    }
   });
 
   await test.step("register the fixture repo as a project", async () => {
+    // A CI retry reruns this body against the same server; if a prior
+    // attempt already registered the project, skip straight to the
+    // worktree/PTY/git-status steps.
+    if (
+      testInfo.retry > 0 &&
+      (await sidebar
+        .getByRole("button", { name: fixtureName, exact: true })
+        .count()) > 0
+    ) {
+      return;
+    }
     await page.getByRole("button", { name: "Add project" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("Add Project")).toBeVisible();

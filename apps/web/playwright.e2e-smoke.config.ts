@@ -15,8 +15,13 @@ export default defineConfig({
   testMatch: /e2e-smoke\.spec\.ts/,
   globalSetup: "./tests/e2e-smoke.setup.ts",
   // The whole flow (server boot, SSE, PTY round-trip) gets a generous
-  // budget so slow CI runners don't flake the lane.
-  timeout: 120_000,
+  // budget so slow CI runners don't flake the lane. Must exceed the sum
+  // of the spec's per-assertion timeouts (~110s in the worst case), or
+  // the whole-test budget fires before the step budgets can.
+  timeout: 240_000,
+  // Fail the build on an accidentally committed .only() instead of
+  // silently narrowing CI coverage.
+  forbidOnly: !!process.env.CI,
   // One shared real-server instance; parallel workers would fight over
   // the same backend state.
   workers: 1,
