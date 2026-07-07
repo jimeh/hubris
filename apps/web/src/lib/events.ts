@@ -1,4 +1,5 @@
 import type { EventKind } from "@/lib/contracts/sse.generated";
+import { SSE_EVENT_NAMES } from "@/lib/contracts/sse.generated";
 import { eventsUrl } from "./desktopRuntime";
 
 export type SseEvent = EventKind;
@@ -8,50 +9,6 @@ export type SseEventData<K extends SseEventName> = Extract<
   { type: K }
 >["data"];
 export type EventHandler<T> = (data: T) => void;
-
-const SSE_EVENT_NAMES = [
-  "snapshot",
-  "tab_created",
-  "tab_closed",
-  "tab_updated",
-  "tabs_reordered",
-  "worktree_tab_layout_updated",
-  "project_added",
-  "project_removed",
-  "project_updated",
-  "projects_reordered",
-  "worktree_created",
-  "worktree_deleted",
-  "worktrees_reordered",
-  "project_worktrees_updated",
-  "worktree_files_updated",
-  "worktree_git_status_updated",
-  "settings_updated",
-  "keybindings_updated",
-  "vscode_updated",
-  "managed_process_updated",
-  "task_updated",
-  "task_removed",
-  "chat_conversation_created",
-  "chat_conversation_updated",
-  "chat_conversation_deleted",
-  "chat_runtime_updated",
-  "chat_app_server_updated",
-  "chat_thread_stream_updated",
-  "chat_message_delta",
-  "chat_message_updated",
-  "chat_run_updated",
-  "chat_turn_updated",
-  "chat_item_updated",
-  "chat_activity_delta",
-  "chat_activity_updated",
-  "chat_pending_request_created",
-  "chat_pending_request_updated",
-  "chat_pending_request_resolved",
-  "chat_plan_updated",
-  "chat_diff_updated",
-  "chat_context_usage_updated",
-] as const satisfies ReadonlyArray<SseEventName>;
 
 /**
  * SSE client for server state sync. Connects to

@@ -75,7 +75,7 @@ pub async fn event_stream(
 
 fn event_matches_session(event: &Event, session_id: &str) -> bool {
     match &event.kind {
-        EventKind::Snapshot { .. } => true,
+        EventKind::Snapshot { .. } | EventKind::SnapshotUnavailable { .. } => true,
         EventKind::TabCreated {
             session_id: event_session_id,
             ..
@@ -319,16 +319,13 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
 
 fn snapshot_unavailable_event(scope: &str, message: &str) -> sse::Event {
     tracing::warn!(scope, message, "failed to build SSE snapshot");
-    sse::Event::default().event("snapshot_unavailable").data(
-        serde_json::json!({
-            "type": "snapshot_unavailable",
-            "data": {
-                "scope": scope,
-                "message": message,
-            },
-        })
-        .to_string(),
-    )
+    let kind = EventKind::SnapshotUnavailable {
+        scope: scope.to_string(),
+        message: message.to_string(),
+    };
+    sse::Event::default()
+        .event(kind.event_name())
+        .data(serde_json::to_string(&kind).unwrap())
 }
 
 fn to_sse_event(event: &Event) -> sse::Event {

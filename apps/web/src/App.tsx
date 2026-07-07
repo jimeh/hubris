@@ -26,6 +26,7 @@ import CommandPalette from "@/components/commands/CommandPalette";
 import KeybindingsStatusNotice from "@/components/KeybindingsStatusNotice";
 import KeyboardShortcuts from "@/components/KeyboardShortcuts";
 import SettingsStatusNotice from "@/components/SettingsStatusNotice";
+import SnapshotUnavailableNotice from "@/components/SnapshotUnavailableNotice";
 import SidebarResizeHandle from "@/components/SidebarResizeHandle";
 import ToastViewport from "@/components/ToastViewport";
 import VscodeWorkbenchPane from "@/components/VscodeWorkbenchPane";
@@ -418,6 +419,7 @@ export default function App() {
             selectedProject={selectedProject}
             selectedWorktree={selectedWorktree}
           />
+          <SnapshotUnavailableNotice />
           <SettingsStatusNotice status={settingsStatus} />
           <KeybindingsStatusNotice status={keybindingsStatus} />
           <div className="relative flex flex-1 overflow-hidden">

@@ -1110,6 +1110,20 @@ export type EventKind =
         tasks: Array<TaskInvocationStatus>;
       };
     }
+  | {
+      type: "snapshot_unavailable";
+      data: {
+        /**
+         * Which part of the snapshot failed to load (e.g.
+         * `chat_conversations`).
+         */
+        scope: string;
+        /**
+         * Human-readable failure description.
+         */
+        message: string;
+      };
+    }
   | { type: "tab_created"; data: { session_id: string; tab: TabInfo } }
   | { type: "tab_closed"; data: { session_id: string; tab_id: string } }
   | { type: "tab_updated"; data: { session_id: string; tab: TabInfo } }
@@ -1274,3 +1288,55 @@ export type EventKind =
       type: "chat_reconciliation_failed";
       data: { session_id: string; reconciliation: ChatReconciliation };
     };
+
+/**
+ * Every SSE event name the server can emit, in `EventKind`
+ * variant order. Derived from `EventKind::EVENT_NAMES`.
+ */
+export const SSE_EVENT_NAMES = [
+  "snapshot",
+  "snapshot_unavailable",
+  "tab_created",
+  "tab_closed",
+  "tab_updated",
+  "tabs_reordered",
+  "worktree_tab_layout_updated",
+  "project_added",
+  "project_removed",
+  "project_updated",
+  "projects_reordered",
+  "worktree_created",
+  "worktree_deleted",
+  "worktrees_reordered",
+  "project_worktrees_updated",
+  "worktree_files_updated",
+  "worktree_git_status_updated",
+  "settings_updated",
+  "keybindings_updated",
+  "vscode_updated",
+  "managed_process_updated",
+  "task_updated",
+  "task_removed",
+  "chat_conversation_created",
+  "chat_conversation_updated",
+  "chat_conversation_deleted",
+  "chat_runtime_updated",
+  "chat_app_server_updated",
+  "chat_thread_stream_updated",
+  "chat_message_delta",
+  "chat_message_updated",
+  "chat_run_updated",
+  "chat_turn_updated",
+  "chat_item_updated",
+  "chat_activity_delta",
+  "chat_activity_updated",
+  "chat_pending_request_created",
+  "chat_pending_request_updated",
+  "chat_pending_request_resolved",
+  "chat_plan_updated",
+  "chat_diff_updated",
+  "chat_context_usage_updated",
+  "chat_reconciliation_started",
+  "chat_reconciliation_completed",
+  "chat_reconciliation_failed",
+] as const satisfies ReadonlyArray<EventKind["type"]>;

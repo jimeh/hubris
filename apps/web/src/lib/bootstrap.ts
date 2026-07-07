@@ -52,6 +52,10 @@ import {
   initializeSystemStore,
   resetSystemStoreForTests,
 } from "@/lib/stores/system";
+import {
+  initializeConnectionStore,
+  resetConnectionStoreForTests,
+} from "@/lib/stores/connection";
 import { resetCommandUiStoreForTests } from "@/lib/stores/commandUi";
 
 let bootstrapped = false;
@@ -74,6 +78,7 @@ export function bootstrapApp(): void {
   initializeSettingsStore();
   initializeKeybindingsStore();
   initializeSystemStore();
+  initializeConnectionStore();
 
   getEventClient().connect();
 }
@@ -95,5 +100,6 @@ export function resetBootstrapForTests(): void {
   resetSettingsStoreForTests();
   resetKeybindingsStoreForTests();
   resetSystemStoreForTests();
+  resetConnectionStoreForTests();
   getEventClient().disconnect();
 }
