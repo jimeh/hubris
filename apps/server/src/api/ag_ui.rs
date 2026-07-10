@@ -22,7 +22,7 @@ use crate::api::chats::SendChatMessageRequest;
 use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::chat::{
-    ChatConversationDetail, ChatItemKind, ChatItemStatus, ChatMessageRole, ChatMessageStatus,
+    ChatConversationDetail, ChatItemStatus, ChatMessageRole, ChatMessageStatus,
     ChatPendingRequestKind, ChatPendingRequestStatus, ChatRunStatus,
 };
 use crate::error::ApiError;
@@ -251,12 +251,7 @@ fn event_to_ag_ui_update(event: &Event, conversation_id: &str) -> Option<CodexAg
             conversation_id: event_conversation_id,
             item,
             ..
-        }
-        | EventKind::ChatItemUpdated {
-            conversation_id: event_conversation_id,
-            item,
-            ..
-        } if event_conversation_id == conversation_id && is_activity_item_kind(item.kind) => Some(
+        } if event_conversation_id == conversation_id && item.kind.is_activity() => Some(
             CodexAgUiUpdate::ActivityUpdated(chat_item_to_activity(item)),
         ),
         EventKind::ChatPendingRequestCreated { request, .. }
@@ -305,7 +300,7 @@ fn detail_to_snapshot(detail: &ChatConversationDetail, input: &RunAgentInput) ->
     let mut activities: Vec<_> = detail
         .items
         .iter()
-        .filter(|item| is_activity_item_kind(item.kind))
+        .filter(|item| item.kind.is_activity())
         .map(chat_item_to_activity)
         .chain(
             detail
@@ -365,7 +360,7 @@ fn chat_item_to_activity(item: &crate::chat::ChatItem) -> CodexAgUiActivity {
     );
     CodexAgUiActivity {
         id: item.id.clone(),
-        activity_type: format!("codex.{}", item_kind_name(item.kind)),
+        activity_type: format!("codex.{}", item.kind.as_str()),
         status: match item.status {
             ChatItemStatus::Started => CodexAgUiActivityStatus::Started,
             ChatItemStatus::Streaming => CodexAgUiActivityStatus::Streaming,
@@ -476,39 +471,6 @@ fn parse_json_object(raw: &str) -> Value {
     serde_json::from_str(raw).unwrap_or(Value::Null)
 }
 
-fn item_kind_name(kind: ChatItemKind) -> &'static str {
-    match kind {
-        ChatItemKind::AgentMessage => "agent_message",
-        ChatItemKind::Reasoning => "reasoning",
-        ChatItemKind::CommandExecution => "command_execution",
-        ChatItemKind::FileChange => "file_change",
-        ChatItemKind::McpToolCall => "mcp_tool_call",
-        ChatItemKind::DynamicToolCall => "dynamic_tool_call",
-        ChatItemKind::WebSearch => "web_search",
-        ChatItemKind::ImageView => "image_view",
-        ChatItemKind::Hook => "hook",
-        ChatItemKind::AutoApprovalReview => "auto_approval_review",
-        ChatItemKind::ModelReroute => "model_reroute",
-        ChatItemKind::Unknown => "unknown",
-    }
-}
-
-fn is_activity_item_kind(kind: ChatItemKind) -> bool {
-    matches!(
-        kind,
-        ChatItemKind::CommandExecution
-            | ChatItemKind::FileChange
-            | ChatItemKind::McpToolCall
-            | ChatItemKind::DynamicToolCall
-            | ChatItemKind::WebSearch
-            | ChatItemKind::ImageView
-            | ChatItemKind::Hook
-            | ChatItemKind::AutoApprovalReview
-            | ChatItemKind::ModelReroute
-            | ChatItemKind::Unknown
-    )
-}
-
 fn pending_request_kind_name(kind: ChatPendingRequestKind) -> &'static str {
     match kind {
         ChatPendingRequestKind::CommandApproval => "command_approval",
@@ -522,4 +484,535 @@ fn pending_request_kind_name(kind: ChatPendingRequestKind) -> &'static str {
 
 fn chat_not_found() -> ApiError {
     ApiError::not_found("chat not found")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::{
+        ChatContextUsage, ChatConversationSummary, ChatDiffFileSummary, ChatDiffSummary, ChatItem,
+        ChatItemKind, ChatItemOutput, ChatMessage, ChatPendingRequest, ChatPlan, ChatPlanKind,
+        ChatPlanStatus, ChatProvider, ChatReconciliationStatus, ChatRun,
+    };
+
+    fn item(kind: ChatItemKind, status: ChatItemStatus, sequence: u32) -> ChatItem {
+        ChatItem {
+            id: format!("item-{sequence}"),
+            conversation_id: "chat-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            provider_turn_id: Some("provider-turn-1".to_string()),
+            provider_item_id: Some(format!("provider-item-{sequence}")),
+            kind,
+            status,
+            role: None,
+            sequence,
+            title: Some("Activity".to_string()),
+            summary: Some("Summary".to_string()),
+            metadata_json: r#"{"source":"test"}"#.to_string(),
+            created_at: 1,
+            updated_at: 2,
+            completed_at: None,
+        }
+    }
+
+    fn message(status: ChatMessageStatus) -> ChatMessage {
+        ChatMessage {
+            id: "message-1".to_string(),
+            conversation_id: "chat-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("item-1".to_string()),
+            provider_turn_id: Some("provider-turn-1".to_string()),
+            provider_item_id: Some("provider-item-1".to_string()),
+            role: ChatMessageRole::Assistant,
+            status,
+            content_text: "answer".to_string(),
+            reasoning_text: "reasoning".to_string(),
+            sequence: 1,
+            created_at: 1,
+            updated_at: 2,
+        }
+    }
+
+    fn pending_request(status: ChatPendingRequestStatus, sequence: u32) -> ChatPendingRequest {
+        ChatPendingRequest {
+            id: format!("request-{sequence}"),
+            conversation_id: "chat-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("item-1".to_string()),
+            provider_request_id: "provider-request-1".to_string(),
+            provider_turn_id: Some("provider-turn-1".to_string()),
+            provider_item_id: Some("provider-item-1".to_string()),
+            method: "item/commandExecution/requestApproval".to_string(),
+            kind: ChatPendingRequestKind::CommandApproval,
+            status,
+            decision: None,
+            payload_json: r#"{"command":"cargo test"}"#.to_string(),
+            response_json: None,
+            error_message: None,
+            owner_generation: 1,
+            sequence,
+            created_at: 1,
+            updated_at: 2,
+            resolved_at: None,
+        }
+    }
+
+    fn plan(status: ChatPlanStatus, sequence: u32) -> ChatPlan {
+        ChatPlan {
+            id: format!("plan-{sequence}"),
+            conversation_id: "chat-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            item_id: Some("item-1".to_string()),
+            provider_turn_id: Some("provider-turn-1".to_string()),
+            provider_item_id: Some("provider-item-1".to_string()),
+            kind: ChatPlanKind::ActiveTask,
+            status,
+            content_text: "Ship it".to_string(),
+            steps_json: r#"{"steps":["test"]}"#.to_string(),
+            metadata_json: r#"{"source":"turn"}"#.to_string(),
+            owner_generation: 1,
+            sequence,
+            created_at: 1,
+            updated_at: 2,
+            completed_at: None,
+        }
+    }
+
+    fn diff(sequence: u32) -> ChatDiffSummary {
+        ChatDiffSummary {
+            id: format!("diff-{sequence}"),
+            conversation_id: "chat-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            provider_turn_id: Some("provider-turn-1".to_string()),
+            changed_file_count: 1,
+            additions: Some(3),
+            deletions: Some(2),
+            files: vec![ChatDiffFileSummary {
+                path: "src/main.rs".to_string(),
+                original_path: None,
+                change_type: Some("modified".to_string()),
+                additions: Some(3),
+                deletions: Some(2),
+            }],
+            metadata_json: r#"{"source":"diff"}"#.to_string(),
+            owner_generation: 1,
+            sequence,
+            created_at: 1,
+            updated_at: 2,
+        }
+    }
+
+    fn conversation() -> ChatConversationSummary {
+        ChatConversationSummary {
+            id: "chat-1".to_string(),
+            session_id: "default".to_string(),
+            project_id: "project-1".to_string(),
+            worktree_id: "worktree-1".to_string(),
+            branch_name: Some("main".to_string()),
+            provider: ChatProvider::Codex,
+            provider_thread_id: Some("provider-thread-1".to_string()),
+            title: "Chat".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            last_activity_at: 2,
+            last_message_at: None,
+            open_tab_id: None,
+            archived_at: None,
+            selected_model: None,
+            selected_effort: None,
+            selected_permission_mode: None,
+            last_run_state: ChatRunStatus::Completed,
+            last_error: None,
+            last_reconciliation_state: ChatReconciliationStatus::NotNeeded,
+            last_reconciliation_error: None,
+            context_used_tokens: None,
+            context_max_tokens: None,
+            context_percent_used: None,
+            context_updated_at: None,
+            pending_request_count: 0,
+            latest_pending_request_id: None,
+            latest_pending_request_kind: None,
+            latest_pending_request_status: None,
+            has_pending_request_attention: false,
+            revision: 1,
+        }
+    }
+
+    #[test]
+    fn item_kind_mapping_covers_every_variant() {
+        let cases = [
+            (ChatItemKind::AgentMessage, "agent_message", false),
+            (ChatItemKind::Reasoning, "reasoning", false),
+            (ChatItemKind::CommandExecution, "command_execution", true),
+            (ChatItemKind::FileChange, "file_change", true),
+            (ChatItemKind::McpToolCall, "mcp_tool_call", true),
+            (ChatItemKind::DynamicToolCall, "dynamic_tool_call", true),
+            (ChatItemKind::WebSearch, "web_search", true),
+            (ChatItemKind::ImageView, "image_view", true),
+            (ChatItemKind::Hook, "hook", true),
+            (
+                ChatItemKind::AutoApprovalReview,
+                "auto_approval_review",
+                true,
+            ),
+            (ChatItemKind::ModelReroute, "model_reroute", true),
+            (ChatItemKind::Unknown, "unknown", true),
+        ];
+
+        for (kind, name, is_activity) in cases {
+            assert_eq!(
+                (
+                    kind.as_str(),
+                    kind.is_activity(),
+                    chat_item_to_activity(&item(kind, ChatItemStatus::Started, 1)).activity_type,
+                ),
+                (name, is_activity, format!("codex.{name}")),
+            );
+        }
+    }
+
+    #[test]
+    fn event_adapter_maps_every_message_status() {
+        let cases = [
+            (ChatMessageStatus::Pending, CodexAgUiMessageStatus::Pending),
+            (
+                ChatMessageStatus::Streaming,
+                CodexAgUiMessageStatus::Streaming,
+            ),
+            (
+                ChatMessageStatus::Completed,
+                CodexAgUiMessageStatus::Completed,
+            ),
+            (
+                ChatMessageStatus::Interrupted,
+                CodexAgUiMessageStatus::Interrupted,
+            ),
+            (ChatMessageStatus::Failed, CodexAgUiMessageStatus::Failed),
+        ];
+
+        for (status, expected) in cases {
+            let event = Event {
+                kind: EventKind::ChatMessageUpdated {
+                    session_id: "default".to_string(),
+                    conversation_id: "chat-1".to_string(),
+                    message: message(status),
+                },
+            };
+            let Some(CodexAgUiUpdate::MessageUpdated(actual)) =
+                event_to_ag_ui_update(&event, "chat-1")
+            else {
+                panic!("expected a message update");
+            };
+            assert_eq!(actual.status, expected);
+        }
+    }
+
+    #[test]
+    fn item_conversion_maps_every_status() {
+        let cases = [
+            (ChatItemStatus::Started, CodexAgUiActivityStatus::Started),
+            (
+                ChatItemStatus::Streaming,
+                CodexAgUiActivityStatus::Streaming,
+            ),
+            (
+                ChatItemStatus::Completed,
+                CodexAgUiActivityStatus::Completed,
+            ),
+            (ChatItemStatus::Failed, CodexAgUiActivityStatus::Failed),
+        ];
+
+        for (status, expected) in cases {
+            assert_eq!(
+                chat_item_to_activity(&item(ChatItemKind::CommandExecution, status, 1)).status,
+                expected,
+            );
+        }
+    }
+
+    #[test]
+    fn pending_request_conversion_collapses_statuses() {
+        let cases = [
+            (
+                ChatPendingRequestStatus::Pending,
+                CodexAgUiActivityStatus::Streaming,
+            ),
+            (
+                ChatPendingRequestStatus::Resolving,
+                CodexAgUiActivityStatus::Streaming,
+            ),
+            (
+                ChatPendingRequestStatus::Failed,
+                CodexAgUiActivityStatus::Failed,
+            ),
+            (
+                ChatPendingRequestStatus::Resolved,
+                CodexAgUiActivityStatus::Completed,
+            ),
+            (
+                ChatPendingRequestStatus::Declined,
+                CodexAgUiActivityStatus::Completed,
+            ),
+            (
+                ChatPendingRequestStatus::Cancelled,
+                CodexAgUiActivityStatus::Completed,
+            ),
+            (
+                ChatPendingRequestStatus::Stale,
+                CodexAgUiActivityStatus::Completed,
+            ),
+        ];
+
+        for (status, expected) in cases {
+            assert_eq!(
+                pending_request_to_activity(&pending_request(status, 1)).status,
+                expected,
+            );
+        }
+    }
+
+    #[test]
+    fn plan_conversion_preserves_content_and_maps_statuses() {
+        let cases = [
+            (
+                ChatPlanStatus::Streaming,
+                CodexAgUiActivityStatus::Streaming,
+            ),
+            (
+                ChatPlanStatus::Completed,
+                CodexAgUiActivityStatus::Completed,
+            ),
+            (ChatPlanStatus::Failed, CodexAgUiActivityStatus::Failed),
+        ];
+
+        for (status, expected) in cases {
+            let activity = plan_to_activity(&plan(status, 1));
+            assert_eq!(
+                (activity.activity_type, activity.status, activity.content,),
+                (
+                    "codex.plan".to_string(),
+                    expected,
+                    json!({
+                        "kind": "active_task",
+                        "content": "Ship it",
+                        "steps": {"steps": ["test"]},
+                        "metadata": {"source": "turn"},
+                    })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                ),
+            );
+        }
+    }
+
+    #[test]
+    fn diff_conversion_preserves_current_wire_projection() {
+        let activity = diff_summary_to_activity(&diff(1));
+
+        assert_eq!(
+            activity,
+            CodexAgUiActivity {
+                id: "diff-1".to_string(),
+                activity_type: "codex.diff".to_string(),
+                status: CodexAgUiActivityStatus::Completed,
+                title: Some("Changes".to_string()),
+                summary: None,
+                content: json!({
+                    "changedFileCount": 1,
+                    "files": [{
+                        "path": "src/main.rs",
+                        "changeType": "modified",
+                        "additions": 3,
+                        "deletions": 2,
+                    }],
+                    "metadata": {"source": "diff"},
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+                sequence: 1,
+            },
+        );
+    }
+
+    #[test]
+    fn event_adapter_maps_terminal_run_statuses() {
+        let cases = [
+            (
+                ChatRunStatus::Completed,
+                CodexAgUiRunStatus {
+                    failed: false,
+                    interrupted: false,
+                    terminal: true,
+                    error: None,
+                },
+            ),
+            (
+                ChatRunStatus::Interrupted,
+                CodexAgUiRunStatus {
+                    failed: false,
+                    interrupted: true,
+                    terminal: true,
+                    error: None,
+                },
+            ),
+            (
+                ChatRunStatus::Failed,
+                CodexAgUiRunStatus {
+                    failed: true,
+                    interrupted: false,
+                    terminal: true,
+                    error: Some("boom".to_string()),
+                },
+            ),
+        ];
+
+        for (status, expected) in cases {
+            let error_message = matches!(status, ChatRunStatus::Failed).then(|| "boom".to_string());
+            let event = Event {
+                kind: EventKind::ChatRunUpdated {
+                    session_id: "default".to_string(),
+                    conversation_id: "chat-1".to_string(),
+                    run: ChatRun {
+                        id: "run-1".to_string(),
+                        conversation_id: "chat-1".to_string(),
+                        turn_id: Some("turn-1".to_string()),
+                        provider_turn_id: Some("provider-turn-1".to_string()),
+                        status,
+                        started_at: 1,
+                        finished_at: Some(2),
+                        error_message,
+                    },
+                },
+            };
+            assert_eq!(
+                event_to_ag_ui_update(&event, "chat-1"),
+                Some(CodexAgUiUpdate::RunUpdated(expected)),
+            );
+        }
+    }
+
+    #[test]
+    fn activity_mutation_emits_one_ag_ui_snapshot() {
+        let activity = item(ChatItemKind::CommandExecution, ChatItemStatus::Streaming, 1);
+        let events = [
+            Event {
+                kind: EventKind::ChatActivityUpdated {
+                    session_id: "default".to_string(),
+                    conversation_id: "chat-1".to_string(),
+                    item: activity.clone(),
+                },
+            },
+            Event {
+                kind: EventKind::ChatItemUpdated {
+                    session_id: "default".to_string(),
+                    conversation_id: "chat-1".to_string(),
+                    item: activity.clone(),
+                },
+            },
+        ];
+        let updates: Vec<_> = events
+            .iter()
+            .filter_map(|event| event_to_ag_ui_update(event, "chat-1"))
+            .collect();
+
+        assert_eq!(
+            updates,
+            vec![CodexAgUiUpdate::ActivityUpdated(chat_item_to_activity(
+                &activity,
+            ))],
+        );
+    }
+
+    #[test]
+    fn event_adapter_filters_reasoning_and_agent_message_items() {
+        for kind in [ChatItemKind::AgentMessage, ChatItemKind::Reasoning] {
+            let event = Event {
+                kind: EventKind::ChatActivityUpdated {
+                    session_id: "default".to_string(),
+                    conversation_id: "chat-1".to_string(),
+                    item: item(kind, ChatItemStatus::Streaming, 1),
+                },
+            };
+            assert_eq!(event_to_ag_ui_update(&event, "chat-1"), None);
+        }
+    }
+
+    #[test]
+    fn snapshot_filters_message_items_and_orders_activities() {
+        let detail = ChatConversationDetail {
+            conversation: conversation(),
+            messages: vec![message(ChatMessageStatus::Completed)],
+            turns: Vec::new(),
+            items: vec![
+                item(ChatItemKind::AgentMessage, ChatItemStatus::Completed, 1),
+                item(ChatItemKind::Reasoning, ChatItemStatus::Completed, 2),
+                item(ChatItemKind::CommandExecution, ChatItemStatus::Completed, 4),
+            ],
+            plans: vec![plan(ChatPlanStatus::Completed, 2)],
+            diff_summaries: vec![diff(1)],
+            context_usage: None,
+            pending_requests: vec![pending_request(ChatPendingRequestStatus::Pending, 3)],
+            latest_reconciliation: None,
+            latest_run: None,
+        };
+
+        let snapshot = detail_to_snapshot(&detail, &RunAgentInput::new("thread-1", "run-1"));
+        let activity_ids: Vec<_> = snapshot
+            .activities
+            .iter()
+            .map(|activity| activity.id.as_str())
+            .collect();
+
+        assert_eq!(activity_ids, ["diff-1", "plan-2", "request-3", "item-4"]);
+    }
+
+    #[test]
+    fn activity_delta_is_a_documented_polish_phase_gap() {
+        // Polish-phase gap: AG-UI does not yet emit live activity-output events.
+        let event = Event {
+            kind: EventKind::ChatActivityDelta {
+                session_id: "default".to_string(),
+                conversation_id: "chat-1".to_string(),
+                item_id: "item-1".to_string(),
+                output: ChatItemOutput {
+                    id: "output-1".to_string(),
+                    conversation_id: "chat-1".to_string(),
+                    item_id: "item-1".to_string(),
+                    stream_kind: "stdout".to_string(),
+                    sequence: 1,
+                    content_text: "output".to_string(),
+                    byte_count: 6,
+                    created_at: 1,
+                    updated_at: 2,
+                },
+            },
+        };
+
+        assert_eq!(event_to_ag_ui_update(&event, "chat-1"), None);
+    }
+
+    #[test]
+    fn context_usage_update_is_a_documented_polish_phase_gap() {
+        // Polish-phase gap: AG-UI does not yet emit live token-usage events.
+        let event = Event {
+            kind: EventKind::ChatContextUsageUpdated {
+                session_id: "default".to_string(),
+                usage: ChatContextUsage {
+                    id: "usage-1".to_string(),
+                    conversation_id: "chat-1".to_string(),
+                    provider_thread_id: Some("provider-thread-1".to_string()),
+                    used_tokens: Some(10),
+                    max_tokens: Some(100),
+                    percent_used: Some(10.0),
+                    total_processed_tokens: Some(20),
+                    metadata_json: "{}".to_string(),
+                    updated_at: 2,
+                },
+            },
+        };
+
+        assert_eq!(event_to_ag_ui_update(&event, "chat-1"), None);
+    }
 }

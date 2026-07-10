@@ -188,7 +188,7 @@ pub enum ChatItemKind {
 }
 
 impl ChatItemKind {
-    pub(super) fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::AgentMessage => "agent_message",
             Self::Reasoning => "reasoning",
@@ -205,7 +205,7 @@ impl ChatItemKind {
         }
     }
 
-    pub(super) fn is_activity(self) -> bool {
+    pub(crate) fn is_activity(self) -> bool {
         !matches!(self, Self::AgentMessage | Self::Reasoning)
     }
 }
