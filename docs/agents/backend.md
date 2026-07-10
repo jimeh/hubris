@@ -1,5 +1,25 @@
 # Backend Gotchas
 
+## Contract Casing
+
+- **All NEW contract-exposed types use camelCase**: add
+  `#[serde(rename_all = "camelCase")]` to any new struct/enum that reaches the
+  generated contracts (REST bodies, SSE events, WS messages). Existing
+  snake_case holdouts are deliberately left alone for now — the sweep is Phase 7
+  of the architecture refactor, after the structural phases, so that phases 0–6
+  keep the wire format byte-identical (contracts may only gain reviewed
+  additions, never renames).
+
+## Errors
+
+- **REST handlers return `crate::error::ApiError`**: one JSON body shape
+  (`ApiErrorResponse { message }`) and one status mapping for the whole API
+  surface. Do not add per-module error/response wrapper types, do not embed
+  `StatusCode` in service errors (use a kind enum like `ChatErrorKind` and map
+  in `error.rs`), and derive `thiserror::Error` instead of hand-writing
+  `Display`. The `/code` proxy's plain-text error mapping is intentionally
+  separate.
+
 ## Async
 
 - **Async request paths must avoid blocking fs/process work**: request-time

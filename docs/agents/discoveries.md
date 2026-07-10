@@ -174,3 +174,15 @@ but too specific for the root `AGENTS.md` map.
 - Codex `app-server` server-initiated JSON-RPC requests carry both `id` and
   `method`. Do not classify every message with `id` as a response, or Hubris
   will drop approval/input requests and leave turns in confusing failed states.
+- A plain `cargo build`/`cargo test` overwrites `target/debug/hubris-server`
+  WITHOUT the `embed-frontend` feature, silently breaking
+  `HUBRIS_E2E_SKIP_BUILD=1 mise run test:e2e:real` reuse. The e2e globalSetup
+  fails fast with a rebuild hint when it detects this; rebuild with
+  `cargo build --bin hubris-server --features embed-frontend`.
+- Sandboxed agent runs can poison the shared sccache daemon: a client that
+  cannot reach the server auto-spawns a sandboxed daemon on port 4226 that
+  cannot exec rustc, and every later build fails with
+  `sccache: error: Operation not permitted`. Fix: `pkill -9 sccache`, then start
+  one clean daemon from an unsandboxed shell
+  (`SCCACHE_IDLE_TIMEOUT=0 sccache --start-server`); or bypass per-command with
+  `RUSTC_WRAPPER=""`.
