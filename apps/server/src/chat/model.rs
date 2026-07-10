@@ -879,8 +879,8 @@ pub struct ChatSettings {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum ChatUiStyle {
-    #[default]
     Classic,
+    #[default]
     Copilotkit,
 }
 

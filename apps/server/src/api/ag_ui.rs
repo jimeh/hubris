@@ -33,6 +33,7 @@ use crate::state::AppState;
 #[utoipa::path(
     post,
     path = "/api/chats/{conversation_id}/ag-ui",
+    tag = "crate::api::ag_ui",
     request_body(
         content = serde_json::Value,
         description = "AG-UI `RunAgentInput` run payload",
