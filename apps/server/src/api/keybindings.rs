@@ -1,17 +1,19 @@
 pub use crate::domain::keybindings::*;
+use crate::error::ApiError;
 use crate::events::EventKind;
 use crate::keybindings_manager::KeybindingsManagerError;
 use crate::state::AppState;
 use axum::Json;
 use axum::extract::State;
-use axum::http::StatusCode;
 
-fn map_keybindings_write_error(error: KeybindingsManagerError) -> StatusCode {
+fn map_keybindings_write_error(error: KeybindingsManagerError) -> ApiError {
     match error {
-        KeybindingsManagerError::WritesBlocked => StatusCode::CONFLICT,
+        KeybindingsManagerError::WritesBlocked => {
+            ApiError::conflict("keybindings writes are blocked")
+        }
         other => {
             tracing::error!("failed to save keybindings: {other}");
-            StatusCode::INTERNAL_SERVER_ERROR
+            ApiError::internal("Internal server error.")
         }
     }
 }
@@ -27,7 +29,7 @@ fn map_keybindings_write_error(error: KeybindingsManagerError) -> StatusCode {
 )]
 pub async fn get_keybindings(
     State(state): State<AppState>,
-) -> Result<Json<KeybindingsState>, StatusCode> {
+) -> Result<Json<KeybindingsState>, ApiError> {
     Ok(Json(state.keybindings.get().await))
 }
 
@@ -45,7 +47,7 @@ pub async fn get_keybindings(
 pub async fn put_keybindings(
     State(state): State<AppState>,
     Json(value): Json<Vec<KeybindingEntry>>,
-) -> Result<Json<KeybindingsState>, StatusCode> {
+) -> Result<Json<KeybindingsState>, ApiError> {
     let keybindings = state
         .keybindings
         .replace(value)

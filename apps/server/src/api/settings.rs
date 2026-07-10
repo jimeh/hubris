@@ -1,12 +1,12 @@
 use axum::Json;
 use axum::extract::State;
-use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use utoipa::ToSchema;
 
 use crate::chat::{ChatUiStyle, CopilotKitThemeMode};
 pub use crate::domain::settings::*;
+use crate::error::ApiError;
 use crate::events::EventKind;
 use crate::settings_manager::SettingsManagerError;
 use crate::state::AppState;
@@ -104,12 +104,12 @@ pub struct SettingsPatch {
     pub chat: Option<ChatSettingsPatch>,
 }
 
-fn map_settings_write_error(error: SettingsManagerError) -> StatusCode {
+fn map_settings_write_error(error: SettingsManagerError) -> ApiError {
     match error {
-        SettingsManagerError::WritesBlocked => StatusCode::CONFLICT,
+        SettingsManagerError::WritesBlocked => ApiError::conflict("settings writes are blocked"),
         other => {
             tracing::error!("failed to save settings: {other}");
-            StatusCode::INTERNAL_SERVER_ERROR
+            ApiError::internal("Internal server error.")
         }
     }
 }
@@ -123,9 +123,7 @@ fn map_settings_write_error(error: SettingsManagerError) -> StatusCode {
         (status = 500, description = "Internal server error"),
     ),
 )]
-pub async fn get_settings(
-    State(state): State<AppState>,
-) -> Result<Json<SettingsState>, StatusCode> {
+pub async fn get_settings(State(state): State<AppState>) -> Result<Json<SettingsState>, ApiError> {
     Ok(Json(state.settings.get().await))
 }
 
@@ -143,7 +141,7 @@ pub async fn get_settings(
 pub async fn put_settings(
     State(state): State<AppState>,
     Json(value): Json<Settings>,
-) -> Result<Json<SettingsState>, StatusCode> {
+) -> Result<Json<SettingsState>, ApiError> {
     let settings = state
         .settings
         .replace(value)
@@ -169,7 +167,7 @@ pub async fn put_settings(
 pub async fn patch_settings(
     State(state): State<AppState>,
     Json(value): Json<SettingsPatch>,
-) -> Result<Json<SettingsState>, StatusCode> {
+) -> Result<Json<SettingsState>, ApiError> {
     let settings = state
         .settings
         .patch(value)

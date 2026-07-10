@@ -1,7 +1,6 @@
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use utoipa::ToSchema;
@@ -9,6 +8,7 @@ use utoipa::ToSchema;
 use crate::api::files::ApiErrorResponse;
 use crate::api::settings::VscodeRuntimeKind;
 pub use crate::domain::vscode::*;
+use crate::error::ApiError;
 use crate::state::AppState;
 use crate::vscode::{VscodeConnection, VscodeError};
 
@@ -44,8 +44,8 @@ impl From<VscodeConnection> for VscodeConnectionInfo {
     }
 }
 
-fn map_vscode_error(error: &VscodeError) -> StatusCode {
-    match error {
+fn map_vscode_error(error: VscodeError) -> ApiError {
+    let status = match &error {
         VscodeError::CodeServer(error) => match error {
             crate::vscode::CodeServerError::UnsupportedPlatform(_)
             | crate::vscode::CodeServerError::InvalidReleaseRedirect(_)
@@ -74,17 +74,8 @@ fn map_vscode_error(error: &VscodeError) -> StatusCode {
             crate::task_manager::TaskActionErrorKind::Conflict => StatusCode::CONFLICT,
             crate::task_manager::TaskActionErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         },
-    }
-}
-
-fn vscode_error_response(error: VscodeError) -> Response {
-    (
-        map_vscode_error(&error),
-        Json(ApiErrorResponse {
-            message: error.to_string(),
-        }),
-    )
-        .into_response()
+    };
+    ApiError::with_status(status, error.to_string())
 }
 
 #[utoipa::path(
@@ -107,11 +98,15 @@ pub async fn get_vscode_status(State(state): State<AppState>) -> Json<VscodeStat
         (status = 500, description = "Internal server error", body = ApiErrorResponse),
     ),
 )]
-pub async fn check_vscode_update(State(state): State<AppState>) -> Response {
-    match state.vscode.check_for_update().await {
-        Ok(status) => Json(VscodeStatus::from(status)).into_response(),
-        Err(error) => vscode_error_response(error),
-    }
+pub async fn check_vscode_update(
+    State(state): State<AppState>,
+) -> Result<Json<VscodeStatus>, ApiError> {
+    let status = state
+        .vscode
+        .check_for_update()
+        .await
+        .map_err(map_vscode_error)?;
+    Ok(Json(status.into()))
 }
 
 #[utoipa::path(
@@ -127,14 +122,16 @@ pub async fn check_vscode_update(State(state): State<AppState>) -> Response {
 pub async fn install_vscode(
     State(state): State<AppState>,
     payload: Option<Json<InstallVscodeRequest>>,
-) -> Response {
+) -> Result<(StatusCode, Json<VscodeStatus>), ApiError> {
     let (version, force) = payload
         .map(|body| (body.version.clone(), body.force))
         .unwrap_or((None, false));
-    match state.vscode.install(version, force).await {
-        Ok(status) => (StatusCode::ACCEPTED, Json(VscodeStatus::from(status))).into_response(),
-        Err(error) => vscode_error_response(error),
-    }
+    let status = state
+        .vscode
+        .install(version, force)
+        .await
+        .map_err(map_vscode_error)?;
+    Ok((StatusCode::ACCEPTED, Json(status.into())))
 }
 
 #[utoipa::path(
@@ -146,11 +143,9 @@ pub async fn install_vscode(
         (status = 500, description = "Internal server error", body = ApiErrorResponse),
     ),
 )]
-pub async fn start_vscode(State(state): State<AppState>) -> Response {
-    match state.vscode.start().await {
-        Ok(status) => Json(VscodeStatus::from(status)).into_response(),
-        Err(error) => vscode_error_response(error),
-    }
+pub async fn start_vscode(State(state): State<AppState>) -> Result<Json<VscodeStatus>, ApiError> {
+    let status = state.vscode.start().await.map_err(map_vscode_error)?;
+    Ok(Json(status.into()))
 }
 
 #[utoipa::path(
@@ -161,11 +156,9 @@ pub async fn start_vscode(State(state): State<AppState>) -> Response {
         (status = 500, description = "Internal server error", body = ApiErrorResponse),
     ),
 )]
-pub async fn stop_vscode(State(state): State<AppState>) -> Response {
-    match state.vscode.stop().await {
-        Ok(status) => Json(VscodeStatus::from(status)).into_response(),
-        Err(error) => vscode_error_response(error),
-    }
+pub async fn stop_vscode(State(state): State<AppState>) -> Result<Json<VscodeStatus>, ApiError> {
+    let status = state.vscode.stop().await.map_err(map_vscode_error)?;
+    Ok(Json(status.into()))
 }
 
 #[utoipa::path(
@@ -177,24 +170,31 @@ pub async fn stop_vscode(State(state): State<AppState>) -> Response {
         (status = 500, description = "Internal server error", body = ApiErrorResponse),
     ),
 )]
-pub async fn restart_vscode(State(state): State<AppState>) -> Response {
-    match state.vscode.restart().await {
-        Ok(status) => Json(VscodeStatus::from(status)).into_response(),
-        Err(error) => vscode_error_response(error),
-    }
+pub async fn restart_vscode(State(state): State<AppState>) -> Result<Json<VscodeStatus>, ApiError> {
+    let status = state.vscode.restart().await.map_err(map_vscode_error)?;
+    Ok(Json(status.into()))
 }
 
-async fn desktop_vscode_connection(state: &AppState, runtime: VscodeRuntimeKind) -> Response {
-    match state.vscode.ensure_runtime_ready(runtime).await {
-        Ok(connection) => Json(VscodeConnectionInfo::from(connection)).into_response(),
-        Err(error) => vscode_error_response(error),
-    }
+async fn desktop_vscode_connection(
+    state: &AppState,
+    runtime: VscodeRuntimeKind,
+) -> Result<Json<VscodeConnectionInfo>, ApiError> {
+    let connection = state
+        .vscode
+        .ensure_runtime_ready(runtime)
+        .await
+        .map_err(map_vscode_error)?;
+    Ok(Json(connection.into()))
 }
 
-pub async fn get_desktop_vscode_cli_connection(State(state): State<AppState>) -> Response {
+pub async fn get_desktop_vscode_cli_connection(
+    State(state): State<AppState>,
+) -> Result<Json<VscodeConnectionInfo>, ApiError> {
     desktop_vscode_connection(&state, VscodeRuntimeKind::VscodeCli).await
 }
 
-pub async fn get_desktop_code_server_connection(State(state): State<AppState>) -> Response {
+pub async fn get_desktop_code_server_connection(
+    State(state): State<AppState>,
+) -> Result<Json<VscodeConnectionInfo>, ApiError> {
     desktop_vscode_connection(&state, VscodeRuntimeKind::CodeServer).await
 }

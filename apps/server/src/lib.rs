@@ -2,6 +2,7 @@ mod access;
 pub mod api;
 pub mod chat;
 pub mod domain;
+pub mod error;
 pub mod events;
 mod frontend;
 mod fs_sync;
@@ -157,22 +158,12 @@ pub async fn create_app_state(data_dir: std::path::PathBuf) -> std::io::Result<A
 async fn hydrate_persisted_worktree_state(state: &AppState) -> std::io::Result<()> {
     let mut existing_worktrees = Vec::new();
     for project in state.projects.list().await {
-        match list_project_worktrees_for_hydration(state, &project).await {
-            Ok(worktrees) => {
-                for worktree in worktrees {
-                    state.remember_worktree_project(&worktree.id, &project.id);
-                    existing_worktrees.push(ExistingWorktree {
-                        project_id: project.id.clone(),
-                        worktree_id: worktree.id,
-                    });
-                }
-            }
-            Err(error) => {
-                tracing::warn!(
-                    project_id = project.id,
-                    "failed to list worktrees during state hydration: {error}"
-                );
-            }
+        for worktree in list_project_worktrees_for_hydration(state, &project).await {
+            state.remember_worktree_project(&worktree.id, &project.id);
+            existing_worktrees.push(ExistingWorktree {
+                project_id: project.id.clone(),
+                worktree_id: worktree.id,
+            });
         }
     }
 
@@ -219,7 +210,7 @@ async fn hydrate_persisted_worktree_state(state: &AppState) -> std::io::Result<(
 async fn list_project_worktrees_for_hydration(
     state: &AppState,
     project: &api::projects::Project,
-) -> Result<Vec<api::worktrees::Worktree>, String> {
+) -> Vec<api::worktrees::Worktree> {
     api::worktrees::list_worktrees_for_project(state, project).await
 }
 

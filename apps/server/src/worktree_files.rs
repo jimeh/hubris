@@ -920,6 +920,7 @@ fn parent_path_str(path: &str) -> String {
 }
 
 fn map_io_error(error: std::io::Error) -> WorktreeFileError {
+    tracing::warn!(error = %error, "classifying worktree file I/O error");
     match error.kind() {
         std::io::ErrorKind::NotFound => WorktreeFileError::NotFound,
         std::io::ErrorKind::PermissionDenied => WorktreeFileError::PermissionDenied,
@@ -929,6 +930,7 @@ fn map_io_error(error: std::io::Error) -> WorktreeFileError {
 }
 
 fn map_path_policy_error(error: WorktreePathPolicyError) -> WorktreeFileError {
+    tracing::warn!(error = ?error, "classifying worktree path policy error");
     match error {
         WorktreePathPolicyError::NotFound => WorktreeFileError::NotFound,
         WorktreePathPolicyError::PermissionDenied => WorktreeFileError::PermissionDenied,

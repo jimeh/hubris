@@ -7,7 +7,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySystem};
 use reqwest::Url;
 use serde::Deserialize;
@@ -18,6 +17,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::chat::{ChatCreateOptions, DEFAULT_CHAT_TITLE};
+use crate::error::ApiError;
 use crate::events::EventKind;
 use crate::pty::live_tab::{
     LiveTab, ReplayFilter, RestoredTerminalBuffers, RestoredTerminalState,
@@ -64,33 +64,6 @@ enum TerminalPersistenceCompletion {
         metadata: TerminalPersistedState,
         worker_state: TerminalPersistenceWorkerState,
     },
-}
-
-#[derive(Debug)]
-pub struct TabsApiError {
-    status: StatusCode,
-    message: String,
-}
-
-impl TabsApiError {
-    fn new(status: StatusCode, message: impl Into<String>) -> Self {
-        Self {
-            status,
-            message: message.into(),
-        }
-    }
-}
-
-impl IntoResponse for TabsApiError {
-    fn into_response(self) -> Response {
-        (
-            self.status,
-            Json(ApiErrorResponse {
-                message: self.message,
-            }),
-        )
-            .into_response()
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -213,10 +186,10 @@ fn pane_id_for_create(req: &CreateTabRequest) -> Option<&str> {
     }
 }
 
-fn normalize_browser_url(raw: &str) -> Result<String, TabsApiError> {
+fn normalize_browser_url(raw: &str) -> Result<String, ApiError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             MISSING_BROWSER_URL_MESSAGE,
         ));
@@ -246,7 +219,7 @@ fn normalize_browser_url(raw: &str) -> Result<String, TabsApiError> {
             .rsplit_once(':')
             .is_some_and(|(hostname, port)| !hostname.is_empty() && port.parse::<u16>().is_ok());
         if !is_localish && !has_port {
-            return Err(TabsApiError::new(
+            return Err(ApiError::with_status(
                 StatusCode::BAD_REQUEST,
                 INVALID_BROWSER_URL_MESSAGE,
             ));
@@ -254,10 +227,12 @@ fn normalize_browser_url(raw: &str) -> Result<String, TabsApiError> {
         format!("http://{trimmed}")
     };
 
-    let parsed = Url::parse(&candidate)
-        .map_err(|_| TabsApiError::new(StatusCode::BAD_REQUEST, INVALID_BROWSER_URL_MESSAGE))?;
+    let parsed = Url::parse(&candidate).map_err(|error| {
+        tracing::warn!(error = %error, "failed to parse browser tab URL");
+        ApiError::with_status(StatusCode::BAD_REQUEST, INVALID_BROWSER_URL_MESSAGE)
+    })?;
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             INVALID_BROWSER_URL_MESSAGE,
         ));
@@ -282,7 +257,7 @@ fn browser_tab_label(url: &str) -> String {
         .unwrap_or_else(|| url.to_string())
 }
 
-fn validate_create_tab_request(req: &mut CreateTabRequest) -> Result<(), TabsApiError> {
+fn validate_create_tab_request(req: &mut CreateTabRequest) -> Result<(), ApiError> {
     match req {
         CreateTabRequest::GitDiff {
             scope, commit_id, ..
@@ -297,7 +272,7 @@ fn validate_create_tab_request(req: &mut CreateTabRequest) -> Result<(), TabsApi
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| {
-                    TabsApiError::new(StatusCode::BAD_REQUEST, MISSING_COMMIT_ID_MESSAGE)
+                    ApiError::with_status(StatusCode::BAD_REQUEST, MISSING_COMMIT_ID_MESSAGE)
                 })?
                 .to_string();
             *commit_id = Some(normalized);
@@ -313,13 +288,18 @@ fn validate_create_tab_request(req: &mut CreateTabRequest) -> Result<(), TabsApi
     }
 }
 
-fn map_status_to_tab_error(status: StatusCode) -> TabsApiError {
+fn map_status_to_tab_error(status: StatusCode) -> ApiError {
     let message = match status {
         StatusCode::BAD_REQUEST => "Invalid tab request.",
         StatusCode::NOT_FOUND => "Worktree not found.",
         _ => "Internal server error.",
     };
-    TabsApiError::new(status, message)
+    ApiError::with_status(status, message)
+}
+
+fn map_worktree_api_error(error: ApiError) -> ApiError {
+    tracing::debug!(error = %error, "failed to resolve worktree for tab request");
+    map_status_to_tab_error(error.status())
 }
 
 fn normalize_custom_label(label: &str) -> Option<String> {
@@ -366,9 +346,9 @@ fn default_worktree_layout(pane_id: String) -> WorktreeTabLayout {
 
 fn layout_nodes_by_id(
     layout: &WorktreeTabLayout,
-) -> Result<HashMap<String, WorktreePaneNode>, TabsApiError> {
+) -> Result<HashMap<String, WorktreePaneNode>, ApiError> {
     if layout.root_id.trim().is_empty() || layout.nodes.is_empty() {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             INVALID_LAYOUT_MESSAGE,
         ));
@@ -383,7 +363,7 @@ fn layout_nodes_by_id(
             };
 
             if node_id.trim().is_empty() || nodes.insert(node_id.clone(), node.clone()).is_some() {
-                return Err(TabsApiError::new(
+                return Err(ApiError::with_status(
                     StatusCode::BAD_REQUEST,
                     INVALID_LAYOUT_MESSAGE,
                 ));
@@ -393,7 +373,7 @@ fn layout_nodes_by_id(
         })
 }
 
-fn collect_layout_leaf_panes(layout: &WorktreeTabLayout) -> Result<Vec<String>, TabsApiError> {
+fn collect_layout_leaf_panes(layout: &WorktreeTabLayout) -> Result<Vec<String>, ApiError> {
     let nodes = layout_nodes_by_id(layout)?;
     let mut pane_ids = Vec::new();
     let mut seen_panes = HashSet::new();
@@ -402,7 +382,7 @@ fn collect_layout_leaf_panes(layout: &WorktreeTabLayout) -> Result<Vec<String>, 
 
     while let Some(node_id) = stack.pop() {
         if !visited.insert(node_id.clone()) {
-            return Err(TabsApiError::new(
+            return Err(ApiError::with_status(
                 StatusCode::BAD_REQUEST,
                 INVALID_LAYOUT_MESSAGE,
             ));
@@ -411,7 +391,7 @@ fn collect_layout_leaf_panes(layout: &WorktreeTabLayout) -> Result<Vec<String>, 
         match nodes.get(&node_id) {
             Some(WorktreePaneNode::Leaf { pane_id, .. }) => {
                 if pane_id.trim().is_empty() || !seen_panes.insert(pane_id.clone()) {
-                    return Err(TabsApiError::new(
+                    return Err(ApiError::with_status(
                         StatusCode::BAD_REQUEST,
                         INVALID_LAYOUT_MESSAGE,
                     ));
@@ -430,7 +410,7 @@ fn collect_layout_leaf_panes(layout: &WorktreeTabLayout) -> Result<Vec<String>, 
                     || second_id.trim().is_empty()
                     || first_id == second_id
                 {
-                    return Err(TabsApiError::new(
+                    return Err(ApiError::with_status(
                         StatusCode::BAD_REQUEST,
                         INVALID_LAYOUT_MESSAGE,
                     ));
@@ -439,7 +419,7 @@ fn collect_layout_leaf_panes(layout: &WorktreeTabLayout) -> Result<Vec<String>, 
                 stack.push(first_id.clone());
             }
             None => {
-                return Err(TabsApiError::new(
+                return Err(ApiError::with_status(
                     StatusCode::BAD_REQUEST,
                     INVALID_LAYOUT_MESSAGE,
                 ));
@@ -448,7 +428,7 @@ fn collect_layout_leaf_panes(layout: &WorktreeTabLayout) -> Result<Vec<String>, 
     }
 
     if pane_ids.is_empty() || visited.len() != nodes.len() {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             INVALID_LAYOUT_MESSAGE,
         ));
@@ -502,14 +482,14 @@ fn worktree_tabs(state: &AppState, worktree_id: &str) -> Vec<TabInfo> {
 fn collapse_empty_panes(
     layout: &WorktreeTabLayout,
     pane_tab_ids: &HashMap<String, Vec<String>>,
-) -> Result<WorktreeTabLayout, TabsApiError> {
+) -> Result<WorktreeTabLayout, ApiError> {
     fn rebuild_node(
         node_id: &str,
         nodes: &HashMap<String, WorktreePaneNode>,
         pane_tab_ids: &HashMap<String, Vec<String>>,
         fallback_pane_id: &str,
         is_root: bool,
-    ) -> Result<Option<(String, Vec<WorktreePaneNode>)>, TabsApiError> {
+    ) -> Result<Option<(String, Vec<WorktreePaneNode>)>, ApiError> {
         match nodes.get(node_id) {
             Some(WorktreePaneNode::Leaf { pane_id, .. }) => {
                 let has_tabs = pane_tab_ids
@@ -568,7 +548,7 @@ fn collapse_empty_panes(
                     (None, None) => Ok(None),
                 }
             }
-            None => Err(TabsApiError::new(
+            None => Err(ApiError::with_status(
                 StatusCode::BAD_REQUEST,
                 INVALID_LAYOUT_MESSAGE,
             )),
@@ -586,7 +566,7 @@ fn collapse_empty_panes(
         true,
     )?
     else {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             INVALID_LAYOUT_MESSAGE,
         ));
@@ -694,7 +674,7 @@ fn update_worktree_layout_state(
     state: &AppState,
     worktree_id: &str,
     request: UpdateWorktreeTabLayoutRequest,
-) -> Result<WorktreeTabLayoutState, TabsApiError> {
+) -> Result<WorktreeTabLayoutState, ApiError> {
     let layout = WorktreeTabLayout {
         root_id: request.root_id,
         nodes: request.nodes,
@@ -712,7 +692,7 @@ fn update_worktree_layout_state(
             if !pane_ids.iter().any(|pane_id| pane_id == &pane.pane_id)
                 || map.contains_key(&pane.pane_id)
             {
-                return Err(TabsApiError::new(
+                return Err(ApiError::with_status(
                     StatusCode::BAD_REQUEST,
                     INVALID_LAYOUT_MESSAGE,
                 ));
@@ -723,7 +703,7 @@ fn update_worktree_layout_state(
     )?;
 
     if pane_map.len() != pane_ids.len() {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             INVALID_LAYOUT_MESSAGE,
         ));
@@ -733,7 +713,7 @@ fn update_worktree_layout_state(
     for tab_ids in pane_map.values() {
         for tab_id in tab_ids {
             if !seen_tab_ids.insert(tab_id.clone()) {
-                return Err(TabsApiError::new(
+                return Err(ApiError::with_status(
                     StatusCode::BAD_REQUEST,
                     INVALID_LAYOUT_MESSAGE,
                 ));
@@ -741,7 +721,7 @@ fn update_worktree_layout_state(
         }
     }
     if seen_tab_ids != current_tab_ids {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             INVALID_LAYOUT_MESSAGE,
         ));
@@ -875,7 +855,7 @@ struct ValidatedBrowserUpdate {
 fn validate_browser_update(
     tab: &TabInfo,
     req: &UpdateTabRequest,
-) -> Result<ValidatedBrowserUpdate, TabsApiError> {
+) -> Result<ValidatedBrowserUpdate, ApiError> {
     if !tab.is_browser() {
         return Ok(ValidatedBrowserUpdate {
             label: None,
@@ -908,7 +888,7 @@ fn validate_browser_update(
         .unwrap_or_default();
 
     if next_history.is_empty() || next_history_index >= next_history.len() {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             INVALID_BROWSER_HISTORY_MESSAGE,
         ));
@@ -933,7 +913,7 @@ fn spawn_terminal_runtime(
         TerminalCloseReceiver,
         TerminalPersistenceWorkerState,
     ),
-    StatusCode,
+    ApiError,
 > {
     let has_restore_payload = restore_payload.is_some();
     let initial_size = initial_terminal_size(restore_payload.as_ref());
@@ -942,7 +922,7 @@ fn spawn_terminal_runtime(
         .openpty(initial_size.to_pty_size())
         .map_err(|error| {
             tracing::error!("failed to open pty: {}", error);
-            StatusCode::INTERNAL_SERVER_ERROR
+            ApiError::internal("Internal server error.")
         })?;
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
@@ -953,7 +933,7 @@ fn spawn_terminal_runtime(
 
     let child = pair.slave.spawn_command(cmd).map_err(|error| {
         tracing::error!("failed to spawn shell: {}", error);
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::internal("Internal server error.")
     })?;
     drop(pair.slave);
 
@@ -985,7 +965,7 @@ fn spawn_terminal_runtime(
     }
     .map_err(|error| {
         tracing::error!("failed to start live tab: {}", error);
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::internal("Internal server error.")
     })?;
 
     let close_rx = live_tab.close_tx.subscribe();
@@ -1504,7 +1484,7 @@ fn spawn_terminal_cleanup_task(state: AppState, id: String, mut close_rx: Termin
 pub async fn ensure_terminal_runtime(
     state: &AppState,
     tab_id: &str,
-) -> Result<Option<Arc<LiveTab>>, StatusCode> {
+) -> Result<Option<Arc<LiveTab>>, ApiError> {
     if let Some(runtime) = state.terminal_tabs.get(tab_id) {
         return Ok(Some(runtime.value().clone()));
     }
@@ -1528,10 +1508,10 @@ pub async fn ensure_terminal_runtime(
         .tabs
         .get(tab_id)
         .map(|entry| entry.value().clone())
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Tab or worktree not found."))?;
     let resolved = resolve_worktree(state, info.worktree_id())
         .await?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Tab or worktree not found."))?;
     let payload = state
         .persistence
         .clone()
@@ -1548,7 +1528,7 @@ pub async fn ensure_terminal_runtime(
         .await
         .map_err(|error| {
             tracing::error!(tab_id, "failed to load terminal restore payload: {error}");
-            StatusCode::INTERNAL_SERVER_ERROR
+            ApiError::internal("Internal server error.")
         })?;
     let (runtime, close_rx, initial_worker_state) = spawn_terminal_runtime(
         &resolved.worktree.path,
@@ -1617,7 +1597,7 @@ pub async fn list_tabs(
 pub async fn create_tab(
     State(state): State<AppState>,
     Json(mut req): Json<CreateTabRequest>,
-) -> Result<(StatusCode, Json<TabInfo>), TabsApiError> {
+) -> Result<(StatusCode, Json<TabInfo>), ApiError> {
     validate_create_tab_request(&mut req)?;
 
     if matches!(req, CreateTabRequest::AgentChat { .. })
@@ -1629,7 +1609,7 @@ pub async fn create_tab(
             .experimental
             .chat_enabled
     {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::FORBIDDEN,
             "Chat is disabled in Experimental settings.",
         ));
@@ -1638,7 +1618,7 @@ pub async fn create_tab(
     let worktree_id = worktree_id_for_create(&req).to_string();
     let resolved = resolve_worktree(&state, &worktree_id)
         .await
-        .map_err(map_status_to_tab_error)?
+        .map_err(map_worktree_api_error)?
         .ok_or_else(|| map_status_to_tab_error(StatusCode::NOT_FOUND))?;
     state.remember_worktree_project(&worktree_id, &resolved.project_id);
     let server_scrollback_bytes = state
@@ -1664,9 +1644,9 @@ pub async fn create_tab(
                 .chats
                 .get_conversation_summary(existing_id)
                 .await
-                .map_err(|error| TabsApiError::new(error.status, error.message))?
+                .map_err(ApiError::from)?
                 .ok_or_else(|| {
-                    TabsApiError::new(StatusCode::NOT_FOUND, "Chat conversation not found.")
+                    ApiError::with_status(StatusCode::NOT_FOUND, "Chat conversation not found.")
                 })?;
             let same_branch =
                 summary.branch_name.as_deref() == Some(resolved.worktree.branch.as_str());
@@ -1675,7 +1655,7 @@ pub async fn create_tab(
                 && summary.project_id == resolved.project_id;
             if summary.project_id != resolved.project_id || (!same_branch && !legacy_same_worktree)
             {
-                return Err(TabsApiError::new(
+                return Err(ApiError::with_status(
                     StatusCode::BAD_REQUEST,
                     "Chat conversation does not belong to this branch.",
                 ));
@@ -1685,7 +1665,7 @@ pub async fn create_tab(
                     .chats
                     .backfill_conversation_branch(&summary.id, &resolved.worktree.branch)
                     .await
-                    .map_err(|error| TabsApiError::new(error.status, error.message))?;
+                    .map_err(ApiError::from)?;
             }
             summary.id
         } else {
@@ -1698,7 +1678,7 @@ pub async fn create_tab(
                     branch_name: resolved.worktree.branch.clone(),
                 })
                 .await
-                .map_err(|error| TabsApiError::new(error.status, error.message))?
+                .map_err(ApiError::from)?
                 .id
         };
 
@@ -1706,7 +1686,7 @@ pub async fn create_tab(
             .chats
             .open_tab_id_for_conversation(&resolved_conversation_id)
             .await
-            .map_err(|error| TabsApiError::new(error.status, error.message))?
+            .map_err(ApiError::from)?
         {
             // Clone the tab out of the DashMap so the shard guard is
             // dropped before awaiting touch_runtime below.
@@ -1768,7 +1748,7 @@ pub async fn create_tab(
             .chats
             .get_conversation_summary(conversation_id)
             .await
-            .map_err(|error| TabsApiError::new(error.status, error.message))?
+            .map_err(ApiError::from)?
     {
         info.set_label(summary.title);
     }
@@ -1778,7 +1758,7 @@ pub async fn create_tab(
             .chats
             .claim_open_tab_id_for_conversation(conversation_id, info.id())
             .await
-            .map_err(|error| TabsApiError::new(error.status, error.message))?;
+            .map_err(ApiError::from)?;
         if claimed_tab_id != info.id() {
             for _ in 0..5 {
                 // Clone the tab out of the DashMap so the shard guard is
@@ -1796,7 +1776,7 @@ pub async fn create_tab(
                 }
                 time::sleep(Duration::from_millis(20)).await;
             }
-            return Err(TabsApiError::new(
+            return Err(ApiError::with_status(
                 StatusCode::CONFLICT,
                 "Chat tab is already opening.",
             ));
@@ -1804,15 +1784,12 @@ pub async fn create_tab(
     }
 
     let terminal_runtime = if info.is_terminal() {
-        Some(
-            spawn_terminal_runtime(
-                &resolved.worktree.path,
-                info.clone(),
-                None,
-                server_scrollback_bytes,
-            )
-            .map_err(map_status_to_tab_error)?,
-        )
+        Some(spawn_terminal_runtime(
+            &resolved.worktree.path,
+            info.clone(),
+            None,
+            server_scrollback_bytes,
+        )?)
     } else {
         None
     };
@@ -1864,19 +1841,25 @@ pub async fn create_tab(
         (status = 404, description = "Tab not found"),
     ),
 )]
-pub async fn delete_tab(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {
+pub async fn delete_tab(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
     close_tab_by_id(&state, &id).await
 }
 
-pub async fn close_tab_by_id(state: &AppState, id: &str) -> StatusCode {
+pub async fn close_tab_by_id(state: &AppState, id: &str) -> Result<StatusCode, ApiError> {
     let Some(removed_tab) = state.tabs.get(id).map(|entry| entry.value().clone()) else {
-        return StatusCode::NOT_FOUND;
+        return Err(ApiError::not_found("Tab not found."));
     };
-    if removed_tab.is_agent_chat() && state.chats.clear_open_tab_id_for_tab(id).await.is_err() {
-        return StatusCode::INTERNAL_SERVER_ERROR;
+    if removed_tab.is_agent_chat()
+        && let Err(error) = state.chats.clear_open_tab_id_for_tab(id).await
+    {
+        tracing::warn!(error = %error, "failed to clear closed chat tab id");
+        return Err(ApiError::internal("Internal server error."));
     }
     let Some((_, removed_tab)) = state.tabs.remove(id) else {
-        return StatusCode::NOT_FOUND;
+        return Err(ApiError::not_found("Tab not found."));
     };
 
     if let Some((_, runtime)) = state.terminal_tabs.remove(id) {
@@ -1894,7 +1877,7 @@ pub async fn close_tab_by_id(state: &AppState, id: &str) -> StatusCode {
     });
     reconcile_worktree_layout(state, removed_tab.worktree_id());
     persist_worktree_snapshot(state, removed_tab.worktree_id());
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -1914,15 +1897,15 @@ pub async fn update_tab(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<UpdateTabRequest>,
-) -> Result<Json<TabInfo>, TabsApiError> {
+) -> Result<Json<TabInfo>, ApiError> {
     let updated = {
         let mut tab = state
             .tabs
             .get_mut(&id)
-            .ok_or_else(|| TabsApiError::new(StatusCode::NOT_FOUND, "Tab not found."))?;
+            .ok_or_else(|| ApiError::with_status(StatusCode::NOT_FOUND, "Tab not found."))?;
 
         if has_browser_update_fields(&req) && !tab.is_browser() {
-            return Err(TabsApiError::new(
+            return Err(ApiError::with_status(
                 StatusCode::BAD_REQUEST,
                 BROWSER_FIELDS_REQUIRE_BROWSER_TAB_MESSAGE,
             ));
@@ -2016,10 +1999,10 @@ pub async fn update_worktree_tab_layout(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
     Json(request): Json<UpdateWorktreeTabLayoutRequest>,
-) -> Result<Json<WorktreeTabLayoutState>, TabsApiError> {
+) -> Result<Json<WorktreeTabLayoutState>, ApiError> {
     let resolved = resolve_worktree(&state, &worktree_id)
         .await
-        .map_err(map_status_to_tab_error)?
+        .map_err(map_worktree_api_error)?
         .ok_or_else(|| map_status_to_tab_error(StatusCode::NOT_FOUND))?;
     if resolved.project_id != project_id {
         return Err(map_status_to_tab_error(StatusCode::NOT_FOUND));
@@ -2049,7 +2032,7 @@ pub async fn update_worktree_tab_layout(
 pub async fn reorder_tabs(
     State(state): State<AppState>,
     Json(req): Json<ReorderTabsRequest>,
-) -> Result<Json<Vec<TabInfo>>, TabsApiError> {
+) -> Result<Json<Vec<TabInfo>>, ApiError> {
     let tabs_in_worktree: Vec<TabInfo> = state
         .tabs
         .iter()
@@ -2063,7 +2046,7 @@ pub async fn reorder_tabs(
         .collect();
 
     if pane_tab_ids.len() != req.tab_ids.len() {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             INVALID_LAYOUT_MESSAGE,
         ));
@@ -2071,7 +2054,7 @@ pub async fn reorder_tabs(
 
     let received: HashSet<String> = req.tab_ids.iter().cloned().collect();
     if pane_tab_ids != received {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             INVALID_LAYOUT_MESSAGE,
         ));
@@ -2085,7 +2068,7 @@ pub async fn reorder_tabs(
         .iter()
         .any(|tab| tab.session_id() != session_id)
     {
-        return Err(TabsApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::BAD_REQUEST,
             INVALID_LAYOUT_MESSAGE,
         ));

@@ -78,28 +78,13 @@ impl InstanceConflictInfo {
 }
 
 /// Errors returned while acquiring a Hubris data directory lock.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum InstanceLockError {
-    Io(io::Error),
+    #[error("{0}")]
+    Io(#[from] io::Error),
+    #[error("{}", .0.message())]
     Conflict(InstanceConflictInfo),
 }
-
-impl fmt::Display for InstanceLockError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(error) => error.fmt(f),
-            Self::Conflict(conflict) => write!(f, "{}", conflict.message()),
-        }
-    }
-}
-
-impl From<io::Error> for InstanceLockError {
-    fn from(value: io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl std::error::Error for InstanceLockError {}
 
 /// A live exclusive lock over a Hubris data directory.
 #[derive(Debug)]

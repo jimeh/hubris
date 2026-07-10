@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Weak};
@@ -131,7 +130,8 @@ pub struct TaskRemovedEvent {
     pub id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct TaskActionError {
     kind: TaskActionErrorKind,
     message: String,
@@ -181,15 +181,8 @@ impl TaskActionError {
     }
 }
 
-impl fmt::Display for TaskActionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for TaskActionError {}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct TaskExecutionError {
     message: String,
 }
@@ -209,14 +202,6 @@ impl TaskExecutionError {
         Self::new(format!("task execution panicked during {}", stage.into()))
     }
 }
-
-impl fmt::Display for TaskExecutionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for TaskExecutionError {}
 
 /// The result of running one declared task step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

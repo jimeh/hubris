@@ -7,6 +7,7 @@ use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::error::ApiError;
 use crate::state::AppState;
 
 // ── Built-in theme data ──────────────────────────────────────────────
@@ -252,9 +253,9 @@ fn editor_themes_dir(state: &AppState) -> std::path::PathBuf {
 }
 
 /// Reject IDs containing path separators or traversal components.
-fn validate_theme_id(id: &str) -> Result<(), StatusCode> {
+fn validate_theme_id(id: &str) -> Result<(), ApiError> {
     if id.is_empty() || id.contains('/') || id.contains('\\') || id.contains("..") || id == "." {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid editor theme request."));
     }
     Ok(())
 }
@@ -444,10 +445,10 @@ fn is_reserved_slug(slug: &str) -> bool {
     matches!(slug, "discover" | "import")
 }
 
-async fn resolve_slug(dir: &StdPath, name: &str) -> Result<String, StatusCode> {
+async fn resolve_slug(dir: &StdPath, name: &str) -> Result<String, ApiError> {
     let base_slug = slugify(name);
     if base_slug.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid editor theme request."));
     }
     let mut slug = base_slug.clone();
     let mut counter = 1u32;
@@ -467,11 +468,11 @@ async fn resolve_slug(dir: &StdPath, name: &str) -> Result<String, StatusCode> {
     Ok(slug)
 }
 
-async fn ensure_themes_dir(state: &AppState) -> Result<std::path::PathBuf, StatusCode> {
+async fn ensure_themes_dir(state: &AppState) -> Result<std::path::PathBuf, ApiError> {
     let dir = editor_themes_dir(state);
     tokio::fs::create_dir_all(&dir).await.map_err(|e| {
         tracing::error!("create editor-themes dir: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::internal("Internal server error.")
     })?;
     Ok(dir)
 }
@@ -483,7 +484,7 @@ async fn write_raw_theme_to_disk(
     raw_json: &str,
     theme: &VscodeThemeJson,
     overwrite_id: Option<&str>,
-) -> Result<EditorThemeEntry, StatusCode> {
+) -> Result<EditorThemeEntry, ApiError> {
     let dir = ensure_themes_dir(state).await?;
     let slug = match overwrite_id {
         Some(id) => {
@@ -493,7 +494,7 @@ async fn write_raw_theme_to_disk(
                     overwrite_id = %id,
                     "write theme: overwrite_id is builtin or reserved"
                 );
-                return Err(StatusCode::BAD_REQUEST);
+                return Err(ApiError::bad_request("Invalid editor theme request."));
             }
             id.to_string()
         }
@@ -504,7 +505,7 @@ async fn write_raw_theme_to_disk(
     // values while preserving all other fields and ordering.
     let mut value: serde_json::Value = serde_json::from_str(raw_json).map_err(|e| {
         tracing::error!(error = %e, "write theme: re-parse raw JSON");
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::internal("Internal server error.")
     })?;
     if let Some(obj) = value.as_object_mut() {
         obj.insert(
@@ -519,13 +520,13 @@ async fn write_raw_theme_to_disk(
     let path = dir.join(format!("{slug}.json"));
     let patched = serde_json::to_string_pretty(&value).map_err(|e| {
         tracing::error!(error = %e, "write theme: serialize patched JSON");
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::internal("Internal server error.")
     })?;
     tokio::fs::write(&path, patched.as_bytes())
         .await
         .map_err(|e| {
             tracing::error!("write editor theme: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
+            ApiError::internal("Internal server error.")
         })?;
 
     Ok(entry_from_json(&slug, theme, false))
@@ -572,14 +573,14 @@ pub async fn list_editor_themes(State(state): State<AppState>) -> Json<Vec<Edito
 pub async fn get_editor_theme(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     validate_theme_id(&id)?;
 
     // Check built-in first.
     if let Some(json_str) = builtin_json(&id) {
         let value: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
             tracing::error!("built-in theme parse error: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
+            ApiError::internal("Internal server error.")
         })?;
         return Ok(Json(value));
     }
@@ -590,11 +591,11 @@ pub async fn get_editor_theme(
     let path = editor_themes_dir(&state).join(format!("{id}.json"));
     let contents = tokio::fs::read_to_string(&path).await.map_err(|e| {
         tracing::warn!(id = %id, error = %e, "get theme: file not found");
-        StatusCode::NOT_FOUND
+        ApiError::not_found("Editor theme not found.")
     })?;
     let value: serde_json::Value = parse_jsonc_value(&contents).map_err(|e| {
         tracing::error!(id = %id, error = %e, "get theme: parse error");
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::internal("Internal server error.")
     })?;
     Ok(Json(value))
 }
@@ -613,25 +614,25 @@ pub async fn get_editor_theme(
 pub async fn upload_editor_theme(
     State(state): State<AppState>,
     body: String,
-) -> Result<(StatusCode, Json<EditorThemeEntry>), StatusCode> {
+) -> Result<(StatusCode, Json<EditorThemeEntry>), ApiError> {
     // Parse through VscodeThemeJson for validation, but write the
     // raw JSON to preserve unknown fields like semanticHighlighting,
     // semanticTokenColors, and $schema.
     let value: serde_json::Value = parse_jsonc_value(&body).map_err(|e| {
         tracing::warn!(error = %e, "upload: failed to parse theme JSONC");
-        StatusCode::BAD_REQUEST
+        ApiError::bad_request("Invalid editor theme request.")
     })?;
     let theme: VscodeThemeJson = serde_json::from_value(value.clone()).map_err(|e| {
         tracing::warn!(error = %e, "upload: failed to parse theme JSON");
-        StatusCode::BAD_REQUEST
+        ApiError::bad_request("Invalid editor theme request.")
     })?;
     if theme.token_colors.is_empty() && theme.colors.is_empty() {
         tracing::warn!("upload: theme has no tokenColors and no colors");
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid editor theme request."));
     }
     let clean = serde_json::to_string(&value).map_err(|e| {
         tracing::error!(error = %e, "upload: serialize theme value");
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::internal("Internal server error.")
     })?;
     let entry = write_raw_theme_to_disk(&state, &clean, &theme, None).await?;
     Ok((StatusCode::CREATED, Json(entry)))
@@ -777,9 +778,9 @@ pub async fn discover_editor_themes(
 pub async fn import_extension_theme(
     State(state): State<AppState>,
     Json(req): Json<ImportThemeRequest>,
-) -> Result<(StatusCode, Json<EditorThemeEntry>), StatusCode> {
+) -> Result<(StatusCode, Json<EditorThemeEntry>), ApiError> {
     let Some(home) = dirs::home_dir() else {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        return Err(ApiError::internal("Internal server error."));
     };
 
     // Validate source_path against path traversal.
@@ -792,7 +793,7 @@ pub async fn import_extension_theme(
             source_path = %req.source_path,
             "import: invalid source path"
         );
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid editor theme request."));
     }
 
     // Resolve the editor's extensions directory.
@@ -805,7 +806,7 @@ pub async fn import_extension_theme(
                 source_editor = %req.source_editor,
                 "import: unknown source editor"
             );
-            StatusCode::BAD_REQUEST
+            ApiError::bad_request("Invalid editor theme request.")
         })?;
 
     // Read the theme file directly from the path provided by discover.
@@ -816,7 +817,7 @@ pub async fn import_extension_theme(
             error = %e,
             "import: cannot read theme file"
         );
-        StatusCode::NOT_FOUND
+        ApiError::not_found("Editor theme not found.")
     })?;
 
     // Parse JSONC into a generic Value (preserves all fields) and a
@@ -827,7 +828,7 @@ pub async fn import_extension_theme(
             error = %e,
             "import: failed to parse theme JSONC"
         );
-        StatusCode::BAD_REQUEST
+        ApiError::bad_request("Invalid editor theme request.")
     })?;
     let mut theme: VscodeThemeJson = serde_json::from_value(value.clone()).map_err(|e| {
         tracing::warn!(
@@ -835,7 +836,7 @@ pub async fn import_extension_theme(
             error = %e,
             "import: theme JSON does not match expected schema"
         );
-        StatusCode::BAD_REQUEST
+        ApiError::bad_request("Invalid editor theme request.")
     })?;
 
     // Use the label and type from the request (already resolved by
@@ -847,7 +848,7 @@ pub async fn import_extension_theme(
     // unknown fields like semanticHighlighting, semanticTokenColors).
     let clean_json = serde_json::to_string(&value).map_err(|e| {
         tracing::error!(error = %e, "import: serialize theme value");
-        StatusCode::INTERNAL_SERVER_ERROR
+        ApiError::internal("Internal server error.")
     })?;
     let entry =
         write_raw_theme_to_disk(&state, &clean_json, &theme, req.overwrite_id.as_deref()).await?;
@@ -868,20 +869,23 @@ pub async fn import_extension_theme(
 pub async fn delete_editor_theme(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     validate_theme_id(&id)?;
 
     if is_builtin(&id) {
-        return Err(StatusCode::FORBIDDEN);
+        return Err(ApiError::forbidden("Built-in themes cannot be deleted."));
     }
 
     let path = editor_themes_dir(&state).join(format!("{id}.json"));
     match tokio::fs::remove_file(&path).await {
         Ok(()) => Ok(StatusCode::NO_CONTENT),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(StatusCode::NOT_FOUND),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            tracing::debug!(error = %e, "editor theme was not found for deletion");
+            Err(ApiError::not_found("Editor theme not found."))
+        }
         Err(e) => {
             tracing::error!("delete editor theme: {e}");
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
+            Err(ApiError::internal("Internal server error."))
         }
     }
 }

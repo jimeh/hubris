@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
@@ -8,7 +7,6 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use axum::http::StatusCode;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -76,33 +74,35 @@ pub fn clamp_chat_idle_timeout_minutes(value: u32) -> u32 {
     value.max(1)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChatErrorKind {
+    BadRequest,
+    NotFound,
+    Conflict,
+    Internal,
+    Upstream,
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("{message}")]
 pub struct ChatServiceError {
-    pub status: StatusCode,
+    pub(crate) kind: ChatErrorKind,
     pub message: String,
 }
 
 impl ChatServiceError {
-    pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: ChatErrorKind, message: impl Into<String>) -> Self {
         Self {
-            status,
+            kind,
             message: message.into(),
         }
     }
 }
 
-impl fmt::Display for ChatServiceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for ChatServiceError {}
-
 impl From<sqlx::Error> for ChatServiceError {
     fn from(value: sqlx::Error) -> Self {
         Self::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
+            ChatErrorKind::Internal,
             format!("chat database error: {value}"),
         )
     }
@@ -290,26 +290,26 @@ impl CodexAppServerClient {
             .spawn()
             .map_err(|error| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     format!("failed to start codex app-server: {error}"),
                 )
             })?;
 
         let stdin = child.stdin.take().ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "codex app-server stdin unavailable",
             )
         })?;
         let stdout = child.stdout.take().ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "codex app-server stdout unavailable",
             )
         })?;
         let stderr = child.stderr.take().ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "codex app-server stderr unavailable",
             )
         })?;
@@ -404,7 +404,7 @@ impl CodexAppServerClient {
                                 let mut pending = client.pending.lock().await;
                                 if let Some(reply) = pending.remove(&id) {
                                     let result = if let Some(message) = error_message {
-                                        Err(ChatServiceError::new(StatusCode::BAD_GATEWAY, message))
+                                        Err(ChatServiceError::new(ChatErrorKind::Upstream, message))
                                     } else {
                                         Ok(result)
                                     };
@@ -440,7 +440,7 @@ impl CodexAppServerClient {
             let mut pending = client.pending.lock().await;
             for (_, reply) in pending.drain() {
                 let _ = reply.send(Err(ChatServiceError::new(
-                    StatusCode::BAD_GATEWAY,
+                    ChatErrorKind::Upstream,
                     "codex app-server disconnected",
                 )));
             }
@@ -493,7 +493,7 @@ impl CodexAppServerClient {
         self.write_payload(&payload).await?;
         reply_rx.await.map_err(|_| {
             ChatServiceError::new(
-                StatusCode::BAD_GATEWAY,
+                ChatErrorKind::Upstream,
                 "codex app-server response channel closed",
             )
         })?
@@ -520,26 +520,26 @@ impl CodexAppServerClient {
     async fn write_payload(&self, payload: &Value) -> Result<(), ChatServiceError> {
         let encoded = serde_json::to_vec(payload).map_err(|error| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 format!("failed to encode codex app-server payload: {error}"),
             )
         })?;
         let mut stdin = self.stdin.lock().await;
         stdin.write_all(&encoded).await.map_err(|error| {
             ChatServiceError::new(
-                StatusCode::BAD_GATEWAY,
+                ChatErrorKind::Upstream,
                 format!("failed to write to codex app-server: {error}"),
             )
         })?;
         stdin.write_all(b"\n").await.map_err(|error| {
             ChatServiceError::new(
-                StatusCode::BAD_GATEWAY,
+                ChatErrorKind::Upstream,
                 format!("failed to write to codex app-server: {error}"),
             )
         })?;
         stdin.flush().await.map_err(|error| {
             ChatServiceError::new(
-                StatusCode::BAD_GATEWAY,
+                ChatErrorKind::Upstream,
                 format!("failed to flush codex app-server stdin: {error}"),
             )
         })?;
@@ -676,7 +676,7 @@ impl CodexAppServerManager {
     async fn respond_result(&self, id: Value, result: Value) -> Result<(), ChatServiceError> {
         let Some(client) = self.client.lock().await.as_ref().cloned() else {
             return Err(ChatServiceError::new(
-                StatusCode::BAD_GATEWAY,
+                ChatErrorKind::Upstream,
                 "codex app-server is not running",
             ));
         };
@@ -1309,7 +1309,7 @@ impl ChatService {
 
         let conversation = self.get_conversation_summary(&id).await?.ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "created conversation missing from database",
             )
         })?;
@@ -1319,7 +1319,7 @@ impl ChatService {
         });
         self.get_conversation_summary(&id).await?.ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "created conversation missing from database",
             )
         })
@@ -1680,10 +1680,10 @@ impl ChatService {
         let existing = self
             .get_conversation_summary(conversation_id)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))?;
         if archived && self.conversation_has_active_work(conversation_id).await? {
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "chat has active work",
             ));
         }
@@ -1706,7 +1706,7 @@ impl ChatService {
         .await?;
         self.emit_conversation_updated(&existing.id)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))
     }
 
     /// Permanently delete one conversation and all related persisted state.
@@ -1719,10 +1719,10 @@ impl ChatService {
         let summary = self
             .get_conversation_summary(conversation_id)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))?;
         if self.conversation_has_active_work(conversation_id).await? {
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "chat has active work",
             ));
         }
@@ -2099,7 +2099,7 @@ impl ChatService {
             .bind(conversation_id)
             .fetch_optional(&mut *tx)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))?;
         if let Some(existing) = row
             .try_get::<Option<String>, _>("open_tab_id")
             .ok()
@@ -2337,7 +2337,7 @@ impl ChatService {
 
         self.emit_conversation_updated(conversation_id)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))
     }
 
     /// Persist a new user message, ensure a runtime exists, and start a turn.
@@ -2350,7 +2350,7 @@ impl ChatService {
         let text = text.trim().to_string();
         if text.is_empty() {
             return Err(ChatServiceError::new(
-                StatusCode::BAD_REQUEST,
+                ChatErrorKind::BadRequest,
                 "message cannot be empty",
             ));
         }
@@ -2360,10 +2360,10 @@ impl ChatService {
         let conversation = self
             .get_conversation_summary(conversation_id)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))?;
         if conversation.archived_at.is_some() {
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "chat is archived",
             ));
         }
@@ -2407,10 +2407,7 @@ impl ChatService {
             .provider_thread_id
             .clone()
             .ok_or_else(|| {
-                ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "chat runtime missing thread id",
-                )
+                ChatServiceError::new(ChatErrorKind::Internal, "chat runtime missing thread id")
             })?;
         let turn_params = build_turn_start_params(&thread_id, worktree_path, &text, &conversation);
 
@@ -2446,7 +2443,7 @@ impl ChatService {
             .runtimes
             .get(conversation_id)
             .map(|entry| entry.clone())
-            .ok_or_else(|| ChatServiceError::new(StatusCode::CONFLICT, "chat is not running"))?;
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::Conflict, "chat is not running"))?;
         let thread_id = runtime
             .state
             .lock()
@@ -2454,7 +2451,7 @@ impl ChatService {
             .provider_thread_id
             .clone()
             .ok_or_else(|| {
-                ChatServiceError::new(StatusCode::CONFLICT, "chat runtime missing thread id")
+                ChatServiceError::new(ChatErrorKind::Conflict, "chat runtime missing thread id")
             })?;
         self.app_server
             .request("turn/interrupt", json!({ "threadId": thread_id }))
@@ -3017,7 +3014,7 @@ impl ChatService {
             .await?
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     "pending request missing after insert",
                 )
             })
@@ -3189,13 +3186,13 @@ impl ChatService {
             .await?
         else {
             return Err(ChatServiceError::new(
-                StatusCode::NOT_FOUND,
+                ChatErrorKind::NotFound,
                 "pending request not found",
             ));
         };
         if !matches!(existing.status, ChatPendingRequestStatus::Pending) {
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "pending request has already been resolved",
             ));
         }
@@ -3229,7 +3226,7 @@ impl ChatService {
             .map(|entry| entry.value().clone())
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::CONFLICT,
+                    ChatErrorKind::Conflict,
                     "codex request can no longer be answered",
                 )
             });
@@ -3257,7 +3254,7 @@ impl ChatService {
         };
         if responder.conversation_id != conversation_id {
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "pending request belongs to another conversation",
             ));
         }
@@ -3272,7 +3269,7 @@ impl ChatService {
             )
             .await?;
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "codex runtime is no longer available",
             ));
         };
@@ -3285,7 +3282,7 @@ impl ChatService {
             )
             .await?;
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "codex request can no longer be answered",
             ));
         }
@@ -3310,7 +3307,7 @@ impl ChatService {
                     .await?
                     .ok_or_else(|| {
                         ChatServiceError::new(
-                            StatusCode::INTERNAL_SERVER_ERROR,
+                            ChatErrorKind::Internal,
                             "pending request missing after resolution",
                         )
                     })?;
@@ -3334,7 +3331,7 @@ impl ChatService {
                     .await?
                     .ok_or_else(|| {
                         ChatServiceError::new(
-                            StatusCode::INTERNAL_SERVER_ERROR,
+                            ChatErrorKind::Internal,
                             "pending request missing after failed resolution",
                         )
                     })?;
@@ -4408,7 +4405,7 @@ impl ChatService {
             .await?
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     "chat reconciliation missing after pending update",
                 )
             })
@@ -4463,7 +4460,7 @@ impl ChatService {
             .await?
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     "reconciliation row missing after marking it running",
                 )
             })?;
@@ -5389,7 +5386,7 @@ impl ChatService {
             .await?
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     "chat message missing after reasoning update",
                 )
             })
@@ -5482,7 +5479,7 @@ impl ChatService {
         .await?;
         self.latest_run(conversation_id).await?.ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "chat run missing after finalization",
             )
         })
@@ -6732,7 +6729,7 @@ impl ChatService {
             .await?
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     "chat turn missing after finalization",
                 )
             })
@@ -7130,7 +7127,7 @@ fn provider_response_for_pending_request(
                     .or_else(|| payload.get("proposedExecpolicyAmendment").cloned())
                     .ok_or_else(|| {
                         ChatServiceError::new(
-                            StatusCode::BAD_REQUEST,
+                            ChatErrorKind::BadRequest,
                             "execpolicy amendment decision requires a value",
                         )
                     })?;
@@ -7148,7 +7145,7 @@ fn provider_response_for_pending_request(
                     .or_else(|| payload.get("proposedNetworkPolicyAmendments").cloned())
                     .ok_or_else(|| {
                         ChatServiceError::new(
-                            StatusCode::BAD_REQUEST,
+                            ChatErrorKind::BadRequest,
                             "network policy amendment decision requires a value",
                         )
                     })?;
@@ -7160,7 +7157,7 @@ fn provider_response_for_pending_request(
             }
             ChatPendingRequestDecision::Submit => {
                 return Err(ChatServiceError::new(
-                    StatusCode::BAD_REQUEST,
+                    ChatErrorKind::BadRequest,
                     "submit is only valid for structured input requests",
                 ));
             }
@@ -7176,7 +7173,7 @@ async fn request_session_id(
         .get_conversation_summary(conversation_id)
         .await?
         .map(|summary| summary.session_id)
-        .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))
+        .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))
 }
 
 fn parse_pending_request_kind(kind: &str) -> ChatPendingRequestKind {
@@ -7653,7 +7650,7 @@ async fn start_provider_thread(
         .await?;
     let thread_id = extract_thread_id(&result).ok_or_else(|| {
         ChatServiceError::new(
-            StatusCode::BAD_GATEWAY,
+            ChatErrorKind::Upstream,
             "codex app-server did not return a thread id",
         )
     })?;
@@ -8280,7 +8277,7 @@ mod tests {
             app_server: Arc::new(CodexAppServerManager::new_for_tests(Arc::new(|| {
                 Box::pin(async {
                     Err(ChatServiceError::new(
-                        StatusCode::BAD_GATEWAY,
+                        ChatErrorKind::Upstream,
                         "test app-server factory should not be used",
                     ))
                 })

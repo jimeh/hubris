@@ -1,7 +1,6 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use ts_rs::TS;
@@ -9,6 +8,7 @@ use utoipa::ToSchema;
 
 use crate::api::files::ApiErrorResponse;
 pub use crate::domain::task::*;
+use crate::error::ApiError;
 use crate::state::AppState;
 use crate::task_manager::{
     TaskActionError, TaskActionErrorKind,
@@ -113,24 +113,14 @@ impl From<ManagerTaskDefinitionSnapshot> for TaskDefinition {
     }
 }
 
-fn map_task_error(error: TaskActionError) -> (StatusCode, ApiErrorResponse) {
+fn map_task_error(error: TaskActionError) -> ApiError {
     let status = match error.kind() {
         TaskActionErrorKind::NotFound => StatusCode::NOT_FOUND,
         TaskActionErrorKind::InvalidRequest => StatusCode::BAD_REQUEST,
         TaskActionErrorKind::Conflict => StatusCode::CONFLICT,
         TaskActionErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
     };
-    (
-        status,
-        ApiErrorResponse {
-            message: error.message().to_string(),
-        },
-    )
-}
-
-fn task_error_response(error: TaskActionError) -> Response {
-    let (status, body) = map_task_error(error);
-    (status, Json(body)).into_response()
+    ApiError::with_status(status, error.message())
 }
 
 #[utoipa::path(
@@ -181,11 +171,12 @@ pub async fn list_tasks(State(state): State<AppState>) -> Json<Vec<TaskInvocatio
         (status = 404, description = "Unknown task invocation", body = ApiErrorResponse),
     ),
 )]
-pub async fn get_task(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    match state.tasks.get(&id).await {
-        Ok(task) => Json(TaskInvocationStatus::from(task)).into_response(),
-        Err(error) => task_error_response(error),
-    }
+pub async fn get_task(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<TaskInvocationStatus>, ApiError> {
+    let task = state.tasks.get(&id).await.map_err(map_task_error)?;
+    Ok(Json(task.into()))
 }
 
 #[utoipa::path(
@@ -202,22 +193,18 @@ pub async fn get_task(State(state): State<AppState>, Path(id): Path<String>) -> 
 pub async fn start_task(
     State(state): State<AppState>,
     Json(payload): Json<StartTaskRequest>,
-) -> Response {
+) -> Result<(StatusCode, Json<TaskInvocationStatus>), ApiError> {
     let input = match payload.input {
         None => Default::default(),
         Some(JsonValue::Object(input)) => input,
         Some(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ApiErrorResponse {
-                    message: "task input must be a JSON object".to_string(),
-                }),
-            )
-                .into_response();
+            return Err(ApiError::bad_request("task input must be a JSON object"));
         }
     };
-    match state.tasks.start(&payload.definition_name, input).await {
-        Ok(task) => (StatusCode::ACCEPTED, Json(TaskInvocationStatus::from(task))).into_response(),
-        Err(error) => task_error_response(error),
-    }
+    let task = state
+        .tasks
+        .start(&payload.definition_name, input)
+        .await
+        .map_err(map_task_error)?;
+    Ok((StatusCode::ACCEPTED, Json(task.into())))
 }

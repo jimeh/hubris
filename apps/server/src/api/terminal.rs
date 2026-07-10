@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Query, State, WebSocketUpgrade};
-use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -14,6 +13,7 @@ use ts_rs::TS;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::tabs::ensure_terminal_runtime;
+use crate::error::ApiError;
 use crate::pty::live_tab::{LiveTabAttachment, TerminalSize};
 use crate::state::AppState;
 
@@ -69,12 +69,12 @@ pub async fn ws_handler(
     State(state): State<AppState>,
     Query(params): Query<TerminalParams>,
     ws: WebSocketUpgrade,
-) -> Result<impl IntoResponse, StatusCode> {
+) -> Result<impl IntoResponse, ApiError> {
     if ensure_terminal_runtime(&state, &params.tab_id)
         .await?
         .is_none()
     {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::not_found("Tab not found."));
     }
 
     let tab_id = params.tab_id;

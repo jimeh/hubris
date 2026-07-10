@@ -107,10 +107,7 @@ fn worktree_ui_mode(meta: &ProjectMeta, worktree_id: &str) -> WorktreeUiMode {
         .unwrap_or_default()
 }
 
-pub async fn list_worktrees_for_project(
-    state: &AppState,
-    project: &Project,
-) -> Result<Vec<Worktree>, String> {
+pub async fn list_worktrees_for_project(state: &AppState, project: &Project) -> Vec<Worktree> {
     let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     let local_id = local_worktree_id(project);
     normalize_meta(&mut meta, &local_id);
@@ -160,5 +157,5 @@ pub async fn list_worktrees_for_project(
         wt.position = (idx + 1) as f64;
     }
 
-    Ok(ordered)
+    ordered
 }
