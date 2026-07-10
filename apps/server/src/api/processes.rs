@@ -1,21 +1,9 @@
 use crate::api::files::ApiErrorResponse;
 pub use crate::domain::process::*;
 use crate::error::ApiError;
-use crate::process_manager::{ManagedProcessActionError, ManagedProcessActionErrorKind};
 use crate::state::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
-
-fn map_managed_process_error(error: ManagedProcessActionError) -> ApiError {
-    let status = match error.kind() {
-        ManagedProcessActionErrorKind::NotFound => StatusCode::NOT_FOUND,
-        ManagedProcessActionErrorKind::InvalidRequest => StatusCode::BAD_REQUEST,
-        ManagedProcessActionErrorKind::Conflict => StatusCode::CONFLICT,
-        ManagedProcessActionErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-    };
-    ApiError::with_status(status, error.message())
-}
 
 #[utoipa::path(
     get,
@@ -27,11 +15,7 @@ fn map_managed_process_error(error: ManagedProcessActionError) -> ApiError {
 pub async fn list_managed_processes(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ManagedProcessStatus>>, ApiError> {
-    let processes = state
-        .processes
-        .list()
-        .await
-        .map_err(map_managed_process_error)?;
+    let processes = state.processes.list().await.map_err(ApiError::from)?;
     Ok(Json(processes.into_iter().map(Into::into).collect()))
 }
 
@@ -50,11 +34,7 @@ pub async fn get_managed_process(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<ManagedProcessStatus>, ApiError> {
-    let process = state
-        .processes
-        .get(&id)
-        .await
-        .map_err(map_managed_process_error)?;
+    let process = state.processes.get(&id).await.map_err(ApiError::from)?;
     Ok(Json(process.into()))
 }
 
@@ -73,11 +53,7 @@ pub async fn start_managed_process(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<ManagedProcessStatus>, ApiError> {
-    let process = state
-        .processes
-        .start(&id)
-        .await
-        .map_err(map_managed_process_error)?;
+    let process = state.processes.start(&id).await.map_err(ApiError::from)?;
     Ok(Json(process.into()))
 }
 
@@ -96,11 +72,7 @@ pub async fn stop_managed_process(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<ManagedProcessStatus>, ApiError> {
-    let process = state
-        .processes
-        .stop(&id)
-        .await
-        .map_err(map_managed_process_error)?;
+    let process = state.processes.stop(&id).await.map_err(ApiError::from)?;
     Ok(Json(process.into()))
 }
 
@@ -119,10 +91,6 @@ pub async fn restart_managed_process(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<ManagedProcessStatus>, ApiError> {
-    let process = state
-        .processes
-        .restart(&id)
-        .await
-        .map_err(map_managed_process_error)?;
+    let process = state.processes.restart(&id).await.map_err(ApiError::from)?;
     Ok(Json(process.into()))
 }

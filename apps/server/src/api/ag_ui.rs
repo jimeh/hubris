@@ -148,7 +148,13 @@ async fn send_chat_message_for_ag_ui(
         .await
         .map_err(|error| {
             tracing::debug!(error = %error, "failed to resolve worktree for AG-UI chat");
-            ApiError::with_status(error.status(), "worktree not found")
+            if error.status() == StatusCode::NOT_FOUND {
+                ApiError::not_found("worktree not found")
+            } else {
+                // Non-404 resolve failures keep their own message; a
+                // "not found" body with a 500/403 status would mislead.
+                error
+            }
         })?
         .ok_or_else(|| ApiError::not_found("worktree not found"))?;
     state

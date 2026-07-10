@@ -45,7 +45,12 @@ impl From<VscodeConnection> for VscodeConnectionInfo {
 }
 
 fn map_vscode_error(error: VscodeError) -> ApiError {
+    // Task errors share the canonical kind mapping in error.rs.
+    if let VscodeError::Task(task_error) = error {
+        return ApiError::from(task_error);
+    }
     let status = match &error {
+        VscodeError::Task(_) => unreachable!("handled above"),
         VscodeError::CodeServer(error) => match error {
             crate::vscode::CodeServerError::UnsupportedPlatform(_)
             | crate::vscode::CodeServerError::InvalidReleaseRedirect(_)
@@ -67,12 +72,6 @@ fn map_vscode_error(error: VscodeError) -> ApiError {
             | crate::vscode::VscodeCliError::Http(_)
             | crate::vscode::VscodeCliError::Archive(_)
             | crate::vscode::VscodeCliError::Spawn(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        },
-        VscodeError::Task(error) => match error.kind() {
-            crate::task_manager::TaskActionErrorKind::NotFound => StatusCode::NOT_FOUND,
-            crate::task_manager::TaskActionErrorKind::InvalidRequest => StatusCode::BAD_REQUEST,
-            crate::task_manager::TaskActionErrorKind::Conflict => StatusCode::CONFLICT,
-            crate::task_manager::TaskActionErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         },
     };
     ApiError::with_status(status, error.to_string())

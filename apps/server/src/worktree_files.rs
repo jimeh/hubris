@@ -939,22 +939,28 @@ fn parent_path_str(path: &str) -> String {
 }
 
 fn map_io_error(error: std::io::Error) -> WorktreeFileError {
-    tracing::warn!(error = %error, "classifying worktree file I/O error");
     match error.kind() {
         std::io::ErrorKind::NotFound => WorktreeFileError::NotFound,
         std::io::ErrorKind::PermissionDenied => WorktreeFileError::PermissionDenied,
         std::io::ErrorKind::AlreadyExists => WorktreeFileError::Conflict,
-        _ => WorktreeFileError::Internal,
+        // Expected kinds map to precise statuses above; only the lossy
+        // Internal fallback is worth surfacing in logs.
+        _ => {
+            tracing::warn!(error = %error, "unclassified worktree file I/O error");
+            WorktreeFileError::Internal
+        }
     }
 }
 
 fn map_path_policy_error(error: WorktreePathPolicyError) -> WorktreeFileError {
-    tracing::warn!(error = ?error, "classifying worktree path policy error");
     match error {
         WorktreePathPolicyError::NotFound => WorktreeFileError::NotFound,
         WorktreePathPolicyError::PermissionDenied => WorktreeFileError::PermissionDenied,
         WorktreePathPolicyError::Denied => WorktreeFileError::PermissionDenied,
-        WorktreePathPolicyError::Internal => WorktreeFileError::Internal,
+        WorktreePathPolicyError::Internal => {
+            tracing::warn!(error = ?error, "internal worktree path policy error");
+            WorktreeFileError::Internal
+        }
     }
 }
 

@@ -121,7 +121,13 @@ pub async fn list_project_worktree_chats(
         .await
         .map_err(|error| {
             tracing::debug!(error = %error, "failed to resolve worktree for chat listing");
-            ApiError::with_status(error.status(), "worktree not found")
+            if error.status() == StatusCode::NOT_FOUND {
+                ApiError::not_found("worktree not found")
+            } else {
+                // Non-404 resolve failures keep their own message; a
+                // "not found" body with a 500/403 status would mislead.
+                error
+            }
         })?
         .filter(|resolved| resolved.project_id == project_id)
         .ok_or_else(|| ApiError::not_found("worktree not found"))?;
@@ -264,8 +270,10 @@ pub async fn delete_chat(
         .delete_conversation(&conversation_id)
         .await
         .map_err(ApiError::from)?;
-    if let Some(tab_id) = summary.open_tab_id.as_deref() {
-        let _ = crate::api::tabs::close_tab_by_id(&state, tab_id).await;
+    if let Some(tab_id) = summary.open_tab_id.as_deref()
+        && let Err(error) = crate::api::tabs::close_tab_by_id(&state, tab_id).await
+    {
+        tracing::warn!(error = %error, tab_id, "failed to close tab after chat deletion");
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -364,7 +372,13 @@ pub async fn send_chat_message(
         .await
         .map_err(|error| {
             tracing::debug!(error = %error, "failed to resolve worktree for chat message");
-            ApiError::with_status(error.status(), "worktree not found")
+            if error.status() == StatusCode::NOT_FOUND {
+                ApiError::not_found("worktree not found")
+            } else {
+                // Non-404 resolve failures keep their own message; a
+                // "not found" body with a 500/403 status would mislead.
+                error
+            }
         })?
         .ok_or_else(|| ApiError::not_found("worktree not found"))?;
     validate_conversation_worktree_branch(&state, &conversation, &resolved).await?;

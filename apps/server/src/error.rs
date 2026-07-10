@@ -76,6 +76,32 @@ impl From<ChatServiceError> for ApiError {
     }
 }
 
+impl From<crate::task_manager::TaskActionError> for ApiError {
+    fn from(error: crate::task_manager::TaskActionError) -> Self {
+        use crate::task_manager::TaskActionErrorKind;
+        let status = match error.kind() {
+            TaskActionErrorKind::NotFound => StatusCode::NOT_FOUND,
+            TaskActionErrorKind::InvalidRequest => StatusCode::BAD_REQUEST,
+            TaskActionErrorKind::Conflict => StatusCode::CONFLICT,
+            TaskActionErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        Self::with_status(status, error.message())
+    }
+}
+
+impl From<crate::process_manager::ManagedProcessActionError> for ApiError {
+    fn from(error: crate::process_manager::ManagedProcessActionError) -> Self {
+        use crate::process_manager::ManagedProcessActionErrorKind;
+        let status = match error.kind() {
+            ManagedProcessActionErrorKind::NotFound => StatusCode::NOT_FOUND,
+            ManagedProcessActionErrorKind::InvalidRequest => StatusCode::BAD_REQUEST,
+            ManagedProcessActionErrorKind::Conflict => StatusCode::CONFLICT,
+            ManagedProcessActionErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        Self::with_status(status, error.message())
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         (

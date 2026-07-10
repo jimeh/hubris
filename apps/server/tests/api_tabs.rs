@@ -1244,7 +1244,7 @@ async fn test_closing_tab_without_empty_pane_does_not_emit_layout_update() {
 
     let mut rx = state.events.subscribe();
     let res = client
-        .delete(format!("{}/api/tabs/{}", base, &closed_id))
+        .delete(format!("{}/api/tabs/{}", base, closed_id))
         .send()
         .await
         .unwrap();

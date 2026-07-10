@@ -11,7 +11,6 @@ pub use crate::domain::task::*;
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::task_manager::{
-    TaskActionError, TaskActionErrorKind,
     TaskDefinitionInputField as ManagerTaskDefinitionInputField,
     TaskDefinitionSnapshot as ManagerTaskDefinitionSnapshot,
     TaskInputFieldKind as ManagerTaskInputFieldKind,
@@ -113,16 +112,6 @@ impl From<ManagerTaskDefinitionSnapshot> for TaskDefinition {
     }
 }
 
-fn map_task_error(error: TaskActionError) -> ApiError {
-    let status = match error.kind() {
-        TaskActionErrorKind::NotFound => StatusCode::NOT_FOUND,
-        TaskActionErrorKind::InvalidRequest => StatusCode::BAD_REQUEST,
-        TaskActionErrorKind::Conflict => StatusCode::CONFLICT,
-        TaskActionErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-    };
-    ApiError::with_status(status, error.message())
-}
-
 #[utoipa::path(
     get,
     path = "/api/tasks/definitions",
@@ -175,7 +164,7 @@ pub async fn get_task(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskInvocationStatus>, ApiError> {
-    let task = state.tasks.get(&id).await.map_err(map_task_error)?;
+    let task = state.tasks.get(&id).await.map_err(ApiError::from)?;
     Ok(Json(task.into()))
 }
 
@@ -205,6 +194,6 @@ pub async fn start_task(
         .tasks
         .start(&payload.definition_name, input)
         .await
-        .map_err(map_task_error)?;
+        .map_err(ApiError::from)?;
     Ok((StatusCode::ACCEPTED, Json(task.into())))
 }
