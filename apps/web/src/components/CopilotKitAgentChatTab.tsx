@@ -28,6 +28,7 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { codexAgUiChatUrl } from "@/lib/api";
+import { isRuntimeRunning } from "@/lib/chat/";
 import { useChatSettings } from "@/lib/stores/chatSettings";
 import {
   selectChatDiffSummary,
@@ -785,10 +786,6 @@ function codexMessageViewSlot(hubrisIsRunning: boolean) {
   return Object.assign(CodexMessageViewWithHubrisState, {
     Cursor: CopilotChatMessageView.Cursor,
   }) as typeof CopilotChatMessageView;
-}
-
-function isRuntimeRunning(lifecycle: string | undefined): boolean {
-  return lifecycle === "starting" || lifecycle === "running";
 }
 
 function CopilotChatHeader({

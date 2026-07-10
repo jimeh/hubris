@@ -38,6 +38,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  activityLabel,
+  activityStatusLabel,
+  isRuntimeRunning,
+  itemMetadata,
+} from "@/lib/chat/";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -98,12 +104,6 @@ const CONTAINED_TIMELINE_ROW_STYLE: CSSProperties = {
 };
 
 const convertThreadMessage = (message: ThreadMessageLike) => message;
-
-function isRuntimeRunning(
-  lifecycle: ChatRuntimeLifecycle | undefined,
-): boolean {
-  return lifecycle === "starting" || lifecycle === "running";
-}
 
 function runtimeStatusLabel(
   lifecycle: ChatRuntimeLifecycle | undefined,
@@ -230,46 +230,6 @@ function assistantFallbackText(
       return "Response interrupted before Codex returned text.";
     default:
       return "";
-  }
-}
-
-function activityLabel(item: ChatItem): string {
-  if (item.title) {
-    return item.title;
-  }
-  switch (item.kind) {
-    case "command_execution":
-      return "Run command";
-    case "file_change":
-      return "File change";
-    case "mcp_tool_call":
-    case "dynamic_tool_call":
-      return "Tool call";
-    case "web_search":
-      return "Web search";
-    case "image_view":
-      return "View image";
-    case "hook":
-      return "Run hook";
-    case "auto_approval_review":
-      return "Permission review";
-    case "model_reroute":
-      return "Model rerouted";
-    default:
-      return "Activity";
-  }
-}
-
-function activityStatusLabel(item: ChatItem): string {
-  switch (item.status) {
-    case "started":
-      return "Started";
-    case "streaming":
-      return "Running";
-    case "failed":
-      return "Failed";
-    default:
-      return "Completed";
   }
 }
 
@@ -1393,20 +1353,6 @@ function reasoningPreview(message: ChatMessage | null): string | null {
     return null;
   }
   return text.length > 220 ? `${text.slice(0, 220).trimEnd()}…` : text;
-}
-
-function itemMetadata(item: ChatItem | null): Record<string, unknown> {
-  if (!item) {
-    return {};
-  }
-  try {
-    const value = JSON.parse(item.metadataJson);
-    return value && typeof value === "object"
-      ? (value as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
 }
 
 function reasoningItemLabel(item: ChatItem | null): string {
