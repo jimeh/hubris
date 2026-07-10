@@ -4,7 +4,7 @@ use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
@@ -16,6 +16,8 @@ use sqlx::{FromRow, Row, Sqlite, SqlitePool, Transaction};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, broadcast, oneshot};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 use utoipa::ToSchema;
 
@@ -934,7 +936,8 @@ pub struct ChatService {
     pending_server_responders: DashMap<String, PendingServerResponder>,
     op_locks: DashMap<String, Arc<Mutex<()>>>,
     stream_owner_generation: AtomicU64,
-    app_event_loop_started: AtomicBool,
+    app_event_loop: Mutex<Option<JoinHandle<()>>>,
+    cancellation_token: CancellationToken,
 }
 
 struct ChatHistoryTable {
@@ -1238,6 +1241,7 @@ impl ChatService {
         legacy_state_db_path: &Path,
         events: Arc<crate::events::EventBus>,
         settings: Arc<SettingsManager>,
+        cancellation_token: CancellationToken,
     ) -> std::io::Result<Self> {
         if let Some(parent) = db_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -1273,7 +1277,8 @@ impl ChatService {
             pending_server_responders: DashMap::new(),
             op_locks: DashMap::new(),
             stream_owner_generation: AtomicU64::new(1),
-            app_event_loop_started: AtomicBool::new(false),
+            app_event_loop: Mutex::new(None),
+            cancellation_token,
         })
     }
 
@@ -2477,7 +2482,7 @@ impl ChatService {
         };
 
         let client = self.app_server.ensure_client().await?;
-        self.ensure_provider_event_loop(client);
+        self.ensure_provider_event_loop(client).await;
         self.emit_app_server_status().await;
 
         let already_resumed = {
@@ -2573,16 +2578,25 @@ impl ChatService {
         Ok(runtime)
     }
 
-    fn ensure_provider_event_loop(self: &Arc<Self>, client: CodexAppServerConnectionRef) {
-        if self.app_event_loop_started.swap(true, Ordering::AcqRel) {
+    async fn ensure_provider_event_loop(self: &Arc<Self>, client: CodexAppServerConnectionRef) {
+        let mut event_loop = self.app_event_loop.lock().await;
+        if event_loop
+            .as_ref()
+            .is_some_and(|handle| !handle.is_finished())
+        {
             return;
         }
 
         let service = self.clone();
-        tokio::spawn(async move {
+        let cancellation_token = self.cancellation_token.clone();
+        *event_loop = Some(tokio::spawn(async move {
             let mut rx = client.subscribe();
             loop {
-                match rx.recv().await {
+                let event = tokio::select! {
+                    _ = cancellation_token.cancelled() => break,
+                    event = rx.recv() => event,
+                };
+                match event {
                     Ok(CodexStreamEvent::ServerRequest {
                         id,
                         method,
@@ -2679,22 +2693,14 @@ impl ChatService {
                         }
                     }
                     Ok(CodexStreamEvent::Closed { reason }) => {
-                        service
-                            .app_event_loop_started
-                            .store(false, Ordering::Release);
                         let _ = service.handle_provider_closed(reason).await;
                         break;
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(broadcast::error::RecvError::Closed) => {
-                        service
-                            .app_event_loop_started
-                            .store(false, Ordering::Release);
-                        break;
-                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
-        });
+        }));
     }
 
     async fn runtime_for_provider_event(
@@ -8290,7 +8296,8 @@ mod tests {
             pending_server_responders: DashMap::new(),
             op_locks: DashMap::new(),
             stream_owner_generation: AtomicU64::new(1),
-            app_event_loop_started: AtomicBool::new(false),
+            app_event_loop: Mutex::new(None),
+            cancellation_token: CancellationToken::new(),
         })
     }
 
@@ -9623,6 +9630,57 @@ mod tests {
         fn lifecycle_state<'a>(&'a self) -> CodexAppServerFuture<'a, AppServerProcessState> {
             Box::pin(async { AppServerProcessState::Ready })
         }
+    }
+
+    async fn wait_for_provider_event_loop(
+        service: &ChatService,
+        connection: &FakeCodexConnection,
+        finished: bool,
+    ) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let handle_finished = service
+                    .app_event_loop
+                    .lock()
+                    .await
+                    .as_ref()
+                    .is_some_and(JoinHandle::is_finished);
+                let receiver_ready = connection.stream_events.receiver_count() == 1;
+                if handle_finished == finished && (finished || receiver_ready) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("provider event loop did not reach the expected state");
+    }
+
+    #[tokio::test]
+    async fn provider_event_loop_restarts_after_closed_event() {
+        let service = test_service().await;
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let connection = Arc::new(FakeCodexConnection::new(requests));
+
+        service.ensure_provider_event_loop(connection.clone()).await;
+        wait_for_provider_event_loop(&service, &connection, false).await;
+        connection
+            .stream_events
+            .send(CodexStreamEvent::Closed {
+                reason: "first connection closed".to_string(),
+            })
+            .unwrap();
+        wait_for_provider_event_loop(&service, &connection, true).await;
+
+        service.ensure_provider_event_loop(connection.clone()).await;
+        wait_for_provider_event_loop(&service, &connection, false).await;
+        connection
+            .stream_events
+            .send(CodexStreamEvent::Closed {
+                reason: "second connection closed".to_string(),
+            })
+            .unwrap();
+        wait_for_provider_event_loop(&service, &connection, true).await;
     }
 
     #[tokio::test]

@@ -11,6 +11,7 @@ embed-frontend = ["dep:rust-embed"]
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
 rust-embed = { version = "8", features = ["mime-guess"], optional = true }
 portable-pty = "0.9"

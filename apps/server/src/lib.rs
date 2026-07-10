@@ -598,6 +598,7 @@ where
             result.map_err(std::io::Error::other)?
         }
         _ = shutdown_signal.clone().wait() => {
+            state.cancellation_token.cancel();
             if let Err(error) = state.processes.shutdown_all().await {
                 tracing::warn!("failed to shut down managed processes: {error}");
             }

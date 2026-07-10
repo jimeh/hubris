@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 use crate::chat::ChatService;
 use crate::events::EventBus;
@@ -46,11 +47,13 @@ pub struct AppState {
     pub keybindings: Arc<KeybindingsManager>,
     pub worktree_files: Arc<WorktreeFilesService>,
     pub chats: Arc<ChatService>,
+    pub cancellation_token: CancellationToken,
 }
 
 impl AppState {
     pub async fn try_new(data_dir: PathBuf) -> std::io::Result<Self> {
         let events = Arc::new(EventBus::new());
+        let cancellation_token = CancellationToken::new();
         let state_db_path = data_dir.join("state.sqlite3");
         let projects = Arc::new(
             ProjectStore::load(data_dir.join("projects.json"))
@@ -69,6 +72,7 @@ impl AppState {
                 &state_db_path,
                 events.clone(),
                 settings.clone(),
+                cancellation_token.child_token(),
             )
             .await?,
         );
@@ -123,8 +127,12 @@ impl AppState {
             vscode,
             settings,
             keybindings,
-            worktree_files: Arc::new(WorktreeFilesService::new(events.clone())),
+            worktree_files: Arc::new(WorktreeFilesService::new(
+                events.clone(),
+                cancellation_token.child_token(),
+            )),
             chats,
+            cancellation_token,
         })
     }
 

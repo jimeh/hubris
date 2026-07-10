@@ -992,6 +992,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tokio-tungstenite 0.28.0",
+ "tokio-util",
  "toml",
  "toml_edit",
  "tower-http",
@@ -2971,6 +2972,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

@@ -12,6 +12,7 @@ use dashmap::DashMap;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{Notify, mpsc};
+use tokio_util::sync::CancellationToken;
 
 use crate::api::files::{ListWorktreeFilesResponse, WorktreeFileEntry, WorktreeFileKind};
 use crate::api::worktrees::ResolvedWorktree;
@@ -67,6 +68,7 @@ pub struct WorktreeFilesService {
     trackers: Arc<DashMap<String, Arc<WorktreeFileTracker>>>,
     events: Arc<EventBus>,
     cleanup_started: AtomicBool,
+    cancellation_token: CancellationToken,
 }
 
 struct WorktreeFileTracker {
@@ -85,11 +87,12 @@ struct WorktreeFileTracker {
 }
 
 impl WorktreeFilesService {
-    pub fn new(events: Arc<EventBus>) -> Self {
+    pub fn new(events: Arc<EventBus>, cancellation_token: CancellationToken) -> Self {
         Self {
             trackers: Arc::new(DashMap::new()),
             events,
             cleanup_started: AtomicBool::new(false),
+            cancellation_token,
         }
     }
 
@@ -160,9 +163,13 @@ impl WorktreeFilesService {
         }
 
         let trackers = Arc::clone(&self.trackers);
+        let cancellation_token = self.cancellation_token.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(IDLE_SWEEP_INTERVAL).await;
+                tokio::select! {
+                    _ = cancellation_token.cancelled() => break,
+                    _ = tokio::time::sleep(IDLE_SWEEP_INTERVAL) => {}
+                }
                 let now = now_ms();
                 let stale_keys: Vec<String> = trackers
                     .iter()
@@ -192,7 +199,12 @@ impl WorktreeFilesService {
             return Ok(tracker);
         }
 
-        let tracker = WorktreeFileTracker::new_async(resolved, Arc::clone(&self.events)).await?;
+        let tracker = WorktreeFileTracker::new_async(
+            resolved,
+            Arc::clone(&self.events),
+            self.cancellation_token.clone(),
+        )
+        .await?;
 
         match self.trackers.entry(resolved.worktree.id.clone()) {
             dashmap::mapref::entry::Entry::Occupied(existing) => {
@@ -212,6 +224,7 @@ impl WorktreeFileTracker {
     async fn new_async(
         resolved: &ResolvedWorktree,
         events: Arc<EventBus>,
+        cancellation_token: CancellationToken,
     ) -> Result<Arc<Self>, WorktreeFileError> {
         let root_path = tokio::fs::canonicalize(&resolved.worktree.path)
             .await
@@ -242,11 +255,15 @@ impl WorktreeFileTracker {
             watchers: std::sync::Mutex::new(Vec::new()),
         });
 
-        tracker.install_watcher(events)?;
+        tracker.install_watcher(events, cancellation_token)?;
         Ok(tracker)
     }
 
-    fn install_watcher(self: &Arc<Self>, events: Arc<EventBus>) -> Result<(), WorktreeFileError> {
+    fn install_watcher(
+        self: &Arc<Self>,
+        events: Arc<EventBus>,
+        cancellation_token: CancellationToken,
+    ) -> Result<(), WorktreeFileError> {
         let (tx, mut rx) = mpsc::channel::<PendingWatchEvent>(WATCH_EVENT_CHANNEL_CAPACITY);
         let overflowed = Arc::new(AtomicBool::new(false));
         let overflow_notify = Arc::new(Notify::new());
@@ -322,9 +339,10 @@ impl WorktreeFileTracker {
         let weak = Arc::downgrade(self);
         tokio::spawn(async move {
             loop {
-                let Some(mut pending) =
-                    next_pending_watch_event(&mut rx, &overflowed, &overflow_notify).await
-                else {
+                let Some(mut pending) = (tokio::select! {
+                    _ = cancellation_token.cancelled() => return,
+                    pending = next_pending_watch_event(&mut rx, &overflowed, &overflow_notify) => pending,
+                }) else {
                     return;
                 };
                 let sleep = tokio::time::sleep(WATCH_DEBOUNCE);
@@ -332,6 +350,7 @@ impl WorktreeFileTracker {
 
                 loop {
                     tokio::select! {
+                        _ = cancellation_token.cancelled() => return,
                         _ = &mut sleep => break,
                         _ = overflow_notify.notified() => {
                             merge_pending_watch_event(
