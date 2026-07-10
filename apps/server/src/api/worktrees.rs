@@ -12,36 +12,14 @@ use utoipa::{IntoParams, ToSchema};
 use crate::api::errors::map_worktree_file_error;
 use crate::api::projects::Project;
 use crate::api::settings::{Settings, WorktreeLocationMode};
+use crate::domain::worktree::{
+    ManagedWorktree, ProjectMeta, load_meta, local_worktree_id, normalize_meta,
+};
+pub use crate::domain::worktree::{Worktree, WorktreeUiMode, list_worktrees_for_project};
 use crate::events::EventKind;
 use crate::git;
 use crate::state::AppState;
 use crate::worktree_state::WorktreeRestoreState;
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
-pub struct Worktree {
-    pub id: String,
-    pub project_id: String,
-    pub name: String,
-    pub path: String,
-    pub branch: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_ref: Option<String>,
-    pub ui_mode: WorktreeUiMode,
-    pub is_local: bool,
-    #[serde(default)]
-    pub is_imported: bool,
-    #[serde(default)]
-    pub missing_on_disk: bool,
-    pub position: f64,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum WorktreeUiMode {
-    #[default]
-    Hubris,
-    Vscode,
-}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ListWorktreesResponse {
@@ -145,19 +123,6 @@ pub struct ResolvedWorktree {
     pub worktree: Worktree,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct ManagedWorktree {
-    id: String,
-    path: String,
-    branch: String,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    source_ref: Option<String>,
-    #[serde(default)]
-    imported: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum GitFileChangeType {
@@ -238,23 +203,6 @@ enum GitPathAction {
     Discard,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct ProjectMeta {
-    #[serde(default)]
-    worktree_order: Vec<String>,
-    #[serde(default)]
-    managed_worktrees: Vec<ManagedWorktree>,
-    #[serde(default)]
-    worktree_ui_modes: HashMap<String, WorktreeUiMode>,
-}
-
-async fn load_meta(path: PathBuf) -> ProjectMeta {
-    match tokio::fs::read_to_string(path).await {
-        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-        Err(_) => ProjectMeta::default(),
-    }
-}
-
 async fn save_meta(
     state: &AppState,
     project_id: &str,
@@ -325,110 +273,12 @@ fn resolve_target_path(
     }
 }
 
-fn sort_non_local(mut non_local: Vec<Worktree>, order: &[String]) -> Vec<Worktree> {
-    let mut by_id: HashMap<String, Worktree> =
-        non_local.drain(..).map(|wt| (wt.id.clone(), wt)).collect();
-
-    let mut ordered = Vec::new();
-    for id in order {
-        if let Some(wt) = by_id.remove(id) {
-            ordered.push(wt);
-        }
-    }
-
-    let mut remaining: Vec<Worktree> = by_id.into_values().collect();
-    remaining.sort_by_key(|worktree| worktree.name.to_lowercase());
-    ordered.extend(remaining);
-    ordered
-}
-
-fn local_worktree_id(project: &Project) -> String {
-    git::worktree_id(PathBuf::from(&project.path).as_path())
-}
-
-fn normalize_meta(meta: &mut ProjectMeta, local_worktree_id: &str) {
-    let managed_ids: HashSet<String> = meta
-        .managed_worktrees
-        .iter()
-        .map(|wt| wt.id.clone())
-        .collect();
-    meta.worktree_order.retain(|id| managed_ids.contains(id));
-
-    let mut valid_ui_mode_ids = managed_ids;
-    valid_ui_mode_ids.insert(local_worktree_id.to_string());
-    meta.worktree_ui_modes
-        .retain(|id, _| valid_ui_mode_ids.contains(id));
-}
-
-fn worktree_ui_mode(meta: &ProjectMeta, worktree_id: &str) -> WorktreeUiMode {
-    meta.worktree_ui_modes
-        .get(worktree_id)
-        .copied()
-        .unwrap_or_default()
-}
-
 fn is_missing_worktree_error(message: &str) -> bool {
     let message = message.to_lowercase();
     message.contains("not a working tree")
         || message.contains("worktree not found")
         || message.contains("does not exist")
         || message.contains("cannot find")
-}
-
-pub async fn list_worktrees_for_project(
-    state: &AppState,
-    project: &Project,
-) -> Result<Vec<Worktree>, String> {
-    let mut meta = load_meta(state.project_meta_file(&project.id)).await;
-    let local_id = local_worktree_id(project);
-    normalize_meta(&mut meta, &local_id);
-
-    let local_path_buf = PathBuf::from(&project.path);
-    let local_path = local_path_buf.to_string_lossy().to_string();
-    let local = Worktree {
-        id: local_id.clone(),
-        project_id: project.id.clone(),
-        name: "local".to_string(),
-        path: local_path,
-        branch: "local".to_string(),
-        source_ref: None,
-        ui_mode: worktree_ui_mode(&meta, &local_id),
-        is_local: true,
-        is_imported: false,
-        missing_on_disk: tokio::fs::metadata(&local_path_buf).await.is_err(),
-        position: 0.0,
-    };
-
-    let managed_worktrees = meta.managed_worktrees.clone();
-    let mut non_local = Vec::with_capacity(managed_worktrees.len());
-    for managed in managed_worktrees {
-        let managed_id = managed.id.clone();
-        let branch = managed.branch;
-        let name = managed.name.unwrap_or_else(|| branch.clone());
-        let path_buf = PathBuf::from(&managed.path);
-        non_local.push(Worktree {
-            id: managed_id.clone(),
-            project_id: project.id.clone(),
-            name,
-            path: managed.path,
-            branch,
-            source_ref: managed.source_ref,
-            ui_mode: worktree_ui_mode(&meta, &managed_id),
-            is_local: false,
-            is_imported: managed.imported,
-            missing_on_disk: tokio::fs::metadata(&path_buf).await.is_err(),
-            position: 0.0,
-        });
-    }
-
-    let mut ordered = vec![local];
-    ordered.extend(sort_non_local(non_local, &meta.worktree_order));
-
-    for (idx, wt) in ordered.iter_mut().enumerate() {
-        wt.position = (idx + 1) as f64;
-    }
-
-    Ok(ordered)
 }
 
 pub async fn resolve_worktree(

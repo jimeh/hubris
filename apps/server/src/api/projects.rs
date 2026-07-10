@@ -3,28 +3,17 @@ use std::path::PathBuf;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::worktrees::{
     close_tabs_for_worktree, is_missing_worktree_remove_error, list_worktrees_for_project,
 };
+pub use crate::domain::project::Project;
 use crate::events::EventKind;
 use crate::git;
 use crate::project_store::ReorderOutcome;
 use crate::state::AppState;
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
-pub struct Project {
-    pub id: String,
-    pub name: String,
-    pub path: String,
-    #[serde(default)]
-    pub position: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub git_error: Option<String>,
-}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AddProjectRequest {

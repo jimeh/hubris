@@ -1,6 +1,7 @@
 mod access;
 pub mod api;
 pub mod chat;
+pub mod domain;
 pub mod events;
 mod frontend;
 mod fs_sync;
