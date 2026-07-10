@@ -8,7 +8,7 @@ use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use bytes::Bytes;
 use codex_ag_ui::{
     CodexAgUiActivity, CodexAgUiActivityStatus, CodexAgUiMessage, CodexAgUiMessageRole,
@@ -25,6 +25,7 @@ use crate::chat::{
     ChatConversationDetail, ChatItemKind, ChatItemStatus, ChatMessageRole, ChatMessageStatus,
     ChatPendingRequestKind, ChatPendingRequestStatus, ChatRunStatus,
 };
+use crate::error::ApiError;
 use crate::events::{Event, EventKind};
 use crate::state::AppState;
 
@@ -53,17 +54,13 @@ pub async fn run_codex_ag_ui_chat(
     Path(conversation_id): Path<String>,
     headers: HeaderMap,
     Json(input): Json<RunAgentInput>,
-) -> Response {
+) -> Result<Response, ApiError> {
     let encoder = EventEncoder::with_accept(
         headers
             .get(header::ACCEPT)
             .and_then(|value| value.to_str().ok()),
     );
-    let result = prepare_run(&state, &conversation_id, &input).await;
-    let (detail, rx) = match result {
-        Ok(value) => value,
-        Err(error) => return error.into_response(),
-    };
+    let (detail, rx) = prepare_run(&state, &conversation_id, &input).await?;
     let initial = detail_to_snapshot(&detail, &input);
     let stream = ag_ui_body_stream(initial, rx, conversation_id, encoder);
     let mut response = Response::new(Body::from_stream(stream));
@@ -80,17 +77,14 @@ pub async fn run_codex_ag_ui_chat(
         header::CONNECTION,
         header::HeaderValue::from_static("keep-alive"),
     );
-    response
+    Ok(response)
 }
 
 async fn prepare_run(
     state: &AppState,
     conversation_id: &str,
     input: &RunAgentInput,
-) -> Result<
-    (ChatConversationDetail, broadcast::Receiver<Arc<Event>>),
-    (StatusCode, Json<ApiErrorResponse>),
-> {
+) -> Result<(ChatConversationDetail, broadcast::Receiver<Arc<Event>>), ApiError> {
     if !state
         .settings
         .get()
@@ -99,11 +93,8 @@ async fn prepare_run(
         .experimental
         .chat_enabled
     {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ApiErrorResponse {
-                message: "chat is disabled in Experimental settings".to_string(),
-            }),
+        return Err(ApiError::forbidden(
+            "chat is disabled in Experimental settings",
         ));
     }
 
@@ -111,16 +102,11 @@ async fn prepare_run(
         .chats
         .get_conversation_detail(conversation_id)
         .await
-        .map_err(map_chat_error)?
+        .map_err(ApiError::from)?
         .ok_or_else(chat_not_found)?;
 
     if before.conversation.archived_at.is_some() {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(ApiErrorResponse {
-                message: "chat is archived".to_string(),
-            }),
-        ));
+        return Err(ApiError::conflict("chat is archived"));
     }
 
     let incoming_user = input_last_user_text(input);
@@ -144,7 +130,7 @@ async fn prepare_run(
         .chats
         .get_conversation_detail(conversation_id)
         .await
-        .map_err(map_chat_error)?
+        .map_err(ApiError::from)?
         .ok_or_else(chat_not_found)?;
     Ok((detail, rx))
 }
@@ -153,29 +139,24 @@ async fn send_chat_message_for_ag_ui(
     state: &AppState,
     detail: &ChatConversationDetail,
     text: String,
-) -> Result<(), (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<(), ApiError> {
     let request = SendChatMessageRequest {
         text,
         worktree_id: Some(detail.conversation.worktree_id.clone()),
     };
     let resolved = resolve_worktree(state, &detail.conversation.worktree_id)
         .await
-        .map_err(|status| {
-            (
-                status,
-                Json(ApiErrorResponse {
-                    message: "worktree not found".to_string(),
-                }),
-            )
+        .map_err(|error| {
+            tracing::debug!(error = %error, "failed to resolve worktree for AG-UI chat");
+            if error.status() == StatusCode::NOT_FOUND {
+                ApiError::not_found("worktree not found")
+            } else {
+                // Non-404 resolve failures keep their own message; a
+                // "not found" body with a 500/403 status would mislead.
+                error
+            }
         })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    message: "worktree not found".to_string(),
-                }),
-            )
-        })?;
+        .ok_or_else(|| ApiError::not_found("worktree not found"))?;
     state
         .chats
         .send_message(
@@ -184,7 +165,7 @@ async fn send_chat_message_for_ag_ui(
             request.text,
         )
         .await
-        .map_err(map_chat_error)?;
+        .map_err(ApiError::from)?;
     Ok(())
 }
 
@@ -538,20 +519,6 @@ fn pending_request_kind_name(kind: ChatPendingRequestKind) -> &'static str {
     }
 }
 
-fn chat_not_found() -> (StatusCode, Json<ApiErrorResponse>) {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ApiErrorResponse {
-            message: "chat not found".to_string(),
-        }),
-    )
-}
-
-fn map_chat_error(error: crate::chat::ChatServiceError) -> (StatusCode, Json<ApiErrorResponse>) {
-    (
-        error.status,
-        Json(ApiErrorResponse {
-            message: error.message,
-        }),
-    )
+fn chat_not_found() -> ApiError {
+    ApiError::not_found("chat not found")
 }

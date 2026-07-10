@@ -3,28 +3,18 @@ use std::path::PathBuf;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::worktrees::{
     close_tabs_for_worktree, is_missing_worktree_remove_error, list_worktrees_for_project,
 };
+pub use crate::domain::project::Project;
+use crate::error::ApiError;
 use crate::events::EventKind;
 use crate::git;
 use crate::project_store::ReorderOutcome;
 use crate::state::AppState;
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
-pub struct Project {
-    pub id: String,
-    pub name: String,
-    pub path: String,
-    #[serde(default)]
-    pub position: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub git_error: Option<String>,
-}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AddProjectRequest {
@@ -68,9 +58,7 @@ async fn with_git_errors(mut projects: Vec<Project>) -> Vec<Project> {
         (status = 200, description = "List projects", body = [Project]),
     ),
 )]
-pub async fn list_projects(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<Project>>, StatusCode> {
+pub async fn list_projects(State(state): State<AppState>) -> Result<Json<Vec<Project>>, ApiError> {
     let projects = state.projects.list().await;
     Ok(Json(with_git_errors(projects).await))
 }
@@ -89,18 +77,22 @@ pub async fn list_projects(
 pub async fn add_project(
     State(state): State<AppState>,
     Json(req): Json<AddProjectRequest>,
-) -> Result<(StatusCode, Json<Project>), StatusCode> {
+) -> Result<(StatusCode, Json<Project>), ApiError> {
     let input_path = PathBuf::from(&req.path);
-    let input_metadata = tokio::fs::metadata(&input_path)
-        .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let input_metadata = tokio::fs::metadata(&input_path).await.map_err(|error| {
+        tracing::debug!(error = %error, "failed to read project path metadata");
+        ApiError::bad_request("Invalid project path.")
+    })?;
     if !input_metadata.is_dir() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid project path."));
     }
 
     let local_root = git::resolve_local_root(&input_path)
         .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+        .map_err(|error| {
+            tracing::warn!(error = %error, "failed to resolve project git root");
+            ApiError::bad_request("Invalid project path.")
+        })?;
 
     let canonical_path = local_root.to_string_lossy().to_string();
     let name = local_root
@@ -113,29 +105,22 @@ pub async fn add_project(
         .projects
         .add(canonical_path, name)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            tracing::warn!(error = %error, "failed to save added project");
+            ApiError::internal("Internal server error.")
+        })?;
     if !outcome.created {
         return Ok((StatusCode::OK, Json(outcome.project)));
     }
 
     let project = outcome.project;
     state.events.emit(EventKind::ProjectAdded(project.clone()));
-    match list_worktrees_for_project(&state, &project).await {
-        Ok(worktrees) => {
-            state.events.emit(EventKind::ProjectWorktreesUpdated {
-                project_id: project.id.clone(),
-                worktrees,
-                git_error: None,
-            });
-        }
-        Err(err) => {
-            state.events.emit(EventKind::ProjectWorktreesUpdated {
-                project_id: project.id.clone(),
-                worktrees: vec![],
-                git_error: Some(err),
-            });
-        }
-    }
+    let worktrees = list_worktrees_for_project(&state, &project).await;
+    state.events.emit(EventKind::ProjectWorktreesUpdated {
+        project_id: project.id.clone(),
+        worktrees,
+        git_error: None,
+    });
     Ok((StatusCode::CREATED, Json(project)))
 }
 
@@ -156,13 +141,16 @@ pub async fn update_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<UpdateProjectRequest>,
-) -> Result<Json<Project>, StatusCode> {
+) -> Result<Json<Project>, ApiError> {
     let updated = state
         .projects
         .update(&id, req.name)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(|error| {
+            tracing::warn!(error = %error, project_id = id, "failed to update project");
+            ApiError::internal("Internal server error.")
+        })?
+        .ok_or_else(|| ApiError::not_found("Project not found."))?;
     state
         .events
         .emit(EventKind::ProjectUpdated(updated.clone()));
@@ -182,15 +170,19 @@ pub async fn update_project(
 pub async fn reorder_projects(
     State(state): State<AppState>,
     Json(req): Json<ReorderProjectsRequest>,
-) -> Result<Json<Vec<Project>>, StatusCode> {
+) -> Result<Json<Vec<Project>>, ApiError> {
     let projects = match state
         .projects
         .reorder(&req.project_ids)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    {
+        .map_err(|error| {
+            tracing::warn!(error = %error, "failed to reorder projects");
+            ApiError::internal("Internal server error.")
+        })? {
         ReorderOutcome::Reordered(projects) => projects,
-        ReorderOutcome::InvalidIds => return Err(StatusCode::BAD_REQUEST),
+        ReorderOutcome::InvalidIds => {
+            return Err(ApiError::bad_request("Invalid project order."));
+        }
     };
     state
         .events
@@ -220,16 +212,13 @@ pub async fn delete_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Query(params): Query<DeleteProjectParams>,
-) -> StatusCode {
+) -> Result<StatusCode, ApiError> {
     let project = match state.projects.get(&id).await {
         Some(project) => project,
-        None => return StatusCode::NOT_FOUND,
+        None => return Err(ApiError::not_found("Project not found.")),
     };
 
-    let worktrees = match list_worktrees_for_project(&state, &project).await {
-        Ok(worktrees) => worktrees,
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
-    };
+    let worktrees = list_worktrees_for_project(&state, &project).await;
 
     if params.delete_managed_worktrees {
         let managed_worktrees: Vec<_> = worktrees.iter().filter(|wt| !wt.is_local).collect();
@@ -239,7 +228,10 @@ pub async fn delete_project(
                 let local_root =
                     match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await {
                         Ok(root) => root,
-                        Err(_) => return StatusCode::BAD_REQUEST,
+                        Err(error) => {
+                            tracing::warn!(error = %error, "failed to resolve project git root");
+                            return Err(ApiError::bad_request("Invalid project path."));
+                        }
                     };
 
                 for worktree in managed_worktrees {
@@ -258,11 +250,12 @@ pub async fn delete_project(
                             continue;
                         }
 
-                        return if params.force {
-                            StatusCode::INTERNAL_SERVER_ERROR
+                        tracing::warn!(error = %err, "failed to remove managed worktree");
+                        return Err(if params.force {
+                            ApiError::internal("Internal server error.")
                         } else {
-                            StatusCode::CONFLICT
-                        };
+                            ApiError::conflict("Project has managed worktree conflicts.")
+                        });
                     }
                 }
             }
@@ -270,17 +263,17 @@ pub async fn delete_project(
     }
 
     for worktree in worktrees {
-        if let Err(status) = close_tabs_for_worktree(&state, &worktree.id).await {
-            return status;
-        }
+        close_tabs_for_worktree(&state, &worktree.id).await?;
     }
 
-    if state.chats.delete_project_conversations(&id).await.is_err() {
-        return StatusCode::INTERNAL_SERVER_ERROR;
+    if let Err(error) = state.chats.delete_project_conversations(&id).await {
+        tracing::warn!(error = %error, project_id = id, "failed to delete project chats");
+        return Err(ApiError::internal("Internal server error."));
     }
 
-    if state.projects.remove(&id).await.is_err() {
-        return StatusCode::INTERNAL_SERVER_ERROR;
+    if let Err(error) = state.projects.remove(&id).await {
+        tracing::warn!(error = %error, project_id = id, "failed to remove project");
+        return Err(ApiError::internal("Internal server error."));
     }
 
     state.persistence.delete_project(id.clone());
@@ -291,5 +284,5 @@ pub async fn delete_project(
         project_id: id.clone(),
     });
 
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT)
 }

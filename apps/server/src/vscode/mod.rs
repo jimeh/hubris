@@ -321,41 +321,14 @@ pub struct VscodeStatusSnapshot {
     pub vscode_cli: VscodeRuntimeStatusSnapshot,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum VscodeError {
-    CodeServer(CodeServerError),
-    VscodeCli(VscodeCliError),
-    Task(TaskActionError),
-}
-
-impl fmt::Display for VscodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::CodeServer(error) => write!(f, "{error}"),
-            Self::VscodeCli(error) => write!(f, "{error}"),
-            Self::Task(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-impl std::error::Error for VscodeError {}
-
-impl From<CodeServerError> for VscodeError {
-    fn from(value: CodeServerError) -> Self {
-        Self::CodeServer(value)
-    }
-}
-
-impl From<VscodeCliError> for VscodeError {
-    fn from(value: VscodeCliError) -> Self {
-        Self::VscodeCli(value)
-    }
-}
-
-impl From<TaskActionError> for VscodeError {
-    fn from(value: TaskActionError) -> Self {
-        Self::Task(value)
-    }
+    #[error(transparent)]
+    CodeServer(#[from] CodeServerError),
+    #[error(transparent)]
+    VscodeCli(#[from] VscodeCliError),
+    #[error(transparent)]
+    Task(#[from] TaskActionError),
 }
 
 enum UpgradeOutcome {
@@ -430,55 +403,28 @@ pub struct CodeServerLaunchRequest {
     pub config_file: PathBuf,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CodeServerError {
-    Io(std::io::Error),
-    Http(reqwest::Error),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Http(#[from] reqwest::Error),
+    #[error("{0}")]
     Archive(String),
+    #[error("{0}")]
     Spawn(String),
+    #[error("timed out waiting for code-server")]
     StartupTimeout,
+    #[error("{0}")]
     UnsupportedPlatform(String),
+    #[error("{0}")]
     InvalidReleaseRedirect(String),
+    #[error("{0}")]
     InvalidVersion(String),
+    #[error("code-server is not installed")]
     NotInstalled,
-    WebSocket(tokio_tungstenite::tungstenite::Error),
-}
-
-impl fmt::Display for CodeServerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(error) => write!(f, "{error}"),
-            Self::Http(error) => write!(f, "{error}"),
-            Self::Archive(message) => write!(f, "{message}"),
-            Self::Spawn(message) => write!(f, "{message}"),
-            Self::StartupTimeout => write!(f, "timed out waiting for code-server"),
-            Self::UnsupportedPlatform(message) => write!(f, "{message}"),
-            Self::InvalidReleaseRedirect(message) => write!(f, "{message}"),
-            Self::InvalidVersion(message) => write!(f, "{message}"),
-            Self::NotInstalled => write!(f, "code-server is not installed"),
-            Self::WebSocket(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-impl std::error::Error for CodeServerError {}
-
-impl From<std::io::Error> for CodeServerError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl From<reqwest::Error> for CodeServerError {
-    fn from(value: reqwest::Error) -> Self {
-        Self::Http(value)
-    }
-}
-
-impl From<tokio_tungstenite::tungstenite::Error> for CodeServerError {
-    fn from(value: tokio_tungstenite::tungstenite::Error) -> Self {
-        Self::WebSocket(value)
-    }
+    #[error("{0}")]
+    WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
 }
 
 impl From<axum::Error> for CodeServerError {
@@ -801,45 +747,24 @@ struct RunningVscodeCli {
     process: ManagedProcessRuntime,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum VscodeCliError {
-    Io(std::io::Error),
-    Http(reqwest::Error),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Http(#[from] reqwest::Error),
+    #[error("{0}")]
     Archive(String),
+    #[error("{0}")]
     Spawn(String),
+    #[error("timed out waiting for VS Code CLI")]
     StartupTimeout,
+    #[error("{0}")]
     UnsupportedPlatform(String),
+    #[error("{0}")]
     InvalidVersion(String),
+    #[error("VS Code CLI is not installed")]
     NotInstalled,
-}
-
-impl fmt::Display for VscodeCliError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(error) => write!(f, "{error}"),
-            Self::Http(error) => write!(f, "{error}"),
-            Self::Archive(message) => write!(f, "{message}"),
-            Self::Spawn(message) => write!(f, "{message}"),
-            Self::StartupTimeout => write!(f, "timed out waiting for VS Code CLI"),
-            Self::UnsupportedPlatform(message) => write!(f, "{message}"),
-            Self::InvalidVersion(message) => write!(f, "{message}"),
-            Self::NotInstalled => write!(f, "VS Code CLI is not installed"),
-        }
-    }
-}
-
-impl std::error::Error for VscodeCliError {}
-
-impl From<std::io::Error> for VscodeCliError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl From<reqwest::Error> for VscodeCliError {
-    fn from(value: reqwest::Error) -> Self {
-        Self::Http(value)
-    }
 }
 
 #[derive(Clone)]

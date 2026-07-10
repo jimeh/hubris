@@ -1,4 +1,3 @@
-use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -12,38 +11,22 @@ use crate::fs_sync::sync_parent_directory;
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Errors surfaced by [`ProjectStore`].
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ProjectStoreError {
-    Io(std::io::Error),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
     /// The projects file on disk exists but does not parse as a
     /// list of projects. The file is left untouched so user data
     /// stays recoverable.
+    #[error(
+        "projects file {path} is corrupt ({source}); refusing to overwrite it — fix or move the file and restart",
+        path = path.display()
+    )]
     Corrupt {
         path: PathBuf,
+        #[source]
         source: serde_json::Error,
     },
-}
-
-impl fmt::Display for ProjectStoreError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(error) => write!(f, "{error}"),
-            Self::Corrupt { path, source } => write!(
-                f,
-                "projects file {} is corrupt ({source}); refusing to \
-                 overwrite it — fix or move the file and restart",
-                path.display()
-            ),
-        }
-    }
-}
-
-impl std::error::Error for ProjectStoreError {}
-
-impl From<std::io::Error> for ProjectStoreError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
-    }
 }
 
 /// Outcome of [`ProjectStore::add`].

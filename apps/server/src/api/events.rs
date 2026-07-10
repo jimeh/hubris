@@ -222,7 +222,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
     let projects = state.projects.list().await;
 
     let mut worktrees = HashMap::new();
-    let mut project_errors = HashMap::new();
+    let project_errors = HashMap::new();
     let settings = state.settings.get().await;
     let keybindings = state.keybindings.get().await;
     let chat_conversations = match state.chats.list_session_conversations(session_id).await {
@@ -272,15 +272,8 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         .collect::<Vec<_>>();
 
     for project in &projects {
-        match list_worktrees_for_project(state, project).await {
-            Ok(list) => {
-                worktrees.insert(project.id.clone(), list);
-            }
-            Err(err) => {
-                worktrees.insert(project.id.clone(), vec![]);
-                project_errors.insert(project.id.clone(), err.clone());
-            }
-        }
+        let list = list_worktrees_for_project(state, project).await;
+        worktrees.insert(project.id.clone(), list);
     }
 
     let snapshot = EventKind::Snapshot {

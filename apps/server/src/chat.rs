@@ -1,14 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use axum::http::StatusCode;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -18,6 +16,8 @@ use sqlx::{FromRow, Row, Sqlite, SqlitePool, Transaction};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, broadcast, oneshot};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 use utoipa::ToSchema;
 
@@ -25,7 +25,10 @@ use crate::events::EventKind;
 use crate::settings_manager::SettingsManager;
 
 mod lifecycle;
+mod model;
 mod protocol;
+
+pub use model::*;
 
 use lifecycle::{
     AppServerLifecycle, AppServerProcessState, ThreadStreamLifecycle, ThreadStreamResumeState,
@@ -33,7 +36,6 @@ use lifecycle::{
 use protocol::{ParsedLine, RouteHints};
 
 pub const DEFAULT_CHAT_TITLE: &str = "New Chat";
-const DEFAULT_IDLE_TIMEOUT_MINUTES: u32 = 60;
 const CHAT_DB_MAX_CONNECTIONS: u32 = 1;
 // `connect_with` opens (and tests) the pool's first connection eagerly, bounded
 // by the acquire timeout. sqlx defaults this to 30s, which parallel `cargo test`
@@ -54,858 +56,6 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// Supported chat providers.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatProvider {
-    #[default]
-    Codex,
-}
-
-impl ChatProvider {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Codex => "codex",
-        }
-    }
-}
-
-/// Supported reasoning-effort values exposed by Codex model selection.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatReasoningEffort {
-    None,
-    Minimal,
-    Low,
-    Medium,
-    High,
-    Xhigh,
-}
-
-impl ChatReasoningEffort {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Minimal => "minimal",
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-            Self::Xhigh => "xhigh",
-        }
-    }
-}
-
-/// One reasoning-effort option supported by a Codex model.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatModelReasoningEffortOption {
-    pub reasoning_effort: ChatReasoningEffort,
-    pub description: String,
-}
-
-/// One selectable Codex model exposed by app-server.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatModelOption {
-    pub id: String,
-    pub model: String,
-    pub display_name: String,
-    pub description: String,
-    pub is_default: bool,
-    pub hidden: bool,
-    pub default_reasoning_effort: ChatReasoningEffort,
-    pub supported_reasoning_efforts: Vec<ChatModelReasoningEffortOption>,
-}
-
-/// Explicit permissions preset override. `None` means use Codex defaults.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatPermissionMode {
-    FullAccess,
-}
-
-impl ChatPermissionMode {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::FullAccess => "full_access",
-        }
-    }
-}
-
-/// Persisted message role for a conversation transcript item.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatMessageRole {
-    User,
-    Assistant,
-}
-
-impl ChatMessageRole {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Assistant => "assistant",
-        }
-    }
-}
-
-/// Persisted message lifecycle state.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatMessageStatus {
-    Pending,
-    Streaming,
-    Completed,
-    Interrupted,
-    Failed,
-}
-
-impl ChatMessageStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Pending => "pending",
-            Self::Streaming => "streaming",
-            Self::Completed => "completed",
-            Self::Interrupted => "interrupted",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-/// Persisted run lifecycle state.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatRunStatus {
-    Starting,
-    Running,
-    Completed,
-    Interrupted,
-    Failed,
-}
-
-impl ChatRunStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Starting => "starting",
-            Self::Running => "running",
-            Self::Completed => "completed",
-            Self::Interrupted => "interrupted",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-/// Persisted Codex turn lifecycle state.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatTurnStatus {
-    Starting,
-    Running,
-    Completed,
-    Interrupted,
-    Failed,
-}
-
-impl ChatTurnStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Starting => "starting",
-            Self::Running => "running",
-            Self::Completed => "completed",
-            Self::Interrupted => "interrupted",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-/// Normalized Codex item kind persisted for future timeline rendering.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatItemKind {
-    AgentMessage,
-    Reasoning,
-    CommandExecution,
-    FileChange,
-    McpToolCall,
-    DynamicToolCall,
-    WebSearch,
-    ImageView,
-    Hook,
-    AutoApprovalReview,
-    ModelReroute,
-    Unknown,
-}
-
-impl ChatItemKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::AgentMessage => "agent_message",
-            Self::Reasoning => "reasoning",
-            Self::CommandExecution => "command_execution",
-            Self::FileChange => "file_change",
-            Self::McpToolCall => "mcp_tool_call",
-            Self::DynamicToolCall => "dynamic_tool_call",
-            Self::WebSearch => "web_search",
-            Self::ImageView => "image_view",
-            Self::Hook => "hook",
-            Self::AutoApprovalReview => "auto_approval_review",
-            Self::ModelReroute => "model_reroute",
-            Self::Unknown => "unknown",
-        }
-    }
-
-    fn is_activity(self) -> bool {
-        !matches!(self, Self::AgentMessage | Self::Reasoning)
-    }
-}
-
-/// Persisted Codex item lifecycle state.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatItemStatus {
-    Started,
-    Streaming,
-    Completed,
-    Failed,
-}
-
-impl ChatItemStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Started => "started",
-            Self::Streaming => "streaming",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-/// Backend-owned reconciliation lifecycle for replaying Codex thread state.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatReconciliationStatus {
-    #[default]
-    NotNeeded,
-    Pending,
-    Running,
-    Completed,
-    Failed,
-}
-
-impl ChatReconciliationStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::NotNeeded => "not_needed",
-            Self::Pending => "pending",
-            Self::Running => "running",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-        }
-    }
-
-    fn is_active(self) -> bool {
-        matches!(self, Self::Pending | Self::Running)
-    }
-}
-
-/// In-memory runtime lifecycle state for a live Codex app-server process.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatRuntimeLifecycle {
-    #[default]
-    Stopped,
-    Starting,
-    Ready,
-    Running,
-    Stopping,
-    Failed,
-}
-
-/// Persisted summary for a conversation list row.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatConversationSummary {
-    pub id: String,
-    pub session_id: String,
-    pub project_id: String,
-    pub worktree_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub branch_name: Option<String>,
-    pub provider: ChatProvider,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_thread_id: Option<String>,
-    pub title: String,
-    #[ts(type = "number")]
-    pub created_at: u64,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-    #[ts(type = "number")]
-    pub last_activity_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub last_message_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub open_tab_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub archived_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selected_model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selected_effort: Option<ChatReasoningEffort>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selected_permission_mode: Option<ChatPermissionMode>,
-    pub last_run_state: ChatRunStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_error: Option<String>,
-    pub last_reconciliation_state: ChatReconciliationStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_reconciliation_error: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_used_tokens: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_max_tokens: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_percent_used: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub context_updated_at: Option<u64>,
-    pub pending_request_count: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latest_pending_request_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latest_pending_request_kind: Option<ChatPendingRequestKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latest_pending_request_status: Option<ChatPendingRequestStatus>,
-    pub has_pending_request_attention: bool,
-    #[ts(type = "number")]
-    pub revision: u64,
-}
-
-/// Persisted transcript message.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatMessage {
-    pub id: String,
-    pub conversation_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub item_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_item_id: Option<String>,
-    pub role: ChatMessageRole,
-    pub status: ChatMessageStatus,
-    pub content_text: String,
-    pub reasoning_text: String,
-    pub sequence: u32,
-    #[ts(type = "number")]
-    pub created_at: u64,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-}
-
-/// Persisted run summary.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatRun {
-    pub id: String,
-    pub conversation_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_turn_id: Option<String>,
-    pub status: ChatRunStatus,
-    #[ts(type = "number")]
-    pub started_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub finished_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-}
-
-/// Persisted provider turn metadata for a chat conversation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatTurn {
-    pub id: String,
-    pub conversation_id: String,
-    pub run_id: String,
-    pub user_message_id: String,
-    pub assistant_message_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_turn_id: Option<String>,
-    pub status: ChatTurnStatus,
-    #[ts(type = "number")]
-    pub started_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub completed_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    pub reconciliation_status: ChatReconciliationStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub reconciled_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reconciliation_error: Option<String>,
-    #[ts(type = "number")]
-    pub created_at: u64,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-}
-
-/// Persisted provider item metadata for a chat conversation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatItem {
-    pub id: String,
-    pub conversation_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_item_id: Option<String>,
-    pub kind: ChatItemKind,
-    pub status: ChatItemStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<ChatMessageRole>,
-    pub sequence: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-    pub metadata_json: String,
-    #[ts(type = "number")]
-    pub created_at: u64,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub completed_at: Option<u64>,
-}
-
-/// Persisted output chunk for a non-message Codex work item.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatItemOutput {
-    pub id: String,
-    pub conversation_id: String,
-    pub item_id: String,
-    pub stream_kind: String,
-    pub sequence: u32,
-    pub content_text: String,
-    pub byte_count: u32,
-    #[ts(type = "number")]
-    pub created_at: u64,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-}
-
-/// Lazy-loaded activity detail for one Codex work item.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatActivityDetail {
-    pub item: ChatItem,
-    pub outputs: Vec<ChatItemOutput>,
-}
-
-/// Persisted Codex plan kind.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatPlanKind {
-    ActiveTask,
-    ProposedPlan,
-}
-
-impl ChatPlanKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::ActiveTask => "active_task",
-            Self::ProposedPlan => "proposed_plan",
-        }
-    }
-}
-
-/// Persisted Codex plan lifecycle state.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatPlanStatus {
-    Streaming,
-    Completed,
-    Failed,
-}
-
-impl ChatPlanStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Streaming => "streaming",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-/// Persisted Codex plan state used by the chat timeline.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatPlan {
-    pub id: String,
-    pub conversation_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub item_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_item_id: Option<String>,
-    pub kind: ChatPlanKind,
-    pub status: ChatPlanStatus,
-    pub content_text: String,
-    pub steps_json: String,
-    pub metadata_json: String,
-    #[ts(type = "number")]
-    pub owner_generation: u64,
-    pub sequence: u32,
-    #[ts(type = "number")]
-    pub created_at: u64,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub completed_at: Option<u64>,
-}
-
-/// One changed file included in a Codex diff summary.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatDiffFileSummary {
-    pub path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub original_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub change_type: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub additions: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deletions: Option<u32>,
-}
-
-/// Persisted turn-level Codex diff summary.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatDiffSummary {
-    pub id: String,
-    pub conversation_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_turn_id: Option<String>,
-    pub changed_file_count: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub additions: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deletions: Option<u32>,
-    pub files: Vec<ChatDiffFileSummary>,
-    pub metadata_json: String,
-    #[ts(type = "number")]
-    pub owner_generation: u64,
-    pub sequence: u32,
-    #[ts(type = "number")]
-    pub created_at: u64,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-}
-
-/// Latest context-window usage for a Codex conversation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatContextUsage {
-    pub id: String,
-    pub conversation_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_thread_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub used_tokens: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub percent_used: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub total_processed_tokens: Option<u32>,
-    pub metadata_json: String,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-}
-
-/// Persisted Codex server request kind.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatPendingRequestKind {
-    CommandApproval,
-    FileApproval,
-    PermissionApproval,
-    StructuredInput,
-    McpElicitation,
-    Unsupported,
-}
-
-impl ChatPendingRequestKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::CommandApproval => "command_approval",
-            Self::FileApproval => "file_approval",
-            Self::PermissionApproval => "permission_approval",
-            Self::StructuredInput => "structured_input",
-            Self::McpElicitation => "mcp_elicitation",
-            Self::Unsupported => "unsupported",
-        }
-    }
-}
-
-/// Persisted Codex server request lifecycle.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatPendingRequestStatus {
-    Pending,
-    Resolving,
-    Resolved,
-    Declined,
-    Cancelled,
-    Stale,
-    Failed,
-}
-
-impl ChatPendingRequestStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Pending => "pending",
-            Self::Resolving => "resolving",
-            Self::Resolved => "resolved",
-            Self::Declined => "declined",
-            Self::Cancelled => "cancelled",
-            Self::Stale => "stale",
-            Self::Failed => "failed",
-        }
-    }
-
-    fn is_attention(self) -> bool {
-        matches!(self, Self::Pending | Self::Resolving)
-    }
-}
-
-/// User-visible decision sent back to Codex for a pending request.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub enum ChatPendingRequestDecision {
-    Accept,
-    AcceptForSession,
-    Decline,
-    Cancel,
-    AcceptWithExecpolicyAmendment,
-    ApplyNetworkPolicyAmendment,
-    Submit,
-}
-
-impl ChatPendingRequestDecision {
-    fn terminal_status(&self) -> ChatPendingRequestStatus {
-        match self {
-            Self::Decline => ChatPendingRequestStatus::Declined,
-            Self::Cancel => ChatPendingRequestStatus::Cancelled,
-            _ => ChatPendingRequestStatus::Resolved,
-        }
-    }
-}
-
-/// Persisted Codex server request with enough state to render and answer it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatPendingRequest {
-    pub id: String,
-    pub conversation_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub item_id: Option<String>,
-    pub provider_request_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_item_id: Option<String>,
-    pub method: String,
-    pub kind: ChatPendingRequestKind,
-    pub status: ChatPendingRequestStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decision: Option<ChatPendingRequestDecision>,
-    pub payload_json: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub response_json: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    #[ts(type = "number")]
-    pub owner_generation: u64,
-    pub sequence: u32,
-    #[ts(type = "number")]
-    pub created_at: u64,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub resolved_at: Option<u64>,
-}
-
-/// Lightweight request state included in global SSE snapshots.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatPendingRequestSummary {
-    pub id: String,
-    pub conversation_id: String,
-    pub kind: ChatPendingRequestKind,
-    pub status: ChatPendingRequestStatus,
-    pub method: String,
-    #[ts(type = "number")]
-    pub created_at: u64,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-}
-
-/// Latest replay/recovery state for one conversation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatReconciliation {
-    pub id: String,
-    pub conversation_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_thread_id: Option<String>,
-    pub status: ChatReconciliationStatus,
-    pub reason: String,
-    #[ts(type = "number")]
-    pub started_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub finished_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    #[ts(type = "number")]
-    pub owner_generation: u64,
-    #[ts(type = "number")]
-    pub created_at: u64,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-}
-
-/// Request body for resolving a pending Codex server request.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ResolveChatPendingRequestRequest {
-    pub decision: ChatPendingRequestDecision,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub value: Option<Value>,
-}
-
-/// Full chat detail payload used to hydrate an open chat tab.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatConversationDetail {
-    pub conversation: ChatConversationSummary,
-    pub messages: Vec<ChatMessage>,
-    pub turns: Vec<ChatTurn>,
-    pub items: Vec<ChatItem>,
-    pub plans: Vec<ChatPlan>,
-    pub diff_summaries: Vec<ChatDiffSummary>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_usage: Option<ChatContextUsage>,
-    pub pending_requests: Vec<ChatPendingRequest>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latest_reconciliation: Option<ChatReconciliation>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latest_run: Option<ChatRun>,
-}
-
-/// Shared runtime summary pushed over SSE.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatRuntimeStatus {
-    pub conversation_id: String,
-    pub session_id: String,
-    pub project_id: String,
-    pub worktree_id: String,
-    pub lifecycle: ChatRuntimeLifecycle,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_run_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_message_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_thread_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_error: Option<String>,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-}
-
-/// Shared Codex app-server process lifecycle pushed over SSE.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatAppServerLifecycle {
-    Stopped,
-    Starting,
-    Initializing,
-    Ready,
-    Stopping,
-    Fatal,
-}
-
-/// Host-scoped Codex app-server status.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatAppServerStatus {
-    pub lifecycle: ChatAppServerLifecycle,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_error: Option<String>,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-}
-
-/// Per-conversation Codex thread stream resume state.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ChatThreadStreamResumeState {
-    NotStarted,
-    NeedsResume,
-    Resuming,
-    Resumed,
-}
-
-/// Live stream status for one Codex thread.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatThreadStreamStatus {
-    pub conversation_id: String,
-    pub session_id: String,
-    pub project_id: String,
-    pub worktree_id: String,
-    pub resume_state: ChatThreadStreamResumeState,
-    pub lifecycle: ChatRuntimeLifecycle,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_run_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_message_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_thread_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number | null")]
-    pub inactive_deadline_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_error: Option<String>,
-    #[ts(type = "number")]
-    pub updated_at: u64,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatCreateOptions {
@@ -922,115 +72,39 @@ pub enum ChatConversationListScope {
     Project,
 }
 
-/// Chat settings owned by the backend.
-//
-// Serde defaults tolerate missing fields in the settings TOML file, while
-// `schema(required = true)` keeps the API contract required because the
-// server always serializes every field in responses and SSE snapshots.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatSettings {
-    #[serde(default = "default_chat_idle_timeout_minutes")]
-    #[schema(required = true)]
-    pub idle_timeout_minutes: u32,
-    #[serde(default)]
-    #[schema(required = true)]
-    pub ui_style: ChatUiStyle,
-    #[serde(default)]
-    #[schema(required = true)]
-    pub copilotkit_theme_mode: CopilotKitThemeMode,
-}
-
-/// Chat UI implementation selected by the user.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
-#[serde(rename_all = "camelCase")]
-pub enum ChatUiStyle {
-    #[default]
-    Classic,
-    Copilotkit,
-}
-
-impl ChatUiStyle {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Classic => "classic",
-            Self::Copilotkit => "copilotkit",
-        }
-    }
-}
-
-/// CopilotKit visual theme mode selected by the user.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
-#[serde(rename_all = "camelCase")]
-pub enum CopilotKitThemeMode {
-    #[default]
-    Hubris,
-    Stock,
-}
-
-impl CopilotKitThemeMode {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Hubris => "hubris",
-            Self::Stock => "stock",
-        }
-    }
-}
-
-/// Conversation-level model preferences that apply to future turns.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatConversationSettingsPatch {
-    pub selected_model: Option<String>,
-    pub selected_effort: Option<ChatReasoningEffort>,
-    pub selected_permission_mode: Option<ChatPermissionMode>,
-}
-
-impl Default for ChatSettings {
-    fn default() -> Self {
-        Self {
-            idle_timeout_minutes: default_chat_idle_timeout_minutes(),
-            ui_style: ChatUiStyle::default(),
-            copilotkit_theme_mode: CopilotKitThemeMode::default(),
-        }
-    }
-}
-
-fn default_chat_idle_timeout_minutes() -> u32 {
-    DEFAULT_IDLE_TIMEOUT_MINUTES
-}
-
 pub fn clamp_chat_idle_timeout_minutes(value: u32) -> u32 {
     value.max(1)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChatErrorKind {
+    BadRequest,
+    NotFound,
+    Conflict,
+    Internal,
+    Upstream,
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("{message}")]
 pub struct ChatServiceError {
-    pub status: StatusCode,
+    pub(crate) kind: ChatErrorKind,
     pub message: String,
 }
 
 impl ChatServiceError {
-    pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: ChatErrorKind, message: impl Into<String>) -> Self {
         Self {
-            status,
+            kind,
             message: message.into(),
         }
     }
 }
 
-impl fmt::Display for ChatServiceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for ChatServiceError {}
-
 impl From<sqlx::Error> for ChatServiceError {
     fn from(value: sqlx::Error) -> Self {
         Self::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
+            ChatErrorKind::Internal,
             format!("chat database error: {value}"),
         )
     }
@@ -1218,26 +292,26 @@ impl CodexAppServerClient {
             .spawn()
             .map_err(|error| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     format!("failed to start codex app-server: {error}"),
                 )
             })?;
 
         let stdin = child.stdin.take().ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "codex app-server stdin unavailable",
             )
         })?;
         let stdout = child.stdout.take().ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "codex app-server stdout unavailable",
             )
         })?;
         let stderr = child.stderr.take().ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "codex app-server stderr unavailable",
             )
         })?;
@@ -1332,7 +406,7 @@ impl CodexAppServerClient {
                                 let mut pending = client.pending.lock().await;
                                 if let Some(reply) = pending.remove(&id) {
                                     let result = if let Some(message) = error_message {
-                                        Err(ChatServiceError::new(StatusCode::BAD_GATEWAY, message))
+                                        Err(ChatServiceError::new(ChatErrorKind::Upstream, message))
                                     } else {
                                         Ok(result)
                                     };
@@ -1368,7 +442,7 @@ impl CodexAppServerClient {
             let mut pending = client.pending.lock().await;
             for (_, reply) in pending.drain() {
                 let _ = reply.send(Err(ChatServiceError::new(
-                    StatusCode::BAD_GATEWAY,
+                    ChatErrorKind::Upstream,
                     "codex app-server disconnected",
                 )));
             }
@@ -1421,7 +495,7 @@ impl CodexAppServerClient {
         self.write_payload(&payload).await?;
         reply_rx.await.map_err(|_| {
             ChatServiceError::new(
-                StatusCode::BAD_GATEWAY,
+                ChatErrorKind::Upstream,
                 "codex app-server response channel closed",
             )
         })?
@@ -1448,26 +522,26 @@ impl CodexAppServerClient {
     async fn write_payload(&self, payload: &Value) -> Result<(), ChatServiceError> {
         let encoded = serde_json::to_vec(payload).map_err(|error| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 format!("failed to encode codex app-server payload: {error}"),
             )
         })?;
         let mut stdin = self.stdin.lock().await;
         stdin.write_all(&encoded).await.map_err(|error| {
             ChatServiceError::new(
-                StatusCode::BAD_GATEWAY,
+                ChatErrorKind::Upstream,
                 format!("failed to write to codex app-server: {error}"),
             )
         })?;
         stdin.write_all(b"\n").await.map_err(|error| {
             ChatServiceError::new(
-                StatusCode::BAD_GATEWAY,
+                ChatErrorKind::Upstream,
                 format!("failed to write to codex app-server: {error}"),
             )
         })?;
         stdin.flush().await.map_err(|error| {
             ChatServiceError::new(
-                StatusCode::BAD_GATEWAY,
+                ChatErrorKind::Upstream,
                 format!("failed to flush codex app-server stdin: {error}"),
             )
         })?;
@@ -1604,7 +678,7 @@ impl CodexAppServerManager {
     async fn respond_result(&self, id: Value, result: Value) -> Result<(), ChatServiceError> {
         let Some(client) = self.client.lock().await.as_ref().cloned() else {
             return Err(ChatServiceError::new(
-                StatusCode::BAD_GATEWAY,
+                ChatErrorKind::Upstream,
                 "codex app-server is not running",
             ));
         };
@@ -1862,7 +936,8 @@ pub struct ChatService {
     pending_server_responders: DashMap<String, PendingServerResponder>,
     op_locks: DashMap<String, Arc<Mutex<()>>>,
     stream_owner_generation: AtomicU64,
-    app_event_loop_started: AtomicBool,
+    app_event_loop: Mutex<Option<JoinHandle<()>>>,
+    cancellation_token: CancellationToken,
 }
 
 struct ChatHistoryTable {
@@ -2166,6 +1241,7 @@ impl ChatService {
         legacy_state_db_path: &Path,
         events: Arc<crate::events::EventBus>,
         settings: Arc<SettingsManager>,
+        cancellation_token: CancellationToken,
     ) -> std::io::Result<Self> {
         if let Some(parent) = db_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -2201,7 +1277,8 @@ impl ChatService {
             pending_server_responders: DashMap::new(),
             op_locks: DashMap::new(),
             stream_owner_generation: AtomicU64::new(1),
-            app_event_loop_started: AtomicBool::new(false),
+            app_event_loop: Mutex::new(None),
+            cancellation_token,
         })
     }
 
@@ -2237,7 +1314,7 @@ impl ChatService {
 
         let conversation = self.get_conversation_summary(&id).await?.ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "created conversation missing from database",
             )
         })?;
@@ -2247,7 +1324,7 @@ impl ChatService {
         });
         self.get_conversation_summary(&id).await?.ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "created conversation missing from database",
             )
         })
@@ -2608,10 +1685,10 @@ impl ChatService {
         let existing = self
             .get_conversation_summary(conversation_id)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))?;
         if archived && self.conversation_has_active_work(conversation_id).await? {
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "chat has active work",
             ));
         }
@@ -2634,7 +1711,7 @@ impl ChatService {
         .await?;
         self.emit_conversation_updated(&existing.id)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))
     }
 
     /// Permanently delete one conversation and all related persisted state.
@@ -2647,10 +1724,10 @@ impl ChatService {
         let summary = self
             .get_conversation_summary(conversation_id)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))?;
         if self.conversation_has_active_work(conversation_id).await? {
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "chat has active work",
             ));
         }
@@ -3027,7 +2104,7 @@ impl ChatService {
             .bind(conversation_id)
             .fetch_optional(&mut *tx)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))?;
         if let Some(existing) = row
             .try_get::<Option<String>, _>("open_tab_id")
             .ok()
@@ -3265,7 +2342,7 @@ impl ChatService {
 
         self.emit_conversation_updated(conversation_id)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))
     }
 
     /// Persist a new user message, ensure a runtime exists, and start a turn.
@@ -3278,7 +2355,7 @@ impl ChatService {
         let text = text.trim().to_string();
         if text.is_empty() {
             return Err(ChatServiceError::new(
-                StatusCode::BAD_REQUEST,
+                ChatErrorKind::BadRequest,
                 "message cannot be empty",
             ));
         }
@@ -3288,10 +2365,10 @@ impl ChatService {
         let conversation = self
             .get_conversation_summary(conversation_id)
             .await?
-            .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))?;
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))?;
         if conversation.archived_at.is_some() {
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "chat is archived",
             ));
         }
@@ -3335,10 +2412,7 @@ impl ChatService {
             .provider_thread_id
             .clone()
             .ok_or_else(|| {
-                ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "chat runtime missing thread id",
-                )
+                ChatServiceError::new(ChatErrorKind::Internal, "chat runtime missing thread id")
             })?;
         let turn_params = build_turn_start_params(&thread_id, worktree_path, &text, &conversation);
 
@@ -3374,7 +2448,7 @@ impl ChatService {
             .runtimes
             .get(conversation_id)
             .map(|entry| entry.clone())
-            .ok_or_else(|| ChatServiceError::new(StatusCode::CONFLICT, "chat is not running"))?;
+            .ok_or_else(|| ChatServiceError::new(ChatErrorKind::Conflict, "chat is not running"))?;
         let thread_id = runtime
             .state
             .lock()
@@ -3382,7 +2456,7 @@ impl ChatService {
             .provider_thread_id
             .clone()
             .ok_or_else(|| {
-                ChatServiceError::new(StatusCode::CONFLICT, "chat runtime missing thread id")
+                ChatServiceError::new(ChatErrorKind::Conflict, "chat runtime missing thread id")
             })?;
         self.app_server
             .request("turn/interrupt", json!({ "threadId": thread_id }))
@@ -3408,7 +2482,7 @@ impl ChatService {
         };
 
         let client = self.app_server.ensure_client().await?;
-        self.ensure_provider_event_loop(client);
+        self.ensure_provider_event_loop(client).await;
         self.emit_app_server_status().await;
 
         let already_resumed = {
@@ -3504,16 +2578,25 @@ impl ChatService {
         Ok(runtime)
     }
 
-    fn ensure_provider_event_loop(self: &Arc<Self>, client: CodexAppServerConnectionRef) {
-        if self.app_event_loop_started.swap(true, Ordering::AcqRel) {
+    async fn ensure_provider_event_loop(self: &Arc<Self>, client: CodexAppServerConnectionRef) {
+        let mut event_loop = self.app_event_loop.lock().await;
+        if event_loop
+            .as_ref()
+            .is_some_and(|handle| !handle.is_finished())
+        {
             return;
         }
 
         let service = self.clone();
-        tokio::spawn(async move {
+        let cancellation_token = self.cancellation_token.clone();
+        *event_loop = Some(tokio::spawn(async move {
             let mut rx = client.subscribe();
             loop {
-                match rx.recv().await {
+                let event = tokio::select! {
+                    _ = cancellation_token.cancelled() => break,
+                    event = rx.recv() => event,
+                };
+                match event {
                     Ok(CodexStreamEvent::ServerRequest {
                         id,
                         method,
@@ -3610,22 +2693,14 @@ impl ChatService {
                         }
                     }
                     Ok(CodexStreamEvent::Closed { reason }) => {
-                        service
-                            .app_event_loop_started
-                            .store(false, Ordering::Release);
                         let _ = service.handle_provider_closed(reason).await;
                         break;
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(broadcast::error::RecvError::Closed) => {
-                        service
-                            .app_event_loop_started
-                            .store(false, Ordering::Release);
-                        break;
-                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
-        });
+        }));
     }
 
     async fn runtime_for_provider_event(
@@ -3945,7 +3020,7 @@ impl ChatService {
             .await?
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     "pending request missing after insert",
                 )
             })
@@ -4117,13 +3192,13 @@ impl ChatService {
             .await?
         else {
             return Err(ChatServiceError::new(
-                StatusCode::NOT_FOUND,
+                ChatErrorKind::NotFound,
                 "pending request not found",
             ));
         };
         if !matches!(existing.status, ChatPendingRequestStatus::Pending) {
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "pending request has already been resolved",
             ));
         }
@@ -4157,7 +3232,7 @@ impl ChatService {
             .map(|entry| entry.value().clone())
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::CONFLICT,
+                    ChatErrorKind::Conflict,
                     "codex request can no longer be answered",
                 )
             });
@@ -4185,7 +3260,7 @@ impl ChatService {
         };
         if responder.conversation_id != conversation_id {
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "pending request belongs to another conversation",
             ));
         }
@@ -4200,7 +3275,7 @@ impl ChatService {
             )
             .await?;
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "codex runtime is no longer available",
             ));
         };
@@ -4213,7 +3288,7 @@ impl ChatService {
             )
             .await?;
             return Err(ChatServiceError::new(
-                StatusCode::CONFLICT,
+                ChatErrorKind::Conflict,
                 "codex request can no longer be answered",
             ));
         }
@@ -4238,7 +3313,7 @@ impl ChatService {
                     .await?
                     .ok_or_else(|| {
                         ChatServiceError::new(
-                            StatusCode::INTERNAL_SERVER_ERROR,
+                            ChatErrorKind::Internal,
                             "pending request missing after resolution",
                         )
                     })?;
@@ -4262,7 +3337,7 @@ impl ChatService {
                     .await?
                     .ok_or_else(|| {
                         ChatServiceError::new(
-                            StatusCode::INTERNAL_SERVER_ERROR,
+                            ChatErrorKind::Internal,
                             "pending request missing after failed resolution",
                         )
                     })?;
@@ -5336,7 +4411,7 @@ impl ChatService {
             .await?
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     "chat reconciliation missing after pending update",
                 )
             })
@@ -5391,7 +4466,7 @@ impl ChatService {
             .await?
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     "reconciliation row missing after marking it running",
                 )
             })?;
@@ -6317,7 +5392,7 @@ impl ChatService {
             .await?
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     "chat message missing after reasoning update",
                 )
             })
@@ -6410,7 +5485,7 @@ impl ChatService {
         .await?;
         self.latest_run(conversation_id).await?.ok_or_else(|| {
             ChatServiceError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
+                ChatErrorKind::Internal,
                 "chat run missing after finalization",
             )
         })
@@ -7660,7 +6735,7 @@ impl ChatService {
             .await?
             .ok_or_else(|| {
                 ChatServiceError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ChatErrorKind::Internal,
                     "chat turn missing after finalization",
                 )
             })
@@ -8058,7 +7133,7 @@ fn provider_response_for_pending_request(
                     .or_else(|| payload.get("proposedExecpolicyAmendment").cloned())
                     .ok_or_else(|| {
                         ChatServiceError::new(
-                            StatusCode::BAD_REQUEST,
+                            ChatErrorKind::BadRequest,
                             "execpolicy amendment decision requires a value",
                         )
                     })?;
@@ -8076,7 +7151,7 @@ fn provider_response_for_pending_request(
                     .or_else(|| payload.get("proposedNetworkPolicyAmendments").cloned())
                     .ok_or_else(|| {
                         ChatServiceError::new(
-                            StatusCode::BAD_REQUEST,
+                            ChatErrorKind::BadRequest,
                             "network policy amendment decision requires a value",
                         )
                     })?;
@@ -8088,7 +7163,7 @@ fn provider_response_for_pending_request(
             }
             ChatPendingRequestDecision::Submit => {
                 return Err(ChatServiceError::new(
-                    StatusCode::BAD_REQUEST,
+                    ChatErrorKind::BadRequest,
                     "submit is only valid for structured input requests",
                 ));
             }
@@ -8104,7 +7179,7 @@ async fn request_session_id(
         .get_conversation_summary(conversation_id)
         .await?
         .map(|summary| summary.session_id)
-        .ok_or_else(|| ChatServiceError::new(StatusCode::NOT_FOUND, "chat not found"))
+        .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))
 }
 
 fn parse_pending_request_kind(kind: &str) -> ChatPendingRequestKind {
@@ -8581,7 +7656,7 @@ async fn start_provider_thread(
         .await?;
     let thread_id = extract_thread_id(&result).ok_or_else(|| {
         ChatServiceError::new(
-            StatusCode::BAD_GATEWAY,
+            ChatErrorKind::Upstream,
             "codex app-server did not return a thread id",
         )
     })?;
@@ -9208,7 +8283,7 @@ mod tests {
             app_server: Arc::new(CodexAppServerManager::new_for_tests(Arc::new(|| {
                 Box::pin(async {
                     Err(ChatServiceError::new(
-                        StatusCode::BAD_GATEWAY,
+                        ChatErrorKind::Upstream,
                         "test app-server factory should not be used",
                     ))
                 })
@@ -9221,7 +8296,8 @@ mod tests {
             pending_server_responders: DashMap::new(),
             op_locks: DashMap::new(),
             stream_owner_generation: AtomicU64::new(1),
-            app_event_loop_started: AtomicBool::new(false),
+            app_event_loop: Mutex::new(None),
+            cancellation_token: CancellationToken::new(),
         })
     }
 
@@ -10554,6 +9630,57 @@ mod tests {
         fn lifecycle_state<'a>(&'a self) -> CodexAppServerFuture<'a, AppServerProcessState> {
             Box::pin(async { AppServerProcessState::Ready })
         }
+    }
+
+    async fn wait_for_provider_event_loop(
+        service: &ChatService,
+        connection: &FakeCodexConnection,
+        finished: bool,
+    ) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let handle_finished = service
+                    .app_event_loop
+                    .lock()
+                    .await
+                    .as_ref()
+                    .is_some_and(JoinHandle::is_finished);
+                let receiver_ready = connection.stream_events.receiver_count() == 1;
+                if handle_finished == finished && (finished || receiver_ready) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("provider event loop did not reach the expected state");
+    }
+
+    #[tokio::test]
+    async fn provider_event_loop_restarts_after_closed_event() {
+        let service = test_service().await;
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let connection = Arc::new(FakeCodexConnection::new(requests));
+
+        service.ensure_provider_event_loop(connection.clone()).await;
+        wait_for_provider_event_loop(&service, &connection, false).await;
+        connection
+            .stream_events
+            .send(CodexStreamEvent::Closed {
+                reason: "first connection closed".to_string(),
+            })
+            .unwrap();
+        wait_for_provider_event_loop(&service, &connection, true).await;
+
+        service.ensure_provider_event_loop(connection.clone()).await;
+        wait_for_provider_event_loop(&service, &connection, false).await;
+        connection
+            .stream_events
+            .send(CodexStreamEvent::Closed {
+                reason: "second connection closed".to_string(),
+            })
+            .unwrap();
+        wait_for_provider_event_loop(&service, &connection, true).await;
     }
 
     #[tokio::test]

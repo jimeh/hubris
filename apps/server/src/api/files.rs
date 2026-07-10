@@ -7,7 +7,6 @@ use std::time::UNIX_EPOCH;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -19,6 +18,7 @@ use crate::api::monaco_languages_generated::{
     MonacoFirstLineRule,
 };
 use crate::api::worktrees::{ResolvedWorktree, resolve_worktree};
+use crate::error::ApiError;
 use crate::fs_sync::sync_parent_directory;
 use crate::git::{GitCommitDiffError, GitDiffBlobContent, GitDiffBlobSource};
 use crate::state::AppState;
@@ -26,6 +26,8 @@ use crate::tab::GitDiffScope;
 use crate::worktree_path_policy::{
     DISALLOWED_PATH_MESSAGE, WorktreePathPolicy, WorktreePathPolicyError,
 };
+
+pub use crate::error::ApiErrorResponse;
 
 const MAX_TEXT_FILE_BYTES: u64 = 1024 * 1024;
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -132,11 +134,6 @@ pub struct WriteWorktreeFileContentResponse {
     pub version_token: String,
 }
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct ApiErrorResponse {
-    pub message: String,
-}
-
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 #[into_params(parameter_in = Query)]
 pub struct WorktreeGitDiffParams {
@@ -188,33 +185,6 @@ struct OptionalWorktreeDiffSide {
     version_token: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct FileApiError {
-    status: StatusCode,
-    message: String,
-}
-
-impl FileApiError {
-    fn new(status: StatusCode, message: impl Into<String>) -> Self {
-        Self {
-            status,
-            message: message.into(),
-        }
-    }
-}
-
-impl IntoResponse for FileApiError {
-    fn into_response(self) -> Response {
-        (
-            self.status,
-            Json(ApiErrorResponse {
-                message: self.message,
-            }),
-        )
-            .into_response()
-    }
-}
-
 #[utoipa::path(
     get,
     path = "/api/files",
@@ -229,36 +199,42 @@ impl IntoResponse for FileApiError {
 )]
 pub async fn list_files(
     Query(params): Query<ListFilesParams>,
-) -> Result<Json<ListFilesResponse>, StatusCode> {
+) -> Result<Json<ListFilesResponse>, ApiError> {
     let home = dirs::home_dir();
 
     let dir = match &params.path {
         Some(path) if !path.is_empty() => PathBuf::from(path),
-        _ => home.clone().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
+        _ => home
+            .clone()
+            .ok_or_else(|| ApiError::internal("Internal server error."))?,
     };
 
-    let dir = tokio::fs::canonicalize(&dir).await.map_err(map_io_status)?;
-
-    let meta = tokio::fs::metadata(&dir)
+    let dir = tokio::fs::canonicalize(&dir)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_io_file_error)?;
+
+    let meta = tokio::fs::metadata(&dir).await.map_err(|error| {
+        tracing::warn!(error = %error, "failed to read directory metadata");
+        ApiError::internal("Internal server error.")
+    })?;
     if !meta.is_dir() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid path."));
     }
 
-    let mut read_dir = tokio::fs::read_dir(&dir)
-        .await
-        .map_err(|error| match error.kind() {
-            std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+    let mut read_dir = tokio::fs::read_dir(&dir).await.map_err(|error| {
+        tracing::warn!(error = %error, "failed to open directory listing");
+        if error.kind() == std::io::ErrorKind::PermissionDenied {
+            ApiError::forbidden("Permission denied.")
+        } else {
+            ApiError::internal("Internal server error.")
+        }
+    })?;
 
     let mut entries = Vec::new();
-    while let Some(entry) = read_dir
-        .next_entry()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    {
+    while let Some(entry) = read_dir.next_entry().await.map_err(|error| {
+        tracing::warn!(error = %error, "failed to read directory entry");
+        ApiError::internal("Internal server error.")
+    })? {
         let name = entry.file_name().to_string_lossy().to_string();
         if !params.show_hidden && name.starts_with('.') {
             continue;
@@ -266,7 +242,10 @@ pub async fn list_files(
 
         let file_type = match entry.file_type().await {
             Ok(file_type) => file_type,
-            Err(_) => continue,
+            Err(error) => {
+                tracing::warn!(error = %error, "failed to inspect directory entry");
+                continue;
+            }
         };
         if !file_type.is_dir() {
             continue;
@@ -275,7 +254,10 @@ pub async fn list_files(
         let git_path = entry.path().join(".git");
         let is_git_repo = match tokio::fs::metadata(&git_path).await {
             Ok(metadata) => metadata.is_dir() || metadata.is_file(),
-            Err(_) => false,
+            Err(error) => {
+                tracing::debug!(error = %error, "directory has no readable git metadata");
+                false
+            }
         };
         entries.push(DirEntry { name, is_git_repo });
     }
@@ -313,7 +295,7 @@ pub async fn list_project_worktree_files(
     State(state): State<AppState>,
     AxumPath((project_id, worktree_id)): AxumPath<(String, String)>,
     Query(params): Query<ListWorktreeFilesParams>,
-) -> Result<Json<ListWorktreeFilesResponse>, StatusCode> {
+) -> Result<Json<ListWorktreeFilesResponse>, ApiError> {
     let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
 
     state
@@ -321,7 +303,7 @@ pub async fn list_project_worktree_files(
         .list_directory(&resolved, &params.path)
         .await
         .map(Json)
-        .map_err(map_worktree_file_error)
+        .map_err(map_worktree_file_api_error)
 }
 
 #[utoipa::path(
@@ -348,10 +330,8 @@ pub async fn get_project_worktree_file_content(
     State(state): State<AppState>,
     AxumPath((project_id, worktree_id)): AxumPath<(String, String)>,
     Query(params): Query<WorktreeFileContentParams>,
-) -> Result<Json<WorktreeFileContentResponse>, FileApiError> {
-    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id)
-        .await
-        .map_err(map_status_to_file_error)?;
+) -> Result<Json<WorktreeFileContentResponse>, ApiError> {
+    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
     let policy = WorktreePathPolicy::from_resolved(&resolved)
         .await
         .map_err(map_policy_build_error)?;
@@ -393,10 +373,8 @@ pub async fn put_project_worktree_file_content(
     State(state): State<AppState>,
     AxumPath((project_id, worktree_id)): AxumPath<(String, String)>,
     Json(request): Json<WriteWorktreeFileContentRequest>,
-) -> Result<Json<WriteWorktreeFileContentResponse>, FileApiError> {
-    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id)
-        .await
-        .map_err(map_status_to_file_error)?;
+) -> Result<Json<WriteWorktreeFileContentResponse>, ApiError> {
+    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
     let policy = WorktreePathPolicy::from_resolved(&resolved)
         .await
         .map_err(map_policy_build_error)?;
@@ -408,7 +386,10 @@ pub async fn put_project_worktree_file_content(
         .map_err(map_io_file_error)?;
     let metadata = file.metadata().await.map_err(map_io_file_error)?;
     if !metadata.is_file() {
-        return Err(FileApiError::new(StatusCode::NOT_FOUND, "File not found."));
+        return Err(ApiError::with_status(
+            StatusCode::NOT_FOUND,
+            "File not found.",
+        ));
     }
     if metadata.len() > MAX_TEXT_FILE_BYTES {
         return Err(unsupported_file_error());
@@ -420,7 +401,7 @@ pub async fn put_project_worktree_file_content(
         .map_err(map_io_file_error)?;
     let current_token = version_token(&current_bytes, &metadata);
     if current_token != request.expected_version_token {
-        return Err(FileApiError::new(
+        return Err(ApiError::with_status(
             StatusCode::CONFLICT,
             "File changed on disk.",
         ));
@@ -445,15 +426,13 @@ pub async fn put_project_worktree_file_content(
         &current_token,
         request.content.as_bytes(),
     )
-    .await
-    .map_err(map_status_to_file_error)?;
+    .await?;
 
     state
         .worktree_files
         .invalidate_relative_paths(&resolved, std::slice::from_ref(&path))
         .await
-        .map_err(map_worktree_file_error)
-        .map_err(map_status_to_file_error)?;
+        .map_err(map_worktree_file_api_error)?;
 
     Ok(Json(WriteWorktreeFileContentResponse {
         path,
@@ -485,10 +464,8 @@ pub async fn get_project_worktree_git_diff(
     State(state): State<AppState>,
     AxumPath((project_id, worktree_id)): AxumPath<(String, String)>,
     Query(params): Query<WorktreeGitDiffParams>,
-) -> Result<Json<WorktreeGitDiffResponse>, FileApiError> {
-    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id)
-        .await
-        .map_err(map_status_to_file_error)?;
+) -> Result<Json<WorktreeGitDiffResponse>, ApiError> {
+    let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
     let path = normalize_relative_path(&params.path)?;
     let original_path = params
         .original_path
@@ -505,7 +482,7 @@ pub async fn get_project_worktree_git_diff(
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| {
-                    FileApiError::new(
+                    ApiError::with_status(
                         StatusCode::BAD_REQUEST,
                         "commit_id is required for commit diffs.",
                     )
@@ -634,14 +611,14 @@ pub async fn rename_project_worktree_file(
     State(state): State<AppState>,
     AxumPath((project_id, worktree_id)): AxumPath<(String, String)>,
     Json(request): Json<RenameWorktreeFileRequest>,
-) -> Result<Json<RenameWorktreeFileResponse>, StatusCode> {
+) -> Result<Json<RenameWorktreeFileResponse>, ApiError> {
     let resolved = resolve_project_worktree(&state, &project_id, &worktree_id).await?;
 
     let path = state
         .worktree_files
         .rename_entry(&resolved, &request.path, &request.new_name)
         .await
-        .map_err(map_worktree_file_error)?;
+        .map_err(map_worktree_file_api_error)?;
 
     Ok(Json(RenameWorktreeFileResponse { path }))
 }
@@ -650,28 +627,27 @@ async fn resolve_project_worktree(
     state: &AppState,
     project_id: &str,
     worktree_id: &str,
-) -> Result<ResolvedWorktree, StatusCode> {
+) -> Result<ResolvedWorktree, ApiError> {
     let resolved = resolve_worktree(state, worktree_id)
-        .await?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .await
+        .map_err(|error| {
+            tracing::debug!(error = %error, "failed to resolve worktree for file request");
+            map_status_to_file_error(error.status())
+        })?
+        .ok_or_else(|| ApiError::not_found("Project, worktree, or file not found."))?;
     if resolved.project_id != project_id {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::not_found("Project, worktree, or file not found."));
     }
     Ok(resolved)
 }
 
-fn map_io_status(error: std::io::Error) -> StatusCode {
-    match error.kind() {
-        std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
-        std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
-        _ => StatusCode::INTERNAL_SERVER_ERROR,
-    }
-}
-
-fn normalize_relative_path(raw: &str) -> Result<String, FileApiError> {
+fn normalize_relative_path(raw: &str) -> Result<String, ApiError> {
     let trimmed = raw.trim_matches('/');
     if trimmed.is_empty() || trimmed.contains('\0') {
-        return Err(FileApiError::new(StatusCode::BAD_REQUEST, "Invalid path."));
+        return Err(ApiError::with_status(
+            StatusCode::BAD_REQUEST,
+            "Invalid path.",
+        ));
     }
 
     let mut segments = Vec::new();
@@ -682,7 +658,10 @@ fn normalize_relative_path(raw: &str) -> Result<String, FileApiError> {
             || segment.contains('\\')
             || segment.contains(':')
         {
-            return Err(FileApiError::new(StatusCode::BAD_REQUEST, "Invalid path."));
+            return Err(ApiError::with_status(
+                StatusCode::BAD_REQUEST,
+                "Invalid path.",
+            ));
         }
         segments.push(segment);
     }
@@ -693,7 +672,7 @@ fn normalize_relative_path(raw: &str) -> Result<String, FileApiError> {
 async fn resolve_existing_file_path(
     policy: &WorktreePathPolicy,
     raw_path: &str,
-) -> Result<(String, PathBuf), FileApiError> {
+) -> Result<(String, PathBuf), ApiError> {
     let path = normalize_relative_path(raw_path)?;
     let canonical = policy
         .resolve_existing(&path)
@@ -822,16 +801,20 @@ fn version_token(bytes: &[u8], metadata: &std::fs::Metadata) -> String {
     format!("{:016x}", hasher.finish())
 }
 
-fn validate_existing_text_file_for_write(bytes: &[u8]) -> Result<(), FileApiError> {
-    std::str::from_utf8(bytes)
-        .map(|_| ())
-        .map_err(|_| unsupported_file_error())
+fn validate_existing_text_file_for_write(bytes: &[u8]) -> Result<(), ApiError> {
+    std::str::from_utf8(bytes).map(|_| ()).map_err(|error| {
+        tracing::warn!(error = %error, "file is not valid UTF-8");
+        unsupported_file_error()
+    })
 }
 
-async fn load_text_file(path: &Path, relative_path: &str) -> Result<LoadedTextFile, FileApiError> {
+async fn load_text_file(path: &Path, relative_path: &str) -> Result<LoadedTextFile, ApiError> {
     let metadata = fs::metadata(path).await.map_err(map_io_file_error)?;
     if !metadata.is_file() {
-        return Err(FileApiError::new(StatusCode::NOT_FOUND, "File not found."));
+        return Err(ApiError::with_status(
+            StatusCode::NOT_FOUND,
+            "File not found.",
+        ));
     }
 
     if metadata.len() > MAX_TEXT_FILE_BYTES {
@@ -872,30 +855,30 @@ async fn write_worktree_file_atomically(
     original_metadata: &std::fs::Metadata,
     original_token: &str,
     contents: &[u8],
-) -> Result<std::fs::Metadata, StatusCode> {
+) -> Result<std::fs::Metadata, ApiError> {
     let temp_path = temp_worktree_file_path(path);
     let mut file = OpenOptions::new()
         .create_new(true)
         .write(true)
         .open(&temp_path)
         .await
-        .map_err(map_io_status)?;
+        .map_err(map_io_write_error)?;
 
     if let Err(error) = fs::set_permissions(&temp_path, original_metadata.permissions()).await {
         let _ = fs::remove_file(&temp_path).await;
-        return Err(map_io_status(error));
+        return Err(map_io_write_error(error));
     }
     if let Err(error) = file.write_all(contents).await {
         let _ = fs::remove_file(&temp_path).await;
-        return Err(map_io_status(error));
+        return Err(map_io_write_error(error));
     }
     if let Err(error) = file.flush().await {
         let _ = fs::remove_file(&temp_path).await;
-        return Err(map_io_status(error));
+        return Err(map_io_write_error(error));
     }
     if let Err(error) = file.sync_all().await {
         let _ = fs::remove_file(&temp_path).await;
-        return Err(map_io_status(error));
+        return Err(map_io_write_error(error));
     }
     drop(file);
 
@@ -903,35 +886,35 @@ async fn write_worktree_file_atomically(
         Ok(metadata) => metadata,
         Err(error) => {
             let _ = fs::remove_file(&temp_path).await;
-            return Err(map_io_status(error));
+            return Err(map_io_write_error(error));
         }
     };
     if !current_metadata.is_file() || current_metadata.len() > MAX_TEXT_FILE_BYTES {
         let _ = fs::remove_file(&temp_path).await;
-        return Err(StatusCode::CONFLICT);
+        return Err(ApiError::conflict("File changed on disk."));
     }
 
     let current_bytes = match fs::read(path).await {
         Ok(bytes) => bytes,
         Err(error) => {
             let _ = fs::remove_file(&temp_path).await;
-            return Err(map_io_status(error));
+            return Err(map_io_write_error(error));
         }
     };
     if version_token(&current_bytes, &current_metadata) != original_token {
         let _ = fs::remove_file(&temp_path).await;
-        return Err(StatusCode::CONFLICT);
+        return Err(ApiError::conflict("File changed on disk."));
     }
 
     if let Err(error) = fs::rename(&temp_path, path).await {
         let _ = fs::remove_file(&temp_path).await;
-        return Err(map_io_status(error));
+        return Err(map_io_write_error(error));
     }
     if let Err(error) = sync_parent_directory(path).await {
-        return Err(map_io_status(error));
+        return Err(map_io_write_error(error));
     }
 
-    fs::metadata(path).await.map_err(map_io_status)
+    fs::metadata(path).await.map_err(map_io_write_error)
 }
 
 fn temp_worktree_file_path(path: &Path) -> PathBuf {
@@ -952,11 +935,12 @@ async fn load_git_diff_side(
     worktree_path: &str,
     source: GitDiffBlobSource,
     path: &str,
-) -> Result<DiffSideContent, FileApiError> {
+) -> Result<DiffSideContent, ApiError> {
     match crate::git::read_diff_blob(Path::new(worktree_path), source, path, MAX_TEXT_FILE_BYTES)
         .await
-        .map_err(|_| {
-            FileApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
+        .map_err(|error| {
+            tracing::warn!(error = ?error, "failed to read git diff blob");
+            ApiError::with_status(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
         })? {
         GitDiffBlobContent::Missing => Ok(DiffSideContent::Text(String::new())),
         GitDiffBlobContent::Text(content) => Ok(DiffSideContent::Text(content)),
@@ -969,7 +953,7 @@ async fn load_commit_diff_side(
     commit_id: &str,
     use_parent: bool,
     path: &str,
-) -> Result<DiffSideContent, FileApiError> {
+) -> Result<DiffSideContent, ApiError> {
     match crate::git::read_commit_diff_blob(
         Path::new(worktree_path),
         commit_id,
@@ -978,12 +962,15 @@ async fn load_commit_diff_side(
         MAX_TEXT_FILE_BYTES,
     )
     .await
-    .map_err(|error| match error {
-        GitCommitDiffError::NotFound => {
-            FileApiError::new(StatusCode::NOT_FOUND, "Commit not found.")
-        }
-        GitCommitDiffError::Internal => {
-            FileApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
+    .map_err(|error| {
+        tracing::warn!(error = ?error, "failed to read commit diff blob");
+        match error {
+            GitCommitDiffError::NotFound => {
+                ApiError::with_status(StatusCode::NOT_FOUND, "Commit not found.")
+            }
+            GitCommitDiffError::Internal => {
+                ApiError::with_status(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
+            }
         }
     })? {
         GitDiffBlobContent::Missing => Ok(DiffSideContent::Text(String::new())),
@@ -995,7 +982,7 @@ async fn load_commit_diff_side(
 async fn load_optional_worktree_diff_side(
     policy: &WorktreePathPolicy,
     path: &str,
-) -> Result<OptionalWorktreeDiffSide, FileApiError> {
+) -> Result<OptionalWorktreeDiffSide, ApiError> {
     let path = normalize_relative_path(path)?;
     let canonical_candidate = match policy.resolve_optional(&path).await {
         Ok(Some(canonical_candidate)) => canonical_candidate,
@@ -1012,7 +999,10 @@ async fn load_optional_worktree_diff_side(
         .await
         .map_err(map_io_file_error)?;
     if !metadata.is_file() {
-        return Err(FileApiError::new(StatusCode::NOT_FOUND, "Diff not found."));
+        return Err(ApiError::with_status(
+            StatusCode::NOT_FOUND,
+            "Diff not found.",
+        ));
     }
     if metadata.len() > MAX_TEXT_FILE_BYTES {
         return Ok(OptionalWorktreeDiffSide {
@@ -1042,14 +1032,19 @@ async fn load_optional_worktree_diff_side(
                 version_token: Some(next_version_token),
             })
         }
-        Err(_) => Ok(OptionalWorktreeDiffSide {
-            content: DiffSideContent::Unsupported("Binary diffs are not supported.".to_string()),
-            version_token: None,
-        }),
+        Err(error) => {
+            tracing::debug!(error = %error, "diff side is not valid UTF-8");
+            Ok(OptionalWorktreeDiffSide {
+                content: DiffSideContent::Unsupported(
+                    "Binary diffs are not supported.".to_string(),
+                ),
+                version_token: None,
+            })
+        }
     }
 }
 
-fn map_status_to_file_error(status: StatusCode) -> FileApiError {
+fn map_status_to_file_error(status: StatusCode) -> ApiError {
     let message = match status {
         StatusCode::NOT_FOUND => "Project, worktree, or file not found.",
         StatusCode::FORBIDDEN => "Permission denied.",
@@ -1057,55 +1052,75 @@ fn map_status_to_file_error(status: StatusCode) -> FileApiError {
         StatusCode::BAD_REQUEST => "Invalid path.",
         _ => "Internal server error.",
     };
-    FileApiError::new(status, message)
+    ApiError::with_status(status, message)
 }
 
-fn map_policy_build_error(error: WorktreePathPolicyError) -> FileApiError {
+fn map_policy_build_error(error: WorktreePathPolicyError) -> ApiError {
+    tracing::warn!(error = ?error, "failed to build worktree path policy");
     match error {
         WorktreePathPolicyError::NotFound => {
-            FileApiError::new(StatusCode::NOT_FOUND, "Project or worktree not found.")
+            ApiError::with_status(StatusCode::NOT_FOUND, "Project or worktree not found.")
         }
         WorktreePathPolicyError::PermissionDenied => {
-            FileApiError::new(StatusCode::FORBIDDEN, "Permission denied.")
+            ApiError::with_status(StatusCode::FORBIDDEN, "Permission denied.")
         }
         WorktreePathPolicyError::Denied => {
-            FileApiError::new(StatusCode::FORBIDDEN, DISALLOWED_PATH_MESSAGE)
+            ApiError::with_status(StatusCode::FORBIDDEN, DISALLOWED_PATH_MESSAGE)
         }
         WorktreePathPolicyError::Internal => {
-            FileApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
+            ApiError::with_status(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
         }
     }
 }
 
-fn map_path_policy_error(error: WorktreePathPolicyError) -> FileApiError {
+fn map_path_policy_error(error: WorktreePathPolicyError) -> ApiError {
+    tracing::warn!(error = ?error, "worktree path policy rejected path");
     match error {
         WorktreePathPolicyError::NotFound => {
-            FileApiError::new(StatusCode::NOT_FOUND, "File not found.")
+            ApiError::with_status(StatusCode::NOT_FOUND, "File not found.")
         }
         WorktreePathPolicyError::PermissionDenied => {
-            FileApiError::new(StatusCode::FORBIDDEN, "Permission denied.")
+            ApiError::with_status(StatusCode::FORBIDDEN, "Permission denied.")
         }
         WorktreePathPolicyError::Denied => {
-            FileApiError::new(StatusCode::FORBIDDEN, DISALLOWED_PATH_MESSAGE)
+            ApiError::with_status(StatusCode::FORBIDDEN, DISALLOWED_PATH_MESSAGE)
         }
         WorktreePathPolicyError::Internal => {
-            FileApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
+            ApiError::with_status(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
         }
     }
 }
 
-fn map_io_file_error(error: std::io::Error) -> FileApiError {
+fn map_io_file_error(error: std::io::Error) -> ApiError {
+    tracing::warn!(error = %error, "file operation failed");
     match error.kind() {
-        std::io::ErrorKind::NotFound => FileApiError::new(StatusCode::NOT_FOUND, "File not found."),
-        std::io::ErrorKind::PermissionDenied => {
-            FileApiError::new(StatusCode::FORBIDDEN, "Permission denied.")
+        std::io::ErrorKind::NotFound => {
+            ApiError::with_status(StatusCode::NOT_FOUND, "File not found.")
         }
-        _ => FileApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error."),
+        std::io::ErrorKind::PermissionDenied => {
+            ApiError::with_status(StatusCode::FORBIDDEN, "Permission denied.")
+        }
+        _ => ApiError::with_status(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error."),
     }
 }
 
-fn unsupported_file_error() -> FileApiError {
-    FileApiError::new(
+fn map_io_write_error(error: std::io::Error) -> ApiError {
+    tracing::warn!(error = %error, "file write operation failed");
+    let status = match error.kind() {
+        std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+        std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    map_status_to_file_error(status)
+}
+
+fn map_worktree_file_api_error(error: crate::worktree_files::WorktreeFileError) -> ApiError {
+    tracing::warn!(error = ?error, "worktree file operation failed");
+    map_status_to_file_error(map_worktree_file_error(error))
+}
+
+fn unsupported_file_error() -> ApiError {
+    ApiError::with_status(
         StatusCode::BAD_REQUEST,
         "Only editable text files can be saved.",
     )

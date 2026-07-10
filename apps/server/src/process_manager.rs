@@ -52,7 +52,8 @@ pub enum ManagedProcessActionErrorKind {
     Internal,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct ManagedProcessActionError {
     kind: ManagedProcessActionErrorKind,
     message: String,
@@ -93,14 +94,6 @@ impl ManagedProcessActionError {
         Self::new(ManagedProcessActionErrorKind::Internal, message)
     }
 }
-
-impl fmt::Display for ManagedProcessActionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for ManagedProcessActionError {}
 
 pub trait ManagedProcessController: Send + Sync {
     fn id(&self) -> &str;

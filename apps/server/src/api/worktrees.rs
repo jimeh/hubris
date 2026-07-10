@@ -12,36 +12,15 @@ use utoipa::{IntoParams, ToSchema};
 use crate::api::errors::map_worktree_file_error;
 use crate::api::projects::Project;
 use crate::api::settings::{Settings, WorktreeLocationMode};
+use crate::domain::worktree::{
+    ManagedWorktree, ProjectMeta, load_meta, local_worktree_id, normalize_meta,
+};
+pub use crate::domain::worktree::{Worktree, WorktreeUiMode, list_worktrees_for_project};
+use crate::error::ApiError;
 use crate::events::EventKind;
 use crate::git;
 use crate::state::AppState;
 use crate::worktree_state::WorktreeRestoreState;
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
-pub struct Worktree {
-    pub id: String,
-    pub project_id: String,
-    pub name: String,
-    pub path: String,
-    pub branch: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_ref: Option<String>,
-    pub ui_mode: WorktreeUiMode,
-    pub is_local: bool,
-    #[serde(default)]
-    pub is_imported: bool,
-    #[serde(default)]
-    pub missing_on_disk: bool,
-    pub position: f64,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum WorktreeUiMode {
-    #[default]
-    Hubris,
-    Vscode,
-}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ListWorktreesResponse {
@@ -145,19 +124,6 @@ pub struct ResolvedWorktree {
     pub worktree: Worktree,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct ManagedWorktree {
-    id: String,
-    path: String,
-    branch: String,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    source_ref: Option<String>,
-    #[serde(default)]
-    imported: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum GitFileChangeType {
@@ -238,37 +204,21 @@ enum GitPathAction {
     Discard,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct ProjectMeta {
-    #[serde(default)]
-    worktree_order: Vec<String>,
-    #[serde(default)]
-    managed_worktrees: Vec<ManagedWorktree>,
-    #[serde(default)]
-    worktree_ui_modes: HashMap<String, WorktreeUiMode>,
-}
-
-async fn load_meta(path: PathBuf) -> ProjectMeta {
-    match tokio::fs::read_to_string(path).await {
-        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-        Err(_) => ProjectMeta::default(),
-    }
-}
-
-async fn save_meta(
-    state: &AppState,
-    project_id: &str,
-    meta: &ProjectMeta,
-) -> Result<(), StatusCode> {
+async fn save_meta(state: &AppState, project_id: &str, meta: &ProjectMeta) -> Result<(), ApiError> {
     let dir = state.project_meta_dir();
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    tokio::fs::create_dir_all(&dir).await.map_err(|error| {
+        tracing::warn!(error = %error, "failed to create project metadata directory");
+        ApiError::internal("Internal server error.")
+    })?;
     let path = state.project_meta_file(project_id);
-    let body = serde_json::to_string_pretty(meta).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    tokio::fs::write(path, body)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    let body = serde_json::to_string_pretty(meta).map_err(|error| {
+        tracing::warn!(error = %error, "failed to serialize project metadata");
+        ApiError::internal("Internal server error.")
+    })?;
+    tokio::fs::write(path, body).await.map_err(|error| {
+        tracing::warn!(error = %error, "failed to write project metadata");
+        ApiError::internal("Internal server error.")
+    })
 }
 
 fn sanitize_segment(value: &str) -> String {
@@ -325,48 +275,6 @@ fn resolve_target_path(
     }
 }
 
-fn sort_non_local(mut non_local: Vec<Worktree>, order: &[String]) -> Vec<Worktree> {
-    let mut by_id: HashMap<String, Worktree> =
-        non_local.drain(..).map(|wt| (wt.id.clone(), wt)).collect();
-
-    let mut ordered = Vec::new();
-    for id in order {
-        if let Some(wt) = by_id.remove(id) {
-            ordered.push(wt);
-        }
-    }
-
-    let mut remaining: Vec<Worktree> = by_id.into_values().collect();
-    remaining.sort_by_key(|worktree| worktree.name.to_lowercase());
-    ordered.extend(remaining);
-    ordered
-}
-
-fn local_worktree_id(project: &Project) -> String {
-    git::worktree_id(PathBuf::from(&project.path).as_path())
-}
-
-fn normalize_meta(meta: &mut ProjectMeta, local_worktree_id: &str) {
-    let managed_ids: HashSet<String> = meta
-        .managed_worktrees
-        .iter()
-        .map(|wt| wt.id.clone())
-        .collect();
-    meta.worktree_order.retain(|id| managed_ids.contains(id));
-
-    let mut valid_ui_mode_ids = managed_ids;
-    valid_ui_mode_ids.insert(local_worktree_id.to_string());
-    meta.worktree_ui_modes
-        .retain(|id, _| valid_ui_mode_ids.contains(id));
-}
-
-fn worktree_ui_mode(meta: &ProjectMeta, worktree_id: &str) -> WorktreeUiMode {
-    meta.worktree_ui_modes
-        .get(worktree_id)
-        .copied()
-        .unwrap_or_default()
-}
-
 fn is_missing_worktree_error(message: &str) -> bool {
     let message = message.to_lowercase();
     message.contains("not a working tree")
@@ -375,73 +283,14 @@ fn is_missing_worktree_error(message: &str) -> bool {
         || message.contains("cannot find")
 }
 
-pub async fn list_worktrees_for_project(
-    state: &AppState,
-    project: &Project,
-) -> Result<Vec<Worktree>, String> {
-    let mut meta = load_meta(state.project_meta_file(&project.id)).await;
-    let local_id = local_worktree_id(project);
-    normalize_meta(&mut meta, &local_id);
-
-    let local_path_buf = PathBuf::from(&project.path);
-    let local_path = local_path_buf.to_string_lossy().to_string();
-    let local = Worktree {
-        id: local_id.clone(),
-        project_id: project.id.clone(),
-        name: "local".to_string(),
-        path: local_path,
-        branch: "local".to_string(),
-        source_ref: None,
-        ui_mode: worktree_ui_mode(&meta, &local_id),
-        is_local: true,
-        is_imported: false,
-        missing_on_disk: tokio::fs::metadata(&local_path_buf).await.is_err(),
-        position: 0.0,
-    };
-
-    let managed_worktrees = meta.managed_worktrees.clone();
-    let mut non_local = Vec::with_capacity(managed_worktrees.len());
-    for managed in managed_worktrees {
-        let managed_id = managed.id.clone();
-        let branch = managed.branch;
-        let name = managed.name.unwrap_or_else(|| branch.clone());
-        let path_buf = PathBuf::from(&managed.path);
-        non_local.push(Worktree {
-            id: managed_id.clone(),
-            project_id: project.id.clone(),
-            name,
-            path: managed.path,
-            branch,
-            source_ref: managed.source_ref,
-            ui_mode: worktree_ui_mode(&meta, &managed_id),
-            is_local: false,
-            is_imported: managed.imported,
-            missing_on_disk: tokio::fs::metadata(&path_buf).await.is_err(),
-            position: 0.0,
-        });
-    }
-
-    let mut ordered = vec![local];
-    ordered.extend(sort_non_local(non_local, &meta.worktree_order));
-
-    for (idx, wt) in ordered.iter_mut().enumerate() {
-        wt.position = (idx + 1) as f64;
-    }
-
-    Ok(ordered)
-}
-
 pub async fn resolve_worktree(
     state: &AppState,
     worktree_id: &str,
-) -> Result<Option<ResolvedWorktree>, StatusCode> {
+) -> Result<Option<ResolvedWorktree>, ApiError> {
     let projects = state.projects.list().await;
 
     for project in projects {
-        let worktrees = match list_worktrees_for_project(state, &project).await {
-            Ok(list) => list,
-            Err(_) => continue,
-        };
+        let worktrees = list_worktrees_for_project(state, &project).await;
 
         if let Some(worktree) = worktrees.into_iter().find(|w| w.id == worktree_id) {
             let local_root = PathBuf::from(&project.path);
@@ -457,10 +306,7 @@ pub async fn resolve_worktree(
     Ok(None)
 }
 
-pub async fn close_tabs_for_worktree(
-    state: &AppState,
-    worktree_id: &str,
-) -> Result<(), StatusCode> {
+pub async fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) -> Result<(), ApiError> {
     state.clear_worktree_runtime_state(worktree_id);
     let tab_ids: Vec<String> = state
         .tabs
@@ -481,7 +327,7 @@ pub async fn close_tabs_for_worktree(
                 "failed to clear closed chat tab id: {}",
                 error.message
             );
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            return Err(ApiError::internal("Internal server error."));
         }
         if let Some((_, tab)) = state.tabs.remove(&tab_id) {
             if tab.is_terminal()
@@ -543,15 +389,10 @@ pub async fn put_worktree_restore_state(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
     Json(request): Json<UpdateWorktreeRestoreStateRequest>,
-) -> StatusCode {
-    match resolve_worktree(&state, &worktree_id).await {
-        Ok(Some(resolved)) => {
-            if resolved.project_id != project_id {
-                return StatusCode::NOT_FOUND;
-            }
-        }
-        Ok(None) => return StatusCode::NOT_FOUND,
-        Err(status) => return status,
+) -> Result<StatusCode, ApiError> {
+    match resolve_worktree(&state, &worktree_id).await? {
+        Some(resolved) if resolved.project_id == project_id => {}
+        _ => return Err(ApiError::not_found("Worktree not found.")),
     }
 
     state.remember_worktree_project(&worktree_id, &project_id);
@@ -563,7 +404,7 @@ pub async fn put_worktree_restore_state(
         .persistence
         .update_restore_state(project_id, worktree_id, restore_state);
 
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -581,23 +422,18 @@ pub async fn put_worktree_restore_state(
 pub async fn list_project_worktrees(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
-) -> Result<Json<ListWorktreesResponse>, StatusCode> {
+) -> Result<Json<ListWorktreesResponse>, ApiError> {
     let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
 
-    match list_worktrees_for_project(&state, project).await {
-        Ok(worktrees) => Ok(Json(ListWorktreesResponse {
-            worktrees,
-            git_error: None,
-        })),
-        Err(err) => Ok(Json(ListWorktreesResponse {
-            worktrees: vec![],
-            git_error: Some(err),
-        })),
-    }
+    let worktrees = list_worktrees_for_project(&state, project).await;
+    Ok(Json(ListWorktreesResponse {
+        worktrees,
+        git_error: None,
+    }))
 }
 
 #[utoipa::path(
@@ -618,26 +454,24 @@ pub async fn update_project_worktree(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
     Json(req): Json<UpdateWorktreeRequest>,
-) -> Result<Json<Worktree>, StatusCode> {
+) -> Result<Json<Worktree>, ApiError> {
     let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|project| project.id == project_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
     let local_worktree_id = local_worktree_id(project);
 
-    let worktrees = list_worktrees_for_project(&state, project)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let worktrees = list_worktrees_for_project(&state, project).await;
     if !worktrees.iter().any(|worktree| worktree.id == worktree_id) {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::not_found("Project or worktree not found."));
     }
 
     let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     if let Some(name) = &req.name {
         let trimmed = name.trim();
         if trimmed.is_empty() {
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(ApiError::bad_request("Invalid worktree request."));
         }
         if let Some(managed) = meta
             .managed_worktrees
@@ -667,14 +501,12 @@ pub async fn update_project_worktree(
     normalize_meta(&mut meta, &local_worktree_id);
     save_meta(&state, &project.id, &meta).await?;
 
-    let updated_worktrees = list_worktrees_for_project(&state, project)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let updated_worktrees = list_worktrees_for_project(&state, project).await;
     let updated_worktree = updated_worktrees
         .iter()
         .find(|worktree| worktree.id == worktree_id)
         .cloned()
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
 
     state.events.emit(EventKind::ProjectWorktreesUpdated {
         project_id: project.id.clone(),
@@ -704,7 +536,7 @@ pub async fn create_project_worktree(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
     Json(req): Json<CreateWorktreeRequest>,
-) -> Result<(StatusCode, Json<Worktree>), StatusCode> {
+) -> Result<(StatusCode, Json<Worktree>), ApiError> {
     let branch = req.branch.trim();
     let start_point = req
         .start_point
@@ -718,25 +550,31 @@ pub async fn create_project_worktree(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     if !validate_branch(branch) {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid worktree request."));
     }
 
     let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
 
     let local_root = git::resolve_local_root(PathBuf::from(&project.path).as_path())
         .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+        .map_err(|error| {
+            tracing::warn!(error = %error, "failed to resolve project git root");
+            ApiError::bad_request("Invalid worktree request.")
+        })?;
 
     let settings = state.settings.get().await.settings;
     let target = resolve_target_path(&state, project, branch, &settings);
 
     git::create_worktree(&local_root, branch, &target, start_point)
         .await
-        .map_err(|_| StatusCode::CONFLICT)?;
+        .map_err(|error| {
+            tracing::warn!(error = %error, "failed to create worktree");
+            ApiError::conflict("Worktree creation conflict.")
+        })?;
 
     let canonical_target = tokio::fs::canonicalize(&target).await.unwrap_or(target);
     let created_id = git::worktree_id(&canonical_target);
@@ -770,9 +608,7 @@ pub async fn create_project_worktree(
     normalize_meta(&mut meta, &local_worktree_id(project));
     save_meta(&state, &project.id, &meta).await?;
 
-    let list = list_worktrees_for_project(&state, project)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let list = list_worktrees_for_project(&state, project).await;
 
     state
         .events
@@ -806,18 +642,21 @@ pub async fn create_project_worktree(
 pub async fn get_project_worktree_git_status(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
-) -> Result<Json<WorktreeGitStatusResponse>, StatusCode> {
+) -> Result<Json<WorktreeGitStatusResponse>, ApiError> {
     let resolved = resolve_worktree(&state, &worktree_id)
         .await?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
     if resolved.project_id != project_id {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::not_found("Project or worktree not found."));
     }
     let (generation, status) = state
         .worktree_files
         .read_git_status(&resolved)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            tracing::warn!(error = ?error, "failed to read worktree git status");
+            ApiError::internal("Internal server error.")
+        })?;
 
     Ok(Json(WorktreeGitStatusResponse {
         generation,
@@ -852,20 +691,27 @@ pub async fn get_project_worktree_git_status(
 pub async fn get_project_worktree_commit_details(
     State(state): State<AppState>,
     Path((project_id, worktree_id, commit_id)): Path<(String, String, String)>,
-) -> Result<Json<GitCommitDetailsResponse>, StatusCode> {
+) -> Result<Json<GitCommitDetailsResponse>, ApiError> {
     let resolved = resolve_worktree(&state, &worktree_id)
         .await?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
     if resolved.project_id != project_id {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::not_found("Project or worktree not found."));
     }
 
     let details =
         git::read_commit_details(std::path::Path::new(&resolved.worktree.path), &commit_id)
             .await
-            .map_err(|error| match error {
-                git::GitCommitDetailsError::NotFound => StatusCode::NOT_FOUND,
-                git::GitCommitDetailsError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            .map_err(|error| {
+                tracing::warn!(error = ?error, "failed to read worktree commit details");
+                match error {
+                    git::GitCommitDetailsError::NotFound => {
+                        ApiError::not_found("Commit not found.")
+                    }
+                    git::GitCommitDetailsError::Internal => {
+                        ApiError::internal("Internal server error.")
+                    }
+                }
             })?;
 
     Ok(Json(GitCommitDetailsResponse {
@@ -907,7 +753,7 @@ pub async fn stage_project_worktree_path(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
     Json(request): Json<WorktreeGitPathActionRequest>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     perform_git_path_action(
         state,
         project_id,
@@ -939,7 +785,7 @@ pub async fn unstage_project_worktree_path(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
     Json(request): Json<WorktreeGitPathActionRequest>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     perform_git_path_action(
         state,
         project_id,
@@ -971,7 +817,7 @@ pub async fn discard_project_worktree_path(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
     Json(request): Json<WorktreeGitPathActionRequest>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     perform_git_path_action(
         state,
         project_id,
@@ -1002,36 +848,37 @@ pub async fn rename_worktree_branch(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
     Json(req): Json<RenameWorktreeBranchRequest>,
-) -> Result<Json<Worktree>, StatusCode> {
+) -> Result<Json<Worktree>, ApiError> {
     let new_branch = req.new_branch.trim().to_string();
     if !validate_branch(&new_branch) {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid worktree request."));
     }
 
     let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
     let local_worktree_id = local_worktree_id(project);
 
-    let worktrees = list_worktrees_for_project(&state, project)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let worktrees = list_worktrees_for_project(&state, project).await;
     let worktree = worktrees
         .iter()
         .find(|w| w.id == worktree_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
 
     if worktree.is_local {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid worktree request."));
     }
 
     let old_branch = worktree.branch.clone();
     let worktree_path = PathBuf::from(&worktree.path);
     git::rename_branch(&worktree_path, &new_branch)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            tracing::warn!(error = %error, "failed to rename worktree branch");
+            ApiError::internal("Internal server error.")
+        })?;
 
     let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     let previous_meta = meta.clone();
@@ -1048,27 +895,25 @@ pub async fn rename_worktree_branch(
     normalize_meta(&mut meta, &local_worktree_id);
     save_meta(&state, &project.id, &meta).await?;
 
-    if state
+    if let Err(error) = state
         .chats
         .rename_project_branch(&project.id, &old_branch, &new_branch)
         .await
-        .is_err()
     {
+        tracing::warn!(error = %error, "failed to rename chat branch");
         let _ = git::rename_branch(&worktree_path, &old_branch).await;
         let _ = save_meta(&state, &project.id, &previous_meta).await;
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        return Err(ApiError::internal("Internal server error."));
     }
 
     state.worktree_files.evict_tracker(&worktree_id);
 
-    let updated_worktrees = list_worktrees_for_project(&state, project)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let updated_worktrees = list_worktrees_for_project(&state, project).await;
     let updated_worktree = updated_worktrees
         .iter()
         .find(|w| w.id == worktree_id)
         .cloned()
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
 
     state.events.emit(EventKind::ProjectWorktreesUpdated {
         project_id: project.id.clone(),
@@ -1086,12 +931,12 @@ async fn perform_git_path_action(
     path: &str,
     original_path: Option<&str>,
     action: GitPathAction,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let resolved = resolve_worktree(&state, &worktree_id)
         .await?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
     if resolved.project_id != project_id {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::not_found("Project or worktree not found."));
     }
 
     let worktree_path = PathBuf::from(&resolved.worktree.path);
@@ -1109,26 +954,36 @@ async fn perform_git_path_action(
             .worktree_files
             .record_git_rewrite_hint(&resolved, path, original_path)
             .await
-            .map_err(map_worktree_file_error)?;
+            .map_err(map_worktree_file_api_error)?;
     }
 
     state
         .worktree_files
         .invalidate_relative_paths(&resolved, &paths)
         .await
-        .map_err(map_worktree_file_error)?;
+        .map_err(map_worktree_file_api_error)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn map_git_path_action_error(error: git::GitPathActionError) -> StatusCode {
-    match error {
+fn map_git_path_action_error(error: git::GitPathActionError) -> ApiError {
+    tracing::warn!(error = ?error, "worktree git path action failed");
+    let status = match error {
         git::GitPathActionError::InvalidPath => StatusCode::BAD_REQUEST,
         git::GitPathActionError::Conflict => StatusCode::CONFLICT,
         git::GitPathActionError::NotFound => StatusCode::NOT_FOUND,
         git::GitPathActionError::PermissionDenied => StatusCode::FORBIDDEN,
         git::GitPathActionError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-    }
+    };
+    ApiError::with_status(status, "Worktree operation failed.")
+}
+
+fn map_worktree_file_api_error(error: crate::worktree_files::WorktreeFileError) -> ApiError {
+    tracing::warn!(error = ?error, "worktree file operation failed");
+    ApiError::with_status(
+        map_worktree_file_error(error),
+        "Worktree file operation failed.",
+    )
 }
 
 #[utoipa::path(
@@ -1150,12 +1005,12 @@ fn map_git_path_action_error(error: git::GitPathActionError) -> StatusCode {
 pub async fn list_project_worktree_start_points(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
-) -> Result<Json<ListWorktreeStartPointsResponse>, StatusCode> {
+) -> Result<Json<ListWorktreeStartPointsResponse>, ApiError> {
     let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
 
     let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await {
         Ok(root) => root,
@@ -1272,16 +1127,14 @@ pub async fn reorder_project_worktrees(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
     Json(req): Json<ReorderWorktreesRequest>,
-) -> Result<Json<Vec<Worktree>>, StatusCode> {
+) -> Result<Json<Vec<Worktree>>, ApiError> {
     let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
 
-    let worktrees = list_worktrees_for_project(&state, project)
-        .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let worktrees = list_worktrees_for_project(&state, project).await;
 
     let non_local_ids: Vec<String> = worktrees
         .iter()
@@ -1290,13 +1143,13 @@ pub async fn reorder_project_worktrees(
         .collect();
 
     if non_local_ids.len() != req.worktree_ids.len() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid worktree request."));
     }
 
     let expected: HashSet<String> = non_local_ids.into_iter().collect();
     let received: HashSet<String> = req.worktree_ids.iter().cloned().collect();
     if expected != received {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid worktree request."));
     }
 
     let mut meta = load_meta(state.project_meta_file(&project.id)).await;
@@ -1304,9 +1157,7 @@ pub async fn reorder_project_worktrees(
     normalize_meta(&mut meta, &local_worktree_id(project));
     save_meta(&state, &project.id, &meta).await?;
 
-    let reordered = list_worktrees_for_project(&state, project)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let reordered = list_worktrees_for_project(&state, project).await;
 
     state.events.emit(EventKind::WorktreesReordered {
         project_id: project.id.clone(),
@@ -1331,12 +1182,12 @@ pub async fn reorder_project_worktrees(
 pub async fn list_importable_worktrees(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
-) -> Result<Json<ListImportableWorktreesResponse>, StatusCode> {
+) -> Result<Json<ListImportableWorktreesResponse>, ApiError> {
     let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
 
     let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await {
         Ok(root) => root,
@@ -1410,37 +1261,42 @@ pub async fn import_project_worktree(
     State(state): State<AppState>,
     Path(project_id): Path<String>,
     Json(req): Json<ImportWorktreeRequest>,
-) -> Result<(StatusCode, Json<Worktree>), StatusCode> {
+) -> Result<(StatusCode, Json<Worktree>), ApiError> {
     let path = req.path.trim();
     if path.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid worktree request."));
     }
 
     let projects = state.projects.list().await;
     let project = projects
         .iter()
         .find(|p| p.id == project_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or_else(|| ApiError::not_found("Project or worktree not found."))?;
 
-    let canonical = tokio::fs::canonicalize(path)
-        .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let canonical = tokio::fs::canonicalize(path).await.map_err(|error| {
+        tracing::warn!(error = %error, "failed to canonicalize imported worktree path");
+        ApiError::bad_request("Invalid worktree request.")
+    })?;
 
     // Reject if path is the local worktree.
     let local_canonical = tokio::fs::canonicalize(&project.path)
         .await
         .unwrap_or_else(|_| PathBuf::from(&project.path));
     if canonical == local_canonical {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("Invalid worktree request."));
     }
 
     // Validate the path is a known git worktree for this project.
     let local_root = git::resolve_local_root(PathBuf::from(&project.path).as_path())
         .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
-    let git_worktrees = git::list_worktrees(&local_root)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            tracing::warn!(error = %error, "failed to resolve project git root");
+            ApiError::bad_request("Invalid worktree request.")
+        })?;
+    let git_worktrees = git::list_worktrees(&local_root).await.map_err(|error| {
+        tracing::warn!(error = %error, "failed to list git worktrees");
+        ApiError::internal("Internal server error.")
+    })?;
     let mut matched = None;
     for wt in &git_worktrees {
         let wt_canonical = tokio::fs::canonicalize(&wt.path)
@@ -1451,13 +1307,13 @@ pub async fn import_project_worktree(
             break;
         }
     }
-    let git_wt = matched.ok_or(StatusCode::BAD_REQUEST)?;
+    let git_wt = matched.ok_or_else(|| ApiError::bad_request("Invalid worktree request."))?;
 
     // Check not already managed.
     let mut meta = load_meta(state.project_meta_file(&project.id)).await;
     let wt_id = git::worktree_id(&canonical);
     if meta.managed_worktrees.iter().any(|wt| wt.id == wt_id) {
-        return Err(StatusCode::CONFLICT);
+        return Err(ApiError::conflict("Worktree conflict."));
     }
 
     let branch = git_wt.branch.clone().unwrap_or_else(|| {
@@ -1498,9 +1354,7 @@ pub async fn import_project_worktree(
     normalize_meta(&mut meta, &lwt_id);
     save_meta(&state, &project.id, &meta).await?;
 
-    let list = list_worktrees_for_project(&state, project)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let list = list_worktrees_for_project(&state, project).await;
 
     state
         .events
@@ -1534,32 +1388,32 @@ pub async fn delete_project_worktree(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
     Query(params): Query<DeleteWorktreeParams>,
-) -> StatusCode {
+) -> Result<StatusCode, ApiError> {
     let projects = state.projects.list().await;
-    let project = match projects.iter().find(|p| p.id == project_id) {
-        Some(project) => project,
-        None => return StatusCode::NOT_FOUND,
-    };
+    let project = projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .ok_or_else(|| ApiError::not_found("Project not found."))?;
 
-    let worktrees = match list_worktrees_for_project(&state, project).await {
-        Ok(list) => list,
-        Err(_) => return StatusCode::BAD_REQUEST,
-    };
+    let worktrees = list_worktrees_for_project(&state, project).await;
 
-    let worktree = match worktrees.iter().find(|wt| wt.id == worktree_id) {
-        Some(worktree) => worktree,
-        None => return StatusCode::NOT_FOUND,
-    };
+    let worktree = worktrees
+        .iter()
+        .find(|wt| wt.id == worktree_id)
+        .ok_or_else(|| ApiError::not_found("Worktree not found."))?;
 
     if worktree.is_local {
-        return StatusCode::BAD_REQUEST;
+        return Err(ApiError::bad_request("Invalid worktree request."));
     }
 
     if !params.untrack_only && !worktree.missing_on_disk {
         let local_root = match git::resolve_local_root(PathBuf::from(&project.path).as_path()).await
         {
             Ok(root) => root,
-            Err(_) => return StatusCode::BAD_REQUEST,
+            Err(error) => {
+                tracing::warn!(error = %error, "failed to resolve project git root");
+                return Err(ApiError::bad_request("Invalid worktree request."));
+            }
         };
 
         if let Err(err) = git::remove_worktree(
@@ -1570,11 +1424,12 @@ pub async fn delete_project_worktree(
         .await
             && !is_missing_worktree_error(&err.message)
         {
-            return if params.force {
-                StatusCode::INTERNAL_SERVER_ERROR
+            tracing::warn!(error = %err, "failed to remove worktree");
+            return Err(if params.force {
+                ApiError::internal("Internal server error.")
             } else {
-                StatusCode::CONFLICT
-            };
+                ApiError::conflict("Worktree has uncommitted changes.")
+            });
         }
     }
 
@@ -1583,13 +1438,9 @@ pub async fn delete_project_worktree(
     meta.worktree_order.retain(|id| id != &worktree_id);
     meta.worktree_ui_modes.remove(&worktree_id);
     normalize_meta(&mut meta, &local_worktree_id(project));
-    if save_meta(&state, &project.id, &meta).await.is_err() {
-        return StatusCode::INTERNAL_SERVER_ERROR;
-    }
+    save_meta(&state, &project.id, &meta).await?;
 
-    if let Err(status) = close_tabs_for_worktree(&state, &worktree_id).await {
-        return status;
-    }
+    close_tabs_for_worktree(&state, &worktree_id).await?;
     state
         .persistence
         .delete_worktree(project.id.clone(), worktree_id.clone());
@@ -1599,9 +1450,7 @@ pub async fn delete_project_worktree(
         worktree_id: worktree_id.clone(),
     });
 
-    let updated = list_worktrees_for_project(&state, project)
-        .await
-        .unwrap_or_default();
+    let updated = list_worktrees_for_project(&state, project).await;
 
     state.events.emit(EventKind::ProjectWorktreesUpdated {
         project_id: project.id.clone(),
@@ -1609,7 +1458,7 @@ pub async fn delete_project_worktree(
         git_error: None,
     });
 
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub(crate) fn is_missing_worktree_remove_error(message: &str) -> bool {

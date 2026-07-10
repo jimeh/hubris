@@ -9,8 +9,9 @@ use crate::api::worktrees::resolve_worktree;
 use crate::chat::{
     ChatActivityDetail, ChatConversationDetail, ChatConversationListScope,
     ChatConversationSettingsPatch, ChatConversationSummary, ChatModelOption, ChatPendingRequest,
-    ChatServiceError, ResolveChatPendingRequestRequest,
+    ResolveChatPendingRequestRequest,
 };
+use crate::error::ApiError;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -59,31 +60,11 @@ fn default_session_id() -> String {
     "default".to_string()
 }
 
-impl From<ChatServiceError> for (StatusCode, Json<ApiErrorResponse>) {
-    fn from(value: ChatServiceError) -> Self {
-        (
-            value.status,
-            Json(ApiErrorResponse {
-                message: value.message,
-            }),
-        )
-    }
+fn chat_not_found() -> ApiError {
+    ApiError::not_found("chat not found")
 }
 
-fn map_chat_error(error: ChatServiceError) -> (StatusCode, Json<ApiErrorResponse>) {
-    error.into()
-}
-
-fn chat_not_found() -> (StatusCode, Json<ApiErrorResponse>) {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ApiErrorResponse {
-            message: "chat not found".to_string(),
-        }),
-    )
-}
-
-async fn ensure_chat_enabled(state: &AppState) -> Result<(), (StatusCode, Json<ApiErrorResponse>)> {
+async fn ensure_chat_enabled(state: &AppState) -> Result<(), ApiError> {
     if state
         .settings
         .get()
@@ -95,11 +76,8 @@ async fn ensure_chat_enabled(state: &AppState) -> Result<(), (StatusCode, Json<A
         return Ok(());
     }
 
-    Err((
-        StatusCode::FORBIDDEN,
-        Json(ApiErrorResponse {
-            message: "chat is disabled in Experimental settings".to_string(),
-        }),
+    Err(ApiError::forbidden(
+        "chat is disabled in Experimental settings",
     ))
 }
 
@@ -107,12 +85,12 @@ async fn conversation_for_session(
     state: &AppState,
     conversation_id: &str,
     session_id: &str,
-) -> Result<ChatConversationSummary, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<ChatConversationSummary, ApiError> {
     let conversation = state
         .chats
         .get_conversation_summary(conversation_id)
         .await
-        .map_err(map_chat_error)?
+        .map_err(ApiError::from)?
         .ok_or_else(chat_not_found)?;
     if conversation.session_id != session_id {
         return Err(chat_not_found());
@@ -137,27 +115,22 @@ pub async fn list_project_worktree_chats(
     State(state): State<AppState>,
     Path((project_id, worktree_id)): Path<(String, String)>,
     Query(params): Query<ListChatsParams>,
-) -> Result<Json<Vec<ChatConversationSummary>>, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<Json<Vec<ChatConversationSummary>>, ApiError> {
     ensure_chat_enabled(&state).await?;
     let resolved = resolve_worktree(&state, &worktree_id)
         .await
-        .map_err(|status| {
-            (
-                status,
-                Json(ApiErrorResponse {
-                    message: "worktree not found".to_string(),
-                }),
-            )
+        .map_err(|error| {
+            tracing::debug!(error = %error, "failed to resolve worktree for chat listing");
+            if error.status() == StatusCode::NOT_FOUND {
+                ApiError::not_found("worktree not found")
+            } else {
+                // Non-404 resolve failures keep their own message; a
+                // "not found" body with a 500/403 status would mislead.
+                error
+            }
         })?
         .filter(|resolved| resolved.project_id == project_id)
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    message: "worktree not found".to_string(),
-                }),
-            )
-        })?;
+        .ok_or_else(|| ApiError::not_found("worktree not found"))?;
     let conversations = state
         .chats
         .list_conversations(
@@ -169,7 +142,7 @@ pub async fn list_project_worktree_chats(
             params.include_archived,
         )
         .await
-        .map_err(map_chat_error)?;
+        .map_err(ApiError::from)?;
     Ok(Json(conversations))
 }
 
@@ -183,9 +156,9 @@ pub async fn list_project_worktree_chats(
 )]
 pub async fn list_chat_models(
     State(state): State<AppState>,
-) -> Result<Json<Vec<ChatModelOption>>, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<Json<Vec<ChatModelOption>>, ApiError> {
     ensure_chat_enabled(&state).await?;
-    let models = state.chats.list_models().await.map_err(map_chat_error)?;
+    let models = state.chats.list_models().await.map_err(ApiError::from)?;
     Ok(Json(models))
 }
 
@@ -205,14 +178,14 @@ pub async fn get_chat(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
-) -> Result<Json<ChatConversationDetail>, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<Json<ChatConversationDetail>, ApiError> {
     ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let detail = state
         .chats
         .get_conversation_detail(&conversation_id)
         .await
-        .map_err(map_chat_error)?
+        .map_err(ApiError::from)?
         .ok_or_else(chat_not_found)?;
     Ok(Json(detail))
 }
@@ -234,14 +207,14 @@ pub async fn archive_chat(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
-) -> Result<Json<ChatConversationSummary>, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<Json<ChatConversationSummary>, ApiError> {
     ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let summary = state
         .chats
         .set_conversation_archived(&conversation_id, true)
         .await
-        .map_err(map_chat_error)?;
+        .map_err(ApiError::from)?;
     Ok(Json(summary))
 }
 
@@ -261,14 +234,14 @@ pub async fn unarchive_chat(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
-) -> Result<Json<ChatConversationSummary>, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<Json<ChatConversationSummary>, ApiError> {
     ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let summary = state
         .chats
         .set_conversation_archived(&conversation_id, false)
         .await
-        .map_err(map_chat_error)?;
+        .map_err(ApiError::from)?;
     Ok(Json(summary))
 }
 
@@ -289,16 +262,18 @@ pub async fn delete_chat(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
-) -> Result<StatusCode, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<StatusCode, ApiError> {
     ensure_chat_enabled(&state).await?;
     let summary = conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     state
         .chats
         .delete_conversation(&conversation_id)
         .await
-        .map_err(map_chat_error)?;
-    if let Some(tab_id) = summary.open_tab_id.as_deref() {
-        crate::api::tabs::close_tab_by_id(&state, tab_id).await;
+        .map_err(ApiError::from)?;
+    if let Some(tab_id) = summary.open_tab_id.as_deref()
+        && let Err(error) = crate::api::tabs::close_tab_by_id(&state, tab_id).await
+    {
+        tracing::warn!(error = %error, tab_id, "failed to close tab after chat deletion");
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -320,22 +295,15 @@ pub async fn get_chat_activity(
     State(state): State<AppState>,
     Path((conversation_id, item_id)): Path<(String, String)>,
     Query(params): Query<ChatSessionParams>,
-) -> Result<Json<ChatActivityDetail>, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<Json<ChatActivityDetail>, ApiError> {
     ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let detail = state
         .chats
         .get_activity_detail(&conversation_id, &item_id)
         .await
-        .map_err(map_chat_error)?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    message: "chat activity not found".to_string(),
-                }),
-            )
-        })?;
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::not_found("chat activity not found"))?;
     Ok(Json(detail))
 }
 
@@ -357,14 +325,14 @@ pub async fn patch_chat_settings(
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
     Json(request): Json<ChatConversationSettingsPatch>,
-) -> Result<Json<ChatConversationSummary>, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<Json<ChatConversationSummary>, ApiError> {
     ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let summary = state
         .chats
         .update_conversation_settings(&conversation_id, request)
         .await
-        .map_err(map_chat_error)?;
+        .map_err(ApiError::from)?;
     Ok(Json(summary))
 }
 
@@ -389,17 +357,12 @@ pub async fn send_chat_message(
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
     Json(request): Json<SendChatMessageRequest>,
-) -> Result<StatusCode, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<StatusCode, ApiError> {
     ensure_chat_enabled(&state).await?;
     let conversation =
         conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     if conversation.archived_at.is_some() {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(ApiErrorResponse {
-                message: "chat is archived".to_string(),
-            }),
-        ));
+        return Err(ApiError::conflict("chat is archived"));
     }
     let requested_worktree_id = request
         .worktree_id
@@ -407,28 +370,23 @@ pub async fn send_chat_message(
         .unwrap_or(&conversation.worktree_id);
     let resolved = resolve_worktree(&state, requested_worktree_id)
         .await
-        .map_err(|status| {
-            (
-                status,
-                Json(ApiErrorResponse {
-                    message: "worktree not found".to_string(),
-                }),
-            )
+        .map_err(|error| {
+            tracing::debug!(error = %error, "failed to resolve worktree for chat message");
+            if error.status() == StatusCode::NOT_FOUND {
+                ApiError::not_found("worktree not found")
+            } else {
+                // Non-404 resolve failures keep their own message; a
+                // "not found" body with a 500/403 status would mislead.
+                error
+            }
         })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    message: "worktree not found".to_string(),
-                }),
-            )
-        })?;
+        .ok_or_else(|| ApiError::not_found("worktree not found"))?;
     validate_conversation_worktree_branch(&state, &conversation, &resolved).await?;
     state
         .chats
         .send_message(&conversation_id, &resolved.worktree.path, request.text)
         .await
-        .map_err(map_chat_error)?;
+        .map_err(ApiError::from)?;
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -436,13 +394,10 @@ async fn validate_conversation_worktree_branch(
     state: &AppState,
     conversation: &ChatConversationSummary,
     resolved: &crate::api::worktrees::ResolvedWorktree,
-) -> Result<(), (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<(), ApiError> {
     if resolved.project_id != conversation.project_id {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                message: "chat conversation does not belong to this project".to_string(),
-            }),
+        return Err(ApiError::bad_request(
+            "chat conversation does not belong to this project",
         ));
     }
 
@@ -454,15 +409,12 @@ async fn validate_conversation_worktree_branch(
             .chats
             .backfill_conversation_branch(&conversation.id, &resolved.worktree.branch)
             .await
-            .map_err(map_chat_error)?;
+            .map_err(ApiError::from)?;
         return Ok(());
     }
 
-    Err((
-        StatusCode::BAD_REQUEST,
-        Json(ApiErrorResponse {
-            message: "chat conversation does not belong to this branch".to_string(),
-        }),
+    Err(ApiError::bad_request(
+        "chat conversation does not belong to this branch",
     ))
 }
 
@@ -483,14 +435,14 @@ pub async fn interrupt_chat(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
     Query(params): Query<ChatSessionParams>,
-) -> Result<StatusCode, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<StatusCode, ApiError> {
     ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     state
         .chats
         .interrupt(&conversation_id)
         .await
-        .map_err(map_chat_error)?;
+        .map_err(ApiError::from)?;
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -514,13 +466,13 @@ pub async fn resolve_chat_pending_request(
     Path((conversation_id, request_id)): Path<(String, String)>,
     Query(params): Query<ChatSessionParams>,
     Json(request): Json<ResolveChatPendingRequestRequest>,
-) -> Result<Json<ChatPendingRequest>, (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<Json<ChatPendingRequest>, ApiError> {
     ensure_chat_enabled(&state).await?;
     conversation_for_session(&state, &conversation_id, &params.session_id).await?;
     let pending = state
         .chats
         .resolve_pending_request(&conversation_id, &request_id, request)
         .await
-        .map_err(map_chat_error)?;
+        .map_err(ApiError::from)?;
     Ok(Json(pending))
 }

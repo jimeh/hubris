@@ -43,7 +43,8 @@ pub struct WorktreeGitStatus {
     pub comparison_error: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("{message}")]
 pub struct GitError {
     pub message: String,
 }
@@ -73,14 +74,6 @@ pub enum GitPathActionError {
     PermissionDenied,
     Internal,
 }
-
-impl std::fmt::Display for GitError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for GitError {}
 
 fn to_git_error(error: impl std::fmt::Display) -> GitError {
     GitError {
@@ -298,6 +291,7 @@ fn invalidated_parent_paths(paths: &BTreeSet<String>) -> Vec<String> {
 }
 
 fn map_git_path_error(error: GitError) -> GitPathActionError {
+    tracing::warn!(error = %error, "classifying git path action error");
     let message = error.message.to_lowercase();
     if message.contains("permission denied") {
         GitPathActionError::PermissionDenied
@@ -314,6 +308,7 @@ fn map_git_path_error(error: GitError) -> GitPathActionError {
 }
 
 fn map_git2_path_error(error: git2::Error) -> GitPathActionError {
+    tracing::warn!(error = %error, "classifying git2 path action error");
     match error.code() {
         ErrorCode::NotFound | ErrorCode::InvalidSpec => GitPathActionError::NotFound,
         ErrorCode::Unmerged | ErrorCode::Conflict | ErrorCode::MergeConflict => {

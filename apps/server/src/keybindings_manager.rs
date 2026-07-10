@@ -1,4 +1,3 @@
-use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,43 +17,16 @@ use crate::fs_sync::sync_parent_directory;
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum KeybindingsManagerError {
-    Io(std::io::Error),
-    TomlDecode(toml::de::Error),
-    TomlParse(toml_edit::TomlError),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    TomlDecode(#[from] toml::de::Error),
+    #[error("{0}")]
+    TomlParse(#[from] toml_edit::TomlError),
+    #[error("keybindings writes are blocked")]
     WritesBlocked,
-}
-
-impl fmt::Display for KeybindingsManagerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(error) => write!(f, "{error}"),
-            Self::TomlDecode(error) => write!(f, "{error}"),
-            Self::TomlParse(error) => write!(f, "{error}"),
-            Self::WritesBlocked => write!(f, "keybindings writes are blocked"),
-        }
-    }
-}
-
-impl std::error::Error for KeybindingsManagerError {}
-
-impl From<std::io::Error> for KeybindingsManagerError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl From<toml::de::Error> for KeybindingsManagerError {
-    fn from(value: toml::de::Error) -> Self {
-        Self::TomlDecode(value)
-    }
-}
-
-impl From<toml_edit::TomlError> for KeybindingsManagerError {
-    fn from(value: toml_edit::TomlError) -> Self {
-        Self::TomlParse(value)
-    }
 }
 
 #[derive(Debug)]
