@@ -7,6 +7,7 @@ import {
   Paintbrush,
   Terminal,
 } from "lucide-react";
+import type { SectionName } from "@/lib/settingsSections";
 
 export const sections = [
   { name: "Appearance", icon: Paintbrush },
@@ -18,7 +19,7 @@ export const sections = [
   { name: "Experimental", icon: FlaskConical },
 ] as const;
 
-export type SectionName = (typeof sections)[number]["name"];
+export type { SectionName } from "@/lib/settingsSections";
 
 export type SettingsDialogProps = {
   initialSection?: SectionName;

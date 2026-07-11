@@ -12,7 +12,7 @@ import type { AgentChatTabProps } from "@/components/AgentChatTab";
 // WorktreeView.
 const AgentChatTabClassicView = lazy(() => import("@/components/AgentChatTab"));
 const CopilotKitAgentChatTabView = lazy(
-  () => import("@/components/CopilotKitAgentChatTab"),
+  () => import("@/features/chat/CopilotKitAgentChatTab"),
 );
 
 /**

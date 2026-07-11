@@ -1,4 +1,4 @@
-import type { SectionName } from "@/components/settings-dialog/sections";
+import { SETTINGS_SECTION_NAMES } from "@/lib/settingsSections";
 import type { JsonValue } from "@/lib/contracts/sse.generated";
 import type { CommandId } from "./types";
 
@@ -27,17 +27,7 @@ export type CommandArgField =
 
 export type CommandArgFieldValues = Record<string, string>;
 
-const settingsSections = [
-  "Appearance",
-  "Editor",
-  "Terminal",
-  "Keyboard Shortcuts",
-  "VS Code",
-  "Worktrees",
-  "Experimental",
-] as const satisfies readonly SectionName[];
-
-const settingsSectionOptions = settingsSections.map((section) => ({
+const settingsSectionOptions = SETTINGS_SECTION_NAMES.map((section) => ({
   label: section,
   value: section,
 }));

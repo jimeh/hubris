@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import type { SectionName } from "@/components/settings-dialog/sections";
+import type { SectionName } from "@/lib/settingsSections";
 import type { Project, Tab, Worktree } from "@/lib/types";
 
 export type CommandId =
