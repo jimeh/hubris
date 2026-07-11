@@ -5,6 +5,7 @@ use dashmap::DashMap;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+use crate::api::events::LaggedSnapshotCache;
 use crate::chat::ChatService;
 use crate::events::EventBus;
 use crate::keybindings_manager::KeybindingsManager;
@@ -48,12 +49,15 @@ pub struct AppState {
     pub worktree_files: Arc<WorktreeFilesService>,
     pub chats: Arc<ChatService>,
     pub cancellation_token: CancellationToken,
+    pub(crate) lagged_snapshot_cache: Arc<LaggedSnapshotCache>,
 }
 
 impl AppState {
     pub async fn try_new(data_dir: PathBuf) -> std::io::Result<Self> {
-        let events = Arc::new(EventBus::new());
         let cancellation_token = CancellationToken::new();
+        let events = Arc::new(EventBus::new_with_cancellation(
+            cancellation_token.child_token(),
+        ));
         let state_db_path = data_dir.join("state.sqlite3");
         let projects = Arc::new(
             ProjectStore::load(data_dir.join("projects.json"))
@@ -133,6 +137,7 @@ impl AppState {
             )),
             chats,
             cancellation_token,
+            lagged_snapshot_cache: Arc::new(LaggedSnapshotCache::default()),
         })
     }
 

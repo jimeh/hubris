@@ -965,7 +965,7 @@ idleTimeoutMinutes = 15
         .unwrap();
 
         assert_eq!(settings.chat.idle_timeout_minutes, 15);
-        assert_eq!(settings.chat.ui_style.as_str(), "classic");
+        assert_eq!(settings.chat.ui_style.as_str(), "copilotkit");
         assert_eq!(settings.chat.copilotkit_theme_mode.as_str(), "hubris");
     }
 

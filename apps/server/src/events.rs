@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::Serialize;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
+use tokio::time::{self, MissedTickBehavior};
+use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
 use crate::api::keybindings::{KeybindingsState, KeybindingsStatus};
@@ -330,7 +333,16 @@ event_kind_names! {
 }
 
 pub struct EventBus {
+    queue_tx: mpsc::UnboundedSender<EventKind>,
     tx: broadcast::Sender<Arc<Event>>,
+}
+
+const COALESCE_INTERVAL: Duration = Duration::from_millis(25);
+const MAX_MERGED_DELTAS: usize = 64;
+
+struct BufferedDelta {
+    kind: EventKind,
+    merged_count: usize,
 }
 
 impl Default for EventBus {
@@ -340,25 +352,247 @@ impl Default for EventBus {
 }
 
 impl EventBus {
+    /// Creates an event bus with a cancellation token owned by the bus task.
     pub fn new() -> Self {
+        Self::new_with_cancellation(CancellationToken::new())
+    }
+
+    /// Creates an event bus whose coalescer stops when `cancellation_token` is
+    /// cancelled.
+    pub fn new_with_cancellation(cancellation_token: CancellationToken) -> Self {
+        let (queue_tx, queue_rx) = mpsc::unbounded_channel();
         let (tx, _) = broadcast::channel(256);
-        Self { tx }
+        tokio::spawn(run_coalescer(queue_rx, tx.clone(), cancellation_token));
+        Self { queue_tx, tx }
     }
 
+    /// Queues an event for ordered, non-blocking delivery to subscribers.
     pub fn emit(&self, kind: EventKind) {
-        let event = Arc::new(Event { kind });
-        let _ = self.tx.send(event);
+        let _ = self.queue_tx.send(kind);
     }
 
+    /// Subscribes to coalesced events emitted after this call.
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<Event>> {
         self.tx.subscribe()
     }
+}
+
+async fn run_coalescer(
+    mut queue_rx: mpsc::UnboundedReceiver<EventKind>,
+    tx: broadcast::Sender<Arc<Event>>,
+    cancellation_token: CancellationToken,
+) {
+    let mut buffered: Option<BufferedDelta> = None;
+    let mut flush_interval = None;
+
+    loop {
+        if buffered.is_none() {
+            tokio::select! {
+                _ = cancellation_token.cancelled() => break,
+                event = queue_rx.recv() => {
+                    let Some(event) = event else {
+                        break;
+                    };
+                    process_event(event, &tx, &mut buffered);
+                    if buffered.is_some() {
+                        flush_interval = Some(new_flush_interval());
+                    }
+                }
+            }
+            continue;
+        }
+
+        let Some(interval) = flush_interval.as_mut() else {
+            flush_interval = Some(new_flush_interval());
+            continue;
+        };
+        tokio::select! {
+            _ = cancellation_token.cancelled() => break,
+            event = queue_rx.recv() => {
+                let Some(event) = event else {
+                    break;
+                };
+                process_event(event, &tx, &mut buffered);
+                if buffered.is_none() {
+                    flush_interval = None;
+                }
+            }
+            _ = interval.tick() => {
+                flush_buffered(&tx, &mut buffered);
+                flush_interval = None;
+            }
+        }
+    }
+
+    flush_buffered(&tx, &mut buffered);
+}
+
+fn new_flush_interval() -> time::Interval {
+    let start = time::Instant::now() + COALESCE_INTERVAL;
+    let mut interval = time::interval_at(start, COALESCE_INTERVAL);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    interval
+}
+
+fn process_event(
+    event: EventKind,
+    tx: &broadcast::Sender<Arc<Event>>,
+    buffered: &mut Option<BufferedDelta>,
+) {
+    let Some(current) = buffered.as_mut() else {
+        if is_coalescable(&event) {
+            *buffered = Some(BufferedDelta {
+                kind: event,
+                merged_count: 1,
+            });
+        } else {
+            send_event(tx, event);
+        }
+        return;
+    };
+
+    let mut event = Some(event);
+    if merge_delta(&mut current.kind, event.as_mut()) {
+        current.merged_count += 1;
+        if current.merged_count >= MAX_MERGED_DELTAS {
+            flush_buffered(tx, buffered);
+        }
+        return;
+    }
+
+    flush_buffered(tx, buffered);
+    let Some(event) = event else {
+        return;
+    };
+    if is_coalescable(&event) {
+        *buffered = Some(BufferedDelta {
+            kind: event,
+            merged_count: 1,
+        });
+    } else {
+        send_event(tx, event);
+    }
+}
+
+fn is_coalescable(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::ChatMessageDelta { .. } | EventKind::ChatActivityDelta { .. }
+    )
+}
+
+fn merge_delta(current: &mut EventKind, incoming: Option<&mut EventKind>) -> bool {
+    match (current, incoming) {
+        (
+            EventKind::ChatMessageDelta {
+                conversation_id,
+                message_id,
+                delta,
+                revision,
+                ..
+            },
+            Some(EventKind::ChatMessageDelta {
+                conversation_id: incoming_conversation_id,
+                message_id: incoming_message_id,
+                delta: incoming_delta,
+                revision: incoming_revision,
+                ..
+            }),
+        ) if *conversation_id == *incoming_conversation_id
+            && *message_id == *incoming_message_id =>
+        {
+            delta.push_str(incoming_delta);
+            *revision = *incoming_revision;
+            true
+        }
+        (
+            EventKind::ChatActivityDelta {
+                conversation_id,
+                item_id,
+                output,
+                ..
+            },
+            Some(EventKind::ChatActivityDelta {
+                conversation_id: incoming_conversation_id,
+                item_id: incoming_item_id,
+                output: incoming_output,
+                ..
+            }),
+        ) if *conversation_id == *incoming_conversation_id
+            && *item_id == *incoming_item_id
+            && output.stream_kind == incoming_output.stream_kind =>
+        {
+            output.content_text.push_str(&incoming_output.content_text);
+            output.byte_count = output.byte_count.saturating_add(incoming_output.byte_count);
+            output.updated_at = incoming_output.updated_at;
+            true
+        }
+        _ => false,
+    }
+}
+
+fn flush_buffered(tx: &broadcast::Sender<Arc<Event>>, buffered: &mut Option<BufferedDelta>) {
+    if let Some(buffered) = buffered.take() {
+        send_event(tx, buffered.kind);
+    }
+}
+
+fn send_event(tx: &broadcast::Sender<Arc<Event>>, kind: EventKind) {
+    let _ = tx.send(Arc::new(Event { kind }));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tab::TerminalTabLabels;
+
+    fn message_delta(conversation_id: &str, message_id: &str, delta: &str) -> EventKind {
+        EventKind::ChatMessageDelta {
+            session_id: "default".into(),
+            conversation_id: conversation_id.into(),
+            message_id: message_id.into(),
+            delta: delta.into(),
+            revision: 1,
+        }
+    }
+
+    fn activity_delta(
+        conversation_id: &str,
+        item_id: &str,
+        stream_kind: &str,
+        delta: &str,
+        sequence: u32,
+    ) -> EventKind {
+        EventKind::ChatActivityDelta {
+            session_id: "default".into(),
+            conversation_id: conversation_id.into(),
+            item_id: item_id.into(),
+            output: ChatItemOutput {
+                id: format!("output-{sequence}"),
+                conversation_id: conversation_id.into(),
+                item_id: item_id.into(),
+                stream_kind: stream_kind.into(),
+                sequence,
+                content_text: delta.into(),
+                byte_count: delta.len() as u32,
+                created_at: sequence as u64,
+                updated_at: sequence as u64,
+            },
+        }
+    }
+
+    fn separator_event(id: &str) -> EventKind {
+        EventKind::ProjectRemoved {
+            project_id: id.into(),
+        }
+    }
+
+    async fn recv_event(rx: &mut broadcast::Receiver<Arc<Event>>) -> Arc<Event> {
+        time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("timed out waiting for event")
+            .expect("event bus closed")
+    }
 
     #[tokio::test]
     async fn test_event_bus_emit_subscribe() {
@@ -406,6 +640,138 @@ mod tests {
             session_id: "default".into(),
             tab_id: "x".into(),
         });
+    }
+
+    #[tokio::test]
+    async fn consecutive_same_key_message_deltas_merge() {
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe();
+
+        bus.emit(message_delta("chat-1", "message-1", "hello "));
+        bus.emit(message_delta("chat-1", "message-1", "world"));
+        bus.emit(separator_event("separator"));
+
+        let event = recv_event(&mut rx).await;
+        assert!(matches!(
+            &event.kind,
+            EventKind::ChatMessageDelta { delta, .. } if delta == "hello world"
+        ));
+    }
+
+    #[tokio::test]
+    async fn non_delta_between_message_deltas_preserves_order_and_prevents_merge() {
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe();
+
+        bus.emit(message_delta("chat-1", "message-1", "first"));
+        bus.emit(separator_event("between"));
+        bus.emit(message_delta("chat-1", "message-1", "second"));
+        bus.emit(separator_event("after"));
+
+        let mut observed = Vec::new();
+        for _ in 0..4 {
+            let event = recv_event(&mut rx).await;
+            observed.push(match &event.kind {
+                EventKind::ChatMessageDelta { delta, .. } => delta.clone(),
+                EventKind::ProjectRemoved { project_id } => project_id.clone(),
+                other => panic!("unexpected event: {other:?}"),
+            });
+        }
+        assert_eq!(observed, ["first", "between", "second", "after"]);
+    }
+
+    #[tokio::test]
+    async fn different_key_message_deltas_do_not_merge() {
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe();
+
+        bus.emit(message_delta("chat-1", "message-1", "first"));
+        bus.emit(message_delta("chat-1", "message-2", "second"));
+        bus.emit(separator_event("separator"));
+
+        let first = recv_event(&mut rx).await;
+        let second = recv_event(&mut rx).await;
+        assert!(matches!(
+            (&first.kind, &second.kind),
+            (
+                EventKind::ChatMessageDelta {
+                    message_id: first_id,
+                    delta: first_delta,
+                    ..
+                },
+                EventKind::ChatMessageDelta {
+                    message_id: second_id,
+                    delta: second_delta,
+                    ..
+                }
+            ) if first_id == "message-1"
+                && first_delta == "first"
+                && second_id == "message-2"
+                && second_delta == "second"
+        ));
+    }
+
+    #[tokio::test]
+    async fn activity_deltas_merge_by_conversation_item_and_stream() {
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe();
+
+        bus.emit(activity_delta("chat-1", "item-1", "stdout", "one", 1));
+        bus.emit(activity_delta("chat-1", "item-1", "stdout", "two", 2));
+        bus.emit(activity_delta("chat-1", "item-1", "stderr", "three", 3));
+        bus.emit(separator_event("separator"));
+
+        let stdout = recv_event(&mut rx).await;
+        let stderr = recv_event(&mut rx).await;
+        assert!(matches!(
+            (&stdout.kind, &stderr.kind),
+            (
+                EventKind::ChatActivityDelta { output: first, .. },
+                EventKind::ChatActivityDelta { output: second, .. }
+            ) if first.stream_kind == "stdout"
+                && first.content_text == "onetwo"
+                && first.byte_count == 6
+                && second.stream_kind == "stderr"
+                && second.content_text == "three"
+        ));
+    }
+
+    #[tokio::test]
+    async fn single_delta_flushes_on_interval_tick() {
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe();
+
+        bus.emit(message_delta("chat-1", "message-1", "pending"));
+
+        let event = recv_event(&mut rx).await;
+        assert!(matches!(
+            &event.kind,
+            EventKind::ChatMessageDelta { delta, .. } if delta == "pending"
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancellation_flushes_buffered_delta_and_stops_coalescer() {
+        let (queue_tx, queue_rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = broadcast::channel(8);
+        let cancellation_token = CancellationToken::new();
+        let task = tokio::spawn(run_coalescer(queue_rx, tx, cancellation_token.clone()));
+
+        queue_tx
+            .send(message_delta("chat-1", "message-1", "pending"))
+            .unwrap();
+        tokio::task::yield_now().await;
+        cancellation_token.cancel();
+
+        let event = recv_event(&mut rx).await;
+        assert!(matches!(
+            &event.kind,
+            EventKind::ChatMessageDelta { delta, .. } if delta == "pending"
+        ));
+        time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("coalescer did not stop after cancellation")
+            .expect("coalescer task panicked");
     }
 
     /// Extracts the serde `type` tag string literals from the generated

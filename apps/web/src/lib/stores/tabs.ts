@@ -108,6 +108,7 @@ type TabsState = {
   focusedPaneHistoryByWorktree: Record<string, string[]>;
   tabMruByPane: Record<string, string[]>;
   addTerminal: (worktreeId: string, paneId?: string) => Promise<Tab>;
+  updateAgentChatTitle: (conversationId: string, title: string) => void;
   setTerminalCustomLabel: (
     id: string,
     customLabel: string,
@@ -1167,6 +1168,22 @@ export const useTabStore = create<TabsState>((set, get) => {
     tabs: [],
     layoutsByWorktree: {},
     ...selection,
+    updateAgentChatTitle(conversationId, title) {
+      set((state) => {
+        const nextTabs = state.tabs.map((tab) =>
+          tab.type === "agent_chat" &&
+          tab.conversation_id === conversationId &&
+          tab.label !== title
+            ? { ...tab, label: title }
+            : tab,
+        );
+
+        const changed = nextTabs.some(
+          (tab, index) => tab !== state.tabs[index],
+        );
+        return changed ? { tabs: nextTabs } : state;
+      });
+    },
     async addTerminal(worktreeId, requestedPaneId) {
       const paneId = resolvedPaneIdOrNew(get(), worktreeId, requestedPaneId);
       const tab = await createTerminalTab(worktreeId, paneId);

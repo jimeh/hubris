@@ -78,7 +78,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
   chat: {
     idleTimeoutMinutes: 60,
-    uiStyle: "classic",
+    uiStyle: "copilotkit",
     copilotkitThemeMode: "hubris",
   },
 };

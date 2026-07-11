@@ -1817,7 +1817,7 @@ mod tests {
         assert_eq!(error.kind(), TaskActionErrorKind::Conflict);
 
         wait_for_status_text(&service, &first.id, "Waiting").await;
-        notify.notify_waiters();
+        notify.notify_one();
         let _ = wait_for_terminal(&service, &first.id).await;
     }
 
@@ -1847,7 +1847,7 @@ mod tests {
         assert_eq!(service.list().await.len(), 1);
 
         wait_for_status_text(&service, &first.id, "Waiting").await;
-        notify.notify_waiters();
+        notify.notify_one();
         let _ = wait_for_terminal(&service, &first.id).await;
     }
 
@@ -1883,7 +1883,7 @@ mod tests {
         assert_eq!(service.list().await.len(), 1);
 
         wait_for_status_text(&service, &started.id, "Waiting").await;
-        notify.notify_waiters();
+        notify.notify_one();
         let _ = wait_for_terminal(&service, &started.id).await;
     }
 
@@ -1912,7 +1912,7 @@ mod tests {
         assert_eq!(service.list().await.len(), 1);
 
         wait_for_status_text(&service, &started.id, "Waiting").await;
-        notify.notify_waiters();
+        notify.notify_one();
         let _ = wait_for_terminal(&service, &started.id).await;
     }
 
@@ -2401,7 +2401,7 @@ mod tests {
             .unwrap();
         assert!(matches!(event.kind, EventKind::TaskUpdated(_)));
 
-        notify.notify_waiters();
+        notify.notify_one();
         let _ = wait_for_terminal(&state.tasks, &started.id).await;
     }
 }

@@ -1,11 +1,13 @@
 import {
   CopilotChat,
   CopilotChatAssistantMessage,
+  CopilotChatInput,
   CopilotChatMessageView,
   CopilotChatReasoningMessage,
   CopilotKitProvider,
   HttpAgent,
   useRenderActivityMessage,
+  type CopilotChatInputProps,
   type CopilotChatMessageViewProps,
   type ReactActivityMessageRenderer,
   type Message,
@@ -18,7 +20,9 @@ import {
   Wrench,
 } from "lucide-react";
 import {
+  createContext,
   useEffect,
+  useContext,
   useMemo,
   useRef,
   useState,
@@ -28,6 +32,7 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { codexAgUiChatUrl } from "@/lib/api";
+import { isRuntimeRunning } from "@/lib/chat/";
 import { useChatSettings } from "@/lib/stores/chatSettings";
 import {
   selectChatDiffSummary,
@@ -69,6 +74,8 @@ type WorkMessageBlock = {
   workMessages: WorkMessage[];
   nextIndex: number;
 };
+
+const HubrisRunningContext = createContext(false);
 
 type CodexActivityContent = {
   id?: string;
@@ -777,19 +784,29 @@ function CodexMessageView({
   );
 }
 
-function codexMessageViewSlot(hubrisIsRunning: boolean) {
-  function CodexMessageViewWithHubrisState(props: CopilotChatMessageViewProps) {
-    return <CodexMessageView {...props} hubrisIsRunning={hubrisIsRunning} />;
-  }
-
-  return Object.assign(CodexMessageViewWithHubrisState, {
-    Cursor: CopilotChatMessageView.Cursor,
-  }) as typeof CopilotChatMessageView;
+function CodexMessageViewWithState(props: CopilotChatMessageViewProps) {
+  const hubrisIsRunning = useContext(HubrisRunningContext);
+  return <CodexMessageView {...props} hubrisIsRunning={hubrisIsRunning} />;
 }
 
-function isRuntimeRunning(lifecycle: string | undefined): boolean {
-  return lifecycle === "starting" || lifecycle === "running";
+const codexMessageViewSlot = Object.assign(CodexMessageViewWithState, {
+  Cursor: CopilotChatMessageView.Cursor,
+}) as typeof CopilotChatMessageView;
+
+function ArchivedCopilotChatInput(_props: CopilotChatInputProps) {
+  return (
+    <div className="border-t bg-background/95 px-4 py-3 text-sm text-muted-foreground">
+      <div className="mx-auto w-full max-w-3xl rounded-md border bg-muted/35 px-3 py-2">
+        This chat is archived. Unarchive it from the Chats panel to continue.
+      </div>
+    </div>
+  );
 }
+
+const archivedCopilotChatInputSlot = Object.assign(
+  ArchivedCopilotChatInput,
+  CopilotChatInput,
+) as typeof CopilotChatInput;
 
 function CopilotChatHeader({
   conversationId,
@@ -881,6 +898,7 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
     useShallow((state) => selectChatHeaderSlice(state, conversationId)),
   );
   const running = isRuntimeRunning(runtime?.lifecycle) || hasStreamingMessage;
+  const isArchived = conversation?.archivedAt != null;
 
   useEffect(() => {
     if (!visible) {
@@ -915,7 +933,6 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
     [conversation?.title, conversationId, initialMessages, tab.label],
   );
   const agents = useMemo(() => ({ codex: agent }), [agent]);
-  const messageView = useMemo(() => codexMessageViewSlot(running), [running]);
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented) {
       return;
@@ -938,24 +955,27 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
     >
       <CopilotChatHeader conversationId={conversationId} label={tab.label} />
       {detailState.status === "loaded" ? (
-        <CopilotKitProvider
-          selfManagedAgents={agents}
-          renderActivityMessages={codexActivityRenderers}
-        >
-          <div className="min-h-0 flex-1 [&_.copilotKitChat]:h-full">
-            <CopilotChat
-              agentId="codex"
-              className="h-full"
-              messageView={messageView}
-              labels={{
-                chatInputPlaceholder: "Ask Codex",
-                modalHeaderTitle: "Codex",
-                welcomeMessageText: "Ask Codex about this worktree.",
-              }}
-              onStop={() => void interruptRun(conversationId)}
-            />
-          </div>
-        </CopilotKitProvider>
+        <HubrisRunningContext.Provider value={running}>
+          <CopilotKitProvider
+            selfManagedAgents={agents}
+            renderActivityMessages={codexActivityRenderers}
+          >
+            <div className="min-h-0 flex-1 [&_.copilotKitChat]:h-full">
+              <CopilotChat
+                agentId="codex"
+                className="h-full"
+                input={isArchived ? archivedCopilotChatInputSlot : undefined}
+                messageView={codexMessageViewSlot}
+                labels={{
+                  chatInputPlaceholder: "Ask Codex",
+                  modalHeaderTitle: "Codex",
+                  welcomeMessageText: "Ask Codex about this worktree.",
+                }}
+                onStop={() => void interruptRun(conversationId)}
+              />
+            </div>
+          </CopilotKitProvider>
+        </HubrisRunningContext.Provider>
       ) : detailState.status === "error" ? (
         <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
           <div className="flex max-w-md items-start gap-3 rounded-md border bg-muted/35 p-4">

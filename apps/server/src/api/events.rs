@@ -1,17 +1,85 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use std::time::Instant;
 
 use axum::extract::{Query, State};
 use axum::response::sse::{self, Sse};
 use futures_util::Stream;
 use serde::Deserialize;
-use tokio::sync::broadcast;
+use tokio::sync::{Mutex, broadcast};
 use utoipa::IntoParams;
 
 use crate::api::worktrees::list_worktrees_for_project;
 use crate::events::{Event, EventKind};
 use crate::state::AppState;
+
+const LAGGED_SNAPSHOT_TTL: Duration = Duration::from_secs(1);
+
+pub(crate) struct LaggedSnapshotCache {
+    entries: Mutex<HashMap<String, CachedSnapshot>>,
+    #[cfg(test)]
+    build_count: AtomicU64,
+}
+
+struct CachedSnapshot {
+    built_at: Instant,
+    event: Arc<SnapshotEvent>,
+}
+
+struct SnapshotEvent {
+    event_name: &'static str,
+    data: String,
+}
+
+impl Default for LaggedSnapshotCache {
+    fn default() -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            build_count: AtomicU64::new(0),
+        }
+    }
+}
+
+impl LaggedSnapshotCache {
+    async fn get_or_build(&self, state: &AppState, session_id: &str) -> Arc<SnapshotEvent> {
+        let mut entries = self.entries.lock().await;
+        let now = Instant::now();
+        entries.retain(|_, cached| now.duration_since(cached.built_at) < LAGGED_SNAPSHOT_TTL);
+        if let Some(cached) = entries.get(session_id) {
+            return Arc::clone(&cached.event);
+        }
+
+        #[cfg(test)]
+        self.build_count.fetch_add(1, Ordering::Relaxed);
+        let event = Arc::new(build_snapshot_event(state, session_id).await);
+        entries.insert(
+            session_id.to_string(),
+            CachedSnapshot {
+                built_at: Instant::now(),
+                event: Arc::clone(&event),
+            },
+        );
+        event
+    }
+
+    #[cfg(test)]
+    fn build_count(&self) -> u64 {
+        self.build_count.load(Ordering::Relaxed)
+    }
+}
+
+impl SnapshotEvent {
+    fn to_sse_event(&self) -> sse::Event {
+        sse::Event::default()
+            .event(self.event_name)
+            .data(self.data.clone())
+    }
+}
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -40,9 +108,9 @@ pub async fn event_stream(
     let mut rx = state.events.subscribe();
 
     let stream = async_stream::stream! {
-        yield Ok(build_snapshot_event(
-            &state, &session_id,
-        ).await);
+        yield Ok(build_snapshot_event(&state, &session_id)
+            .await
+            .to_sse_event());
 
         loop {
             match rx.recv().await {
@@ -59,9 +127,11 @@ pub async fn event_stream(
                          missed {} events",
                         n
                     );
-                    yield Ok(build_snapshot_event(
-                        &state, &session_id,
-                    ).await);
+                    let snapshot = state
+                        .lagged_snapshot_cache
+                        .get_or_build(&state, &session_id)
+                        .await;
+                    yield Ok(snapshot.to_sse_event());
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     break;
@@ -196,7 +266,7 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
     }
 }
 
-async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event {
+async fn build_snapshot_event(state: &AppState, session_id: &str) -> SnapshotEvent {
     let mut tabs: Vec<_> = state
         .tabs
         .iter()
@@ -300,20 +370,22 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> sse::Event 
         managed_processes,
         tasks,
     };
-    sse::Event::default()
-        .event("snapshot")
-        .data(serde_json::to_string(&snapshot).unwrap())
+    SnapshotEvent {
+        event_name: "snapshot",
+        data: serde_json::to_string(&snapshot).unwrap(),
+    }
 }
 
-fn snapshot_unavailable_event(scope: &str, message: &str) -> sse::Event {
+fn snapshot_unavailable_event(scope: &str, message: &str) -> SnapshotEvent {
     tracing::warn!(scope, message, "failed to build SSE snapshot");
     let kind = EventKind::SnapshotUnavailable {
         scope: scope.to_string(),
         message: message.to_string(),
     };
-    sse::Event::default()
-        .event(kind.event_name())
-        .data(serde_json::to_string(&kind).unwrap())
+    SnapshotEvent {
+        event_name: kind.event_name(),
+        data: serde_json::to_string(&kind).unwrap(),
+    }
 }
 
 fn to_sse_event(event: &Event) -> sse::Event {
@@ -324,9 +396,49 @@ fn to_sse_event(event: &Event) -> sse::Event {
 
 #[cfg(test)]
 mod tests {
+    use axum::body::BodyDataStream;
+    use axum::extract::{Query, State};
+    use axum::response::IntoResponse;
+    use futures_util::StreamExt;
+    use tempfile::TempDir;
+
     use super::*;
     use crate::chat::{ChatMessage, ChatMessageRole, ChatMessageStatus};
     use crate::tab::{TabInfo, TerminalTabLabels};
+
+    fn take_sse_event_name(buffer: &mut Vec<u8>) -> Option<String> {
+        let separator = buffer
+            .windows(2)
+            .position(|window| window == b"\n\n")
+            .map(|index| (index, 2))
+            .or_else(|| {
+                buffer
+                    .windows(4)
+                    .position(|window| window == b"\r\n\r\n")
+                    .map(|index| (index, 4))
+            })?;
+        let raw = buffer
+            .drain(..separator.0 + separator.1)
+            .collect::<Vec<_>>();
+        let text = String::from_utf8(raw).unwrap();
+        text.lines()
+            .find_map(|line| line.strip_prefix("event:").map(str::trim))
+            .map(str::to_string)
+    }
+
+    async fn next_sse_event_name(stream: &mut BodyDataStream, buffer: &mut Vec<u8>) -> String {
+        loop {
+            if let Some(event_name) = take_sse_event_name(buffer) {
+                return event_name;
+            }
+            let chunk = tokio::time::timeout(Duration::from_secs(2), stream.next())
+                .await
+                .expect("timed out waiting for SSE data")
+                .expect("SSE stream ended")
+                .expect("SSE body failed");
+            buffer.extend_from_slice(&chunk);
+        }
+    }
 
     fn make_terminal_tab(session_id: &str) -> TabInfo {
         TabInfo::Terminal {
@@ -400,5 +512,70 @@ mod tests {
 
         assert!(event_matches_session(&event, "session-a"));
         assert!(!event_matches_session(&event, "session-b"));
+    }
+
+    #[tokio::test]
+    async fn lagged_consumers_share_one_cached_snapshot_build() {
+        let tmp = TempDir::new().unwrap();
+        let state = AppState::new(tmp.path().to_path_buf()).await;
+        let first = event_stream(
+            State(state.clone()),
+            Query(EventStreamParams {
+                session_id: "default".into(),
+            }),
+        )
+        .await;
+        let second = event_stream(
+            State(state.clone()),
+            Query(EventStreamParams {
+                session_id: "default".into(),
+            }),
+        )
+        .await;
+        let mut delivery_probe = state.events.subscribe();
+
+        for index in 0..257 {
+            state.events.emit(EventKind::ProjectRemoved {
+                project_id: format!("project-{index}"),
+            });
+        }
+        loop {
+            match delivery_probe.recv().await {
+                Ok(event)
+                    if matches!(
+                        &event.kind,
+                        EventKind::ProjectRemoved { project_id }
+                            if project_id == "project-256"
+                    ) =>
+                {
+                    break;
+                }
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => panic!("event bus closed"),
+            }
+        }
+
+        let mut first_stream = first.into_response().into_body().into_data_stream();
+        let mut second_stream = second.into_response().into_body().into_data_stream();
+        let mut first_buffer = Vec::new();
+        let mut second_buffer = Vec::new();
+
+        assert_eq!(
+            next_sse_event_name(&mut first_stream, &mut first_buffer).await,
+            "snapshot"
+        );
+        assert_eq!(
+            next_sse_event_name(&mut second_stream, &mut second_buffer).await,
+            "snapshot"
+        );
+        assert_eq!(
+            next_sse_event_name(&mut first_stream, &mut first_buffer).await,
+            "snapshot"
+        );
+        assert_eq!(
+            next_sse_event_name(&mut second_stream, &mut second_buffer).await,
+            "snapshot"
+        );
+        assert_eq!(state.lagged_snapshot_cache.build_count(), 1);
     }
 }
