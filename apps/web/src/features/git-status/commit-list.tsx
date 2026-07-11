@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -27,6 +27,8 @@ import {
   ChangeStatusBadge,
   FileIcon,
   SharedGitStatusTree,
+  type DirectoryRowParts,
+  type FileNode,
 } from "@/features/git-status/shared-tree";
 import type {
   OpenGitDiff,
@@ -147,6 +149,58 @@ function CommitRow({
         ? buildWorktreeGitStatusTree(detailsState.details.files)
         : [],
     [detailsState.details],
+  );
+  const renderTreeFileRow = useCallback(
+    (node: FileNode) => (
+      <ChangeRowFrame
+        className="cursor-pointer"
+        interactive
+        onActivate={() =>
+          onOpenDiff(
+            node.path,
+            "commit",
+            node.change.original_path ?? undefined,
+            commit.id,
+            true,
+          )
+        }
+        primary={
+          <>
+            <span aria-hidden="true" className="h-4 w-4 shrink-0" />
+            <FileIcon path={node.path} theme={theme} />
+            <span className="truncate text-[13px] font-medium">
+              {node.name}
+            </span>
+          </>
+        }
+        badge={<ChangeStatusBadge changeType={node.change.change_type} />}
+        onClick={() =>
+          onOpenDiff(
+            node.path,
+            "commit",
+            node.change.original_path ?? undefined,
+            commit.id,
+            true,
+          )
+        }
+        onDoubleClick={() =>
+          onOpenDiff(
+            node.path,
+            "commit",
+            node.change.original_path ?? undefined,
+            commit.id,
+            false,
+          )
+        }
+      />
+    ),
+    [commit.id, onOpenDiff, theme],
+  );
+  const renderTreeDirectoryRow = useCallback(
+    ({ primary, badge }: DirectoryRowParts) => (
+      <ChangeRowFrame primary={primary} badge={badge} />
+    ),
+    [],
   );
   const requestDetails = () => {
     void ensureCommitDetails(projectId, worktreeId, commit.id);
@@ -272,59 +326,8 @@ function CommitRow({
                   theme={theme}
                   openState={treeOpenState}
                   onOpenChange={onTreeOpenChange}
-                  renderFileRow={(node) => (
-                    <ChangeRowFrame
-                      className="cursor-pointer"
-                      interactive
-                      onActivate={() =>
-                        onOpenDiff(
-                          node.path,
-                          "commit",
-                          node.change.original_path ?? undefined,
-                          commit.id,
-                          true,
-                        )
-                      }
-                      primary={
-                        <>
-                          <span
-                            aria-hidden="true"
-                            className="h-4 w-4 shrink-0"
-                          />
-                          <FileIcon path={node.path} theme={theme} />
-                          <span className="truncate text-[13px] font-medium">
-                            {node.name}
-                          </span>
-                        </>
-                      }
-                      badge={
-                        <ChangeStatusBadge
-                          changeType={node.change.change_type}
-                        />
-                      }
-                      onClick={() =>
-                        onOpenDiff(
-                          node.path,
-                          "commit",
-                          node.change.original_path ?? undefined,
-                          commit.id,
-                          true,
-                        )
-                      }
-                      onDoubleClick={() =>
-                        onOpenDiff(
-                          node.path,
-                          "commit",
-                          node.change.original_path ?? undefined,
-                          commit.id,
-                          false,
-                        )
-                      }
-                    />
-                  )}
-                  renderDirectoryRow={({ primary, badge }) => (
-                    <ChangeRowFrame primary={primary} badge={badge} />
-                  )}
+                  renderFileRow={renderTreeFileRow}
+                  renderDirectoryRow={renderTreeDirectoryRow}
                 />
               ) : (
                 <p className="py-2 text-sm text-muted-foreground">

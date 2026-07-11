@@ -5,6 +5,7 @@ import { ApiStatusError } from "@/lib/api";
 import {
   initializeWorktreeFileManagerStore,
   resetWorktreeFileManagerStoreForTests,
+  selectWorktreeFileRowSnapshot,
   useWorktreeFileManagerStore,
 } from "./worktreeFileManager";
 
@@ -89,6 +90,33 @@ describe("worktree file manager store", () => {
       comparison_available: true,
       comparison_error: null,
     });
+  });
+
+  it("keeps scoped row selector references stable for unrelated updates", async () => {
+    const store = getStore();
+    mockListProjectWorktreeFiles.mockResolvedValue({
+      generation: 1,
+      path: "",
+      entries: [
+        { name: "src", path: "src", kind: "directory" },
+        { name: "docs", path: "docs", kind: "directory" },
+      ],
+    });
+    await store.getState().loadDirectory("p1", "w1", "");
+
+    const state = store.getState();
+    const srcRow = selectWorktreeFileRowSnapshot(state, "w1", "src");
+    const docsRow = selectWorktreeFileRowSnapshot(state, "w1", "docs");
+
+    store.getState().setExpanded("w1", "src", true);
+    const nextState = store.getState();
+
+    expect(selectWorktreeFileRowSnapshot(nextState, "w1", "src")).not.toBe(
+      srcRow,
+    );
+    expect(selectWorktreeFileRowSnapshot(nextState, "w1", "docs")).toBe(
+      docsRow,
+    );
   });
 
   it("preloads root descendant directories after the root directory is loaded", async () => {

@@ -1,17 +1,15 @@
 import {
   Fragment,
   forwardRef,
+  useCallback,
   useMemo,
+  useState,
   type ComponentProps,
   type ReactNode,
 } from "react";
 import { ChevronRight } from "lucide-react";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
+import { TreeView, type TreeRowRenderProps } from "@/components/tree/TreeView";
+import { createTreeExpansionStore } from "@/components/tree/treeExpansionStore";
 import {
   gitChangeTypeClass,
   gitChangeTypeLabel,
@@ -27,10 +25,13 @@ import type { WorktreeGitStatusTreeNode } from "@/lib/worktreeGitStatusTree";
 import { cn } from "@/lib/utils";
 import type { DiffScope, TreeOpenState } from "@/features/git-status/types";
 
-type FileNode = Extract<WorktreeGitStatusTreeNode, { kind: "file" }>;
-type DirectoryNode = Extract<WorktreeGitStatusTreeNode, { kind: "directory" }>;
+export type FileNode = Extract<WorktreeGitStatusTreeNode, { kind: "file" }>;
+export type DirectoryNode = Extract<
+  WorktreeGitStatusTreeNode,
+  { kind: "directory" }
+>;
 
-type DirectoryRowParts = {
+export type DirectoryRowParts = {
   node: DirectoryNode;
   open: boolean;
   primary: ReactNode;
@@ -47,14 +48,6 @@ type SharedTreeProps = {
   renderFileRow: (node: FileNode) => ReactNode;
   renderDirectoryRow: (parts: DirectoryRowParts) => ReactNode;
 };
-
-function treeNodeKey(
-  scope: DiffScope,
-  node: WorktreeGitStatusTreeNode,
-  index: number,
-): string {
-  return [scope, node.kind, node.path, index].join(":");
-}
 
 function* walkDirectoryChangeTypes(
   node: DirectoryNode,
@@ -245,17 +238,44 @@ export const ChangeRowFrame = forwardRef<
   );
 });
 
-function SharedTreeNode({
+function getTreeNodePath(node: WorktreeGitStatusTreeNode): string {
+  return node.path;
+}
+
+function getTreeNodeKey(
+  node: WorktreeGitStatusTreeNode,
+  index: number,
+): string {
+  return `${node.kind}:${node.path}:${index}`;
+}
+
+function isDirectoryNode(node: WorktreeGitStatusTreeNode): boolean {
+  return node.kind === "directory";
+}
+
+function getTreeNodeChildren(
+  node: WorktreeGitStatusTreeNode,
+): readonly WorktreeGitStatusTreeNode[] {
+  return node.kind === "directory" ? node.children : [];
+}
+
+function isRootNodeExpanded(
+  _node: WorktreeGitStatusTreeNode,
+  depth: number,
+): boolean {
+  return depth === 0;
+}
+
+function GitStatusTreeRow({
   node,
-  index,
-  depth,
-  ...props
-}: Omit<SharedTreeProps, "nodes"> & {
-  node: WorktreeGitStatusTreeNode;
-  index: number;
-  depth: number;
-}) {
-  const open = props.openState[node.path] ?? depth === 0;
+  expanded,
+  setExpanded,
+  rowProps,
+  theme,
+  renderFileRow,
+  renderDirectoryRow,
+}: TreeRowRenderProps<WorktreeGitStatusTreeNode> &
+  Pick<SharedTreeProps, "theme" | "renderFileRow" | "renderDirectoryRow">) {
   const changeType = useMemo(
     () =>
       node.kind === "directory" ? aggregateDirectoryChangeType(node) : null,
@@ -263,76 +283,68 @@ function SharedTreeNode({
   );
 
   if (node.kind === "file") {
-    return (
-      <SidebarMenuItem key={treeNodeKey(props.scope, node, index)}>
-        {props.renderFileRow(node)}
-      </SidebarMenuItem>
-    );
+    return renderFileRow(node);
   }
 
   const primary = (
-    <CollapsibleTrigger asChild>
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 text-left text-[13px] font-medium outline-hidden"
-        aria-label={`Toggle ${node.path}`}
-      >
-        <ChevronRight
-          className={cn(
-            "size-4 shrink-0 transition-transform duration-150",
-            open && "rotate-90",
-          )}
-        />
-        <FolderIcon name={node.name} open={open} theme={props.theme} />
-        <CompactedDirectoryLabel name={node.name} />
-      </button>
-    </CollapsibleTrigger>
+    <button
+      {...rowProps}
+      type="button"
+      className="flex min-w-0 flex-1 items-center gap-2 text-left text-[13px] font-medium outline-hidden"
+      aria-label={`Toggle ${node.path}`}
+      onClick={() => setExpanded(!expanded)}
+    >
+      <ChevronRight
+        className={cn(
+          "size-4 shrink-0 transition-transform duration-150",
+          expanded && "rotate-90",
+        )}
+      />
+      <FolderIcon name={node.name} open={expanded} theme={theme} />
+      <CompactedDirectoryLabel name={node.name} />
+    </button>
   );
   const badge = changeType ? (
     <DirectoryStatusDot changeType={changeType} />
   ) : null;
 
-  return (
-    <SidebarMenuItem key={treeNodeKey(props.scope, node, index)}>
-      <Collapsible
-        open={open}
-        onOpenChange={(nextOpen) => props.onOpenChange(node.path, nextOpen)}
-        className="group/collapsible"
-      >
-        {props.renderDirectoryRow({ node, open, primary, badge })}
-        <CollapsibleContent>
-          <div className="ml-[15px] border-l border-sidebar-border/70 pl-[9px]">
-            <SidebarMenu className="gap-0.5 py-0.5">
-              {node.children.map((child, childIndex) => (
-                <SharedTreeNode
-                  key={treeNodeKey(props.scope, child, childIndex)}
-                  {...props}
-                  node={child}
-                  index={childIndex}
-                  depth={depth + 1}
-                />
-              ))}
-            </SidebarMenu>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-    </SidebarMenuItem>
-  );
+  return renderDirectoryRow({
+    node,
+    open: expanded,
+    primary,
+    badge,
+  });
 }
 
 /** Renders a git-status tree while callers supply feature-specific row UI. */
 export function SharedGitStatusTree(props: SharedTreeProps) {
+  const [expansion] = useState(() =>
+    createTreeExpansionStore(props.openState, props.onOpenChange),
+  );
+  expansion.setOnChange(props.onOpenChange);
+  const renderRow = useCallback(
+    (rowProps: TreeRowRenderProps<WorktreeGitStatusTreeNode>) => (
+      <GitStatusTreeRow
+        {...rowProps}
+        theme={props.theme}
+        renderFileRow={props.renderFileRow}
+        renderDirectoryRow={props.renderDirectoryRow}
+      />
+    ),
+    [props.renderDirectoryRow, props.renderFileRow, props.theme],
+  );
+
   return (
-    <SidebarMenu className={props.className}>
-      {props.nodes.map((node, index) => (
-        <SharedTreeNode
-          key={treeNodeKey(props.scope, node, index)}
-          {...props}
-          node={node}
-          index={index}
-          depth={0}
-        />
-      ))}
-    </SidebarMenu>
+    <TreeView
+      nodes={props.nodes}
+      className={props.className}
+      getPath={getTreeNodePath}
+      getKey={getTreeNodeKey}
+      isBranch={isDirectoryNode}
+      getChildren={getTreeNodeChildren}
+      expansion={expansion}
+      defaultExpanded={isRootNodeExpanded}
+      renderRow={renderRow}
+    />
   );
 }

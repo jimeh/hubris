@@ -99,6 +99,55 @@ type WorktreeFileManagerState = {
   ) => Promise<string>;
 };
 
+export type WorktreeFileRowSnapshot = {
+  directory: DirectoryState | undefined;
+  expanded: boolean;
+  selected: boolean;
+  renaming: boolean;
+};
+
+type CachedRowSnapshot = WorktreeFileRowSnapshot & {
+  snapshot: WorktreeFileRowSnapshot;
+};
+
+const rowSnapshotCache = new Map<string, CachedRowSnapshot>();
+const ROW_SNAPSHOT_CACHE_LIMIT = 4096;
+
+/** Selects one explorer row without changing unrelated row references. */
+export function selectWorktreeFileRowSnapshot(
+  state: WorktreeFileManagerState,
+  worktreeId: string,
+  path: string,
+): WorktreeFileRowSnapshot {
+  const slice = state.worktrees[worktreeId];
+  const directory = slice?.directories[path];
+  const expanded = slice?.expandedPaths.includes(path) ?? false;
+  const selected = slice?.selectedPath === path;
+  const renaming = slice?.renamePath === path;
+  const cacheKey = `${worktreeId}\0${path}`;
+  const cached = rowSnapshotCache.get(cacheKey);
+
+  if (
+    cached &&
+    cached.directory === directory &&
+    cached.expanded === expanded &&
+    cached.selected === selected &&
+    cached.renaming === renaming
+  ) {
+    return cached.snapshot;
+  }
+
+  const snapshot = { directory, expanded, selected, renaming };
+  if (!cached && rowSnapshotCache.size >= ROW_SNAPSHOT_CACHE_LIMIT) {
+    const oldestKey = rowSnapshotCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      rowSnapshotCache.delete(oldestKey);
+    }
+  }
+  rowSnapshotCache.set(cacheKey, { ...snapshot, snapshot });
+  return snapshot;
+}
+
 function createDirectoryState(): DirectoryState {
   return {
     status: "idle",
@@ -825,5 +874,6 @@ export function resetWorktreeFileManagerStoreForTests(): void {
     unsubscribe();
   }
   eventUnsubscribers = [];
+  rowSnapshotCache.clear();
   useWorktreeFileManagerStore.setState({ worktrees: {} });
 }

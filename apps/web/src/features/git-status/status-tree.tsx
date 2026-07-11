@@ -27,6 +27,8 @@ import {
   ChangeStatusBadge,
   FileIcon,
   SharedGitStatusTree,
+  type DirectoryRowParts,
+  type FileNode,
 } from "@/features/git-status/shared-tree";
 import type {
   ChangeSection,
@@ -307,6 +309,123 @@ export function StatusFileSection({
     },
     [],
   );
+  const renderTreeFileRow = useCallback(
+    (node: FileNode) => {
+      const actions = actionsForSection(section);
+      return (
+        <ChangeContextMenu
+          targetLabel={node.name}
+          actions={actions}
+          disabled={disabled}
+          onAction={(action) =>
+            onAction(
+              action,
+              node.path,
+              node.change.original_path ?? undefined,
+              node.name,
+              false,
+            )
+          }
+        >
+          <ChangeRowFrame
+            className="cursor-pointer"
+            interactive
+            onActivate={() =>
+              onOpenDiff(
+                node.path,
+                section,
+                node.change.original_path ?? undefined,
+                undefined,
+                true,
+              )
+            }
+            primary={
+              <>
+                <span aria-hidden="true" className="h-4 w-4 shrink-0" />
+                <FileIcon path={node.path} theme={theme} />
+                <span className="truncate text-[13px] font-medium">
+                  {node.name}
+                </span>
+                <DiffLineStats
+                  insertions={node.change.insertions}
+                  deletions={node.change.deletions}
+                />
+              </>
+            }
+            actions={actions.map((action) => (
+              <RowActionButton
+                key={action}
+                action={action}
+                targetLabel={node.name}
+                disabled={disabled}
+                onAction={(nextAction) =>
+                  onAction(
+                    nextAction,
+                    node.path,
+                    node.change.original_path ?? undefined,
+                    node.name,
+                    false,
+                  )
+                }
+              />
+            ))}
+            badge={<ChangeStatusBadge changeType={node.change.change_type} />}
+            onClick={() =>
+              onOpenDiff(
+                node.path,
+                section,
+                node.change.original_path ?? undefined,
+                undefined,
+                true,
+              )
+            }
+            onDoubleClick={() =>
+              onOpenDiff(
+                node.path,
+                section,
+                node.change.original_path ?? undefined,
+                undefined,
+                false,
+              )
+            }
+          />
+        </ChangeContextMenu>
+      );
+    },
+    [disabled, onAction, onOpenDiff, section, theme],
+  );
+  const renderTreeDirectoryRow = useCallback(
+    ({ node, primary, badge }: DirectoryRowParts) => {
+      const actions = actionsForSection(section);
+      return (
+        <ChangeContextMenu
+          targetLabel={node.name}
+          actions={actions}
+          disabled={disabled}
+          onAction={(action) =>
+            onAction(action, node.path, undefined, node.name, true)
+          }
+        >
+          <ChangeRowFrame
+            primary={primary}
+            actions={actions.map((action) => (
+              <RowActionButton
+                key={action}
+                action={action}
+                targetLabel={node.name}
+                disabled={disabled}
+                onAction={(nextAction) =>
+                  onAction(nextAction, node.path, undefined, node.name, true)
+                }
+              />
+            ))}
+            badge={badge}
+          />
+        </ChangeContextMenu>
+      );
+    },
+    [disabled, onAction, section],
+  );
 
   return (
     <Collapsible
@@ -380,125 +499,8 @@ export function StatusFileSection({
             theme={theme}
             openState={treeOpenState}
             onOpenChange={handleNodeOpenChange}
-            renderFileRow={(node) => {
-              const actions = actionsForSection(section);
-              return (
-                <ChangeContextMenu
-                  targetLabel={node.name}
-                  actions={actions}
-                  disabled={disabled}
-                  onAction={(action) =>
-                    onAction(
-                      action,
-                      node.path,
-                      node.change.original_path ?? undefined,
-                      node.name,
-                      false,
-                    )
-                  }
-                >
-                  <ChangeRowFrame
-                    className="cursor-pointer"
-                    interactive
-                    onActivate={() =>
-                      onOpenDiff(
-                        node.path,
-                        section,
-                        node.change.original_path ?? undefined,
-                        undefined,
-                        true,
-                      )
-                    }
-                    primary={
-                      <>
-                        <span aria-hidden="true" className="h-4 w-4 shrink-0" />
-                        <FileIcon path={node.path} theme={theme} />
-                        <span className="truncate text-[13px] font-medium">
-                          {node.name}
-                        </span>
-                        <DiffLineStats
-                          insertions={node.change.insertions}
-                          deletions={node.change.deletions}
-                        />
-                      </>
-                    }
-                    actions={actions.map((action) => (
-                      <RowActionButton
-                        key={action}
-                        action={action}
-                        targetLabel={node.name}
-                        disabled={disabled}
-                        onAction={(nextAction) =>
-                          onAction(
-                            nextAction,
-                            node.path,
-                            node.change.original_path ?? undefined,
-                            node.name,
-                            false,
-                          )
-                        }
-                      />
-                    ))}
-                    badge={
-                      <ChangeStatusBadge changeType={node.change.change_type} />
-                    }
-                    onClick={() =>
-                      onOpenDiff(
-                        node.path,
-                        section,
-                        node.change.original_path ?? undefined,
-                        undefined,
-                        true,
-                      )
-                    }
-                    onDoubleClick={() =>
-                      onOpenDiff(
-                        node.path,
-                        section,
-                        node.change.original_path ?? undefined,
-                        undefined,
-                        false,
-                      )
-                    }
-                  />
-                </ChangeContextMenu>
-              );
-            }}
-            renderDirectoryRow={({ node, primary, badge }) => {
-              const actions = actionsForSection(section);
-              return (
-                <ChangeContextMenu
-                  targetLabel={node.name}
-                  actions={actions}
-                  disabled={disabled}
-                  onAction={(action) =>
-                    onAction(action, node.path, undefined, node.name, true)
-                  }
-                >
-                  <ChangeRowFrame
-                    primary={primary}
-                    actions={actions.map((action) => (
-                      <RowActionButton
-                        key={action}
-                        action={action}
-                        targetLabel={node.name}
-                        disabled={disabled}
-                        onAction={(nextAction) =>
-                          onAction(
-                            nextAction,
-                            node.path,
-                            undefined,
-                            node.name,
-                            true,
-                          )
-                        }
-                      />
-                    ))}
-                    badge={badge}
-                  />
-                </ChangeContextMenu>
-              );
-            }}
+            renderFileRow={renderTreeFileRow}
+            renderDirectoryRow={renderTreeDirectoryRow}
           />
         )}
       </CollapsibleContent>

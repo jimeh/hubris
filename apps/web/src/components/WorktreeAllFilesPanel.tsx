@@ -10,10 +10,11 @@ import { ChevronRight, Copy, Link2, PencilLine } from "lucide-react";
 import { toast } from "sonner";
 import type { WorktreeGitStatus } from "@/lib/api";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  TreeView,
+  type TreeBranchRenderProps,
+  type TreeRowRenderProps,
+} from "@/components/tree/TreeView";
+import type { TreeExpansionSource } from "@/components/tree/treeExpansionStore";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -22,11 +23,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar";
+import { SidebarMenuButton } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -40,7 +37,10 @@ import {
   type GitChangeType,
 } from "@/lib/gitChangePresentation";
 import { useTabStore } from "@/lib/stores/tabs";
-import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
+import {
+  selectWorktreeFileRowSnapshot,
+  useWorktreeFileManagerStore,
+} from "@/lib/stores/worktreeFileManager";
 import { useThemeSettings } from "@/lib/stores/theme";
 import type { HubrisTheme } from "@/lib/theme/types";
 import type { Worktree, WorktreeFileEntry } from "@/lib/types";
@@ -68,20 +68,6 @@ type DecorationState = {
 
 const NESTED_LOADING_PLACEHOLDER_DELAY_MS = 175;
 const REFRESH_PULSE_DELAY_MS = 200;
-
-const EMPTY_STATE = {
-  directories: {} as Record<string, DirectoryState>,
-  expandedPaths: [] as string[],
-  selectedPath: null,
-  renamePath: null,
-  gitStatus: null as WorktreeGitStatus | null,
-  gitStatusStatus: "idle",
-  gitError: null,
-  pendingGeneration: 0,
-  pendingGitGeneration: 0,
-  pendingChangedPaths: [] as string[],
-  pendingListingPaths: [] as string[],
-};
 
 function buildDecorations(worktreeState: DecorationState): {
   fileChanges: Map<string, GitChangeType>;
@@ -444,45 +430,49 @@ function RefreshErrorBanner({
   );
 }
 
-function FileTreeRow({
-  worktree,
-  entry,
-  depth,
-  expandedPaths,
-  directories,
-  selectedPath,
-  renamePath,
-  fileChanges,
-  directoryChanges,
-  theme,
-  onToggleDirectory,
-  onPreviewFile,
-  onOpenFile,
-  onRenamePathChange,
-  onRenameSubmit,
-  onRetryDirectory,
-}: {
+type ExplorerTreeProps = {
+  nodes: readonly WorktreeFileEntry[];
   worktree: Worktree;
-  entry: WorktreeFileEntry;
-  depth: number;
-  expandedPaths: string[];
-  directories: Record<string, DirectoryState>;
-  selectedPath: string | null;
-  renamePath: string | null;
   fileChanges: Map<string, GitChangeType>;
   directoryChanges: Map<string, GitChangeType>;
   theme: HubrisTheme | null;
-  onToggleDirectory: (entry: WorktreeFileEntry) => void;
+  expansion: TreeExpansionSource;
   onPreviewFile: (path: string) => void;
   onOpenFile: (path: string) => void;
   onRenamePathChange: (path: string | null) => void;
   onRenameSubmit: (entry: WorktreeFileEntry, nextName: string) => Promise<void>;
   onRetryDirectory: (path: string) => void;
-}) {
-  const expanded = expandedPaths.includes(entry.path);
-  const directoryState = directories[entry.path];
-  const isRenaming = renamePath === entry.path;
-  const isSelected = selectedPath === entry.path;
+};
+
+function getExplorerEntryPath(entry: WorktreeFileEntry): string {
+  return entry.path;
+}
+
+function isExplorerDirectory(entry: WorktreeFileEntry): boolean {
+  return entry.kind === "directory";
+}
+
+function ExplorerTreeRow({
+  node: entry,
+  expanded,
+  setExpanded,
+  rowProps,
+  worktree,
+  fileChanges,
+  directoryChanges,
+  theme,
+  onPreviewFile,
+  onOpenFile,
+  onRenamePathChange,
+  onRenameSubmit,
+}: TreeRowRenderProps<WorktreeFileEntry> &
+  Omit<ExplorerTreeProps, "nodes" | "expansion" | "onRetryDirectory">) {
+  const rowState = useWorktreeFileManagerStore((state) =>
+    selectWorktreeFileRowSnapshot(state, worktree.id, entry.path),
+  );
+  const directoryState = rowState.directory as DirectoryState | undefined;
+  const isRenaming = rowState.renaming;
+  const isSelected = rowState.selected;
   const refreshing = isDirectoryRefreshLoading(directoryState);
   const changeType =
     entry.kind === "directory"
@@ -501,195 +491,207 @@ function FileTreeRow({
 
   if (entry.kind === "file") {
     return (
-      <SidebarMenuItem>
-        <RowContextMenu
-          entry={entry}
-          worktree={worktree}
-          onRename={() => onRenamePathChange(entry.path)}
-        >
-          <SidebarMenuButton
-            className={cn(
-              "h-8 pr-0 text-sidebar-foreground/90 hover:bg-sidebar-accent/60",
-              isSelected &&
-                "bg-sidebar-accent/80 text-sidebar-accent-foreground hover:bg-sidebar-accent/80",
-            )}
-            isActive={isSelected}
-            data-testid="file-tree-row"
-            data-path={entry.path}
-            onClick={() => onPreviewFile(entry.path)}
-            onDoubleClick={() => onOpenFile(entry.path)}
-          >
-            <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <FileIcon
-              path={entry.path}
-              theme={theme}
-              isSymlink={entry.is_symlink}
-            />
-            {renameInput ?? (
-              <span
-                className={cn(
-                  "truncate",
-                  rowLabelClass({
-                    changeType,
-                  }),
-                )}
-              >
-                {entry.name}
-              </span>
-            )}
-            <span className="ml-auto">
-              <ExplorerDecoration changeType={changeType} />
-            </span>
-          </SidebarMenuButton>
-        </RowContextMenu>
-      </SidebarMenuItem>
-    );
-  }
-
-  return (
-    <SidebarMenuItem>
       <RowContextMenu
         entry={entry}
         worktree={worktree}
         onRename={() => onRenamePathChange(entry.path)}
       >
-        <Collapsible
-          open={expanded}
-          onOpenChange={() => {
-            if (isRenaming) {
-              return;
-            }
-            onToggleDirectory(entry);
-          }}
-          className="group/collapsible"
+        <SidebarMenuButton
+          {...rowProps}
+          className={cn(
+            "h-8 pr-0 text-sidebar-foreground/90 hover:bg-sidebar-accent/60",
+            isSelected &&
+              "bg-sidebar-accent/80 text-sidebar-accent-foreground hover:bg-sidebar-accent/80",
+          )}
+          isActive={isSelected}
+          data-testid="file-tree-row"
+          data-path={entry.path}
+          onClick={() => onPreviewFile(entry.path)}
+          onDoubleClick={() => onOpenFile(entry.path)}
         >
-          <CollapsibleTrigger asChild>
-            <SidebarMenuButton
+          <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <FileIcon
+            path={entry.path}
+            theme={theme}
+            isSymlink={entry.is_symlink}
+          />
+          {renameInput ?? (
+            <span
               className={cn(
-                "h-8 pr-0 text-sidebar-foreground/90 hover:bg-sidebar-accent/60",
-                isSelected &&
-                  "bg-sidebar-accent/80 text-sidebar-accent-foreground hover:bg-sidebar-accent/80",
+                "truncate",
+                rowLabelClass({
+                  changeType,
+                }),
               )}
-              isActive={isSelected}
-              data-testid="file-tree-row"
-              data-path={entry.path}
-              aria-label={`Toggle ${entry.path}`}
             >
-              <DelayedRefreshPulse
-                key={refreshing ? "refreshing" : "idle"}
-                active={refreshing}
-              >
-                <ChevronRight
-                  className={cn(
-                    "h-4 w-4 shrink-0 transition-transform duration-150",
-                    expanded && "rotate-90",
-                  )}
-                />
-                <FolderIcon
-                  name={entry.name}
-                  open={expanded}
-                  theme={theme}
-                  isSymlink={entry.is_symlink}
-                />
-                {renameInput ?? (
-                  <span
-                    className={cn(
-                      "truncate",
-                      rowLabelClass({
-                        changeType,
-                      }),
-                    )}
-                  >
-                    {entry.name}
-                  </span>
-                )}
-              </DelayedRefreshPulse>
-              <span className="ml-auto">
-                <ExplorerDecoration changeType={changeType} directory />
-              </span>
-            </SidebarMenuButton>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div
-              className="ml-[15px] border-l border-sidebar-border/70 pl-[9px]"
-              data-testid={`explorer-tree-branch-${entry.path.replaceAll("/", "-")}`}
-            >
-              {isDirectoryInitialLoading(directoryState) ? (
-                <DelayedNestedLoadingRow />
-              ) : isDirectoryInitialError(directoryState) ? (
-                <div className="flex items-center gap-2 py-1 text-xs text-destructive">
-                  <span className="truncate">{directoryState.error}</span>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-foreground underline"
-                    onClick={() => onRetryDirectory(entry.path)}
-                  >
-                    Retry
-                  </button>
-                </div>
-              ) : hasLoadedDirectoryState(directoryState) ? (
-                <SidebarMenu className="gap-0.5 py-0.5">
-                  {isDirectoryRefreshError(directoryState) ? (
-                    <div className="flex items-center gap-2 py-1 text-xs text-destructive">
-                      <span className="truncate">{directoryState.error}</span>
-                      <button
-                        type="button"
-                        className="text-xs font-medium text-foreground underline"
-                        onClick={() => onRetryDirectory(entry.path)}
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  ) : null}
-                  {directoryState.entries.length ? (
-                    directoryState.entries.map((child) => (
-                      <FileTreeRow
-                        key={child.path}
-                        worktree={worktree}
-                        entry={child}
-                        depth={depth + 1}
-                        expandedPaths={expandedPaths}
-                        directories={directories}
-                        selectedPath={selectedPath}
-                        renamePath={renamePath}
-                        fileChanges={fileChanges}
-                        directoryChanges={directoryChanges}
-                        theme={theme}
-                        onToggleDirectory={onToggleDirectory}
-                        onPreviewFile={onPreviewFile}
-                        onOpenFile={onOpenFile}
-                        onRenamePathChange={onRenamePathChange}
-                        onRenameSubmit={onRenameSubmit}
-                        onRetryDirectory={onRetryDirectory}
-                      />
-                    ))
-                  ) : (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        className="h-8 pr-0 text-muted-foreground/80 hover:bg-transparent hover:text-muted-foreground/80"
-                        disabled
-                      >
-                        <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-                        <span className="text-[13px] font-medium">
-                          Empty folder
-                        </span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )}
-                </SidebarMenu>
-              ) : null}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
+              {entry.name}
+            </span>
+          )}
+          <span className="ml-auto">
+            <ExplorerDecoration changeType={changeType} />
+          </span>
+        </SidebarMenuButton>
       </RowContextMenu>
-    </SidebarMenuItem>
+    );
+  }
+
+  return (
+    <RowContextMenu
+      entry={entry}
+      worktree={worktree}
+      onRename={() => onRenamePathChange(entry.path)}
+    >
+      <SidebarMenuButton
+        {...rowProps}
+        className={cn(
+          "h-8 pr-0 text-sidebar-foreground/90 hover:bg-sidebar-accent/60",
+          isSelected &&
+            "bg-sidebar-accent/80 text-sidebar-accent-foreground hover:bg-sidebar-accent/80",
+        )}
+        isActive={isSelected}
+        data-testid="file-tree-row"
+        data-path={entry.path}
+        aria-label={`Toggle ${entry.path}`}
+        onClick={() => {
+          if (!isRenaming) {
+            setExpanded(!expanded);
+          }
+        }}
+      >
+        <DelayedRefreshPulse
+          key={refreshing ? "refreshing" : "idle"}
+          active={refreshing}
+        >
+          <ChevronRight
+            className={cn(
+              "h-4 w-4 shrink-0 transition-transform duration-150",
+              expanded && "rotate-90",
+            )}
+          />
+          <FolderIcon
+            name={entry.name}
+            open={expanded}
+            theme={theme}
+            isSymlink={entry.is_symlink}
+          />
+          {renameInput ?? (
+            <span
+              className={cn(
+                "truncate",
+                rowLabelClass({
+                  changeType,
+                }),
+              )}
+            >
+              {entry.name}
+            </span>
+          )}
+        </DelayedRefreshPulse>
+        <span className="ml-auto">
+          <ExplorerDecoration changeType={changeType} directory />
+        </span>
+      </SidebarMenuButton>
+    </RowContextMenu>
+  );
+}
+
+function ExplorerTreeBranch({
+  node: entry,
+  worktree,
+  ...treeProps
+}: TreeBranchRenderProps<WorktreeFileEntry> &
+  Omit<ExplorerTreeProps, "nodes">) {
+  const rowState = useWorktreeFileManagerStore((state) =>
+    selectWorktreeFileRowSnapshot(state, worktree.id, entry.path),
+  );
+  const directoryState = rowState.directory as DirectoryState | undefined;
+
+  return (
+    <div
+      data-testid={`explorer-tree-branch-${entry.path.replaceAll("/", "-")}`}
+    >
+      {isDirectoryInitialLoading(directoryState) ? (
+        <DelayedNestedLoadingRow />
+      ) : isDirectoryInitialError(directoryState) ? (
+        <div className="flex items-center gap-2 py-1 text-xs text-destructive">
+          <span className="truncate">{directoryState?.error}</span>
+          <button
+            type="button"
+            className="text-xs font-medium text-foreground underline"
+            onClick={() => treeProps.onRetryDirectory(entry.path)}
+          >
+            Retry
+          </button>
+        </div>
+      ) : directoryState && hasLoadedDirectoryState(directoryState) ? (
+        <>
+          {isDirectoryRefreshError(directoryState) ? (
+            <div className="flex items-center gap-2 py-1 text-xs text-destructive">
+              <span className="truncate">{directoryState.error}</span>
+              <button
+                type="button"
+                className="text-xs font-medium text-foreground underline"
+                onClick={() => treeProps.onRetryDirectory(entry.path)}
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
+          {directoryState.entries.length ? (
+            <ExplorerTree
+              {...treeProps}
+              worktree={worktree}
+              nodes={directoryState.entries}
+            />
+          ) : (
+            <SidebarMenuButton
+              className="h-8 pr-0 text-muted-foreground/80 hover:bg-transparent hover:text-muted-foreground/80"
+              disabled
+            >
+              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="text-[13px] font-medium">Empty folder</span>
+            </SidebarMenuButton>
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function ExplorerTree({ nodes, ...props }: ExplorerTreeProps) {
+  const renderRow = useCallback(
+    (rowProps: TreeRowRenderProps<WorktreeFileEntry>) => (
+      <ExplorerTreeRow {...rowProps} {...props} />
+    ),
+    [props],
+  );
+  const renderBranch = useCallback(
+    (branchProps: TreeBranchRenderProps<WorktreeFileEntry>) => (
+      <ExplorerTreeBranch {...branchProps} {...props} />
+    ),
+    [props],
+  );
+
+  return (
+    <TreeView
+      nodes={nodes}
+      className="gap-0.5 py-0.5"
+      getPath={getExplorerEntryPath}
+      isBranch={isExplorerDirectory}
+      expansion={props.expansion}
+      renderRow={renderRow}
+      renderBranch={renderBranch}
+    />
   );
 }
 
 export default function WorktreeAllFilesPanel({ worktree }: Props) {
-  const worktreeState =
-    useWorktreeFileManagerStore((state) => state.worktrees[worktree.id]) ??
-    EMPTY_STATE;
+  const rootDirectory = useWorktreeFileManagerStore(
+    (state) => state.worktrees[worktree.id]?.directories[""],
+  ) as DirectoryState | undefined;
+  const gitStatus = useWorktreeFileManagerStore(
+    (state) => state.worktrees[worktree.id]?.gitStatus ?? null,
+  );
   const loadDirectory = useWorktreeFileManagerStore(
     (state) => state.loadDirectory,
   );
@@ -707,25 +709,49 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
   const openFile = useTabStore((state) => state.openFile);
   const activeTheme = useThemeSettings((state) => state.activeTheme);
 
-  const rootDirectory = worktreeState.directories[""];
   const { fileChanges, directoryChanges } = useMemo(
-    () => buildDecorations(worktreeState),
-    [worktreeState],
+    () => buildDecorations({ gitStatus }),
+    [gitStatus],
   );
 
-  const handleToggleDirectory = useCallback(
-    (entry: WorktreeFileEntry) => {
-      const expanded = worktreeState.expandedPaths.includes(entry.path);
-      const nextExpanded = !expanded;
-      setExpanded(worktree.id, entry.path, nextExpanded);
-      setSelectedPath(worktree.id, entry.path);
-      if (nextExpanded) {
-        void (async () => {
-          await loadDirectory(worktree.project_id, worktree.id, entry.path);
-          await preloadVisibleDirectories(worktree.project_id, worktree.id);
-        })();
-      }
-    },
+  const expansion = useMemo<TreeExpansionSource>(
+    () => ({
+      getSnapshot(path) {
+        return selectWorktreeFileRowSnapshot(
+          useWorktreeFileManagerStore.getState(),
+          worktree.id,
+          path,
+        ).expanded;
+      },
+      subscribe(path, listener) {
+        let previous = selectWorktreeFileRowSnapshot(
+          useWorktreeFileManagerStore.getState(),
+          worktree.id,
+          path,
+        ).expanded;
+        return useWorktreeFileManagerStore.subscribe((state) => {
+          const next = selectWorktreeFileRowSnapshot(
+            state,
+            worktree.id,
+            path,
+          ).expanded;
+          if (next !== previous) {
+            previous = next;
+            listener();
+          }
+        });
+      },
+      setExpanded(path, nextExpanded) {
+        setExpanded(worktree.id, path, nextExpanded);
+        setSelectedPath(worktree.id, path);
+        if (nextExpanded) {
+          void (async () => {
+            await loadDirectory(worktree.project_id, worktree.id, path);
+            await preloadVisibleDirectories(worktree.project_id, worktree.id);
+          })();
+        }
+      },
+    }),
     [
       loadDirectory,
       preloadVisibleDirectories,
@@ -733,7 +759,6 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
       setSelectedPath,
       worktree.id,
       worktree.project_id,
-      worktreeState.expandedPaths,
     ],
   );
 
@@ -770,6 +795,26 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
       });
     },
     [openFile, setSelectedPath, worktree.id],
+  );
+  const handlePreviewFile = useCallback(
+    (path: string) => handleOpenFile(path, true),
+    [handleOpenFile],
+  );
+  const handleOpenFilePermanent = useCallback(
+    (path: string) => handleOpenFile(path, false),
+    [handleOpenFile],
+  );
+  const handleRenamePathChange = useCallback(
+    (path: string | null) => setRenamePath(worktree.id, path),
+    [setRenamePath, worktree.id],
+  );
+  const handleRetryDirectory = useCallback(
+    (path: string) => {
+      void loadDirectory(worktree.project_id, worktree.id, path, {
+        force: true,
+      });
+    },
+    [loadDirectory, worktree.id, worktree.project_id],
   );
 
   return (
@@ -817,37 +862,19 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
                 }}
               />
             ) : null}
-            <SidebarMenu className="gap-0.5">
-              {rootDirectory.entries.map((entry) => (
-                <FileTreeRow
-                  key={entry.path}
-                  worktree={worktree}
-                  entry={entry}
-                  depth={0}
-                  expandedPaths={worktreeState.expandedPaths}
-                  directories={
-                    worktreeState.directories as Record<string, DirectoryState>
-                  }
-                  selectedPath={worktreeState.selectedPath}
-                  renamePath={worktreeState.renamePath}
-                  fileChanges={fileChanges}
-                  directoryChanges={directoryChanges}
-                  theme={activeTheme}
-                  onToggleDirectory={handleToggleDirectory}
-                  onPreviewFile={(path) => handleOpenFile(path, true)}
-                  onOpenFile={(path) => handleOpenFile(path, false)}
-                  onRenamePathChange={(path) =>
-                    setRenamePath(worktree.id, path)
-                  }
-                  onRenameSubmit={handleRenameSubmit}
-                  onRetryDirectory={(path) => {
-                    void loadDirectory(worktree.project_id, worktree.id, path, {
-                      force: true,
-                    });
-                  }}
-                />
-              ))}
-            </SidebarMenu>
+            <ExplorerTree
+              nodes={rootDirectory.entries}
+              worktree={worktree}
+              fileChanges={fileChanges}
+              directoryChanges={directoryChanges}
+              theme={activeTheme}
+              expansion={expansion}
+              onPreviewFile={handlePreviewFile}
+              onOpenFile={handleOpenFilePermanent}
+              onRenamePathChange={handleRenamePathChange}
+              onRenameSubmit={handleRenameSubmit}
+              onRetryDirectory={handleRetryDirectory}
+            />
           </>
         ) : (
           <div className="rounded-xl border border-dashed border-border/70 bg-muted/25 px-3 py-5 text-sm text-muted-foreground">
