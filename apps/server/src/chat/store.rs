@@ -3336,20 +3336,34 @@ impl ChatService {
 
         let item = self.get_item_by_id(conversation_id, &item_id).await?;
         if let Some(item) = item.clone() {
-            if kind.is_activity() {
-                self.events.emit(EventKind::ChatActivityUpdated {
-                    session_id: session_id.clone(),
-                    conversation_id: conversation_id.to_string(),
-                    item: item.clone(),
-                });
-            }
-            self.events.emit(EventKind::ChatItemUpdated {
-                session_id,
-                conversation_id: conversation_id.to_string(),
-                item,
-            });
+            self.emit_item_snapshot_if_due(conversation_id, runtime, session_id, item)
+                .await;
         }
         Ok(item)
+    }
+
+    async fn emit_item_snapshot_if_due(
+        &self,
+        conversation_id: &str,
+        runtime: &RuntimeEntry,
+        session_id: String,
+        item: ChatItem,
+    ) {
+        if !runtime.state.lock().await.should_emit_item_snapshot(&item) {
+            return;
+        }
+        if item.kind.is_activity() {
+            self.events.emit(EventKind::ChatActivityUpdated {
+                session_id: session_id.clone(),
+                conversation_id: conversation_id.to_string(),
+                item: item.clone(),
+            });
+        }
+        self.events.emit(EventKind::ChatItemUpdated {
+            session_id,
+            conversation_id: conversation_id.to_string(),
+            item,
+        });
     }
 
     pub(super) async fn append_activity_output(
@@ -3460,16 +3474,8 @@ impl ChatService {
             item_id: item.id.clone(),
             output,
         });
-        self.events.emit(EventKind::ChatActivityUpdated {
-            session_id: session_id.clone(),
-            conversation_id: conversation_id.to_string(),
-            item: updated_item.clone(),
-        });
-        self.events.emit(EventKind::ChatItemUpdated {
-            session_id,
-            conversation_id: conversation_id.to_string(),
-            item: updated_item,
-        });
+        self.emit_item_snapshot_if_due(conversation_id, runtime, session_id, updated_item)
+            .await;
         Ok(())
     }
 
@@ -3575,11 +3581,8 @@ impl ChatService {
             item_id: updated_item.id.clone(),
             output,
         });
-        self.events.emit(EventKind::ChatItemUpdated {
-            session_id,
-            conversation_id: conversation_id.to_string(),
-            item: updated_item.clone(),
-        });
+        self.emit_item_snapshot_if_due(conversation_id, runtime, session_id, updated_item.clone())
+            .await;
         Ok(Some(updated_item))
     }
 
@@ -5178,6 +5181,67 @@ mod tests {
         assert_eq!(detail.items[0].kind, ChatItemKind::AgentMessage);
         assert_eq!(detail.items[0].status, ChatItemStatus::Streaming);
         assert_eq!(detail.items[0].turn_id.as_deref(), Some(turn_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn streaming_snapshot_throttle_allows_message_deltas_to_merge() {
+        let service = test_service().await;
+        let conversation = create_persisted_conversation(&service).await;
+        let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+        let (_, assistant_message_id, _, _) =
+            start_test_run(&service, &conversation, &runtime).await;
+        let mut events = service.events.subscribe();
+        service.events.emit(EventKind::ProjectRemoved {
+            project_id: "test-barrier".to_string(),
+        });
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if matches!(
+                &event.kind,
+                EventKind::ProjectRemoved { project_id } if project_id == "test-barrier"
+            ) {
+                break;
+            }
+        }
+
+        for delta in ["one ", "two ", "three"] {
+            service
+                .handle_provider_notification(
+                    &conversation.id,
+                    &runtime,
+                    "item/agentMessage/delta",
+                    json!({
+                        "threadId": "thread-1",
+                        "turnId": "provider-turn-1",
+                        "itemId": "item-1",
+                        "delta": delta
+                    }),
+                )
+                .await
+                .unwrap();
+        }
+
+        let snapshot = tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(snapshot.kind, EventKind::ChatItemUpdated { .. }));
+
+        let merged_delta = tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            &merged_delta.kind,
+            EventKind::ChatMessageDelta {
+                message_id,
+                delta,
+                ..
+            } if message_id == &assistant_message_id && delta == "one two three"
+        ));
     }
 
     #[tokio::test]

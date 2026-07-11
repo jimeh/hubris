@@ -58,6 +58,7 @@ const CHAT_DB_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(60);
 static CHAT_DB_MIGRATOR: Migrator = sqlx::migrate!("./chat-migrations");
 const MAX_INACTIVE_THREAD_STREAMS: usize = 4;
 const UNSUBSCRIBE_RETRY_DELAY: Duration = Duration::from_secs(15);
+const STREAMING_SNAPSHOT_INTERVAL: Duration = Duration::from_millis(250);
 const CODEX_TEXT_TRACE_ENV: &str = "HUBRIS_CODEX_TEXT_TRACE";
 
 fn now_ms() -> u64 {

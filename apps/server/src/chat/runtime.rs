@@ -23,6 +23,7 @@ pub(super) struct RuntimeState {
     agent_message_projection_by_item_id: HashMap<String, AgentMessageProjection>,
     commentary_delta_seen_item_ids: HashSet<String>,
     commentary_completed_item_ids: HashSet<String>,
+    streaming_snapshot_emitted_at: HashMap<String, tokio::time::Instant>,
     pub(super) stream_lifecycle: ThreadStreamLifecycle,
     pub(super) owner_generation: u64,
     idle_generation: u64,
@@ -54,6 +55,7 @@ impl RuntimeState {
             agent_message_projection_by_item_id: HashMap::new(),
             commentary_delta_seen_item_ids: HashSet::new(),
             commentary_completed_item_ids: HashSet::new(),
+            streaming_snapshot_emitted_at: HashMap::new(),
             stream_lifecycle,
             owner_generation: 0,
             idle_generation: 0,
@@ -69,6 +71,31 @@ impl RuntimeState {
         self.agent_message_projection_by_item_id.clear();
         self.commentary_delta_seen_item_ids.clear();
         self.commentary_completed_item_ids.clear();
+    }
+
+    pub(super) fn should_emit_item_snapshot(&mut self, item: &ChatItem) -> bool {
+        if item.status != ChatItemStatus::Streaming {
+            self.streaming_snapshot_emitted_at.remove(&item.id);
+            return true;
+        }
+
+        let now = tokio::time::Instant::now();
+        match self.streaming_snapshot_emitted_at.get_mut(&item.id) {
+            Some(last_emitted)
+                if now.duration_since(*last_emitted) < STREAMING_SNAPSHOT_INTERVAL =>
+            {
+                false
+            }
+            Some(last_emitted) => {
+                *last_emitted = now;
+                true
+            }
+            None => {
+                self.streaming_snapshot_emitted_at
+                    .insert(item.id.clone(), now);
+                true
+            }
+        }
     }
 }
 

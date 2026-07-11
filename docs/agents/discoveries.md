@@ -186,3 +186,10 @@ but too specific for the root `AGENTS.md` map.
   one clean daemon from an unsandboxed shell
   (`SCCACHE_IDLE_TIMEOUT=0 sccache --start-server`); or bypass per-command with
   `RUSTC_WRAPPER=""`.
+- Tokio tests with exactly one `Notify` waiter should use `notify_one()`, which
+  retains a permit if the waiter has not registered yet. `notify_waiters()` can
+  lose the wake during queued event-dispatch scheduling and make the test time
+  out after its observable pre-wait state has already been published.
+- `EventBus::subscribe()` attaches to the broadcast side, but events already in
+  its MPSC input queue may still arrive afterward. Tests that need a clean event
+  boundary should enqueue and consume a non-delta barrier after subscribing.
