@@ -5,7 +5,11 @@ import {
   saveProjectWorktreeFileContent,
 } from "@/lib/api";
 import { getEventClient } from "@/lib/events";
-import { useTabStore } from "@/lib/stores/tabs";
+import {
+  selectTabById,
+  selectTabsForWorktree,
+  useTabStore,
+} from "@/lib/stores/tabs";
 import type { GitDiffTab } from "@/lib/types";
 
 type LoadStatus = "idle" | "loading" | "loaded" | "error";
@@ -294,12 +298,8 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
   },
   async reload(projectId, worktreeId, tabId, options) {
     const session = get().sessions[tabId];
-    const tab = useTabStore
-      .getState()
-      .tabs.find(
-        (candidate): candidate is GitDiffTab =>
-          candidate.id === tabId && candidate.type === "git_diff",
-      );
+    const candidate = selectTabById(useTabStore.getState(), tabId);
+    const tab = candidate?.type === "git_diff" ? candidate : undefined;
     if (!session || !tab) {
       return;
     }
@@ -463,14 +463,15 @@ export function initializeGitDiffStore(): void {
     events.on(
       "worktree_files_updated",
       ({ project_id, worktree_id, changed_paths, listing_paths }) => {
-        const gitDiffTabs = useTabStore
-          .getState()
-          .tabs.filter(
-            (tab): tab is GitDiffTab =>
-              tab.type === "git_diff" &&
-              tab.worktree_id === worktree_id &&
-              tab.scope === "unstaged",
-          );
+        const gitDiffTabs = selectTabsForWorktree(
+          useTabStore.getState(),
+          worktree_id,
+        ).filter(
+          (tab): tab is GitDiffTab =>
+            tab.type === "git_diff" &&
+            tab.worktree_id === worktree_id &&
+            tab.scope === "unstaged",
+        );
         const store = useGitDiffStore.getState();
 
         for (const tab of gitDiffTabs) {

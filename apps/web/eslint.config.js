@@ -4,6 +4,66 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
+const featureNames = ["chat", "editor", "git-status", "keyboard-shortcuts"];
+
+// Non-feature code must consume features through their shims/barrels.
+// The one-line component shims and the lazy chat entry point are the
+// sanctioned crossings; everything else deep-importing a feature is a
+// boundary violation.
+const featureEntryPoints = [
+  "src/components/AgentChatTab.tsx",
+  "src/components/AgentChatTabSwitch.tsx",
+  "src/components/CopilotKitAgentChatTab.tsx",
+  "src/components/FileEditorTab.tsx",
+  "src/components/GitDiffTab.tsx",
+  "src/components/WorktreeChatsPanel.tsx",
+  "src/components/WorktreeGitStatusPanel.tsx",
+];
+
+const nonFeatureBoundary = {
+  files: ["src/**/*.{ts,tsx}"],
+  ignores: ["src/features/**", ...featureEntryPoints],
+  rules: {
+    "no-restricted-imports": [
+      "error",
+      {
+        patterns: [
+          {
+            regex: "^@/features/[^/]+/.",
+            message:
+              "Import features through their shim or index re-export only.",
+          },
+        ],
+      },
+    ],
+  },
+};
+
+function featureBoundary(featureName) {
+  return {
+    files: [`src/features/${featureName}/**/*.{ts,tsx}`],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: `^@/features/(?!${featureName}(?:/|$))[^/]+/`,
+              message:
+                "Import another feature through its index re-export only.",
+            },
+            {
+              regex: "^\\.\\./",
+              message:
+                "Use @/ imports; feature parent traversals can bypass boundaries.",
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
 export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -39,6 +99,53 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  ...featureNames.map(featureBoundary),
+  nonFeatureBoundary,
+  {
+    files: ["src/lib/stores/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/components", "@/components/**"],
+              message: "Stores cannot depend on React components.",
+            },
+            {
+              group: ["@/features", "@/features/**"],
+              message: "Stores cannot depend on frontend features.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/lib/heavy/**/*.{ts,tsx}",
+      "src/features/chat/CopilotKitAgentChatTab.tsx",
+      "src/components/AgentChatTabSwitch.tsx",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "ImportDeclaration[source.value=/^(?:@monaco-editor\\/|monaco-editor(?:\\/|$)|@assistant-ui\\/|@copilotkit\\/|@ag-ui\\/)/]",
+          message:
+            "Heavy UI packages belong in lib/heavy or a lazy chat entry point.",
+        },
+        {
+          selector:
+            "ImportExpression[source.value=/^(?:@monaco-editor\\/|monaco-editor(?:\\/|$)|@assistant-ui\\/|@copilotkit\\/|@ag-ui\\/)/]",
+          message:
+            "Heavy UI packages belong in lib/heavy or a lazy chat entry point.",
+        },
       ],
     },
   },

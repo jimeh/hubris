@@ -35,12 +35,14 @@ vi.mock("@/lib/desktopBrowser", () => ({
 }));
 
 import BrowserTab from "@/components/BrowserTab";
+import { resetBrowserTabStoreForTests } from "@/lib/stores/browserTabs";
 import {
-  resetBrowserTabStoreForTests,
-  useBrowserTabStore,
-} from "@/lib/stores/browserTabs";
-import { resetTabStoreForTests, useTabStore } from "@/lib/stores/tabs";
+  resetTabStoreForTests,
+  selectAllTabs,
+  useTabStore,
+} from "@/lib/stores/tabs";
 import type { BrowserTab as BrowserTabInfo } from "@/lib/types";
+import { normalizedTabState } from "@/test/tabs";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -91,7 +93,7 @@ describe("BrowserTab", () => {
   it("focuses the blank browser tab address bar and disables password managers", async () => {
     const tab = makeBrowserTab();
     useTabStore.setState({
-      tabs: [tab],
+      ...normalizedTabState([tab]),
       activeTabId: tab.id,
       activeTabByWorktree: { [tab.worktree_id]: tab.id },
     });
@@ -118,7 +120,7 @@ describe("BrowserTab", () => {
   it("retries https after an http transport failure for scheme-less input", async () => {
     const tab = makeBrowserTab();
     useTabStore.setState({
-      tabs: [tab],
+      ...normalizedTabState([tab]),
       activeTabId: tab.id,
       activeTabByWorktree: { [tab.worktree_id]: tab.id },
     });
@@ -175,7 +177,7 @@ describe("BrowserTab", () => {
     });
 
     await waitFor(() => {
-      expect(useTabStore.getState().tabs[0]).toMatchObject({
+      expect(selectAllTabs(useTabStore.getState())[0]).toMatchObject({
         url: "https://example.com/docs",
         history: ["about:blank", "https://example.com/docs"],
         history_index: 1,
@@ -186,7 +188,7 @@ describe("BrowserTab", () => {
   it("routes bare host input through custom normalization", async () => {
     const tab = makeBrowserTab();
     useTabStore.setState({
-      tabs: [tab],
+      ...normalizedTabState([tab]),
       activeTabId: tab.id,
       activeTabByWorktree: { [tab.worktree_id]: tab.id },
     });
@@ -243,7 +245,7 @@ describe("BrowserTab", () => {
     });
 
     await waitFor(() => {
-      expect(useTabStore.getState().tabs[0]).toMatchObject({
+      expect(selectAllTabs(useTabStore.getState())[0]).toMatchObject({
         url: "https://github.com/",
         history: ["about:blank", "https://github.com/"],
         history_index: 1,
@@ -256,7 +258,7 @@ describe("BrowserTab", () => {
   it("uses the redirected https target when an http probe upgrades", async () => {
     const tab = makeBrowserTab();
     useTabStore.setState({
-      tabs: [tab],
+      ...normalizedTabState([tab]),
       activeTabId: tab.id,
       activeTabByWorktree: { [tab.worktree_id]: tab.id },
     });
@@ -292,7 +294,7 @@ describe("BrowserTab", () => {
     });
 
     await waitFor(() => {
-      expect(useTabStore.getState().tabs[0]).toMatchObject({
+      expect(selectAllTabs(useTabStore.getState())[0]).toMatchObject({
         url: "https://jimeh.me/",
         history: ["about:blank", "https://jimeh.me/"],
         history_index: 1,
@@ -303,7 +305,7 @@ describe("BrowserTab", () => {
   it("uses the latest stored browser history after async navigation resolves", async () => {
     const tab = makeBrowserTab();
     useTabStore.setState({
-      tabs: [tab],
+      ...normalizedTabState([tab]),
       activeTabId: tab.id,
       activeTabByWorktree: { [tab.worktree_id]: tab.id },
     });
@@ -313,7 +315,7 @@ describe("BrowserTab", () => {
       .spyOn(window, "fetch")
       .mockReturnValue(fetchRequest.promise);
     mockUpdateTab.mockImplementation(async (_id, updates) => ({
-      ...useTabStore.getState().tabs[0],
+      ...selectAllTabs(useTabStore.getState())[0],
       label: updates.label,
       url: updates.url,
       history: updates.history,
@@ -327,14 +329,14 @@ describe("BrowserTab", () => {
     fireEvent.submit(input.closest("form")!);
 
     useTabStore.setState({
-      tabs: [
+      ...normalizedTabState([
         makeBrowserTab({
           ...tab,
           url: "https://mid.example/",
           history: ["about:blank", "https://mid.example/"],
           history_index: 1,
         }),
-      ],
+      ]),
     });
 
     fetchRequest.resolve({ url: "https://jimeh.me/" } as Response);
@@ -352,7 +354,7 @@ describe("BrowserTab", () => {
     });
 
     await waitFor(() => {
-      expect(useTabStore.getState().tabs[0]).toMatchObject({
+      expect(selectAllTabs(useTabStore.getState())[0]).toMatchObject({
         url: "https://jimeh.me/",
         history: ["about:blank", "https://mid.example/", "https://jimeh.me/"],
         history_index: 2,
@@ -363,7 +365,7 @@ describe("BrowserTab", () => {
   it("shows a custom inline error for invalid input", async () => {
     const tab = makeBrowserTab();
     useTabStore.setState({
-      tabs: [tab],
+      ...normalizedTabState([tab]),
       activeTabId: tab.id,
       activeTabByWorktree: { [tab.worktree_id]: tab.id },
     });
@@ -392,7 +394,7 @@ describe("BrowserTab", () => {
   it("clears the custom error after a successful navigation", async () => {
     const tab = makeBrowserTab();
     useTabStore.setState({
-      tabs: [tab],
+      ...normalizedTabState([tab]),
       activeTabId: tab.id,
       activeTabByWorktree: { [tab.worktree_id]: tab.id },
     });
@@ -433,12 +435,10 @@ describe("BrowserTab", () => {
       history: ["http://localhost:3000/docs"],
     });
     useTabStore.setState({
-      tabs: [tab],
+      ...normalizedTabState([tab]),
       activeTabId: tab.id,
       activeTabByWorktree: { [tab.worktree_id]: tab.id },
     });
-    useBrowserTabStore.getState().ensureSession(tab.id, tab.url, false, false);
-
     render(<BrowserTab tab={tab} visible />);
 
     expect(screen.getByTitle("localhost")).toHaveAttribute(

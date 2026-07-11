@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import {
   ArrowUp,
   Eye,
@@ -8,6 +15,7 @@ import {
   House,
   RotateCcw,
 } from "lucide-react";
+import { TreeView, type TreeRowRenderProps } from "@/components/tree/TreeView";
 import { listFiles } from "@/lib/api";
 import type { DirEntry } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -20,6 +28,42 @@ type Props = {
   onSelect: (path: string) => void;
 };
 
+function getEntryPath(entry: DirEntry): string {
+  return entry.name;
+}
+
+function FileBrowserRow({
+  node: entry,
+  selected,
+  rowProps,
+  onNavigate,
+  onSelectEntry,
+}: TreeRowRenderProps<DirEntry> & {
+  onNavigate: (entry: DirEntry) => void;
+  onSelectEntry: (entry: DirEntry) => void;
+}) {
+  return (
+    <button
+      {...rowProps}
+      className={[
+        "flex w-full items-center gap-2 rounded-sm border-l-2 px-2 py-1 text-left text-sm transition-colors hover:bg-accent/50",
+        selected ? "bg-accent text-accent-foreground" : "",
+        entry.is_git_repo ? "border-primary" : "border-transparent",
+      ].join(" ")}
+      onClick={() => onNavigate(entry)}
+      onDoubleClick={() => onSelectEntry(entry)}
+      type="button"
+    >
+      {entry.is_git_repo ? (
+        <FolderGit className="h-4 w-4 shrink-0 text-primary" />
+      ) : (
+        <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+      )}
+      <span className="truncate">{entry.name}</span>
+    </button>
+  );
+}
+
 export default function FileBrowser({
   currentPath,
   onCurrentPathChange,
@@ -30,7 +74,7 @@ export default function FileBrowser({
   const [error, setError] = useState("");
   const [homeDir, setHomeDir] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
-  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const [browsedPath, setBrowsedPath] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showHiddenRef = useRef(showHidden);
@@ -63,7 +107,7 @@ export default function FileBrowser({
     ): Promise<void> => {
       setLoading(true);
       setError("");
-      setFocusedIndex(-1);
+      setFocusedPath(null);
 
       try {
         const response = await listFiles(
@@ -120,19 +164,51 @@ export default function FileBrowser({
     void fetchEntries(browsedPathRef.current, { showHidden });
   }, [fetchEntries, showHidden]);
 
-  function navigateTo(path: string): void {
-    void fetchEntries(path);
-  }
+  const navigateTo = useCallback(
+    (path: string): void => {
+      void fetchEntries(path);
+    },
+    [fetchEntries],
+  );
 
-  function navigateToEntry(entry: DirEntry): void {
-    const separator = browsedPath.endsWith("/") ? "" : "/";
-    navigateTo(`${browsedPath}${separator}${entry.name}`);
-  }
+  const navigateToEntry = useCallback(
+    (entry: DirEntry): void => {
+      const separator = browsedPath.endsWith("/") ? "" : "/";
+      navigateTo(`${browsedPath}${separator}${entry.name}`);
+    },
+    [browsedPath, navigateTo],
+  );
+  const selectEntry = useCallback(
+    (entry: DirEntry): void => {
+      const separator = browsedPath.endsWith("/") ? "" : "/";
+      onSelect(`${browsedPath}${separator}${entry.name}`);
+    },
+    [browsedPath, onSelect],
+  );
 
-  function navigateToParent(): void {
+  const navigateToParent = useCallback((): void => {
     const parent = browsedPath.replace(/\/[^/]+\/?$/, "") || "/";
     navigateTo(parent);
-  }
+  }, [browsedPath, navigateTo]);
+  const handleTreeKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLElement>) => {
+      if ((event.key === "s" || event.key === "S") && browsedPath) {
+        event.preventDefault();
+        onSelect(browsedPath);
+      }
+    },
+    [browsedPath, onSelect],
+  );
+  const renderEntry = useCallback(
+    (rowProps: TreeRowRenderProps<DirEntry>) => (
+      <FileBrowserRow
+        {...rowProps}
+        onNavigate={navigateToEntry}
+        onSelectEntry={selectEntry}
+      />
+    ),
+    [navigateToEntry, selectEntry],
+  );
 
   return (
     <>
@@ -215,46 +291,7 @@ export default function FileBrowser({
       </div>
 
       <ScrollArea className="h-[280px] rounded-md border">
-        <div
-          className="p-1"
-          role="listbox"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (entries.length === 0) {
-              return;
-            }
-
-            switch (event.key) {
-              case "ArrowDown":
-                event.preventDefault();
-                setFocusedIndex((value) =>
-                  Math.min(value + 1, entries.length - 1),
-                );
-                break;
-              case "ArrowUp":
-                event.preventDefault();
-                setFocusedIndex((value) => Math.max(value - 1, 0));
-                break;
-              case "Enter":
-                event.preventDefault();
-                if (focusedIndex >= 0) {
-                  navigateToEntry(entries[focusedIndex]);
-                }
-                break;
-              case "s":
-              case "S":
-                event.preventDefault();
-                if (browsedPath) {
-                  onSelect(browsedPath);
-                }
-                break;
-              case "Backspace":
-                event.preventDefault();
-                navigateToParent();
-                break;
-            }
-          }}
-        >
+        <div className="p-1">
           {loading ? (
             Array.from({ length: 6 }).map((_, index) => (
               <div key={index} className="flex items-center gap-2 px-2 py-1.5">
@@ -278,34 +315,18 @@ export default function FileBrowser({
               (empty)
             </div>
           ) : (
-            entries.map((entry, index) => {
-              const separator = browsedPath.endsWith("/") ? "" : "/";
-              const selectedPath = `${browsedPath}${separator}${entry.name}`;
-              return (
-                <button
-                  key={entry.name}
-                  className={[
-                    "flex w-full items-center gap-2 rounded-sm border-l-2 px-2 py-1 text-left text-sm transition-colors hover:bg-accent/50",
-                    index === focusedIndex
-                      ? "bg-accent text-accent-foreground"
-                      : "",
-                    entry.is_git_repo ? "border-primary" : "border-transparent",
-                  ].join(" ")}
-                  onClick={() => navigateToEntry(entry)}
-                  onDoubleClick={() => onSelect(selectedPath)}
-                  role="option"
-                  aria-selected={index === focusedIndex}
-                  type="button"
-                >
-                  {entry.is_git_repo ? (
-                    <FolderGit className="h-4 w-4 shrink-0 text-primary" />
-                  ) : (
-                    <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  )}
-                  <span className="truncate">{entry.name}</span>
-                </button>
-              );
-            })
+            <TreeView
+              nodes={entries}
+              role="listbox"
+              tabIndex={0}
+              focusedPath={focusedPath}
+              onFocusedPathChange={setFocusedPath}
+              onActivate={navigateToEntry}
+              onNavigateParent={navigateToParent}
+              onKeyDown={handleTreeKeyDown}
+              getPath={getEntryPath}
+              renderRow={renderEntry}
+            />
           )}
         </div>
       </ScrollArea>

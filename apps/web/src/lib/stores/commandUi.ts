@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SectionName } from "@/components/settings-dialog/sections";
+import type { SectionName } from "@/lib/settingsSections";
 
 export type CommandDialogIntent =
   | { type: "add-project" }

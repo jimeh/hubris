@@ -27,7 +27,7 @@ import {
 import { executeCommand } from "@/lib/commands";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useProjectStore } from "@/lib/stores/projects";
-import { useTabStore } from "@/lib/stores/tabs";
+import { selectAllTabs, useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type { Project, Worktree } from "@/lib/types";
 
@@ -229,7 +229,7 @@ export default function CommandDialogs() {
   const selectedWorktreeId = useWorktreeStore(
     (state) => state.selectedWorktreeId,
   );
-  const tabs = useTabStore((state) => state.tabs);
+  const tabs = useTabStore(selectAllTabs);
 
   const activeProject =
     dialog && "projectId" in dialog

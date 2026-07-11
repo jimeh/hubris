@@ -16,6 +16,7 @@ import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
+import { normalizedTabState } from "@/test/tabs";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -212,7 +213,7 @@ describe("CommandDialogs", () => {
 
     useTabStore.setState({
       activeTabId: tab.id,
-      tabs: [tab],
+      ...normalizedTabState([tab]),
     });
     useFileEditorStore.setState({
       sessions: {
@@ -290,7 +291,7 @@ describe("CommandDialogs", () => {
 
     useTabStore.setState({
       activeTabId: tab.id,
-      tabs: [tab],
+      ...normalizedTabState([tab]),
     });
     useGitDiffStore.setState({
       sessions: {
@@ -415,7 +416,7 @@ describe("CommandDialogs", () => {
 
     useTabStore.setState({
       activeTabId: tab.id,
-      tabs: [tab],
+      ...normalizedTabState([tab]),
     });
     useFileEditorStore.setState({
       sessions: {
@@ -482,7 +483,7 @@ describe("CommandDialogs", () => {
 
     useTabStore.setState({
       activeTabId: tab.id,
-      tabs: [tab],
+      ...normalizedTabState([tab]),
     });
     useFileEditorStore.setState({
       sessions: {

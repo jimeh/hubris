@@ -10,7 +10,7 @@ import {
   useAppSidebarStore,
 } from "@/lib/stores/appSidebar";
 import { useProjectStore } from "@/lib/stores/projects";
-import { resetTabStoreForTests } from "@/lib/stores/tabs";
+import { initializeTabStore, resetTabStoreForTests } from "@/lib/stores/tabs";
 import {
   resetSidebarWidthStoreForTests,
   useSidebarWidthStore,
@@ -27,6 +27,7 @@ import { resetHubrisWorkbenchStoreForTests } from "@/lib/stores/hubrisWorkbench"
 import { resetVscodeWorkbenchStoreForTests } from "@/lib/stores/vscodeWorkbench";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import { useTabStore } from "@/lib/stores/tabs";
+import { normalizedTabState } from "@/test/tabs";
 
 let worktreeViewRenderCount = 0;
 const hubrisViewMountCounts: Record<string, number> = {};
@@ -201,6 +202,7 @@ describe("App", () => {
       projectErrors: {},
       selectedWorktreeId: "w-local",
     });
+    initializeTabStore();
     useSidebarWidthStore.setState({
       width: 256,
       isResizing: false,
@@ -534,7 +536,7 @@ describe("App", () => {
 
   it("switches the active Hubris tab when the selected worktree changes", async () => {
     useTabStore.setState({
-      tabs: [
+      ...normalizedTabState([
         {
           id: "tab-local",
           label: "local",
@@ -557,7 +559,7 @@ describe("App", () => {
           created_at: 1,
           preview: false,
         },
-      ],
+      ]),
       activeTabId: "tab-local",
       activeTabByWorktree: {
         "w-local": "tab-local",
@@ -577,7 +579,7 @@ describe("App", () => {
   it("reactivates the remembered tab when tabs load after the selected worktree", async () => {
     useWorktreeStore.setState({ selectedWorktreeId: "w-feature" });
     useTabStore.setState({
-      tabs: [],
+      ...normalizedTabState([]),
       activeTabId: null,
       activeTabByWorktree: {
         "w-feature": "tab-feature",
@@ -591,7 +593,7 @@ describe("App", () => {
     act(() => {
       useTabStore.setState((state) => ({
         ...state,
-        tabs: [
+        ...normalizedTabState([
           {
             id: "tab-feature",
             label: "feature",
@@ -603,7 +605,7 @@ describe("App", () => {
             created_at: 0,
             preview: false,
           },
-        ],
+        ]),
       }));
     });
 

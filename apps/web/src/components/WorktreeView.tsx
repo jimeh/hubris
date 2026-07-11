@@ -40,8 +40,7 @@ import { executeCommand } from "@/lib/commands";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
 import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useSettingsStore } from "@/lib/stores/settings";
-import { useTabStore } from "@/lib/stores/tabs";
-import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
+import { selectTabsForWorktree, useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeRightSidebarWidthStore } from "@/lib/stores/worktreeRightSidebarWidth";
 import { buildPaneTree, createSinglePaneLayout } from "@/lib/tabLayout";
 import type { PaneDropPlacement, PaneTree } from "@/lib/tabLayout";
@@ -580,13 +579,8 @@ export default function WorktreeView({ worktree, active }: Props) {
     () => [...lockedFileTabIds, ...lockedGitDiffTabIds],
     [lockedFileTabIds, lockedGitDiffTabIds],
   );
-  const setSelectedPath = useWorktreeFileManagerStore(
-    (state) => state.setSelectedPath,
-  );
-  const worktreeTabs = useTabStore(
-    useShallow((state) =>
-      state.tabs.filter((tab) => tab.worktree_id === worktree.id),
-    ),
+  const worktreeTabs = useTabStore((state) =>
+    selectTabsForWorktree(state, worktree.id),
   );
   const layout = useMemo(
     () =>
@@ -652,19 +646,6 @@ export default function WorktreeView({ worktree, active }: Props) {
     ),
     [],
   );
-
-  useEffect(() => {
-    if (!activeWorktreeTab || activeWorktreeTab.worktree_id !== worktree.id) {
-      return;
-    }
-
-    if (
-      activeWorktreeTab.type === "file" ||
-      activeWorktreeTab.type === "git_diff"
-    ) {
-      setSelectedPath(worktree.id, activeWorktreeTab.path);
-    }
-  }, [activeWorktreeTab, setSelectedPath, worktree.id]);
 
   useEffect(() => {
     if (dirtyTabIds.length === 0) {

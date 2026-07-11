@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorktreeGitStatusPanel from "./WorktreeGitStatusPanel";
 import WorktreeGitStatusViewToggle from "./WorktreeGitStatusViewToggle";
 import { resetWorktreeFileManagerStoreForTests } from "@/lib/stores/worktreeFileManager";
+import { resetGitStatusStoreForTests } from "@/lib/stores/gitStatus";
 import {
   resetWorktreeGitStatusViewStoreForTests,
   useWorktreeGitStatusViewStore,
@@ -631,6 +632,7 @@ describe("WorktreeGitStatusPanel", () => {
     mockUnstageProjectWorktreePath.mockReset();
     mockDiscardProjectWorktreePath.mockReset();
     resetWorktreeFileManagerStoreForTests();
+    resetGitStatusStoreForTests();
     resetWorktreeRightSidebarStoreForTests();
     resetWorktreeGitStatusViewStoreForTests();
     resetTabStoreForTests();

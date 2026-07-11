@@ -6,7 +6,7 @@ import {
   useExternalStoreRuntime,
   type AppendMessage,
   type ThreadMessageLike,
-} from "@assistant-ui/react";
+} from "@/lib/heavy/assistantUi";
 import { SendHorizontal, Square } from "lucide-react";
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";

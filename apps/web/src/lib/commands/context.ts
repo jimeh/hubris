@@ -1,5 +1,5 @@
 import { useProjectStore } from "@/lib/stores/projects";
-import { useTabStore } from "@/lib/stores/tabs";
+import { selectAllTabs, useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type { CommandContextSnapshot } from "./types";
 
@@ -8,7 +8,7 @@ export function buildCommandContextSnapshot(input: {
   focusedPaneByWorktree: Record<string, string>;
   projects: ReturnType<typeof useProjectStore.getState>["projects"];
   selectedWorktreeId: string | null;
-  tabs: ReturnType<typeof useTabStore.getState>["tabs"];
+  tabs: ReturnType<typeof selectAllTabs>;
   worktreesByProject: ReturnType<
     typeof useWorktreeStore.getState
   >["worktreesByProject"];
@@ -58,7 +58,7 @@ export function getCommandContextSnapshot(): CommandContextSnapshot {
     focusedPaneByWorktree: tabState.focusedPaneByWorktree,
     projects: projectState.projects,
     selectedWorktreeId: worktreeState.selectedWorktreeId,
-    tabs: tabState.tabs,
+    tabs: selectAllTabs(tabState),
     worktreesByProject: worktreeState.worktreesByProject,
   });
 }

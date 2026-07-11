@@ -26,7 +26,12 @@ import {
   resetGitDiffStoreForTests,
   useGitDiffStore,
 } from "@/lib/stores/gitDiffTabs";
-import { resetTabStoreForTests, useTabStore } from "@/lib/stores/tabs";
+import {
+  resetTabStoreForTests,
+  selectAllTabs,
+  useTabStore,
+} from "@/lib/stores/tabs";
+import { normalizedTabState } from "@/test/tabs";
 import {
   initializeWorktreeRightSidebarStore,
   resetWorktreeRightSidebarStoreForTests,
@@ -307,7 +312,7 @@ describe("WorktreeView", () => {
     resetCommandUiStoreForTests();
     initializeWorktreeRightSidebarStore();
     useTabStore.setState({
-      tabs: [],
+      ...normalizedTabState([]),
       activeTabId: null,
       activeTabByWorktree: {},
     });
@@ -317,10 +322,10 @@ describe("WorktreeView", () => {
     const worktree = makeWorktree();
 
     useTabStore.setState({
-      tabs: [
+      ...normalizedTabState([
         makeTab("a", worktree.id, { position: 1 }),
         makeTab("b", worktree.id, { position: 2 }),
-      ],
+      ]),
       activeTabId: "a",
       activeTabByWorktree: { [worktree.id]: "a" },
     });
@@ -336,7 +341,10 @@ describe("WorktreeView", () => {
 
     act(() => {
       useTabStore.setState((state) => ({
-        tabs: [...state.tabs, makeTab("c", worktree.id, { position: 3 })],
+        ...normalizedTabState([
+          ...selectAllTabs(state),
+          makeTab("c", worktree.id, { position: 3 }),
+        ]),
       }));
     });
 
@@ -364,10 +372,10 @@ describe("WorktreeView", () => {
     const worktree = makeWorktree();
 
     useTabStore.setState({
-      tabs: [
+      ...normalizedTabState([
         makeTab("a", worktree.id, { position: 1 }),
         makeTab("x", "w2", { position: 1 }),
-      ],
+      ]),
       activeTabId: "a",
       activeTabByWorktree: { [worktree.id]: "a", w2: "x" },
     });
@@ -383,8 +391,10 @@ describe("WorktreeView", () => {
 
     act(() => {
       useTabStore.setState((state) => ({
-        tabs: state.tabs.map((tab) =>
-          tab.id === "x" ? { ...tab, label: "Renamed X" } : tab,
+        ...normalizedTabState(
+          selectAllTabs(state).map((tab) =>
+            tab.id === "x" ? { ...tab, label: "Renamed X" } : tab,
+          ),
         ),
       }));
     });
@@ -396,10 +406,10 @@ describe("WorktreeView", () => {
     const worktree = makeWorktree();
 
     useTabStore.setState({
-      tabs: [
+      ...normalizedTabState([
         makeTab("a", worktree.id, { position: 1, created_at: 1 }),
         makeTab("b", worktree.id, { position: 2, created_at: 2 }),
-      ],
+      ]),
       activeTabId: "a",
       activeTabByWorktree: { [worktree.id]: "a" },
     });
@@ -415,12 +425,14 @@ describe("WorktreeView", () => {
 
     act(() => {
       useTabStore.setState((state) => ({
-        tabs: state.tabs.map((tab) =>
-          tab.id === "a"
-            ? { ...tab, position: 2 }
-            : tab.id === "b"
-              ? { ...tab, position: 1 }
-              : tab,
+        ...normalizedTabState(
+          selectAllTabs(state).map((tab) =>
+            tab.id === "a"
+              ? { ...tab, position: 2 }
+              : tab.id === "b"
+                ? { ...tab, position: 1 }
+                : tab,
+          ),
         ),
       }));
     });
@@ -432,7 +444,7 @@ describe("WorktreeView", () => {
     const worktree = makeWorktree();
 
     useTabStore.setState({
-      tabs: [
+      ...normalizedTabState([
         makeTab("a", worktree.id, { position: 1, created_at: 10 }),
         makeTab("b", worktree.id, { position: 2, created_at: 20 }),
         makeGitDiffTab("diff-1", worktree.id, {
@@ -440,7 +452,7 @@ describe("WorktreeView", () => {
           created_at: 30,
           path: "README copy.md",
         }),
-      ],
+      ]),
       activeTabId: "diff-1",
       activeTabByWorktree: { [worktree.id]: "diff-1" },
       activeTabByPane: { "pane-1": "diff-1" },
@@ -454,14 +466,16 @@ describe("WorktreeView", () => {
 
     act(() => {
       useTabStore.setState((state) => ({
-        tabs: state.tabs.map((tab) =>
-          tab.id === "diff-1"
-            ? { ...tab, position: 1 }
-            : tab.id === "a"
-              ? { ...tab, position: 2 }
-              : tab.id === "b"
-                ? { ...tab, position: 3 }
-                : tab,
+        ...normalizedTabState(
+          selectAllTabs(state).map((tab) =>
+            tab.id === "diff-1"
+              ? { ...tab, position: 1 }
+              : tab.id === "a"
+                ? { ...tab, position: 2 }
+                : tab.id === "b"
+                  ? { ...tab, position: 3 }
+                  : tab,
+          ),
         ),
       }));
     });
@@ -477,7 +491,7 @@ describe("WorktreeView", () => {
     const worktree = makeWorktree();
 
     useTabStore.setState({
-      tabs: [makeTab("a", worktree.id, { position: 1 })],
+      ...normalizedTabState([makeTab("a", worktree.id, { position: 1 })]),
       activeTabId: "a",
       activeTabByWorktree: { [worktree.id]: "a" },
     });
@@ -630,7 +644,7 @@ describe("WorktreeView", () => {
     const worktree = makeWorktree();
 
     useTabStore.setState({
-      tabs: [makeTab("a", worktree.id, { position: 1 })],
+      ...normalizedTabState([makeTab("a", worktree.id, { position: 1 })]),
       activeTabId: "a",
       activeTabByWorktree: { [worktree.id]: "a" },
     });
@@ -681,7 +695,7 @@ describe("WorktreeView", () => {
     });
 
     useTabStore.setState({
-      tabs: [browserA, browserB],
+      ...normalizedTabState([browserA, browserB]),
       activeTabId: browserA.id,
       activeTabByWorktree: { [worktree.id]: browserA.id },
     });
@@ -729,7 +743,7 @@ describe("WorktreeView", () => {
     });
 
     useTabStore.setState({
-      tabs: [terminalTab, browserTab],
+      ...normalizedTabState([terminalTab, browserTab]),
       layoutsByWorktree: { [worktree.id]: makeSplitLayout() },
       activeTabId: terminalTab.id,
       activeTabByWorktree: { [worktree.id]: terminalTab.id },
@@ -769,7 +783,7 @@ describe("WorktreeView", () => {
     });
 
     useTabStore.setState({
-      tabs: [leftTab, rightTab],
+      ...normalizedTabState([leftTab, rightTab]),
       layoutsByWorktree: { [worktree.id]: makeSplitLayout() },
       activeTabId: leftTab.id,
       activeTabByWorktree: { [worktree.id]: leftTab.id },
@@ -802,7 +816,7 @@ describe("WorktreeView", () => {
     });
 
     useTabStore.setState({
-      tabs: [leftTab, rightTab],
+      ...normalizedTabState([leftTab, rightTab]),
       layoutsByWorktree: { [worktree.id]: makeSplitLayout() },
       activeTabId: leftTab.id,
       activeTabByWorktree: { [worktree.id]: leftTab.id },
@@ -847,7 +861,7 @@ describe("WorktreeView", () => {
     });
 
     useTabStore.setState({
-      tabs: [leftTab, rightTab],
+      ...normalizedTabState([leftTab, rightTab]),
       layoutsByWorktree: { [worktree.id]: makeSplitLayout() },
       activeTabId: leftTab.id,
       activeTabByWorktree: { [worktree.id]: leftTab.id },
@@ -879,7 +893,7 @@ describe("WorktreeView", () => {
     });
 
     useTabStore.setState({
-      tabs: [topTab, bottomTab],
+      ...normalizedTabState([topTab, bottomTab]),
       layoutsByWorktree: { [worktree.id]: makeSplitLayout() },
       activeTabId: topTab.id,
       activeTabByWorktree: { [worktree.id]: topTab.id },
@@ -908,7 +922,7 @@ describe("WorktreeView", () => {
 
     useTabStore.setState((state) => ({
       ...state,
-      tabs: [fileTab],
+      ...normalizedTabState([fileTab]),
       activeTabId: fileTab.id,
       activeTabByWorktree: { [worktree.id]: fileTab.id },
     }));
@@ -956,7 +970,7 @@ describe("WorktreeView", () => {
 
     useTabStore.setState((state) => ({
       ...state,
-      tabs: [diffTab],
+      ...normalizedTabState([diffTab]),
       activeTabId: diffTab.id,
       activeTabByWorktree: { [worktree.id]: diffTab.id },
     }));
@@ -1006,7 +1020,7 @@ describe("WorktreeView", () => {
 
     useTabStore.setState((state) => ({
       ...state,
-      tabs: [fileTab],
+      ...normalizedTabState([fileTab]),
       activeTabId: fileTab.id,
       activeTabByWorktree: { [worktree.id]: fileTab.id },
       close: closeSpy,
@@ -1038,7 +1052,9 @@ describe("WorktreeView", () => {
     act(() => {
       useTabStore.setState((state) => ({
         ...state,
-        tabs: [makeTab(fileTab.id, worktree.id, { position: 1 })],
+        ...normalizedTabState([
+          makeTab(fileTab.id, worktree.id, { position: 1 }),
+        ]),
       }));
     });
 

@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventHandler, SseEventName } from "@/lib/events";
-import { resetTabStoreForTests, useTabStore } from "@/lib/stores/tabs";
+import {
+  resetTabStoreForTests,
+  selectAllTabs,
+  useTabStore,
+} from "@/lib/stores/tabs";
+import { normalizedTabState } from "@/test/tabs";
 import {
   flushChatStoreSseBatchForTests,
   initializeChatStore,
@@ -386,7 +391,7 @@ describe("chat store", () => {
     initializeChatStore();
     mockGetChat.mockResolvedValue(detail);
     useTabStore.setState({
-      tabs: [
+      ...normalizedTabState([
         {
           type: "agent_chat",
           id: "tab-1",
@@ -399,7 +404,7 @@ describe("chat store", () => {
           preview: false,
           conversation_id: "chat-1",
         },
-      ],
+      ]),
     });
 
     const loaded = await useChatStore
@@ -453,7 +458,7 @@ describe("chat store", () => {
       },
     });
 
-    expect(useTabStore.getState().tabs[0]?.label).toBe(
+    expect(selectAllTabs(useTabStore.getState())[0]?.label).toBe(
       "Investigate build failure",
     );
   });

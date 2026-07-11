@@ -9,7 +9,7 @@ import type {
   CommandSource,
 } from "@/lib/commands/types";
 import { useProjectStore } from "@/lib/stores/projects";
-import { useTabStore } from "@/lib/stores/tabs";
+import { selectAllTabs, useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 
 export function useCommandContext() {
@@ -24,7 +24,7 @@ export function useCommandContext() {
     useShallow((state) => ({
       activeTabId: state.activeTabId,
       focusedPaneByWorktree: state.focusedPaneByWorktree,
-      tabs: state.tabs,
+      tabs: selectAllTabs(state),
     })),
   );
 

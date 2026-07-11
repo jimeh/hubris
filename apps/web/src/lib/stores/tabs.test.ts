@@ -9,9 +9,14 @@ import type {
   TerminalTab,
 } from "@/lib/types";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
+import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import {
   initializeTabStore,
   resetTabStoreForTests,
+  selectAllTabs,
+  selectTabIdsForWorktree,
+  selectTabsForPane,
+  selectTabsForWorktree,
   tabsForWorktree,
   useTabStore,
 } from "./tabs";
@@ -206,6 +211,7 @@ describe("Tab store", () => {
       projectErrors: {},
       selectedWorktreeId: null,
     });
+    useWorktreeFileManagerStore.setState({ worktrees: {} });
     mockCreateTab.mockReset();
     mockCreateTerminalTab.mockReset();
     mockDeleteTab.mockReset();
@@ -227,10 +233,65 @@ describe("Tab store", () => {
       ],
     });
 
-    expect(store.useTabStore.getState().tabs.map((tab) => tab.id)).toEqual([
-      "b",
-      "a",
-    ]);
+    expect(
+      selectAllTabs(store.useTabStore.getState()).map((tab) => tab.id),
+    ).toEqual(["b", "a"]);
+  });
+
+  it("switches the active tab when the selected worktree changes", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      tabs: [
+        makeTab({ id: "one", worktree_id: "w1" }),
+        makeTab({ id: "two", worktree_id: "w2" }),
+      ],
+    });
+    store.useTabStore.getState().activate("one");
+
+    useWorktreeStore.setState({ selectedWorktreeId: "w2" });
+
+    expect(store.useTabStore.getState().activeTabId).toBe("two");
+  });
+
+  it("syncs the active editor path to the file manager store", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      tabs: [makeFileTab({ id: "file", path: "src/main.ts" })],
+    });
+
+    store.useTabStore.getState().activate("file");
+
+    expect(
+      useWorktreeFileManagerStore.getState().worktrees.w1?.selectedPath,
+    ).toBe("src/main.ts");
+  });
+
+  it("keeps scoped selector references stable for unrelated updates", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      tabs: [
+        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" }),
+        makeTab({ id: "b", worktree_id: "w2", pane_id: "pane-2" }),
+      ],
+    });
+    const state = store.useTabStore.getState();
+    const worktreeIds = selectTabIdsForWorktree(state, "w1");
+    const worktreeTabs = selectTabsForWorktree(state, "w1");
+    const paneTabs = selectTabsForPane(state, "pane-1");
+
+    mockEvents.emit("tab_updated", {
+      tab: makeTab({
+        id: "b",
+        label: "updated",
+        worktree_id: "w2",
+        pane_id: "pane-2",
+      }),
+    });
+    const nextState = store.useTabStore.getState();
+
+    expect(selectTabIdsForWorktree(nextState, "w1")).toBe(worktreeIds);
+    expect(selectTabsForWorktree(nextState, "w1")).toBe(worktreeTabs);
+    expect(selectTabsForPane(nextState, "pane-1")).toBe(paneTabs);
   });
 
   it("reorder() resequences locally and calls API", async () => {
