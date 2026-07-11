@@ -62,7 +62,12 @@ function buildUrl(
 ): { fetchUrl: string; requestPath: string } {
   let requestPath = template;
   for (const [name, value] of Object.entries(path ?? {})) {
-    requestPath = requestPath.replace(`{${name}}`, String(value));
+    // Path params are user-controlled (branch names, theme ids); encode
+    // here so no caller has to remember to.
+    requestPath = requestPath.replace(
+      `{${name}}`,
+      encodeURIComponent(String(value)),
+    );
   }
   if (query) {
     const params = new URLSearchParams();

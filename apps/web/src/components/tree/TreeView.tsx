@@ -19,7 +19,7 @@ const CONTAINED_TREE_ROW_STYLE: CSSProperties = {
 
 export type TreeRowInteractionProps = Pick<
   HTMLAttributes<HTMLElement>,
-  "aria-selected" | "onKeyDown" | "role"
+  "aria-selected" | "onFocus" | "onKeyDown" | "role"
 > & {
   "data-tree-row-focus": true;
 };
@@ -79,6 +79,7 @@ function focusRelativeRow(target: HTMLElement, offset: -1 | 1): void {
 }
 
 type TreeRowProps<Node> = Omit<TreeViewProps<Node>, "nodes" | "className"> & {
+  onRowFocus?: (path: string) => void;
   node: Node;
   depth: number;
   selected?: boolean;
@@ -98,6 +99,7 @@ function TreeRowInner<Node>({
   branchClassName,
   rowRole,
   selected,
+  onRowFocus,
 }: TreeRowProps<Node>) {
   const path = getPath(node);
   const branch = isBranch?.(node) ?? false;
@@ -125,6 +127,9 @@ function TreeRowInner<Node>({
     },
     [branch, expansion, path],
   );
+  const handleRowFocus = useCallback(() => {
+    onRowFocus?.(path);
+  }, [onRowFocus, path]);
   const handleRowKeyDown = useCallback(
     (event: KeyboardEvent<HTMLElement>) => {
       const target = event.currentTarget;
@@ -164,6 +169,7 @@ function TreeRowInner<Node>({
       renderBranch={renderBranch}
       branchClassName={branchClassName}
       rowRole={rowRole}
+      onRowFocus={onRowFocus}
     />
   ) : null;
   const branchContent =
@@ -196,6 +202,9 @@ function TreeRowInner<Node>({
           role: rowRole === "option" ? "option" : undefined,
           "aria-selected": rowRole === "option" ? selected : undefined,
           onKeyDown: handleRowKeyDown,
+          // Keep controlled focusedPath in sync with DOM focus so
+          // root-level Enter/Arrow handling never acts on a stale row.
+          onFocus: handleRowFocus,
         },
       })}
       {branchContent ? (
@@ -226,6 +235,7 @@ type TreeRowsProps<Node> = Omit<
   | "onKeyDown"
 > & {
   depth: number;
+  onRowFocus?: (path: string) => void;
 };
 
 function TreeRows<Node>({ nodes, depth, ...props }: TreeRowsProps<Node>) {
@@ -257,6 +267,12 @@ export function TreeView<Node>({
   onKeyDown,
   ...rowProps
 }: TreeViewProps<Node>) {
+  const handleRowFocus = useCallback(
+    (path: string) => {
+      onFocusedPathChange?.(path);
+    },
+    [onFocusedPathChange],
+  );
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLElement>) => {
       onKeyDown?.(event);
@@ -309,6 +325,7 @@ export function TreeView<Node>({
           depth={0}
           rowRole={rowRole}
           selected={rowProps.getPath(node) === focusedPath}
+          onRowFocus={handleRowFocus}
         />
       ))}
     </SidebarMenu>

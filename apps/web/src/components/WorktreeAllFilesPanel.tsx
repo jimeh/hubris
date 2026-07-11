@@ -659,17 +659,57 @@ function ExplorerTreeBranch({
 }
 
 function ExplorerTree({ nodes, ...props }: ExplorerTreeProps) {
+  // The rest-object is fresh every render; depending on it would rebuild
+  // renderRow/renderBranch each time and defeat TreeRow's memoization.
+  // Depend on the individual values instead.
+  const {
+    worktree,
+    fileChanges,
+    directoryChanges,
+    theme,
+    expansion,
+    onPreviewFile,
+    onOpenFile,
+    onRenamePathChange,
+    onRenameSubmit,
+    onRetryDirectory,
+  } = props;
   const renderRow = useCallback(
     (rowProps: TreeRowRenderProps<WorktreeFileEntry>) => (
       <ExplorerTreeRow {...rowProps} {...props} />
     ),
-    [props],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fields of
+    // `props`, enumerated so the identity is value-driven
+    [
+      worktree,
+      fileChanges,
+      directoryChanges,
+      theme,
+      expansion,
+      onPreviewFile,
+      onOpenFile,
+      onRenamePathChange,
+      onRenameSubmit,
+      onRetryDirectory,
+    ],
   );
   const renderBranch = useCallback(
     (branchProps: TreeBranchRenderProps<WorktreeFileEntry>) => (
       <ExplorerTreeBranch {...branchProps} {...props} />
     ),
-    [props],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- same as above
+    [
+      worktree,
+      fileChanges,
+      directoryChanges,
+      theme,
+      expansion,
+      onPreviewFile,
+      onOpenFile,
+      onRenamePathChange,
+      onRenameSubmit,
+      onRetryDirectory,
+    ],
   );
 
   return (

@@ -89,7 +89,7 @@ export async function sendChatMessage(
 }
 
 export function codexAgUiChatUrl(conversationId: string): string {
-  return `${BASE}/chats/${conversationId}/ag-ui`;
+  return `${BASE}/chats/${encodeURIComponent(conversationId)}/ag-ui`;
 }
 
 export async function archiveChat(

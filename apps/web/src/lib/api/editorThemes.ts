@@ -56,7 +56,7 @@ export async function listEditorThemes(): Promise<EditorThemeEntry[]> {
 
 export async function getEditorTheme(id: string): Promise<VscodeThemeJson> {
   return (await requestJson("GET", "/api/editor-themes/{id}", {
-    path: { id: encodeURIComponent(id) },
+    path: { id },
   })) as VscodeThemeJson;
 }
 
@@ -72,7 +72,7 @@ export async function uploadEditorTheme(
 
 export async function deleteEditorTheme(id: string): Promise<void> {
   await requestVoid("DELETE", "/api/editor-themes/{id}", {
-    path: { id: encodeURIComponent(id) },
+    path: { id },
   });
 }
 

@@ -6,6 +6,39 @@ import tseslint from "typescript-eslint";
 
 const featureNames = ["chat", "editor", "git-status", "keyboard-shortcuts"];
 
+// Non-feature code must consume features through their shims/barrels.
+// The one-line component shims and the lazy chat entry point are the
+// sanctioned crossings; everything else deep-importing a feature is a
+// boundary violation.
+const featureEntryPoints = [
+  "src/components/AgentChatTab.tsx",
+  "src/components/AgentChatTabSwitch.tsx",
+  "src/components/CopilotKitAgentChatTab.tsx",
+  "src/components/FileEditorTab.tsx",
+  "src/components/GitDiffTab.tsx",
+  "src/components/WorktreeChatsPanel.tsx",
+  "src/components/WorktreeGitStatusPanel.tsx",
+];
+
+const nonFeatureBoundary = {
+  files: ["src/**/*.{ts,tsx}"],
+  ignores: ["src/features/**", ...featureEntryPoints],
+  rules: {
+    "no-restricted-imports": [
+      "error",
+      {
+        patterns: [
+          {
+            regex: "^@/features/[^/]+/.",
+            message:
+              "Import features through their shim or index re-export only.",
+          },
+        ],
+      },
+    ],
+  },
+};
+
 function featureBoundary(featureName) {
   return {
     files: [`src/features/${featureName}/**/*.{ts,tsx}`],
@@ -70,6 +103,7 @@ export default tseslint.config(
     },
   },
   ...featureNames.map(featureBoundary),
+  nonFeatureBoundary,
   {
     files: ["src/lib/stores/**/*.{ts,tsx}"],
     rules: {
