@@ -65,7 +65,9 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
     useState<TreeOpenStateByWorktree>({});
   const [commitTreeOpenStateByWorktree, setCommitTreeOpenStateByWorktree] =
     useState<CommitTreeOpenStateByWorktree>({});
-  const [showLoadingSkeleton, setShowLoadingSkeleton] = useState(false);
+  const [skeletonRequestKey, setSkeletonRequestKey] = useState<string | null>(
+    null,
+  );
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(
     null,
   );
@@ -88,6 +90,7 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
   const theme = useThemeSettings((state) => state.activeTheme);
   const status = worktreeState?.gitStatus ?? null;
   const loading = worktreeState?.gitStatusStatus === "loading";
+  const loadingRequestKey = `${worktree.id}:${worktreeState?.pendingGitGeneration ?? 0}`;
   const error = worktreeState?.gitError
     ? `Failed to load git status (${worktreeState.gitError})`
     : "";
@@ -200,17 +203,17 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
 
   useEffect(() => {
     if (!loading || status || error) {
-      const timer = window.setTimeout(() => {
-        setShowLoadingSkeleton(false);
-      }, 0);
-      return () => window.clearTimeout(timer);
+      return;
     }
 
     const timer = window.setTimeout(() => {
-      setShowLoadingSkeleton(true);
+      setSkeletonRequestKey(loadingRequestKey);
     }, LOADING_SKELETON_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [error, loading, status]);
+  }, [error, loading, loadingRequestKey, status]);
+
+  const showLoadingSkeleton =
+    loading && !status && !error && skeletonRequestKey === loadingRequestKey;
 
   return (
     <>

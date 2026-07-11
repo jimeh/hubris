@@ -156,9 +156,7 @@ export default function BrowserTab({ tab, visible }: Props) {
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const inputFocusedRef = useRef(false);
-  const previousUrlRef = useRef(tab.url);
   const [desktopCreateUrl] = useState(() => tab.url);
-  const ensureSession = useBrowserTabStore((state) => state.ensureSession);
   const syncNavigationState = useBrowserTabStore(
     (state) => state.syncNavigationState,
   );
@@ -220,44 +218,10 @@ export default function BrowserTab({ tab, visible }: Props) {
   );
 
   useEffect(() => {
-    ensureSession(
-      tab.id,
-      browserInputValue(tab.url),
-      tab.history_index > 0,
-      tab.history_index < tab.history.length - 1,
-    );
-  }, [ensureSession, tab.history.length, tab.history_index, tab.id, tab.url]);
-
-  useEffect(() => {
     return () => {
       removeSession(tab.id);
     };
   }, [removeSession, tab.id]);
-
-  useEffect(() => {
-    syncNavigationState(
-      tab.id,
-      tab.history_index > 0,
-      tab.history_index < tab.history.length - 1,
-    );
-
-    const displayUrl = browserInputValue(tab.url);
-    if (
-      !inputFocusedRef.current &&
-      session?.draftUrl === browserInputValue(previousUrlRef.current)
-    ) {
-      setDraftUrl(tab.id, displayUrl);
-    }
-    previousUrlRef.current = tab.url;
-  }, [
-    session?.draftUrl,
-    setDraftUrl,
-    syncNavigationState,
-    tab.history.length,
-    tab.history_index,
-    tab.id,
-    tab.url,
-  ]);
 
   useEffect(() => {
     if (isDesktop || !visible) {
@@ -483,7 +447,7 @@ export default function BrowserTab({ tab, visible }: Props) {
 
   function handleAddressBarKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
-      setDraftUrl(tab.id, browserInputValue(tab.url));
+      setDraftUrl(tab.id, null);
       event.currentTarget.blur();
     }
   }
@@ -538,7 +502,7 @@ export default function BrowserTab({ tab, visible }: Props) {
           }}
           onBlur={() => {
             inputFocusedRef.current = false;
-            setDraftUrl(tab.id, browserInputValue(tab.url));
+            setDraftUrl(tab.id, null);
           }}
           onKeyDown={handleAddressBarKeyDown}
           placeholder="Enter a URL"

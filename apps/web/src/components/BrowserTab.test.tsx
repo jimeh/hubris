@@ -35,10 +35,7 @@ vi.mock("@/lib/desktopBrowser", () => ({
 }));
 
 import BrowserTab from "@/components/BrowserTab";
-import {
-  resetBrowserTabStoreForTests,
-  useBrowserTabStore,
-} from "@/lib/stores/browserTabs";
+import { resetBrowserTabStoreForTests } from "@/lib/stores/browserTabs";
 import {
   resetTabStoreForTests,
   selectAllTabs,
@@ -442,8 +439,6 @@ describe("BrowserTab", () => {
       activeTabId: tab.id,
       activeTabByWorktree: { [tab.worktree_id]: tab.id },
     });
-    useBrowserTabStore.getState().ensureSession(tab.id, tab.url, false, false);
-
     render(<BrowserTab tab={tab} visible />);
 
     expect(screen.getByTitle("localhost")).toHaveAttribute(

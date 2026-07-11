@@ -27,6 +27,7 @@ import {
   type PaneDropPlacement,
 } from "@/lib/tabLayout";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
+import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import type {
   BrowserTab,
   GitDiffScope,
@@ -1517,6 +1518,38 @@ function notifiedActiveTerminalTabId(state: TabsState): string | null {
   return tab ? tab.id : null;
 }
 
+function selectedWorktreeTabsKey(state: TabsState): string {
+  const worktreeId = useWorktreeStore.getState().selectedWorktreeId;
+  if (!worktreeId) {
+    return "";
+  }
+  return `${worktreeId}:${state.tabIdsByWorktree[worktreeId]?.join(",") ?? ""}`;
+}
+
+function syncSelectedWorktreeTab(): void {
+  const worktreeId = useWorktreeStore.getState().selectedWorktreeId;
+  if (worktreeId) {
+    useTabStore.getState().switchToWorktree(worktreeId);
+  }
+}
+
+function activeEditorPathKey(state: TabsState): string {
+  const tab = state.activeTabId ? state.tabsById[state.activeTabId] : null;
+  if (tab?.type !== "file" && tab?.type !== "git_diff") {
+    return "";
+  }
+  return `${tab.worktree_id}:${tab.path}`;
+}
+
+function syncActiveEditorPath(state: TabsState): void {
+  const tab = state.activeTabId ? state.tabsById[state.activeTabId] : null;
+  if (tab?.type === "file" || tab?.type === "git_diff") {
+    useWorktreeFileManagerStore
+      .getState()
+      .setSelectedPath(tab.worktree_id, tab.path);
+  }
+}
+
 export function initializeTabStore(): void {
   if (initialized) {
     return;
@@ -1639,6 +1672,36 @@ export function initializeTabStore(): void {
       },
     ),
   ];
+
+  syncSelectedWorktreeTab();
+  const unsubscribeWorktreeSelection = useWorktreeStore.subscribe(
+    (state, previousState) => {
+      if (state.selectedWorktreeId !== previousState.selectedWorktreeId) {
+        syncSelectedWorktreeTab();
+      }
+    },
+  );
+  eventUnsubscribers.push(unsubscribeWorktreeSelection);
+
+  let previousSelectedWorktreeTabsKey = selectedWorktreeTabsKey(
+    useTabStore.getState(),
+  );
+  let previousActiveEditorPathKey = activeEditorPathKey(useTabStore.getState());
+  syncActiveEditorPath(useTabStore.getState());
+  const unsubscribeTabCoordination = useTabStore.subscribe((state) => {
+    const nextSelectedWorktreeTabsKey = selectedWorktreeTabsKey(state);
+    if (nextSelectedWorktreeTabsKey !== previousSelectedWorktreeTabsKey) {
+      previousSelectedWorktreeTabsKey = nextSelectedWorktreeTabsKey;
+      syncSelectedWorktreeTab();
+    }
+
+    const nextActiveEditorPathKey = activeEditorPathKey(state);
+    if (nextActiveEditorPathKey !== previousActiveEditorPathKey) {
+      previousActiveEditorPathKey = nextActiveEditorPathKey;
+      syncActiveEditorPath(state);
+    }
+  });
+  eventUnsubscribers.push(unsubscribeTabCoordination);
 
   // Auto-dismiss terminal notification after a short delay
   // when the notified tab becomes active.

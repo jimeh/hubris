@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 type BrowserTabSession = {
-  draftUrl: string;
+  draftUrl: string | null;
   loading: boolean;
   error: string | null;
   showEmbedHelp: boolean;
@@ -12,18 +12,12 @@ type BrowserTabSession = {
 
 type BrowserTabStore = {
   sessions: Record<string, BrowserTabSession>;
-  ensureSession: (
-    tabId: string,
-    url: string,
-    canGoBack: boolean,
-    canGoForward: boolean,
-  ) => void;
   syncNavigationState: (
     tabId: string,
     canGoBack: boolean,
     canGoForward: boolean,
   ) => void;
-  setDraftUrl: (tabId: string, draftUrl: string) => void;
+  setDraftUrl: (tabId: string, draftUrl: string | null) => void;
   setLoading: (tabId: string, loading: boolean) => void;
   setError: (tabId: string, error: string | null) => void;
   setShowEmbedHelp: (tabId: string, showEmbedHelp: boolean) => void;
@@ -31,54 +25,23 @@ type BrowserTabStore = {
   removeSession: (tabId: string) => void;
 };
 
-function defaultSession(
-  url: string,
-  canGoBack: boolean,
-  canGoForward: boolean,
-): BrowserTabSession {
+function defaultSession(): BrowserTabSession {
   return {
-    draftUrl: url,
+    draftUrl: null,
     loading: false,
     error: null,
     showEmbedHelp: false,
     reloadKey: 0,
-    canGoBack,
-    canGoForward,
+    canGoBack: false,
+    canGoForward: false,
   };
 }
 
 export const useBrowserTabStore = create<BrowserTabStore>((set) => ({
   sessions: {},
-  ensureSession(tabId, url, canGoBack, canGoForward) {
-    set((state) => {
-      const existing = state.sessions[tabId];
-      if (existing) {
-        return {
-          sessions: {
-            ...state.sessions,
-            [tabId]: {
-              ...existing,
-              canGoBack,
-              canGoForward,
-            },
-          },
-        };
-      }
-
-      return {
-        sessions: {
-          ...state.sessions,
-          [tabId]: defaultSession(url, canGoBack, canGoForward),
-        },
-      };
-    });
-  },
   syncNavigationState(tabId, canGoBack, canGoForward) {
     set((state) => {
-      const existing = state.sessions[tabId];
-      if (!existing) {
-        return state;
-      }
+      const existing = state.sessions[tabId] ?? defaultSession();
 
       if (
         existing.canGoBack === canGoBack &&
@@ -104,7 +67,7 @@ export const useBrowserTabStore = create<BrowserTabStore>((set) => ({
       sessions: {
         ...state.sessions,
         [tabId]: {
-          ...(state.sessions[tabId] ?? defaultSession("", false, false)),
+          ...(state.sessions[tabId] ?? defaultSession()),
           draftUrl,
         },
       },
@@ -112,8 +75,8 @@ export const useBrowserTabStore = create<BrowserTabStore>((set) => ({
   },
   setLoading(tabId, loading) {
     set((state) => {
-      const existing = state.sessions[tabId];
-      if (!existing || existing.loading === loading) {
+      const existing = state.sessions[tabId] ?? defaultSession();
+      if (existing.loading === loading && state.sessions[tabId]) {
         return state;
       }
 
@@ -130,8 +93,8 @@ export const useBrowserTabStore = create<BrowserTabStore>((set) => ({
   },
   setError(tabId, error) {
     set((state) => {
-      const existing = state.sessions[tabId];
-      if (!existing || existing.error === error) {
+      const existing = state.sessions[tabId] ?? defaultSession();
+      if (existing.error === error && state.sessions[tabId]) {
         return state;
       }
 
@@ -148,8 +111,8 @@ export const useBrowserTabStore = create<BrowserTabStore>((set) => ({
   },
   setShowEmbedHelp(tabId, showEmbedHelp) {
     set((state) => {
-      const existing = state.sessions[tabId];
-      if (!existing || existing.showEmbedHelp === showEmbedHelp) {
+      const existing = state.sessions[tabId] ?? defaultSession();
+      if (existing.showEmbedHelp === showEmbedHelp && state.sessions[tabId]) {
         return state;
       }
 
@@ -166,10 +129,7 @@ export const useBrowserTabStore = create<BrowserTabStore>((set) => ({
   },
   bumpReloadKey(tabId) {
     set((state) => {
-      const existing = state.sessions[tabId];
-      if (!existing) {
-        return state;
-      }
+      const existing = state.sessions[tabId] ?? defaultSession();
 
       return {
         sessions: {

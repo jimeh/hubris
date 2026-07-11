@@ -40,7 +40,6 @@ import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useSystemStore } from "@/lib/stores/system";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
-import { selectTabIdsForWorktree, useTabStore } from "@/lib/stores/tabs";
 import { useHubrisWorkbenchStore } from "@/lib/stores/hubrisWorkbench";
 import { useKeybindingsStore } from "@/lib/stores/keybindings";
 import { useVscodeWorkbenchStore } from "@/lib/stores/vscodeWorkbench";
@@ -243,11 +242,6 @@ export default function App() {
   const selectedWorktreeId = useWorktreeStore(
     (state) => state.selectedWorktreeId,
   );
-  const selectedWorktreeTabIds = useTabStore((state) =>
-    selectedWorktreeId
-      ? selectTabIdsForWorktree(state, selectedWorktreeId)
-      : selectTabIdsForWorktree(state, ""),
-  );
   const worktreesByProject = useWorktreeStore(
     (state) => state.worktreesByProject,
   );
@@ -256,7 +250,6 @@ export default function App() {
   const settingsStatus = useSettingsStore((state) => state.status);
   const keybindingsStatus = useKeybindingsStore((state) => state.status);
   const isResizing = useSidebarWidthStore((state) => state.isResizing);
-  const switchToWorktree = useTabStore((state) => state.switchToWorktree);
   const cachedHubrisWorktreeIds = useHubrisWorkbenchStore(
     (state) => state.loadedWorktreeIds,
   );
@@ -335,14 +328,6 @@ export default function App() {
   useEffect(() => {
     applyMonacoTheme(activeTheme, editorThemeData);
   }, [activeTheme, editorThemeData]);
-
-  useEffect(() => {
-    if (!selectedWorktreeId) {
-      return;
-    }
-
-    switchToWorktree(selectedWorktreeId);
-  }, [selectedWorktreeId, selectedWorktreeTabIds, switchToWorktree]);
 
   useEffect(() => {
     const ids = allWorktrees.map((worktree) => worktree.id);

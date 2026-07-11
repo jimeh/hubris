@@ -10,7 +10,7 @@ import {
   useAppSidebarStore,
 } from "@/lib/stores/appSidebar";
 import { useProjectStore } from "@/lib/stores/projects";
-import { resetTabStoreForTests } from "@/lib/stores/tabs";
+import { initializeTabStore, resetTabStoreForTests } from "@/lib/stores/tabs";
 import {
   resetSidebarWidthStoreForTests,
   useSidebarWidthStore,
@@ -202,6 +202,7 @@ describe("App", () => {
       projectErrors: {},
       selectedWorktreeId: "w-local",
     });
+    initializeTabStore();
     useSidebarWidthStore.setState({
       width: 256,
       isResizing: false,
