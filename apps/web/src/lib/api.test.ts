@@ -433,6 +433,7 @@ describe("API client", () => {
         vi.fn().mockResolvedValue({
           ok: false,
           status: 404,
+          json: () => Promise.resolve({ message: "Commit not found" }),
         }),
       );
 
@@ -570,6 +571,7 @@ describe("API client", () => {
         vi.fn().mockResolvedValue({
           ok: false,
           status: 404,
+          json: () => Promise.resolve({ message: "Directory not found" }),
         }),
       );
 
@@ -582,6 +584,7 @@ describe("API client", () => {
         vi.fn().mockResolvedValue({
           ok: false,
           status: 403,
+          json: () => Promise.resolve({ message: "Permission denied" }),
         }),
       );
 
@@ -779,6 +782,9 @@ describe("API client", () => {
         name: "ApiStatusError",
         status: 400,
         message: "commit_id is required for commit diffs.",
+        serverMessage: "commit_id is required for commit diffs.",
+        method: "POST",
+        path: "/api/tabs",
       });
     });
   });
