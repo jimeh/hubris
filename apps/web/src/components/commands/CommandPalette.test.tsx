@@ -8,6 +8,7 @@ import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
+import { normalizedTabState } from "@/test/tabs";
 
 vi.mock("@/components/ui/command", () => ({
   CommandDialog: ({
@@ -235,7 +236,7 @@ describe("CommandPalette", () => {
     useTabStore.setState({
       activeTabId: null,
       focusedPaneByWorktree: {},
-      tabs: [],
+      ...normalizedTabState([]),
     });
 
     render(<CommandPalette />);

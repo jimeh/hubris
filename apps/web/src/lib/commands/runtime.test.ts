@@ -22,6 +22,7 @@ import {
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import { commandIds, getCommandDefinition } from "./registry";
 import { executeCommand, getCommandAvailability } from "./runtime";
+import { normalizedTabState } from "@/test/tabs";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -100,7 +101,7 @@ function seedContext() {
     focusedPaneByWorktree: {
       [worktreeOne.id]: "pane-1",
     },
-    tabs: [makeTerminalTab("t1", worktreeOne.id)],
+    ...normalizedTabState([makeTerminalTab("t1", worktreeOne.id)]),
   });
 
   return {

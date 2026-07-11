@@ -8,6 +8,7 @@ import {
   useFileEditorStore,
 } from "./fileEditorTabs";
 import { useTabStore } from "./tabs";
+import { normalizedTabState } from "@/test/tabs";
 
 const mockSaveProjectWorktreeFileContent = vi.fn();
 const mockGetProjectWorktreeFileContent = vi.fn();
@@ -377,7 +378,7 @@ describe("fileEditorTabs store", () => {
     );
 
     useTabStore.setState({
-      tabs: [
+      ...normalizedTabState([
         {
           id: "file-1",
           label: "main.ts",
@@ -390,7 +391,7 @@ describe("fileEditorTabs store", () => {
           preview: false,
           path: "src/main.ts",
         },
-      ],
+      ]),
     });
     useFileEditorStore.setState({
       sessions: {

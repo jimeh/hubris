@@ -12,6 +12,10 @@ import { useWorktreeStore } from "@/lib/stores/worktrees";
 import {
   initializeTabStore,
   resetTabStoreForTests,
+  selectAllTabs,
+  selectTabIdsForWorktree,
+  selectTabsForPane,
+  selectTabsForWorktree,
   tabsForWorktree,
   useTabStore,
 } from "./tabs";
@@ -227,10 +231,37 @@ describe("Tab store", () => {
       ],
     });
 
-    expect(store.useTabStore.getState().tabs.map((tab) => tab.id)).toEqual([
-      "b",
-      "a",
-    ]);
+    expect(
+      selectAllTabs(store.useTabStore.getState()).map((tab) => tab.id),
+    ).toEqual(["b", "a"]);
+  });
+
+  it("keeps scoped selector references stable for unrelated updates", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      tabs: [
+        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" }),
+        makeTab({ id: "b", worktree_id: "w2", pane_id: "pane-2" }),
+      ],
+    });
+    const state = store.useTabStore.getState();
+    const worktreeIds = selectTabIdsForWorktree(state, "w1");
+    const worktreeTabs = selectTabsForWorktree(state, "w1");
+    const paneTabs = selectTabsForPane(state, "pane-1");
+
+    mockEvents.emit("tab_updated", {
+      tab: makeTab({
+        id: "b",
+        label: "updated",
+        worktree_id: "w2",
+        pane_id: "pane-2",
+      }),
+    });
+    const nextState = store.useTabStore.getState();
+
+    expect(selectTabIdsForWorktree(nextState, "w1")).toBe(worktreeIds);
+    expect(selectTabsForWorktree(nextState, "w1")).toBe(worktreeTabs);
+    expect(selectTabsForPane(nextState, "pane-1")).toBe(paneTabs);
   });
 
   it("reorder() resequences locally and calls API", async () => {

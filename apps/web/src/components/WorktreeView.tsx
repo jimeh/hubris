@@ -40,7 +40,7 @@ import { executeCommand } from "@/lib/commands";
 import { useFileEditorStore } from "@/lib/stores/fileEditorTabs";
 import { useGitDiffStore } from "@/lib/stores/gitDiffTabs";
 import { useSettingsStore } from "@/lib/stores/settings";
-import { useTabStore } from "@/lib/stores/tabs";
+import { selectTabsForWorktree, useTabStore } from "@/lib/stores/tabs";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
 import { useWorktreeRightSidebarWidthStore } from "@/lib/stores/worktreeRightSidebarWidth";
 import { buildPaneTree, createSinglePaneLayout } from "@/lib/tabLayout";
@@ -583,10 +583,8 @@ export default function WorktreeView({ worktree, active }: Props) {
   const setSelectedPath = useWorktreeFileManagerStore(
     (state) => state.setSelectedPath,
   );
-  const worktreeTabs = useTabStore(
-    useShallow((state) =>
-      state.tabs.filter((tab) => tab.worktree_id === worktree.id),
-    ),
+  const worktreeTabs = useTabStore((state) =>
+    selectTabsForWorktree(state, worktree.id),
   );
   const layout = useMemo(
     () =>

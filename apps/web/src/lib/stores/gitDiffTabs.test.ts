@@ -8,6 +8,7 @@ import {
   useGitDiffStore,
 } from "./gitDiffTabs";
 import { useTabStore } from "./tabs";
+import { normalizedTabState } from "@/test/tabs";
 
 const mockSaveProjectWorktreeFileContent = vi.fn();
 const mockGetProjectWorktreeGitDiff = vi.fn();
@@ -218,7 +219,7 @@ describe("gitDiffTabs store", () => {
     );
 
     useTabStore.setState({
-      tabs: [diffTab],
+      ...normalizedTabState([diffTab]),
     });
     useGitDiffStore.setState({
       sessions: {
@@ -270,7 +271,7 @@ describe("gitDiffTabs store", () => {
   it("marks dirty editable diffs as externally changed on matching worktree file updates", async () => {
     const { useGitDiffStore } = getStore();
     useTabStore.setState({
-      tabs: [diffTab],
+      ...normalizedTabState([diffTab]),
     });
     useGitDiffStore.setState({
       sessions: {
@@ -339,7 +340,7 @@ describe("gitDiffTabs store", () => {
   it("ignores worktree file updates for commit diffs", async () => {
     const { useGitDiffStore } = getStore();
     useTabStore.setState({
-      tabs: [commitDiffTab],
+      ...normalizedTabState([commitDiffTab]),
     });
     useGitDiffStore.setState({
       sessions: {

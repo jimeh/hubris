@@ -1,4 +1,4 @@
-import { useTabStore } from "@/lib/stores/tabs";
+import { selectTabsForWorktree, useTabStore } from "@/lib/stores/tabs";
 
 type Props = {
   worktreeId: string;
@@ -10,7 +10,7 @@ type Props = {
  */
 export default function WorktreeIndicator({ worktreeId }: Props) {
   const hasNotification = useTabStore((state) =>
-    state.tabs.some(
+    selectTabsForWorktree(state, worktreeId).some(
       (tab) =>
         tab.worktree_id === worktreeId &&
         tab.type === "terminal" &&

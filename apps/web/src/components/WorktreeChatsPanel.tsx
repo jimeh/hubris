@@ -7,7 +7,7 @@ import { SidebarMenu, SidebarMenuItem } from "@/components/ui/sidebar";
 import { executeCommand } from "@/lib/commands";
 import { useChatStore } from "@/lib/stores/chats";
 import { useSettingsStore } from "@/lib/stores/settings";
-import { useTabStore } from "@/lib/stores/tabs";
+import { selectAllTabs, useTabStore } from "@/lib/stores/tabs";
 import type {
   ChatConversationSummary,
   ChatRuntimeLifecycle,
@@ -59,7 +59,7 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
     (state) => state.settings.experimental.chatEnabled,
   );
   const activeTabId = useTabStore((state) => state.activeTabId);
-  const tabs = useTabStore((state) => state.tabs);
+  const tabs = useTabStore(selectAllTabs);
   const conversationsById = useChatStore((state) => state.conversationsById);
   const archiveConversation = useChatStore(
     (state) => state.archiveConversation,

@@ -5,7 +5,11 @@ import {
   saveProjectWorktreeFileContent,
 } from "@/lib/api";
 import { getEventClient } from "@/lib/events";
-import { useTabStore } from "@/lib/stores/tabs";
+import {
+  selectTabById,
+  selectTabsForWorktree,
+  useTabStore,
+} from "@/lib/stores/tabs";
 import type { FileTab } from "@/lib/types";
 
 type LoadStatus = "idle" | "loading" | "loaded" | "error";
@@ -265,12 +269,8 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
   },
   async reload(projectId, worktreeId, tabId, options) {
     const session = get().sessions[tabId];
-    const tab = useTabStore
-      .getState()
-      .tabs.find(
-        (candidate): candidate is FileTab =>
-          candidate.id === tabId && candidate.type === "file",
-      );
+    const candidate = selectTabById(useTabStore.getState(), tabId);
+    const tab = candidate?.type === "file" ? candidate : undefined;
     if (!session || !tab) {
       return;
     }
@@ -426,12 +426,13 @@ export function initializeFileEditorStore(): void {
     events.on(
       "worktree_files_updated",
       ({ project_id, worktree_id, changed_paths, listing_paths }) => {
-        const fileTabs = useTabStore
-          .getState()
-          .tabs.filter(
-            (tab): tab is FileTab =>
-              tab.type === "file" && tab.worktree_id === worktree_id,
-          );
+        const fileTabs = selectTabsForWorktree(
+          useTabStore.getState(),
+          worktree_id,
+        ).filter(
+          (tab): tab is FileTab =>
+            tab.type === "file" && tab.worktree_id === worktree_id,
+        );
         const store = useFileEditorStore.getState();
 
         for (const tab of fileTabs) {

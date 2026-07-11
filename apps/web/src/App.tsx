@@ -40,7 +40,7 @@ import { useProjectStore } from "@/lib/stores/projects";
 import { useSettingsStore } from "@/lib/stores/settings";
 import { useSystemStore } from "@/lib/stores/system";
 import { useSidebarWidthStore } from "@/lib/stores/sidebarWidth";
-import { useTabStore } from "@/lib/stores/tabs";
+import { selectTabIdsForWorktree, useTabStore } from "@/lib/stores/tabs";
 import { useHubrisWorkbenchStore } from "@/lib/stores/hubrisWorkbench";
 import { useKeybindingsStore } from "@/lib/stores/keybindings";
 import { useVscodeWorkbenchStore } from "@/lib/stores/vscodeWorkbench";
@@ -244,12 +244,9 @@ export default function App() {
     (state) => state.selectedWorktreeId,
   );
   const selectedWorktreeTabIds = useTabStore((state) =>
-    !selectedWorktreeId
-      ? ""
-      : state.tabs
-          .filter((tab) => tab.worktree_id === selectedWorktreeId)
-          .map((tab) => tab.id)
-          .join("|"),
+    selectedWorktreeId
+      ? selectTabIdsForWorktree(state, selectedWorktreeId)
+      : selectTabIdsForWorktree(state, ""),
   );
   const worktreesByProject = useWorktreeStore(
     (state) => state.worktreesByProject,

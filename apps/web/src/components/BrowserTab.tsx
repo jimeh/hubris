@@ -28,7 +28,7 @@ import {
   type DesktopBrowserState,
 } from "@/lib/desktopBrowser";
 import { useBrowserTabStore } from "@/lib/stores/browserTabs";
-import { useTabStore } from "@/lib/stores/tabs";
+import { selectTabById, useTabStore } from "@/lib/stores/tabs";
 
 type Props = {
   tab: BrowserTabInfo;
@@ -401,9 +401,7 @@ export default function BrowserTab({ tab, visible }: Props) {
     setLoading(tab.id, true);
     setDraftUrl(tab.id, browserInputValue(url));
 
-    const latestTab = useTabStore
-      .getState()
-      .tabs.find((candidate) => candidate.id === tab.id);
+    const latestTab = selectTabById(useTabStore.getState(), tab.id);
     if (!latestTab || latestTab.type !== "browser") {
       setLoading(tab.id, false);
       return;

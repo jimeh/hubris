@@ -27,7 +27,7 @@ import { useChatStore } from "@/lib/stores/chats";
 import { useProjectStore } from "@/lib/stores/projects";
 import { useCommandUiStore } from "@/lib/stores/commandUi";
 import { useSettingsStore } from "@/lib/stores/settings";
-import { useTabStore } from "@/lib/stores/tabs";
+import { selectTabById, useTabStore } from "@/lib/stores/tabs";
 import {
   getCurrentWorktreeHistoryItems,
   useWorktreeHistorySwitcherStore,
@@ -180,9 +180,7 @@ function selectSiblingWorktree(
 }
 
 async function saveDirtyTab(tabId: string): Promise<boolean> {
-  const tab = useTabStore
-    .getState()
-    .tabs.find((candidate) => candidate.id === tabId);
+  const tab = selectTabById(useTabStore.getState(), tabId);
   if (!tab) {
     return false;
   }
