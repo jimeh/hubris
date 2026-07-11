@@ -180,7 +180,7 @@ function applyRunUpdated(
   const existing = state.latestRunByConversationId[conversationId];
   const runs = [existing].filter(
     (candidate): candidate is ChatRun =>
-      candidate !== null && candidate.id !== run.id,
+      candidate != null && candidate.id !== run.id,
   );
   return {
     ...state,

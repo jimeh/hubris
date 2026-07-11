@@ -146,12 +146,16 @@ function PendingRequestActions({
     decision: ChatPendingRequestDecision,
     value?: unknown,
   ) => {
-    await resolvePendingRequest(
-      request.conversationId,
-      request.id,
-      decision,
-      value,
-    );
+    try {
+      await resolvePendingRequest(
+        request.conversationId,
+        request.id,
+        decision,
+        value,
+      );
+    } catch (error) {
+      console.warn("Failed to resolve pending chat request", error);
+    }
   };
 
   if (

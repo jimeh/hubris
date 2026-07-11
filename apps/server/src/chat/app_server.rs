@@ -1,5 +1,10 @@
 use super::*;
 
+/// Upper bound on a single app-server JSON-RPC round-trip. Generous so a
+/// slow-but-alive server (cold start, large thread resume) is never cut
+/// off; only a truly wedged process hits it.
+const APP_SERVER_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
 #[derive(Debug, Clone)]
 pub(super) struct PendingServerResponder {
     pub(super) jsonrpc_id: Value,
@@ -291,12 +296,24 @@ impl CodexAppServerClient {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.pending.lock().await.insert(id, reply_tx);
         self.write_payload(&payload).await?;
-        reply_rx.await.map_err(|_| {
-            ChatServiceError::new(
-                ChatErrorKind::Upstream,
-                "codex app-server response channel closed",
-            )
-        })?
+        // A wedged app-server that never answers must not hang callers
+        // forever — initialize() holds startup_lock, so an unbounded wait
+        // here can stall every chat operation behind it.
+        match tokio::time::timeout(APP_SERVER_REQUEST_TIMEOUT, reply_rx).await {
+            Ok(reply) => reply.map_err(|_| {
+                ChatServiceError::new(
+                    ChatErrorKind::Upstream,
+                    "codex app-server response channel closed",
+                )
+            })?,
+            Err(_) => {
+                self.pending.lock().await.remove(&id);
+                Err(ChatServiceError::new(
+                    ChatErrorKind::Upstream,
+                    format!("codex app-server request timed out: {method}"),
+                ))
+            }
+        }
     }
 
     async fn notify(&self, method: &str, params: Value) -> Result<(), ChatServiceError> {

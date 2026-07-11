@@ -1010,7 +1010,12 @@ function ChatTimelineRow({
   rowId: string;
 }) {
   if (rowId.startsWith("work:")) {
-    const [, turnId, segmentKey = "initial"] = rowId.split(":");
+    // segmentKey is an opaque reasoning-item ID that may itself contain
+    // colons; split only at the first separator after the prefix.
+    const rest = rowId.slice("work:".length);
+    const separator = rest.indexOf(":");
+    const turnId = separator === -1 ? rest : rest.slice(0, separator);
+    const segmentKey = separator === -1 ? "initial" : rest.slice(separator + 1);
     return (
       <WorkGroupRow
         conversationId={conversationId}
