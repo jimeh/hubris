@@ -193,3 +193,15 @@ but too specific for the root `AGENTS.md` map.
 - `EventBus::subscribe()` attaches to the broadcast side, but events already in
   its MPSC input queue may still arrive afterward. Tests that need a clean event
   boundary should enqueue and consume a non-delta barrier after subscribing.
+- React Compiler was evaluated (2026-07-12, refactor task 6.4) and NOT adopted.
+  With `babel-plugin-react-compiler@1.0` wired into the vite react() plugin, all
+  713 web unit tests, the smoke lane, the production build, and the real-server
+  e2e lane pass, and `eslint-plugin-react-compiler` reports only 7 rule-of-react
+  violations app-wide — but they sit on the exact hot paths the compiler was
+  meant to help (`WorktreeView.tsx`, `App.tsx`, `CopilotKitAgentChatTab.tsx`,
+  `WorktreeAllFilesPanel.tsx`, `ui/sidebar.tsx`, `App.test.tsx`: hooks passed as
+  values, writes to variables defined outside the component, and two
+  rule-disable skips), so the compiler skips those components and the
+  hand-memoization stays load-bearing there. Re-evaluate after fixing those
+  violations in the polish phase; the babel pass also slows vitest transforms
+  noticeably.

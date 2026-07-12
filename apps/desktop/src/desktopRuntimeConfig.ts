@@ -1,28 +1,14 @@
 import type { contextBridge as ElectronContextBridge } from "electron";
 
+import type { DesktopRuntimeConfig } from "./desktopRuntimeConfigShared";
+export type { DesktopRuntimeConfig } from "./desktopRuntimeConfigShared";
+
 import {
   HUBRIS_CODE_SERVER_ORIGIN,
   HUBRIS_ORIGIN,
   HUBRIS_VSCODE_CLI_ORIGIN,
   HUBRIS_WS_ORIGIN,
 } from "./desktopOrigins";
-
-/** Desktop-only runtime URLs exposed to the main Hubris renderer. */
-export type DesktopRuntimeConfig = {
-  apiBase: string;
-  eventsUrl: string;
-  terminalWsBase: string;
-  vscodeBases: {
-    codeServer: string;
-    vscodeCli: string;
-  };
-};
-
-declare global {
-  interface Window {
-    __HUBRIS_DESKTOP_CONFIG__?: DesktopRuntimeConfig;
-  }
-}
 
 type ContextBridgeLike = Pick<
   typeof ElectronContextBridge,

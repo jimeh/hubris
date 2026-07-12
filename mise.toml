@@ -291,6 +291,7 @@ depends = ["generate:web"]
 run = [
   "cargo run -p hubris-server --bin generate_contracts",
   "bun run --filter hubris-web generate:contracts:rest",
+  "bun run --filter hubris-web generate:desktop-runtime",
   "bun run --filter hubris-web generate:monaco-languages",
   "bun run --filter hubris-web generate:material-icons",
   "bun run --filter hubris-web generate:theme-defaults",
