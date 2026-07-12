@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::http::StatusCode;
 use dashmap::DashMap;
@@ -29,6 +28,7 @@ use crate::tab::{
     GitDiffScope, TabInfo, TerminalTabLabels, WorktreePaneNode, WorktreeTabLayout,
     WorktreeTabLayoutState,
 };
+use crate::util::now_ms;
 use crate::worktree_state::{
     LoadedWorktreeState, TerminalFlush, TerminalLabelsSnapshot, TerminalPersistedState,
     TerminalPersistedStateKind, TerminalRestorePayload, WorktreeRestoreState, WorktreeSnapshot,
@@ -364,13 +364,6 @@ fn tab_basename(path: &str) -> String {
     path.rsplit('/')
         .find(|segment| !segment.is_empty())
         .map_or_else(|| path.to_string(), |segment| segment.to_string())
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 fn worktree_id_for_create(req: &CreateTabRequest) -> &str {

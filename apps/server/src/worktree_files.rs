@@ -6,7 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use dashmap::DashMap;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -19,6 +19,7 @@ use crate::api::worktrees::ResolvedWorktree;
 use crate::api::worktrees::{GitFileChange, GitFileChangeType};
 use crate::events::{EventBus, EventKind};
 use crate::git;
+use crate::util::now_ms;
 use crate::worktree_path_policy::{WorktreePathPolicy, WorktreePathPolicyError};
 
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(175);
@@ -1035,14 +1036,6 @@ fn rename_path_noreplace_blocking(
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn c_string_path(path: &Path) -> Result<CString, WorktreeFileError> {
     CString::new(path.as_os_str().as_bytes()).map_err(|_| WorktreeFileError::InvalidPath)
-}
-
-fn now_ms() -> u64 {
-    duration_ms(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default(),
-    )
 }
 
 fn duration_ms(duration: Duration) -> u64 {

@@ -16,6 +16,7 @@ use utoipa::IntoParams;
 use crate::api::worktrees::list_worktrees_for_project;
 use crate::events::{Event, EventKind};
 use crate::state::AppState;
+use crate::util::default_session_id;
 
 const LAGGED_SNAPSHOT_TTL: Duration = Duration::from_secs(1);
 
@@ -86,10 +87,6 @@ impl SnapshotEvent {
 pub struct EventStreamParams {
     #[serde(default = "default_session_id")]
     pub session_id: String,
-}
-
-fn default_session_id() -> String {
-    "default".to_string()
 }
 
 #[utoipa::path(

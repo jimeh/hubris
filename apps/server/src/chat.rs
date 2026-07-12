@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,7 @@ use utoipa::ToSchema;
 
 use crate::events::EventKind;
 use crate::settings_manager::SettingsManager;
+use crate::util::now_ms;
 
 mod app_server;
 mod lifecycle;
@@ -60,13 +61,6 @@ const MAX_INACTIVE_THREAD_STREAMS: usize = 4;
 const UNSUBSCRIBE_RETRY_DELAY: Duration = Duration::from_secs(15);
 const STREAMING_SNAPSHOT_INTERVAL: Duration = Duration::from_millis(250);
 const CODEX_TEXT_TRACE_ENV: &str = "HUBRIS_CODEX_TEXT_TRACE";
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema)]
 #[serde(rename_all = "camelCase")]

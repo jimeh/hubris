@@ -10,6 +10,7 @@ use crate::state::AppState;
 use crate::tab::{
     GitDiffScope, TabInfo, WorktreePaneNode, WorktreePaneTabs, WorktreeTabLayoutState,
 };
+use crate::util::default_session_id;
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -92,10 +93,6 @@ pub struct UpdateWorktreeTabLayoutRequest {
 pub struct ListTabsParams {
     #[serde(default = "default_session_id")]
     pub session_id: String,
-}
-
-fn default_session_id() -> String {
-    "default".to_string()
 }
 
 #[utoipa::path(

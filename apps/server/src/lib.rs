@@ -17,6 +17,7 @@ pub mod state;
 pub use hubris_pty::tab;
 pub mod tabs;
 pub mod task_manager;
+pub mod util;
 mod vscode;
 pub mod worktree_files;
 pub mod worktree_path_policy;
