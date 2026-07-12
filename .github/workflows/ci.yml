@@ -125,6 +125,9 @@ jobs:
       - name: Run generators
         run: bun run --filter hubris-web generate:theme-defaults
 
+      - name: Generate desktop runtime config
+        run: bun run --filter hubris-web generate:desktop-runtime
+
       - name: Generate backend API contracts
         run: cargo run -p hubris-server --bin generate_contracts
 

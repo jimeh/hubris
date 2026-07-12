@@ -1,18 +1,4 @@
-export type DesktopRuntimeConfig = {
-  apiBase: string;
-  eventsUrl: string;
-  terminalWsBase: string;
-  vscodeBases: {
-    codeServer: string;
-    vscodeCli: string;
-  };
-};
-
-declare global {
-  interface Window {
-    __HUBRIS_DESKTOP_CONFIG__?: DesktopRuntimeConfig;
-  }
-}
+import type { DesktopRuntimeConfig } from "./desktopRuntimeConfig.generated";
 
 function runtimeConfig(): DesktopRuntimeConfig | null {
   return window.__HUBRIS_DESKTOP_CONFIG__ ?? null;
