@@ -22,6 +22,8 @@ use crate::git;
 use crate::state::AppState;
 use crate::worktree_state::WorktreeRestoreState;
 
+pub use hubris_git::{GitCommitPerson, GitCommitSummary, GitFileChange, GitFileChangeType};
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ListWorktreesResponse {
     pub worktrees: Vec<Worktree>,
@@ -122,45 +124,6 @@ pub struct ResolvedWorktree {
     pub project_id: String,
     pub local_root: PathBuf,
     pub worktree: Worktree,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, TS)]
-#[serde(rename_all = "snake_case")]
-pub enum GitFileChangeType {
-    Added,
-    Copied,
-    Renamed,
-    Conflict,
-    Modified,
-    Deleted,
-    Typechange,
-    Untracked,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
-pub struct GitFileChange {
-    pub path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub original_path: Option<String>,
-    pub change_type: GitFileChangeType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub insertions: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deletions: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
-pub struct GitCommitSummary {
-    pub id: String,
-    pub short_id: String,
-    pub summary: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
-pub struct GitCommitPerson {
-    pub name: String,
-    pub email: String,
-    pub date: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
@@ -307,41 +270,10 @@ pub async fn resolve_worktree(
 }
 
 pub async fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) -> Result<(), ApiError> {
-    state.clear_worktree_runtime_state(worktree_id);
-    let tab_ids: Vec<String> = state
-        .tabs
-        .iter()
-        .filter(|entry| entry.value().worktree_id() == worktree_id)
-        .map(|e| e.key().clone())
-        .collect();
-
-    for tab_id in tab_ids {
-        let Some(tab) = state.tabs.get(&tab_id).map(|entry| entry.value().clone()) else {
-            continue;
-        };
-        if tab.is_agent_chat()
-            && let Err(error) = state.chats.clear_open_tab_id_for_tab(&tab_id).await
-        {
-            tracing::warn!(
-                tab_id,
-                "failed to clear closed chat tab id: {}",
-                error.message
-            );
-            return Err(ApiError::internal("Internal server error."));
-        }
-        if let Some((_, tab)) = state.tabs.remove(&tab_id) {
-            if tab.is_terminal()
-                && let Some((_, runtime)) = state.terminal_tabs.remove(&tab_id)
-            {
-                runtime.notify_close();
-            }
-            state.events.emit(EventKind::TabClosed {
-                session_id: tab.session_id().to_string(),
-                tab_id,
-            });
-        }
-    }
-    Ok(())
+    state
+        .tabs_service
+        .close_tabs_for_worktree(state, worktree_id)
+        .await
 }
 
 fn normalize_restore_state(
@@ -355,21 +287,9 @@ fn normalize_restore_state(
         pane_mru: request.pane_mru.unwrap_or_default(),
         tab_mru_by_pane: request.tab_mru_by_pane.unwrap_or_default(),
     };
-    let tabs = state
-        .tabs
-        .iter()
-        .filter(|entry| entry.value().worktree_id() == worktree_id)
-        .map(|entry| entry.value().clone())
-        .collect::<Vec<_>>();
-    let layout = state
-        .tab_layouts
-        .get(worktree_id)
-        .map(|entry| entry.clone());
-    crate::worktree_state::normalize_restore_state_for_snapshot(
-        restore_state,
-        &tabs,
-        layout.as_ref(),
-    )
+    state
+        .tabs_service
+        .normalize_restore_state(worktree_id, restore_state)
 }
 
 #[utoipa::path(
@@ -398,8 +318,8 @@ pub async fn put_worktree_restore_state(
     state.remember_worktree_project(&worktree_id, &project_id);
     let restore_state = normalize_restore_state(&state, &worktree_id, request);
     state
-        .restore_state_by_worktree
-        .insert(worktree_id.clone(), restore_state.clone());
+        .tabs_service
+        .set_restore_state(worktree_id.clone(), restore_state.clone());
     state
         .persistence
         .update_restore_state(project_id, worktree_id, restore_state);

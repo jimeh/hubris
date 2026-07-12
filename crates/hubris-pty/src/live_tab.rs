@@ -50,13 +50,13 @@ pub struct RestoredTerminalState {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum TerminalPersistenceCapture {
+pub enum TerminalPersistenceCapture {
     Incremental(TerminalIncrementalCapture),
     FullRebuild(Box<TerminalFullRebuildCapture>),
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TerminalIncrementalCapture {
+pub struct TerminalIncrementalCapture {
     pub size: TerminalSize,
     pub replay_budget_bytes: usize,
     pub source_bytes_end: u64,
@@ -65,7 +65,7 @@ pub(crate) struct TerminalIncrementalCapture {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TerminalFullRebuildCapture {
+pub struct TerminalFullRebuildCapture {
     pub size: TerminalSize,
     pub replay_budget_bytes: usize,
     pub source_bytes_end: u64,
@@ -75,7 +75,7 @@ pub(crate) struct TerminalFullRebuildCapture {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TerminalPersistenceSeed {
+pub struct TerminalPersistenceSeed {
     pub total_bytes: u64,
     pub replay_epoch: u64,
     pub replay_filter: ReplayFilter,
@@ -591,7 +591,7 @@ fn estimated_replay_scrollback_rows(budget_bytes: usize, size: TerminalSize) -> 
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct ReplayFilter {
+pub struct ReplayFilter {
     in_alt_screen: bool,
     state: ReplayFilterState,
 }
@@ -688,14 +688,11 @@ impl ReplayFilter {
     }
 }
 
-pub(crate) fn filter_replay_bytes(filter: &mut ReplayFilter, data: &[u8]) -> Vec<u8> {
+pub fn filter_replay_bytes(filter: &mut ReplayFilter, data: &[u8]) -> Vec<u8> {
     filter.filter(data)
 }
 
-pub(crate) fn render_replay_screen_history(
-    mut screen: vt100::Screen,
-    budget_bytes: usize,
-) -> Vec<u8> {
+pub fn render_replay_screen_history(mut screen: vt100::Screen, budget_bytes: usize) -> Vec<u8> {
     formatted_screen_history(&mut screen, budget_bytes)
 }
 
@@ -1100,7 +1097,7 @@ impl LiveTab {
         let _ = self.close_tx.send(());
     }
 
-    pub(crate) fn capture_persistence_snapshot(
+    pub fn capture_persistence_snapshot(
         &self,
         requested_source_offset: u64,
         requested_replay_epoch: u64,
@@ -1143,7 +1140,7 @@ impl LiveTab {
         }))
     }
 
-    pub(crate) fn capture_persistence_seed(&self) -> TerminalPersistenceSeed {
+    pub fn capture_persistence_seed(&self) -> TerminalPersistenceSeed {
         let output_state = self.output_state.lock().unwrap();
         TerminalPersistenceSeed {
             total_bytes: output_state.total_bytes,
@@ -1299,7 +1296,7 @@ fn normalize_process_label(raw: &str) -> Option<String> {
     Some(normalized.to_string())
 }
 
-pub(crate) fn normalize_shell_process_name(raw: &str) -> Option<String> {
+pub fn normalize_shell_process_name(raw: &str) -> Option<String> {
     normalize_process_label(raw).map(|label| label.trim_start_matches('-').to_string())
 }
 

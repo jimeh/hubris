@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::Migrator;
@@ -15,6 +15,7 @@ use utoipa::ToSchema;
 
 use crate::pty::live_tab::TerminalSize;
 use crate::tab::{TabInfo, TerminalTabLabels, WorktreePaneNode, WorktreeTabLayout};
+use crate::util::now_ms;
 
 const WRITER_TICK: Duration = Duration::from_millis(250);
 const TERMINAL_REPLAY_CHUNK_SIZE: usize = 32 * 1024;
@@ -2057,13 +2058,6 @@ async fn delete_missing_tab_owned_rows(
     separated.push_unseparated(")");
     tabs_query.build().execute(&mut **tx).await?;
     Ok(())
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 #[cfg(test)]

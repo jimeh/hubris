@@ -13,6 +13,7 @@ use crate::chat::{
 };
 use crate::error::ApiError;
 use crate::state::AppState;
+use crate::util::default_session_id;
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -54,10 +55,6 @@ impl From<ChatListScopeParam> for ChatConversationListScope {
             ChatListScopeParam::Project => Self::Project,
         }
     }
-}
-
-fn default_session_id() -> String {
-    "default".to_string()
 }
 
 fn chat_not_found() -> ApiError {

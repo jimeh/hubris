@@ -16,6 +16,7 @@ use utoipa::IntoParams;
 use crate::api::worktrees::list_worktrees_for_project;
 use crate::events::{Event, EventKind};
 use crate::state::AppState;
+use crate::util::default_session_id;
 
 const LAGGED_SNAPSHOT_TTL: Duration = Duration::from_secs(1);
 
@@ -86,10 +87,6 @@ impl SnapshotEvent {
 pub struct EventStreamParams {
     #[serde(default = "default_session_id")]
     pub session_id: String,
-}
-
-fn default_session_id() -> String {
-    "default".to_string()
 }
 
 #[utoipa::path(
@@ -267,27 +264,9 @@ fn event_matches_session(event: &Event, session_id: &str) -> bool {
 }
 
 async fn build_snapshot_event(state: &AppState, session_id: &str) -> SnapshotEvent {
-    let mut tabs: Vec<_> = state
-        .tabs
-        .iter()
-        .map(|e| e.value().clone())
-        .filter(|t| t.session_id() == session_id)
-        .collect();
-    tabs.sort_by(|a, b| {
-        a.position()
-            .partial_cmp(&b.position())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let tab_layouts = state
-        .tab_layouts
-        .iter()
-        .map(|entry| (entry.key().clone(), entry.value().clone()))
-        .collect();
-    let worktree_restore_state = state
-        .restore_state_by_worktree
-        .iter()
-        .map(|entry| (entry.key().clone(), entry.value().clone()))
-        .collect();
+    let tabs = state.tabs_service.snapshot_tabs(session_id);
+    let tab_layouts = state.tabs_service.snapshot_layouts();
+    let worktree_restore_state = state.tabs_service.snapshot_restore_states();
 
     let projects = state.projects.list().await;
 

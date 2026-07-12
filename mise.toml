@@ -230,8 +230,8 @@ run = "bun run --filter hubris-desktop test"
 description = "Run desktop tests"
 
 [tasks."test:server"]
-run = "cd apps/server && cargo test"
-description = "Run server tests"
+run = "cargo test"
+description = "Run Rust tests (server + workspace crates, matching CI)"
 
 [tasks."test:e2e:real"]
 run = ".mise/tasks/test-e2e-real"

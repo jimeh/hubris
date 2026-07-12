@@ -1,742 +1,359 @@
-use super::*;
-use crate::task_manager::{TaskExecutionError, TaskStateValue, TaskStepContext, TaskStepResult};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
 
-pub(super) struct CodeServerInstallState {
-    manager: Arc<CodeServerManager>,
-    plan: CodeServerInstallPlan,
-    rollback_state: Arc<Mutex<CodeServerInstallTaskState>>,
+use futures_util::future::BoxFuture;
+use semver::Version;
+use tokio::process::Command;
+
+use super::runtime::{
+    ArchiveFormat, DEFAULT_HOST, InstalledRuntime, LaunchConfig, READY_POLL_INTERVAL,
+    READY_TIMEOUT, RuntimeError, RuntimeInstallState, RuntimeManager, RuntimeSpec,
+    RuntimeStatusSnapshot, pick_unused_port,
+};
+#[cfg(test)]
+use super::runtime::{
+    DownloadRuntimeFn, FetchLatestFn, LaunchFn, RunningRuntime, RuntimeDownloadRequest,
+    RuntimeState, cleanup_other_runtimes, download_runtime_from_url,
+};
+use super::{
+    CODE_SERVER_PUBLIC_BASE_PATH, CONFIG_DIR, CodeServerConnection, CodeServerError,
+    CodeServerLaunchRequest, CodeServerStatusSnapshot, EXTENSIONS_DIR, RELEASES_BASE_URL,
+    UPSTREAM_READY_PATH, USER_DIR,
+};
+#[cfg(target_os = "linux")]
+use crate::process_manager::configure_parent_death_signal;
+
+#[derive(Clone)]
+pub struct CodeServerSpec;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CodeServerPlatform {
+    pub os: &'static str,
+    pub arch: &'static str,
 }
 
-impl CodeServerInstallState {
-    pub(super) async fn initialize(
-        manager: Arc<CodeServerManager>,
-        requested_version: Option<String>,
-        force: bool,
-    ) -> Result<Self, TaskExecutionError> {
-        loop {
-            let process = manager
-                .process_handle
-                .status()
-                .await
-                .map_err(map_managed_process_error)
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-            let state = manager.inner.lock().await;
+pub type CodeServerManager = RuntimeManager<CodeServerSpec>;
+pub(super) type CodeServerInstallState = RuntimeInstallState<CodeServerSpec>;
+#[cfg(test)]
+pub(super) type CodeServerDownloadRequest = RuntimeDownloadRequest<CodeServerSpec>;
+pub(super) type InstalledCodeServerRuntime = InstalledRuntime<CodeServerSpec>;
+#[cfg(test)]
+pub(super) type CodeServerFetchLatestFn = FetchLatestFn<CodeServerSpec>;
+#[cfg(test)]
+pub(super) type CodeServerDownloadRuntimeFn = DownloadRuntimeFn<CodeServerSpec>;
+#[cfg(test)]
+pub(super) type CodeServerLaunchFn = LaunchFn<CodeServerSpec>;
+#[cfg(test)]
+pub(super) type RunningCodeServer = RunningRuntime<CodeServerSpec>;
+#[cfg(test)]
+pub(super) type ManagerRuntimeState = RuntimeState<CodeServerConnection>;
 
-            if state.runtime.is_installing() {
-                return Err(TaskExecutionError::new(
-                    "code-server install is already running",
-                ));
-            }
-
-            if matches!(
-                process.lifecycle_state,
-                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
-            ) {
-                let notified = manager.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            drop(state);
-            break;
-        }
-
-        let plan = manager
-            .prepare_install_plan(requested_version, force)
-            .await
-            .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        let rollback_state = Arc::new(Mutex::new(CodeServerInstallTaskState {
-            target_runtime_dir: Some(
-                manager
-                    .root_dir
-                    .join(RUNTIMES_DIR)
-                    .join(runtime_dir_name(&plan.version, plan.platform)),
-            ),
-            ..Default::default()
-        }));
-
-        {
-            let mut state = manager.inner.lock().await;
-            state.runtime = ManagerRuntimeState::Installing;
-            state.install_progress = Some(preparing_install_progress());
-        }
-        manager.notify.notify_waiters();
-        manager.publish_status_update().await;
-
-        Ok(Self {
-            manager,
-            plan,
-            rollback_state,
-        })
-    }
-
-    pub(super) async fn stop_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<TaskStepResult, TaskExecutionError> {
-        context.set_status_text("Stopping current runtime").await;
-        let had_running = self
-            .manager
-            .stop_managed_process_for_install()
-            .await
-            .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        self.rollback_state.lock().await.restart_previous_runtime = had_running;
-        if had_running {
-            context.set_step_progress(100).await;
-            Ok(TaskStepResult::Completed)
-        } else {
-            Ok(TaskStepResult::Skipped)
+impl From<RuntimeError> for CodeServerError {
+    fn from(error: RuntimeError) -> Self {
+        match error {
+            RuntimeError::Io(error) => Self::Io(error),
+            RuntimeError::Http(error) => Self::Http(error),
+            RuntimeError::Archive(message) => Self::Archive(message),
+            RuntimeError::Spawn(message) => Self::Spawn(message),
+            RuntimeError::StartupTimeout(_) => Self::StartupTimeout,
+            RuntimeError::UnsupportedPlatform(message) => Self::UnsupportedPlatform(message),
+            RuntimeError::InvalidVersion(message) => Self::InvalidVersion(message),
+            RuntimeError::NotInstalled(_) => Self::NotInstalled,
         }
     }
+}
 
-    pub(super) async fn download_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<TaskStepResult, TaskExecutionError> {
-        let plan = self.plan.clone();
-        context.set_status_text("Downloading runtime").await;
-        let target_runtime_dir = self
-            .manager
-            .root_dir
-            .join(RUNTIMES_DIR)
-            .join(runtime_dir_name(&plan.version, plan.platform));
-        if plan.force
-            && tokio::fs::try_exists(&target_runtime_dir)
-                .await
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?
-        {
-            let backup_runtime_dir = self.manager.root_dir.join(TMP_DIR).join(format!(
-                "{}-rollback-{}",
-                runtime_dir_name(&plan.version, plan.platform),
-                Uuid::new_v4()
-            ));
-            tokio::fs::create_dir_all(self.manager.root_dir.join(TMP_DIR))
-                .await
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-            tokio::fs::rename(&target_runtime_dir, &backup_runtime_dir)
-                .await
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-            self.rollback_state.lock().await.backup_runtime_dir = Some(backup_runtime_dir);
-        }
-        let runtime = (self.manager.download_runtime)(CodeServerDownloadRequest {
-            root_dir: self.manager.root_dir.clone(),
-            version: plan.version.clone(),
-            platform: plan.platform,
-            force: plan.force,
-            install_progress: Some(self.manager.task_install_progress_callback(context.clone())),
-        })
-        .await
-        .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        self.rollback_state.lock().await.installed_runtime = Some(runtime);
-        context.set_step_progress(100).await;
-        Ok(TaskStepResult::Completed)
+impl RuntimeSpec for CodeServerSpec {
+    type Platform = CodeServerPlatform;
+    type Connection = CodeServerConnection;
+    type Error = CodeServerError;
+    type LaunchRequest = CodeServerLaunchRequest;
+    type Status = CodeServerStatusSnapshot;
+
+    const PROCESS_ID: &'static str = "code_server";
+    const PROCESS_KIND: &'static str = "code-server";
+    const CLIENT_LABEL: &'static str = "code-server";
+    const LAUNCH_LABEL: &'static str = "code-server";
+    const INSTALL_CONFLICT_MESSAGE: &'static str = "code-server install is already running";
+    const EXIT_MESSAGE: &'static str = "code-server exited";
+
+    fn detect_platform() -> Result<Self::Platform, RuntimeError> {
+        detect_platform()
     }
 
-    pub(super) async fn start_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<TaskStepResult, TaskExecutionError> {
-        self.manager
-            .set_install_progress(ManagerCodeServerInstallProgress {
-                phase: CodeServerInstallPhaseValue::Starting,
-                percent: 95,
-                downloaded_bytes: None,
-                total_bytes: None,
-            })
-            .await;
-        context.set_status_text("Starting runtime").await;
-        let runtime = self
-            .rollback_state
-            .lock()
-            .await
-            .installed_runtime
-            .clone()
-            .ok_or_else(|| TaskExecutionError::new("missing installed runtime"))?;
-        let server = (self.manager.launch)(build_launch_request(&self.manager.root_dir, &runtime))
-            .await
-            .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        self.manager
-            .process_handle
-            .finish_running(server.process)
-            .await;
-        {
-            let mut state = self.manager.inner.lock().await;
-            state.runtime = ManagerRuntimeState::Ready(server.connection);
-        }
-        self.manager.notify.notify_waiters();
-        self.manager.publish_status_update().await;
-        context.set_step_progress(100).await;
-        Ok(TaskStepResult::Completed)
+    fn normalize_version(raw: &str) -> Result<String, RuntimeError> {
+        normalize_runtime_version(raw)
     }
 
-    pub(super) async fn cleanup_runtimes(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<TaskStepResult, TaskExecutionError> {
-        self.manager
-            .set_install_progress(ManagerCodeServerInstallProgress {
-                phase: CodeServerInstallPhaseValue::Cleaning,
-                percent: 90,
-                downloaded_bytes: None,
-                total_bytes: None,
-            })
-            .await;
-        context.set_status_text("Cleaning old runtimes").await;
-        let runtime = self
-            .rollback_state
-            .lock()
-            .await
-            .installed_runtime
-            .clone()
-            .ok_or_else(|| TaskExecutionError::new("missing installed runtime"))?;
-        cleanup_other_platform_runtimes(
-            self.manager.root_dir.clone(),
-            runtime.platform,
-            &runtime.runtime_dir,
+    fn runtime_dir_name(version: &str, platform: Self::Platform) -> String {
+        runtime_dir_name(version, platform)
+    }
+
+    fn archive_format(_platform: Self::Platform) -> ArchiveFormat {
+        ArchiveFormat::TarGz
+    }
+
+    fn archive_url(version: &str, platform: Self::Platform) -> String {
+        archive_url(RELEASES_BASE_URL, version, platform)
+    }
+
+    fn download_client() -> Result<reqwest::Client, RuntimeError> {
+        Ok(reqwest::Client::new())
+    }
+
+    fn binary_path(runtime_dir: &Path, _platform: Self::Platform) -> Option<PathBuf> {
+        let binary_path = runtime_dir.join("bin").join("code-server");
+        binary_path.exists().then_some(binary_path)
+    }
+
+    fn locate_extracted_root(
+        extract_dir: &Path,
+        dir_name: &str,
+        platform: Self::Platform,
+    ) -> Option<PathBuf> {
+        let extracted_root = extract_dir.join(dir_name);
+        Self::binary_path(&extracted_root, platform).map(|_| extracted_root)
+    }
+
+    fn missing_extracted_binary(extract_dir: &Path, dir_name: &str) -> String {
+        format!(
+            "extracted runtime is missing bin/code-server: {}",
+            extract_dir.join(dir_name).display()
         )
-        .await
-        .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        context.set_step_progress(100).await;
-        Ok(TaskStepResult::Completed)
     }
 
-    pub(super) async fn rollback_stop_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<(), TaskExecutionError> {
-        if self.rollback_state.lock().await.restart_previous_runtime {
-            context.set_status_text("Restarting previous runtime").await;
-            self.manager
-                .start_managed_process()
-                .await
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        }
-        context.set_step_progress(100).await;
-        Ok(())
+    fn missing_installed_binary(runtime_dir: &Path) -> String {
+        format!(
+            "missing code-server binary after extraction: {}",
+            runtime_dir.join("bin").join("code-server").display()
+        )
     }
 
-    pub(super) async fn rollback_download_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<(), TaskExecutionError> {
-        context.set_status_text("Restoring previous runtime").await;
-        let mut state = self.rollback_state.lock().await;
-        if let Some(runtime) = state.installed_runtime.take() {
-            let _ = tokio::fs::remove_dir_all(&runtime.runtime_dir).await;
-        }
-        if let (Some(backup_runtime_dir), Some(target_runtime_dir)) = (
-            state.backup_runtime_dir.take(),
-            state.target_runtime_dir.clone(),
-        ) && tokio::fs::try_exists(&backup_runtime_dir)
-            .await
-            .map_err(|error| TaskExecutionError::new(error.to_string()))?
-        {
-            tokio::fs::rename(&backup_runtime_dir, &target_runtime_dir)
-                .await
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        }
-        context.set_step_progress(100).await;
-        Ok(())
+    fn platform_suffix(platform: Self::Platform) -> String {
+        format!("-{}-{}", platform.os, platform.arch)
     }
 
-    pub(super) async fn rollback_start_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<(), TaskExecutionError> {
-        context.set_status_text("Stopping failed runtime").await;
-        self.manager
-            .stop_managed_process_for_install()
-            .await
-            .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        context.set_step_progress(100).await;
-        Ok(())
+    fn runtime_prefix() -> &'static str {
+        "code-server-"
     }
 
-    pub(super) async fn finalize(&mut self, _final_status: TaskStateValue) {
-        let mut state = self.manager.inner.lock().await;
-        state.install_progress = None;
-        if state.runtime.is_installing() {
-            state.runtime = ManagerRuntimeState::Idle;
-        }
-        drop(state);
-        self.manager.notify.notify_waiters();
-        self.manager.publish_status_update().await;
-    }
-}
-
-impl CodeServerManager {
-    /// Create a manager that launches a shared `code-server` instance.
-    pub fn new(
-        root_dir: PathBuf,
-        _events: Arc<EventBus>,
-        processes: Arc<ManagedProcessService>,
-    ) -> Self {
-        let metadata_client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap_or_else(|error| panic!("failed to build code-server client: {error}"));
-        let fetch_client = metadata_client.clone();
-        let fetch_latest: FetchLatestFn =
-            Arc::new(move || Box::pin(fetch_latest_version(fetch_client.clone())));
-        let download_client = reqwest::Client::new();
-        let download_runtime: DownloadRuntimeFn =
-            Arc::new(move |request: CodeServerDownloadRequest| {
-                Box::pin(download_runtime_archive(request, download_client.clone()))
-            });
-        let ready_client = reqwest::Client::new();
-        let launch: LaunchFn = Arc::new(move |request: CodeServerLaunchRequest| {
-            let ready_client = ready_client.clone();
-            Box::pin(async move { launch_code_server(request, ready_client).await })
-        });
-
-        Self {
-            inner: Arc::new(Mutex::new(ManagerState {
-                latest: None,
-                install_progress: None,
-                runtime: ManagerRuntimeState::Idle,
-            })),
-            notify: Arc::new(Notify::new()),
-            status_callback: Arc::new(Mutex::new(None)),
-            client: reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .unwrap_or_else(|error| {
-                    panic!("failed to build code-server proxy client: {error}")
-                }),
-            fetch_latest,
-            download_runtime,
-            launch,
-            root_dir,
-            process_handle: processes.register_process("code_server", "code-server"),
-        }
+    fn fetch_latest(client: reqwest::Client) -> BoxFuture<'static, Result<String, Self::Error>> {
+        Box::pin(fetch_latest_version(client))
     }
 
-    #[cfg(test)]
-    pub(super) fn with_hooks(
-        root_dir: PathBuf,
-        fetch_latest: FetchLatestFn,
-        download_runtime: DownloadRuntimeFn,
-        launch: LaunchFn,
-    ) -> Self {
-        let events = Arc::new(EventBus::new());
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap_or_else(|error| panic!("failed to build code-server client: {error}"));
-
-        Self {
-            inner: Arc::new(Mutex::new(ManagerState {
-                latest: None,
-                install_progress: None,
-                runtime: ManagerRuntimeState::Idle,
-            })),
-            notify: Arc::new(Notify::new()),
-            status_callback: Arc::new(Mutex::new(None)),
-            client,
-            fetch_latest,
-            download_runtime,
-            launch,
-            root_dir,
-            process_handle: ManagedProcessService::new(events)
-                .register_process("code_server", "code-server"),
-        }
+    fn update_available(installed: &InstalledRuntime<Self>, latest: &str) -> bool {
+        Version::parse(latest).is_ok_and(|version| installed.version_semver < version)
     }
 
-    pub async fn set_status_callback(&self, callback: StatusCallback) {
-        *self.status_callback.lock().await = Some(callback);
+    fn build_launch_request(
+        root_dir: &Path,
+        runtime: &InstalledRuntime<Self>,
+    ) -> Self::LaunchRequest {
+        build_launch_request(root_dir, runtime)
     }
 
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.client
+    fn prepare_launch(
+        request: Self::LaunchRequest,
+    ) -> BoxFuture<'static, Result<LaunchConfig<Self::Connection>, RuntimeError>> {
+        Box::pin(prepare_launch(request))
     }
 
-    pub async fn register_process_callback(self: Arc<Self>) {
-        let weak = Arc::downgrade(&self);
-        self.process_handle
-            .set_on_change(Arc::new(move |snapshot| {
-                let weak = weak.clone();
-                Box::pin(async move {
-                    if let Some(manager) = weak.upgrade() {
-                        manager.apply_process_snapshot(&snapshot).await;
-                        manager.notify.notify_waiters();
-                        manager.publish_status_update().await;
-                    }
-                })
-            }))
-            .await;
+    fn wait_until_ready(
+        connection: Self::Connection,
+    ) -> BoxFuture<'static, Result<(), RuntimeError>> {
+        Box::pin(async move { wait_for_ready(&reqwest::Client::new(), &connection).await })
     }
 
-    async fn apply_process_snapshot(&self, snapshot: &ManagedProcessStatusSnapshot) {
-        if snapshot.lifecycle_state == ManagedProcessLifecycleState::Running {
-            return;
-        }
-
-        let mut state = self.inner.lock().await;
-        state.runtime.clear_ready();
-    }
-
-    pub async fn status(&self) -> CodeServerStatusSnapshot {
-        let supported = detect_platform().is_ok();
-        let installed = self.find_installed_runtime().await.ok().flatten();
-        let process = self.process_handle.status().await.ok();
-        let state = self.inner.lock().await;
-
-        let (process_status, mut message) = if state.runtime.is_installing() {
-            (CodeServerProcessStatusValue::Installing, None)
-        } else {
-            match process.as_ref().map(|status| status.lifecycle_state) {
-                Some(ManagedProcessLifecycleState::Running) => {
-                    (CodeServerProcessStatusValue::Running, None)
-                }
-                Some(ManagedProcessLifecycleState::Starting) => {
-                    (CodeServerProcessStatusValue::Starting, None)
-                }
-                Some(ManagedProcessLifecycleState::Stopping) => {
-                    (CodeServerProcessStatusValue::Stopping, None)
-                }
-                Some(ManagedProcessLifecycleState::Stopped) | None => {
-                    (CodeServerProcessStatusValue::Stopped, None)
-                }
-                Some(ManagedProcessLifecycleState::Exited) => (
-                    CodeServerProcessStatusValue::Error,
-                    Some("code-server exited".to_string()),
-                ),
-                Some(ManagedProcessLifecycleState::Error) => (
-                    CodeServerProcessStatusValue::Error,
-                    process
-                        .as_ref()
-                        .and_then(|status| status.last_error.clone()),
-                ),
-            }
-        };
-
-        if message.is_none() {
-            if let Err(error) = detect_platform() {
-                message = Some(error.to_string());
-            } else if process
-                .as_ref()
-                .and_then(|status| status.last_exit.as_ref())
-                .is_some()
-                && process_status == CodeServerProcessStatusValue::Error
-            {
-                message = Some("code-server exited".to_string());
-            }
-        }
-
+    fn status(common: RuntimeStatusSnapshot) -> Self::Status {
         CodeServerStatusSnapshot {
-            supported,
-            installed_version: installed.map(|runtime| runtime.version),
-            process_status,
-            latest: state.latest.clone(),
-            install_progress: state.install_progress.clone(),
-            message,
+            supported: common.supported,
+            installed_version: common.installed_version,
+            process_status: common.process_status,
+            latest: common.latest,
+            install_progress: common.install_progress,
+            message: common.message,
         }
-    }
-
-    pub async fn check_for_update(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        let latest = (self.fetch_latest)().await?;
-        let installed = self.find_installed_runtime().await?;
-        let update_available = installed
-            .as_ref()
-            .map(|runtime| {
-                Version::parse(&latest).is_ok_and(|version| runtime.version_semver < version)
-            })
-            .unwrap_or(false);
-
-        {
-            let mut state = self.inner.lock().await;
-            state.latest = Some(ManagerCodeServerLatestCheck {
-                latest_version: Some(latest),
-                update_available,
-                checked_at: Some(now_timestamp_string()),
-            });
-        }
-
-        self.publish_status_update().await;
-
-        Ok(self.status().await)
-    }
-
-    pub async fn start(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        self.ensure_ready().await?;
-        Ok(self.status().await)
-    }
-
-    pub async fn stop(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        self.stop_managed_process().await?;
-        Ok(self.status().await)
-    }
-
-    pub async fn restart(&self) -> Result<CodeServerStatusSnapshot, CodeServerError> {
-        self.stop().await?;
-        self.start().await
-    }
-
-    pub async fn shutdown(&self) -> Result<(), CodeServerError> {
-        self.stop_managed_process().await
-    }
-
-    pub async fn ensure_ready(&self) -> Result<CodeServerConnection, CodeServerError> {
-        loop {
-            let process = self
-                .process_handle
-                .status()
-                .await
-                .map_err(map_managed_process_error)?;
-            let state = self.inner.lock().await;
-
-            if state.runtime.is_installing() {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            if process.lifecycle_state == ManagedProcessLifecycleState::Running {
-                if let Some(connection) = state.runtime.connection() {
-                    return Ok(connection);
-                }
-
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            if matches!(
-                process.lifecycle_state,
-                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
-            ) {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            drop(state);
-            return self.start_managed_process().await;
-        }
-    }
-
-    async fn find_installed_runtime(&self) -> Result<Option<InstalledRuntime>, CodeServerError> {
-        let root_dir = self.root_dir.clone();
-        let platform = detect_platform()?;
-        tokio::task::spawn_blocking(move || find_installed_runtime_sync(root_dir, platform))
-            .await
-            .map_err(|error| CodeServerError::Spawn(error.to_string()))?
-    }
-
-    fn task_install_progress_callback(
-        &self,
-        step: crate::task_manager::TaskStepContext,
-    ) -> InstallProgressFn {
-        let manager = self.clone();
-        Arc::new(move |progress| {
-            let manager = manager.clone();
-            let step = step.clone();
-            Box::pin(async move {
-                manager.set_install_progress(progress.clone()).await;
-                step.set_step_progress(progress.percent).await;
-            })
-        })
-    }
-
-    async fn set_install_progress(&self, progress: ManagerCodeServerInstallProgress) {
-        let mut should_emit = false;
-        {
-            let mut state = self.inner.lock().await;
-            if state.install_progress.as_ref() != Some(&progress) {
-                state.install_progress = Some(progress);
-                should_emit = true;
-            }
-        }
-
-        if should_emit {
-            self.notify.notify_waiters();
-            self.publish_status_update().await;
-        }
-    }
-
-    async fn publish_status_update(&self) {
-        let callback = self.status_callback.lock().await.clone();
-        if let Some(callback) = callback {
-            callback().await;
-        }
-    }
-
-    async fn prepare_install_plan(
-        &self,
-        requested_version: Option<String>,
-        force: bool,
-    ) -> Result<CodeServerInstallPlan, CodeServerError> {
-        let platform = detect_platform()?;
-        let version = match requested_version {
-            Some(version) => normalize_version(&version)?,
-            None if force => {
-                if let Some(installed) = self.find_installed_runtime().await? {
-                    installed.version
-                } else {
-                    (self.fetch_latest)().await?
-                }
-            }
-            None => (self.fetch_latest)().await?,
-        };
-
-        Ok(CodeServerInstallPlan {
-            version,
-            platform,
-            force,
-        })
-    }
-
-    async fn start_managed_process(&self) -> Result<CodeServerConnection, CodeServerError> {
-        let runtime = self.find_installed_runtime().await?;
-        let runtime = runtime.ok_or(CodeServerError::NotInstalled)?;
-        loop {
-            if let Some(status) = self
-                .process_handle
-                .begin_start()
-                .await
-                .map_err(map_managed_process_error)?
-            {
-                let state = self.inner.lock().await;
-                if let Some(connection) = state.runtime.connection() {
-                    return Ok(connection);
-                }
-
-                if status.lifecycle_state == ManagedProcessLifecycleState::Running {
-                    let notified = self.notify.notified();
-                    drop(state);
-                    notified.await;
-                    continue;
-                }
-            }
-
-            break;
-        }
-
-        let result = (self.launch)(build_launch_request(&self.root_dir, &runtime)).await;
-        match result {
-            Ok(server) => {
-                let connection = server.connection.clone();
-                self.process_handle.finish_running(server.process).await;
-                {
-                    let mut state = self.inner.lock().await;
-                    state.install_progress = None;
-                    state.runtime = ManagerRuntimeState::Ready(connection.clone());
-                }
-                self.notify.notify_waiters();
-                Ok(connection)
-            }
-            Err(error) => {
-                self.process_handle.finish_error(error.to_string()).await;
-                {
-                    let mut state = self.inner.lock().await;
-                    state.install_progress = None;
-                    state.runtime = ManagerRuntimeState::Idle;
-                }
-                self.notify.notify_waiters();
-                Err(error)
-            }
-        }
-    }
-
-    async fn stop_managed_process(&self) -> Result<(), CodeServerError> {
-        self.stop_managed_process_impl(true).await.map(|_| ())
-    }
-
-    pub(super) async fn stop_managed_process_for_install(&self) -> Result<bool, CodeServerError> {
-        self.stop_managed_process_impl(false).await
-    }
-
-    async fn stop_managed_process_impl(
-        &self,
-        wait_for_install: bool,
-    ) -> Result<bool, CodeServerError> {
-        loop {
-            let state = self.inner.lock().await;
-            if wait_for_install && state.runtime.is_installing() {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-            drop(state);
-            break;
-        }
-
-        let had_running = match self
-            .process_handle
-            .begin_stop()
-            .await
-            .map_err(map_managed_process_error)?
-        {
-            ManagedProcessStopTarget::Running(mut runtime) => {
-                if let Err(error) = runtime.shutdown().await.map_err(map_managed_process_error) {
-                    self.process_handle.finish_error(error.to_string()).await;
-                    return Err(error);
-                }
-                true
-            }
-            ManagedProcessStopTarget::NotRunning => false,
-        };
-
-        {
-            let mut state = self.inner.lock().await;
-            state.install_progress = None;
-            if wait_for_install || !state.runtime.is_installing() {
-                state.runtime = ManagerRuntimeState::Idle;
-            }
-        }
-        self.notify.notify_waiters();
-        self.process_handle.finish_stopped().await;
-        Ok(had_running)
     }
 }
 
-impl ManagedProcessController for CodeServerManager {
-    fn id(&self) -> &str {
-        self.process_handle.id()
-    }
+pub(super) fn detect_platform() -> Result<CodeServerPlatform, RuntimeError> {
+    let os = match std::env::consts::OS {
+        "linux" => "linux",
+        "macos" => "macos",
+        other => {
+            return Err(RuntimeError::UnsupportedPlatform(format!(
+                "unsupported code-server host OS: {other}"
+            )));
+        }
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        "arm" | "armv7l" => "armv7l",
+        other => {
+            return Err(RuntimeError::UnsupportedPlatform(format!(
+                "unsupported code-server host architecture: {other}"
+            )));
+        }
+    };
+    Ok(CodeServerPlatform { os, arch })
+}
 
-    fn kind(&self) -> &str {
-        self.process_handle.kind()
-    }
+fn normalize_runtime_version(raw: &str) -> Result<String, RuntimeError> {
+    let version = raw.trim().trim_start_matches('v');
+    Version::parse(version)
+        .map_err(|_| RuntimeError::InvalidVersion(format!("invalid code-server version: {raw}")))?;
+    Ok(version.to_string())
+}
 
-    fn start(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.start_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
-    }
+#[cfg(test)]
+pub(super) fn normalize_version(raw: &str) -> Result<String, CodeServerError> {
+    normalize_runtime_version(raw).map_err(Into::into)
+}
 
-    fn stop(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.stop_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
-    }
+pub(super) fn runtime_dir_name(version: &str, platform: CodeServerPlatform) -> String {
+    format!("code-server-{version}-{}-{}", platform.os, platform.arch)
+}
 
-    fn restart(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.stop_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.start_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
+fn archive_url(releases_base_url: &str, version: &str, platform: CodeServerPlatform) -> String {
+    let dir_name = runtime_dir_name(version, platform);
+    format!("{releases_base_url}/download/v{version}/{dir_name}.tar.gz")
+}
+
+async fn fetch_latest_version(client: reqwest::Client) -> Result<String, CodeServerError> {
+    let response = client
+        .get(format!("{RELEASES_BASE_URL}/latest"))
+        .send()
+        .await?;
+    let location = response
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| {
+            CodeServerError::InvalidReleaseRedirect(
+                "missing redirect location from /releases/latest".to_string(),
+            )
+        })?;
+    let tag = location
+        .rsplit('/')
+        .next()
+        .and_then(|segment| segment.strip_prefix('v'))
+        .ok_or_else(|| {
+            CodeServerError::InvalidReleaseRedirect(format!(
+                "invalid release redirect location: {location}"
+            ))
+        })?;
+    normalize_runtime_version(tag).map_err(Into::into)
+}
+
+pub(super) fn build_launch_request(
+    root_dir: &Path,
+    runtime: &InstalledCodeServerRuntime,
+) -> CodeServerLaunchRequest {
+    let port = pick_unused_port().unwrap_or(8080);
+    CodeServerLaunchRequest {
+        runtime_dir: runtime.runtime_dir.clone(),
+        binary_path: runtime.binary_path.clone(),
+        host: DEFAULT_HOST.to_string(),
+        port,
+        user_data_dir: root_dir.join(USER_DIR),
+        extensions_dir: root_dir.join(EXTENSIONS_DIR),
+        config_file: root_dir.join(CONFIG_DIR).join("config.yaml"),
     }
+}
+
+async fn prepare_launch(
+    request: CodeServerLaunchRequest,
+) -> Result<LaunchConfig<CodeServerConnection>, RuntimeError> {
+    tokio::fs::create_dir_all(&request.runtime_dir).await?;
+    tokio::fs::create_dir_all(&request.user_data_dir).await?;
+    tokio::fs::create_dir_all(&request.extensions_dir).await?;
+    tokio::fs::create_dir_all(
+        request
+            .config_file
+            .parent()
+            .unwrap_or_else(|| Path::new(".")),
+    )
+    .await?;
+    tokio::fs::write(
+        &request.config_file,
+        "bind-addr: 127.0.0.1:8080\nauth: none\ncert: false\n",
+    )
+    .await?;
+    let mut command = Command::new(&request.binary_path);
+    command
+        .arg("--bind-addr")
+        .arg(format!("{}:{}", request.host, request.port))
+        .arg("--auth")
+        .arg("none")
+        .arg("--user-data-dir")
+        .arg(&request.user_data_dir)
+        .arg("--extensions-dir")
+        .arg(&request.extensions_dir)
+        .arg("--config")
+        .arg(&request.config_file)
+        .arg("--disable-update-check")
+        .arg("--abs-proxy-base-path")
+        .arg(CODE_SERVER_PUBLIC_BASE_PATH)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(target_os = "linux")]
+    configure_parent_death_signal(&mut command);
+    Ok(LaunchConfig {
+        command,
+        connection: CodeServerConnection {
+            base_url: format!("http://{}:{}", request.host, request.port),
+        },
+        binary_path: request.binary_path,
+    })
+}
+
+pub(super) async fn wait_for_ready(
+    client: &reqwest::Client,
+    connection: &CodeServerConnection,
+) -> Result<(), RuntimeError> {
+    let started = tokio::time::Instant::now();
+    loop {
+        let response = client
+            .get(connection.http_url(UPSTREAM_READY_PATH))
+            .send()
+            .await;
+        match response {
+            Ok(response) if response.status() != axum::http::StatusCode::ACCEPTED => {
+                return Ok(());
+            }
+            Ok(_) | Err(_) => {}
+        }
+        if started.elapsed() >= READY_TIMEOUT {
+            return Err(RuntimeError::StartupTimeout("code-server"));
+        }
+        tokio::time::sleep(READY_POLL_INTERVAL).await;
+    }
+}
+
+#[cfg(test)]
+pub(super) async fn cleanup_other_platform_runtimes(
+    root_dir: PathBuf,
+    platform: CodeServerPlatform,
+    keep_runtime_dir: &Path,
+) -> Result<(), CodeServerError> {
+    cleanup_other_runtimes::<CodeServerSpec>(root_dir, platform, keep_runtime_dir)
+        .await
+        .map_err(Into::into)
+}
+
+#[cfg(test)]
+pub(super) async fn download_runtime_archive_from_base_url(
+    request: CodeServerDownloadRequest,
+    client: reqwest::Client,
+    releases_base_url: &str,
+) -> Result<InstalledCodeServerRuntime, CodeServerError> {
+    let version = normalize_runtime_version(&request.version)?;
+    let url = archive_url(releases_base_url, &version, request.platform);
+    download_runtime_from_url::<CodeServerSpec>(request, version, url, client)
+        .await
+        .map_err(Into::into)
 }

@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::events::LaggedSnapshotCache;
@@ -11,33 +10,20 @@ use crate::events::EventBus;
 use crate::keybindings_manager::KeybindingsManager;
 use crate::process_manager::ManagedProcessService;
 use crate::project_store::ProjectStore;
-use crate::pty::live_tab::LiveTab;
 use crate::settings_manager::SettingsManager;
-use crate::tab::{TabInfo, WorktreeTabLayout};
+use crate::tabs::{RestoreStateHandle, TabInsertHandle, TabService};
 use crate::task_manager::TaskService;
 use crate::vscode::{CodeServerManager, VscodeCliManager, VscodeManager, register_vscode_tasks};
 use crate::worktree_files::WorktreeFilesService;
 use crate::worktree_state::{WorktreeRestoreState, WorktreeStateService};
 
-pub type TabId = String;
-
-#[derive(Debug, Clone)]
-pub struct RestoredTerminalTab {
-    pub project_id: String,
-    pub worktree_id: String,
-}
-
 #[derive(Clone)]
 pub struct AppState {
-    pub tabs: Arc<DashMap<TabId, TabInfo>>,
-    pub tab_layouts: Arc<DashMap<String, WorktreeTabLayout>>,
-    pub terminal_tabs: Arc<DashMap<TabId, Arc<LiveTab>>>,
-    pub restored_terminal_tabs: Arc<DashMap<TabId, RestoredTerminalTab>>,
-    pub terminal_restore_locks: Arc<DashMap<TabId, Arc<Mutex<()>>>>,
-    pub restore_state_by_worktree: Arc<DashMap<String, WorktreeRestoreState>>,
+    pub tabs_service: Arc<TabService>,
+    pub tabs: TabInsertHandle,
+    pub restore_state_by_worktree: RestoreStateHandle,
     pub project_id_by_worktree: Arc<DashMap<String, String>>,
     pub events: Arc<EventBus>,
-    pub next_terminal_num_by_worktree: Arc<DashMap<String, u32>>,
     pub data_dir: PathBuf,
     pub projects: Arc<ProjectStore>,
     pub persistence: Arc<WorktreeStateService>,
@@ -113,16 +99,15 @@ impl AppState {
         vscode_cli.clone().register_process_callback().await;
         vscode.clone().register_status_callbacks().await;
 
+        let project_id_by_worktree = Arc::new(DashMap::new());
+        let tabs_service = Arc::new(TabService::new(project_id_by_worktree.clone()));
+
         Ok(Self {
-            tabs: Arc::new(DashMap::new()),
-            tab_layouts: Arc::new(DashMap::new()),
-            terminal_tabs: Arc::new(DashMap::new()),
-            restored_terminal_tabs: Arc::new(DashMap::new()),
-            terminal_restore_locks: Arc::new(DashMap::new()),
-            restore_state_by_worktree: Arc::new(DashMap::new()),
-            project_id_by_worktree: Arc::new(DashMap::new()),
+            tabs: TabInsertHandle::new(tabs_service.clone()),
+            restore_state_by_worktree: RestoreStateHandle::new(tabs_service.clone()),
+            tabs_service,
+            project_id_by_worktree,
             events: events.clone(),
-            next_terminal_num_by_worktree: Arc::new(DashMap::new()),
             data_dir,
             projects,
             persistence,
@@ -167,35 +152,11 @@ impl AppState {
     }
 
     pub fn restore_state_for_worktree(&self, worktree_id: &str) -> WorktreeRestoreState {
-        self.restore_state_by_worktree
-            .get(worktree_id)
-            .map(|entry| entry.value().clone())
-            .unwrap_or_default()
-    }
-
-    pub fn terminal_restore_lock(&self, tab_id: &str) -> Arc<Mutex<()>> {
-        self.terminal_restore_locks
-            .entry(tab_id.to_string())
-            .or_insert_with(|| Arc::new(Mutex::new(())))
-            .clone()
+        self.tabs_service.restore_state_for_worktree(worktree_id)
     }
 
     pub fn clear_worktree_runtime_state(&self, worktree_id: &str) {
-        self.tab_layouts.remove(worktree_id);
-        self.next_terminal_num_by_worktree.remove(worktree_id);
-        self.restore_state_by_worktree.remove(worktree_id);
-        self.project_id_by_worktree.remove(worktree_id);
-        let removed_tab_ids: Vec<String> = self
-            .restored_terminal_tabs
-            .iter()
-            .filter(|entry| entry.value().worktree_id == worktree_id)
-            .map(|entry| entry.key().clone())
-            .collect();
-        self.restored_terminal_tabs
-            .retain(|_, terminal| terminal.worktree_id != worktree_id);
-        for tab_id in removed_tab_ids {
-            self.terminal_restore_locks.remove(&tab_id);
-        }
+        self.tabs_service.clear_worktree_runtime_state(worktree_id);
     }
 }
 
@@ -204,39 +165,6 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-
-    #[tokio::test]
-    async fn clear_worktree_runtime_state_removes_restore_locks_for_worktree() {
-        let tmp = TempDir::new().unwrap();
-        let state = AppState::new(tmp.path().to_path_buf()).await;
-        state.restored_terminal_tabs.insert(
-            "tab-1".to_string(),
-            RestoredTerminalTab {
-                project_id: "project-1".to_string(),
-                worktree_id: "worktree-1".to_string(),
-            },
-        );
-        state.restored_terminal_tabs.insert(
-            "tab-2".to_string(),
-            RestoredTerminalTab {
-                project_id: "project-1".to_string(),
-                worktree_id: "worktree-2".to_string(),
-            },
-        );
-        state
-            .terminal_restore_locks
-            .insert("tab-1".to_string(), Arc::new(Mutex::new(())));
-        state
-            .terminal_restore_locks
-            .insert("tab-2".to_string(), Arc::new(Mutex::new(())));
-
-        state.clear_worktree_runtime_state("worktree-1");
-
-        assert!(!state.restored_terminal_tabs.contains_key("tab-1"));
-        assert!(!state.terminal_restore_locks.contains_key("tab-1"));
-        assert!(state.restored_terminal_tabs.contains_key("tab-2"));
-        assert!(state.terminal_restore_locks.contains_key("tab-2"));
-    }
 
     #[tokio::test]
     async fn try_new_fails_loudly_on_corrupt_projects_file() {

@@ -1,3 +1,5 @@
+//! Git repository and worktree operations.
+
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -9,7 +11,48 @@ use git2::{
 };
 use uuid::Uuid;
 
-use crate::api::worktrees::{GitCommitPerson, GitCommitSummary, GitFileChange, GitFileChangeType};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+use utoipa::ToSchema;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum GitFileChangeType {
+    Added,
+    Copied,
+    Renamed,
+    Conflict,
+    Modified,
+    Deleted,
+    Typechange,
+    Untracked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+pub struct GitFileChange {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_path: Option<String>,
+    pub change_type: GitFileChangeType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub insertions: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deletions: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+pub struct GitCommitSummary {
+    pub id: String,
+    pub short_id: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+pub struct GitCommitPerson {
+    pub name: String,
+    pub email: String,
+    pub date: String,
+}
 
 const WORKTREE_NAMESPACE: Uuid = Uuid::from_u128(0x2b8b1f5e_84f8_4d8d_9ad8_9f6df2a93f3b);
 

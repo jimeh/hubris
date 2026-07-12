@@ -1,0 +1,17 @@
+[package]
+name = "hubris-pty"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+libc = "0.2"
+portable-pty = "0.9"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+ts-rs = { version = "12", features = ["serde-compat", "serde-json-impl"] }
+utoipa = { version = "5", features = ["axum_extras"] }
+vt100 = "0.16"
+
+[dev-dependencies]
+anyhow = "1"
