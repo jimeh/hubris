@@ -15,6 +15,7 @@ pub mod pty;
 mod settings_manager;
 pub mod state;
 pub mod tab;
+pub mod tabs;
 pub mod task_manager;
 mod vscode;
 pub mod worktree_files;
@@ -86,7 +87,6 @@ pub use instance_lock::{
     InstanceLockOptions,
 };
 pub use state::AppState;
-use state::RestoredTerminalTab;
 use vscode::proxy_code_request;
 use worktree_state::ExistingWorktree;
 
@@ -173,35 +173,7 @@ async fn hydrate_persisted_worktree_state(state: &AppState) -> std::io::Result<(
         .load_existing(existing_worktrees)
         .await?;
     for worktree in loaded.worktrees {
-        state.remember_worktree_project(&worktree.worktree_id, &worktree.project_id);
-        state
-            .restore_state_by_worktree
-            .insert(worktree.worktree_id.clone(), worktree.restore_state.clone());
-        state.next_terminal_num_by_worktree.insert(
-            worktree.worktree_id.clone(),
-            worktree.next_terminal_number.max(1),
-        );
-
-        if let Some(layout) = worktree.layout {
-            state
-                .tab_layouts
-                .insert(worktree.worktree_id.clone(), layout);
-        }
-
-        for tab in worktree.tabs {
-            if tab.is_terminal() {
-                let tab_id = tab.id().to_string();
-                state.restored_terminal_tabs.insert(
-                    tab_id.clone(),
-                    RestoredTerminalTab {
-                        project_id: worktree.project_id.clone(),
-                        worktree_id: worktree.worktree_id.clone(),
-                    },
-                );
-                state.terminal_restore_lock(&tab_id);
-            }
-            state.tabs.insert(tab.id().to_string(), tab);
-        }
+        state.tabs_service.hydrate_worktree(worktree);
     }
 
     Ok(())

@@ -12,7 +12,6 @@ use tokio::time::{self, Instant, MissedTickBehavior};
 use ts_rs::TS;
 use utoipa::{IntoParams, ToSchema};
 
-use crate::api::tabs::ensure_terminal_runtime;
 use crate::error::ApiError;
 use crate::pty::live_tab::{LiveTabAttachment, TerminalSize};
 use crate::state::AppState;
@@ -70,7 +69,9 @@ pub async fn ws_handler(
     Query(params): Query<TerminalParams>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, ApiError> {
-    if ensure_terminal_runtime(&state, &params.tab_id)
+    if state
+        .tabs_service
+        .ensure_terminal_runtime(&state, &params.tab_id)
         .await?
         .is_none()
     {
@@ -90,8 +91,7 @@ async fn handle_attach(
     resume_from: Option<u64>,
     state: AppState,
 ) {
-    // Clone Arc out of DashMap to avoid holding shard lock
-    let tab = match state.terminal_tabs.get(&tab_id).map(|r| r.value().clone()) {
+    let tab = match state.tabs_service.terminal_runtime(&tab_id) {
         Some(t) => t,
         None => return,
     };
