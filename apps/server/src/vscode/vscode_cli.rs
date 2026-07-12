@@ -1,704 +1,392 @@
-use super::*;
-use crate::task_manager::{TaskExecutionError, TaskStateValue, TaskStepContext, TaskStepResult};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
 
-pub(super) struct VscodeCliInstallState {
-    manager: Arc<VscodeCliManager>,
-    plan: VscodeCliInstallPlan,
-    rollback_state: Arc<Mutex<VscodeCliInstallTaskState>>,
+use axum::http::StatusCode;
+use futures_util::future::BoxFuture;
+use semver::Version;
+use tokio::process::Command;
+use uuid::Uuid;
+
+use super::proxy::{extract_vscode_token_cookie, upsert_query_param};
+#[cfg(test)]
+use super::runtime::RuntimeState;
+use super::runtime::{
+    ArchiveFormat, DEFAULT_HOST, InstalledRuntime, LaunchConfig, READY_POLL_INTERVAL,
+    READY_TIMEOUT, RuntimeError, RuntimeInstallState, RuntimeManager, RuntimeSpec,
+    RuntimeStatusSnapshot, pick_unused_port,
+};
+use super::{
+    CONFIG_DIR, VSCODE_CLI_DATA_DIR, VSCODE_CLI_PUBLIC_BASE_PATH, VSCODE_CLI_UPSTREAM_BASE_PATH,
+    VSCODE_SERVER_DATA_DIR, VSCODE_TOKEN_QUERY_PARAM, VSCODE_UPDATE_BASE_URL, VscodeCliError,
+    VscodeConnection, VscodeRuntimeKind, VscodeRuntimeStatusSnapshot,
+};
+#[cfg(target_os = "linux")]
+use crate::process_manager::configure_parent_death_signal;
+
+#[derive(Clone)]
+pub struct VscodeCliSpec;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VscodeCliPlatform {
+    pub os: &'static str,
+    pub arch: &'static str,
+    pub cli_download_segment: &'static str,
+    pub update_segment: &'static str,
+    pub archive_format: ArchiveFormat,
 }
 
-impl VscodeCliInstallState {
-    pub(super) async fn initialize(
-        manager: Arc<VscodeCliManager>,
-        requested_version: Option<String>,
-        force: bool,
-    ) -> Result<Self, TaskExecutionError> {
-        loop {
-            let process = manager
-                .process_handle
-                .status()
-                .await
-                .map_err(map_managed_process_error_vscode_cli)
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-            let state = manager.inner.lock().await;
+#[derive(Clone, Debug)]
+pub struct VscodeCliLaunchRequest {
+    runtime_dir: PathBuf,
+    binary_path: PathBuf,
+    host: String,
+    port: u16,
+    cli_data_dir: PathBuf,
+    server_data_dir: PathBuf,
+    connection_token_file: PathBuf,
+    connection_token: String,
+}
 
-            if state.runtime.is_installing() {
-                return Err(TaskExecutionError::new(
-                    "VS Code CLI install is already running",
-                ));
-            }
+pub type VscodeCliManager = RuntimeManager<VscodeCliSpec>;
+pub(super) type VscodeCliInstallState = RuntimeInstallState<VscodeCliSpec>;
+#[cfg(test)]
+pub(super) type VscodeCliRuntimeState = RuntimeState<VscodeConnection>;
 
-            if matches!(
-                process.lifecycle_state,
-                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
-            ) {
-                let notified = manager.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            drop(state);
-            break;
+impl From<RuntimeError> for VscodeCliError {
+    fn from(error: RuntimeError) -> Self {
+        match error {
+            RuntimeError::Io(error) => Self::Io(error),
+            RuntimeError::Http(error) => Self::Http(error),
+            RuntimeError::Archive(message) => Self::Archive(message),
+            RuntimeError::Spawn(message) => Self::Spawn(message),
+            RuntimeError::StartupTimeout(_) => Self::StartupTimeout,
+            RuntimeError::UnsupportedPlatform(message) => Self::UnsupportedPlatform(message),
+            RuntimeError::InvalidVersion(message) => Self::InvalidVersion(message),
+            RuntimeError::NotInstalled(_) => Self::NotInstalled,
         }
-
-        let plan = manager
-            .prepare_install_plan(requested_version, force)
-            .await
-            .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        let rollback_state = Arc::new(Mutex::new(VscodeCliInstallTaskState {
-            target_runtime_dir: Some(
-                manager
-                    .root_dir
-                    .join(RUNTIMES_DIR)
-                    .join(vscode_cli_runtime_dir_name(&plan.version, plan.platform)),
-            ),
-            ..Default::default()
-        }));
-
-        {
-            let mut state = manager.inner.lock().await;
-            state.runtime = VscodeCliRuntimeState::Installing;
-            state.install_progress = Some(preparing_install_progress());
-        }
-        manager.notify.notify_waiters();
-        manager.publish_status_update().await;
-
-        Ok(Self {
-            manager,
-            plan,
-            rollback_state,
-        })
-    }
-
-    pub(super) async fn stop_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<TaskStepResult, TaskExecutionError> {
-        context.set_status_text("Stopping current runtime").await;
-        let had_running = self
-            .manager
-            .stop_managed_process_for_install()
-            .await
-            .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        self.rollback_state.lock().await.restart_previous_runtime = had_running;
-        if had_running {
-            context.set_step_progress(100).await;
-            Ok(TaskStepResult::Completed)
-        } else {
-            Ok(TaskStepResult::Skipped)
-        }
-    }
-
-    pub(super) async fn download_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<TaskStepResult, TaskExecutionError> {
-        let plan = self.plan.clone();
-        context.set_status_text("Downloading runtime").await;
-        let target_runtime_dir = self
-            .manager
-            .root_dir
-            .join(RUNTIMES_DIR)
-            .join(vscode_cli_runtime_dir_name(&plan.version, plan.platform));
-        if plan.force
-            && tokio::fs::try_exists(&target_runtime_dir)
-                .await
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?
-        {
-            let backup_runtime_dir = self.manager.root_dir.join(TMP_DIR).join(format!(
-                "{}-rollback-{}",
-                vscode_cli_runtime_dir_name(&plan.version, plan.platform),
-                Uuid::new_v4()
-            ));
-            tokio::fs::create_dir_all(self.manager.root_dir.join(TMP_DIR))
-                .await
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-            tokio::fs::rename(&target_runtime_dir, &backup_runtime_dir)
-                .await
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-            self.rollback_state.lock().await.backup_runtime_dir = Some(backup_runtime_dir);
-        }
-        let runtime = download_vscode_cli_archive(
-            VscodeCliDownloadRequest {
-                root_dir: self.manager.root_dir.clone(),
-                version: plan.version.clone(),
-                platform: plan.platform,
-                force: plan.force,
-                install_progress: Some(
-                    self.manager.task_install_progress_callback(context.clone()),
-                ),
-            },
-            self.manager.client.clone(),
-        )
-        .await
-        .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        self.rollback_state.lock().await.installed_runtime = Some(runtime);
-        context.set_step_progress(100).await;
-        Ok(TaskStepResult::Completed)
-    }
-
-    pub(super) async fn start_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<TaskStepResult, TaskExecutionError> {
-        self.manager
-            .set_install_progress(ManagerCodeServerInstallProgress {
-                phase: CodeServerInstallPhaseValue::Starting,
-                percent: 95,
-                downloaded_bytes: None,
-                total_bytes: None,
-            })
-            .await;
-        context.set_status_text("Starting runtime").await;
-        let runtime = self
-            .rollback_state
-            .lock()
-            .await
-            .installed_runtime
-            .clone()
-            .ok_or_else(|| TaskExecutionError::new("missing installed runtime"))?;
-        let server = launch_vscode_cli(build_vscode_cli_launch_request(
-            &self.manager.root_dir,
-            &runtime,
-        ))
-        .await
-        .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        self.manager
-            .process_handle
-            .finish_running(server.process)
-            .await;
-        {
-            let mut state = self.manager.inner.lock().await;
-            state.runtime = VscodeCliRuntimeState::Ready(server.connection);
-        }
-        self.manager.notify.notify_waiters();
-        self.manager.publish_status_update().await;
-        context.set_step_progress(100).await;
-        Ok(TaskStepResult::Completed)
-    }
-
-    pub(super) async fn cleanup_runtimes(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<TaskStepResult, TaskExecutionError> {
-        self.manager
-            .set_install_progress(ManagerCodeServerInstallProgress {
-                phase: CodeServerInstallPhaseValue::Cleaning,
-                percent: 90,
-                downloaded_bytes: None,
-                total_bytes: None,
-            })
-            .await;
-        context.set_status_text("Cleaning old runtimes").await;
-        let runtime = self
-            .rollback_state
-            .lock()
-            .await
-            .installed_runtime
-            .clone()
-            .ok_or_else(|| TaskExecutionError::new("missing installed runtime"))?;
-        cleanup_other_vscode_cli_runtimes(
-            self.manager.root_dir.clone(),
-            runtime.platform,
-            &runtime.runtime_dir,
-        )
-        .await
-        .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        context.set_step_progress(100).await;
-        Ok(TaskStepResult::Completed)
-    }
-
-    pub(super) async fn rollback_stop_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<(), TaskExecutionError> {
-        if self.rollback_state.lock().await.restart_previous_runtime {
-            context.set_status_text("Restarting previous runtime").await;
-            self.manager
-                .start_managed_process()
-                .await
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        }
-        context.set_step_progress(100).await;
-        Ok(())
-    }
-
-    pub(super) async fn rollback_download_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<(), TaskExecutionError> {
-        context.set_status_text("Restoring previous runtime").await;
-        let mut state = self.rollback_state.lock().await;
-        if let Some(runtime) = state.installed_runtime.take() {
-            let _ = tokio::fs::remove_dir_all(&runtime.runtime_dir).await;
-        }
-        if let (Some(backup_runtime_dir), Some(target_runtime_dir)) = (
-            state.backup_runtime_dir.take(),
-            state.target_runtime_dir.clone(),
-        ) && tokio::fs::try_exists(&backup_runtime_dir)
-            .await
-            .map_err(|error| TaskExecutionError::new(error.to_string()))?
-        {
-            tokio::fs::rename(&backup_runtime_dir, &target_runtime_dir)
-                .await
-                .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        }
-        context.set_step_progress(100).await;
-        Ok(())
-    }
-
-    pub(super) async fn rollback_start_runtime(
-        &mut self,
-        context: TaskStepContext,
-    ) -> Result<(), TaskExecutionError> {
-        context.set_status_text("Stopping failed runtime").await;
-        self.manager
-            .stop_managed_process_for_install()
-            .await
-            .map_err(|error| TaskExecutionError::new(error.to_string()))?;
-        context.set_step_progress(100).await;
-        Ok(())
-    }
-
-    pub(super) async fn finalize(&mut self, _final_status: TaskStateValue) {
-        let mut state = self.manager.inner.lock().await;
-        state.install_progress = None;
-        if state.runtime.is_installing() {
-            state.runtime = VscodeCliRuntimeState::Idle;
-        }
-        drop(state);
-        self.manager.notify.notify_waiters();
-        self.manager.publish_status_update().await;
     }
 }
 
-impl VscodeCliManager {
-    pub fn new(
-        root_dir: PathBuf,
-        _events: Arc<EventBus>,
-        processes: Arc<ManagedProcessService>,
-    ) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(VscodeCliManagerState {
-                latest: None,
-                install_progress: None,
-                runtime: VscodeCliRuntimeState::Idle,
-            })),
-            notify: Arc::new(Notify::new()),
-            client: reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .unwrap_or_else(|error| panic!("failed to build vscode cli client: {error}")),
-            status_callback: Arc::new(Mutex::new(None)),
-            root_dir,
-            process_handle: processes.register_process("vscode_cli", "vscode-cli"),
+impl RuntimeSpec for VscodeCliSpec {
+    type Platform = VscodeCliPlatform;
+    type Connection = VscodeConnection;
+    type Error = VscodeCliError;
+    type LaunchRequest = VscodeCliLaunchRequest;
+    type Status = VscodeRuntimeStatusSnapshot;
+
+    const PROCESS_ID: &'static str = "vscode_cli";
+    const PROCESS_KIND: &'static str = "vscode-cli";
+    const CLIENT_LABEL: &'static str = "vscode cli";
+    const LAUNCH_LABEL: &'static str = "VS Code CLI";
+    const INSTALL_CONFLICT_MESSAGE: &'static str = "VS Code CLI install is already running";
+    const EXIT_MESSAGE: &'static str = "VS Code CLI exited";
+
+    fn detect_platform() -> Result<Self::Platform, RuntimeError> {
+        detect_platform()
+    }
+
+    fn normalize_version(raw: &str) -> Result<String, RuntimeError> {
+        normalize_version(raw)
+    }
+
+    fn runtime_dir_name(version: &str, platform: Self::Platform) -> String {
+        format!("vscode-cli-{version}-{}-{}", platform.os, platform.arch)
+    }
+
+    fn archive_format(platform: Self::Platform) -> ArchiveFormat {
+        platform.archive_format
+    }
+
+    fn archive_url(version: &str, platform: Self::Platform) -> String {
+        format!(
+            "{VSCODE_UPDATE_BASE_URL}/{version}/{}/stable",
+            platform.cli_download_segment
+        )
+    }
+
+    fn download_client() -> Result<reqwest::Client, RuntimeError> {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .build()
+            .map_err(RuntimeError::Http)
+    }
+
+    fn binary_path(runtime_dir: &Path, platform: Self::Platform) -> Option<PathBuf> {
+        vscode_cli_runtime_binary(runtime_dir, platform)
+    }
+
+    fn locate_extracted_root(
+        extract_dir: &Path,
+        _dir_name: &str,
+        platform: Self::Platform,
+    ) -> Option<PathBuf> {
+        locate_extracted_root(extract_dir, platform)
+    }
+
+    fn missing_extracted_binary(extract_dir: &Path, _dir_name: &str) -> String {
+        format!(
+            "extracted VS Code CLI is missing a runnable binary: {}",
+            extract_dir.display()
+        )
+    }
+
+    fn missing_installed_binary(runtime_dir: &Path) -> String {
+        format!(
+            "missing VS Code CLI binary after extraction: {}",
+            runtime_dir.display()
+        )
+    }
+
+    fn platform_suffix(platform: Self::Platform) -> String {
+        format!("-{}-{}", platform.os, platform.arch)
+    }
+
+    fn runtime_prefix() -> &'static str {
+        "vscode-cli-"
+    }
+
+    fn fetch_latest(client: reqwest::Client) -> BoxFuture<'static, Result<String, Self::Error>> {
+        Box::pin(fetch_latest_release(client))
+    }
+
+    fn update_available(installed: &InstalledRuntime<Self>, latest: &str) -> bool {
+        installed.version_semver < Version::parse(latest).unwrap()
+    }
+
+    fn build_launch_request(
+        root_dir: &Path,
+        runtime: &InstalledRuntime<Self>,
+    ) -> Self::LaunchRequest {
+        let port = pick_unused_port().unwrap_or(8080);
+        VscodeCliLaunchRequest {
+            runtime_dir: runtime.runtime_dir.clone(),
+            binary_path: runtime.binary_path.clone(),
+            host: DEFAULT_HOST.to_string(),
+            port,
+            cli_data_dir: root_dir.join(VSCODE_CLI_DATA_DIR),
+            server_data_dir: root_dir.join(VSCODE_SERVER_DATA_DIR),
+            connection_token_file: root_dir.join(CONFIG_DIR).join("vscode-connection-token"),
+            connection_token: Uuid::new_v4().to_string(),
         }
     }
 
-    pub async fn set_status_callback(&self, callback: StatusCallback) {
-        *self.status_callback.lock().await = Some(callback);
+    fn prepare_launch(
+        request: Self::LaunchRequest,
+    ) -> BoxFuture<'static, Result<LaunchConfig<Self::Connection>, RuntimeError>> {
+        Box::pin(prepare_launch(request))
     }
 
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.client
+    fn wait_until_ready(
+        connection: Self::Connection,
+    ) -> BoxFuture<'static, Result<(), RuntimeError>> {
+        Box::pin(wait_for_ready(connection))
     }
 
-    pub async fn register_process_callback(self: Arc<Self>) {
-        let weak = Arc::downgrade(&self);
-        self.process_handle
-            .set_on_change(Arc::new(move |snapshot| {
-                let weak = weak.clone();
-                Box::pin(async move {
-                    if let Some(manager) = weak.upgrade() {
-                        manager.apply_process_snapshot(&snapshot).await;
-                        manager.notify.notify_waiters();
-                        manager.publish_status_update().await;
-                    }
-                })
-            }))
-            .await;
-    }
-
-    async fn apply_process_snapshot(&self, snapshot: &ManagedProcessStatusSnapshot) {
-        if snapshot.lifecycle_state == ManagedProcessLifecycleState::Running {
-            return;
-        }
-
-        let mut state = self.inner.lock().await;
-        state.runtime.clear_ready();
-    }
-
-    pub async fn status(&self) -> VscodeRuntimeStatusSnapshot {
-        let supported = detect_vscode_cli_platform().is_ok();
-        let installed = self.find_installed_runtime().await.ok().flatten();
-        let process = self.process_handle.status().await.ok();
-        let state = self.inner.lock().await;
-
-        let (process_status, mut message) = if state.runtime.is_installing() {
-            (CodeServerProcessStatusValue::Installing, None)
-        } else {
-            match process.as_ref().map(|status| status.lifecycle_state) {
-                Some(ManagedProcessLifecycleState::Running) => {
-                    (CodeServerProcessStatusValue::Running, None)
-                }
-                Some(ManagedProcessLifecycleState::Starting) => {
-                    (CodeServerProcessStatusValue::Starting, None)
-                }
-                Some(ManagedProcessLifecycleState::Stopping) => {
-                    (CodeServerProcessStatusValue::Stopping, None)
-                }
-                Some(ManagedProcessLifecycleState::Stopped) | None => {
-                    (CodeServerProcessStatusValue::Stopped, None)
-                }
-                Some(ManagedProcessLifecycleState::Exited) => (
-                    CodeServerProcessStatusValue::Error,
-                    Some("VS Code CLI exited".to_string()),
-                ),
-                Some(ManagedProcessLifecycleState::Error) => (
-                    CodeServerProcessStatusValue::Error,
-                    process
-                        .as_ref()
-                        .and_then(|status| status.last_error.clone()),
-                ),
-            }
-        };
-
-        if message.is_none() {
-            if let Err(error) = detect_vscode_cli_platform() {
-                message = Some(error.to_string());
-            } else if process
-                .as_ref()
-                .and_then(|status| status.last_exit.as_ref())
-                .is_some()
-                && process_status == CodeServerProcessStatusValue::Error
-            {
-                message = Some("VS Code CLI exited".to_string());
-            }
-        }
-
+    fn status(common: RuntimeStatusSnapshot) -> Self::Status {
         VscodeRuntimeStatusSnapshot {
-            supported,
-            installed_version: installed.map(|runtime| runtime.version),
-            process_status,
-            latest: state.latest.clone(),
-            install_progress: state.install_progress.clone(),
-            message,
+            supported: common.supported,
+            installed_version: common.installed_version,
+            process_status: common.process_status,
+            latest: common.latest,
+            install_progress: common.install_progress,
+            message: common.message,
             active_task_id: None,
         }
     }
+}
 
-    pub async fn check_for_update(&self) -> Result<VscodeRuntimeStatusSnapshot, VscodeCliError> {
-        let latest = fetch_latest_vscode_cli_release(self.client.clone()).await?;
-        let installed = self.find_installed_runtime().await?;
-        let update_available = installed
-            .as_ref()
-            .map(|runtime| runtime.version_semver < Version::parse(&latest.version).unwrap())
-            .unwrap_or(false);
-
-        {
-            let mut state = self.inner.lock().await;
-            state.latest = Some(ManagerCodeServerLatestCheck {
-                latest_version: Some(latest.version),
-                update_available,
-                checked_at: Some(now_timestamp_string()),
-            });
-        }
-        self.publish_status_update().await;
-        Ok(self.status().await)
-    }
-
-    pub async fn start(&self) -> Result<VscodeRuntimeStatusSnapshot, VscodeCliError> {
-        self.ensure_ready().await?;
-        Ok(self.status().await)
-    }
-
-    pub async fn stop(&self) -> Result<VscodeRuntimeStatusSnapshot, VscodeCliError> {
-        self.stop_managed_process().await?;
-        Ok(self.status().await)
-    }
-
-    pub async fn restart(&self) -> Result<VscodeRuntimeStatusSnapshot, VscodeCliError> {
-        self.stop().await?;
-        self.start().await
-    }
-
-    pub async fn ensure_ready(&self) -> Result<VscodeConnection, VscodeCliError> {
-        loop {
-            let process = self
-                .process_handle
-                .status()
-                .await
-                .map_err(map_managed_process_error_vscode_cli)?;
-            let state = self.inner.lock().await;
-
-            if state.runtime.is_installing() {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            if process.lifecycle_state == ManagedProcessLifecycleState::Running {
-                if let Some(connection) = state.runtime.connection() {
-                    return Ok(connection);
-                }
-
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            if matches!(
-                process.lifecycle_state,
-                ManagedProcessLifecycleState::Starting | ManagedProcessLifecycleState::Stopping
-            ) {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-
-            drop(state);
-            return self.start_managed_process().await;
-        }
-    }
-
-    async fn find_installed_runtime(
-        &self,
-    ) -> Result<Option<InstalledVscodeCliRuntime>, VscodeCliError> {
-        let root_dir = self.root_dir.clone();
-        let platform = detect_vscode_cli_platform()?;
-        tokio::task::spawn_blocking(move || {
-            find_installed_vscode_cli_runtime_sync(root_dir, platform)
-        })
-        .await
-        .map_err(|error| VscodeCliError::Spawn(error.to_string()))?
-    }
-
-    fn task_install_progress_callback(
-        &self,
-        step: crate::task_manager::TaskStepContext,
-    ) -> InstallProgressFn {
-        let manager = self.clone();
-        Arc::new(move |progress| {
-            let manager = manager.clone();
-            let step = step.clone();
-            Box::pin(async move {
-                manager.set_install_progress(progress.clone()).await;
-                step.set_step_progress(progress.percent).await;
-            })
-        })
-    }
-
-    async fn set_install_progress(&self, progress: ManagerCodeServerInstallProgress) {
-        let mut should_emit = false;
-        {
-            let mut state = self.inner.lock().await;
-            if state.install_progress.as_ref() != Some(&progress) {
-                state.install_progress = Some(progress);
-                should_emit = true;
-            }
-        }
-        if should_emit {
-            self.notify.notify_waiters();
-            self.publish_status_update().await;
-        }
-    }
-
-    async fn publish_status_update(&self) {
-        let callback = self.status_callback.lock().await.clone();
-        if let Some(callback) = callback {
-            callback().await;
-        }
-    }
-
-    async fn prepare_install_plan(
-        &self,
-        requested_version: Option<String>,
-        force: bool,
-    ) -> Result<VscodeCliInstallPlan, VscodeCliError> {
-        let platform = detect_vscode_cli_platform()?;
-        let version = match requested_version {
-            Some(version) => normalize_vscode_cli_version(&version)?,
-            None if force => {
-                if let Some(installed) = self.find_installed_runtime().await? {
-                    installed.version
-                } else {
-                    fetch_latest_vscode_cli_release(self.client.clone())
-                        .await?
-                        .version
-                }
-            }
-            None => {
-                fetch_latest_vscode_cli_release(self.client.clone())
-                    .await?
-                    .version
-            }
-        };
-        Ok(VscodeCliInstallPlan {
-            version,
-            platform,
-            force,
-        })
-    }
-
-    async fn start_managed_process(&self) -> Result<VscodeConnection, VscodeCliError> {
-        let runtime = self
-            .find_installed_runtime()
-            .await?
-            .ok_or(VscodeCliError::NotInstalled)?;
-        loop {
-            if let Some(status) = self
-                .process_handle
-                .begin_start()
-                .await
-                .map_err(map_managed_process_error_vscode_cli)?
-            {
-                let state = self.inner.lock().await;
-                if let Some(connection) = state.runtime.connection() {
-                    return Ok(connection);
-                }
-
-                if status.lifecycle_state == ManagedProcessLifecycleState::Running {
-                    let notified = self.notify.notified();
-                    drop(state);
-                    notified.await;
-                    continue;
-                }
-            }
-
-            break;
-        }
-
-        let launch_request = build_vscode_cli_launch_request(&self.root_dir, &runtime);
-        match launch_vscode_cli(launch_request).await {
-            Ok(server) => {
-                let connection = server.connection.clone();
-                self.process_handle.finish_running(server.process).await;
-                {
-                    let mut state = self.inner.lock().await;
-                    state.install_progress = None;
-                    state.runtime = VscodeCliRuntimeState::Ready(connection.clone());
-                }
-                self.notify.notify_waiters();
-                self.publish_status_update().await;
-                Ok(connection)
-            }
-            Err(error) => {
-                self.process_handle.finish_error(error.to_string()).await;
-                {
-                    let mut state = self.inner.lock().await;
-                    state.install_progress = None;
-                    state.runtime = VscodeCliRuntimeState::Idle;
-                }
-                self.notify.notify_waiters();
-                self.publish_status_update().await;
-                Err(error)
-            }
-        }
-    }
-
-    async fn stop_managed_process(&self) -> Result<(), VscodeCliError> {
-        self.stop_managed_process_inner(true).await.map(|_| ())
-    }
-
-    pub(super) async fn stop_managed_process_for_install(&self) -> Result<bool, VscodeCliError> {
-        self.stop_managed_process_inner(false).await
-    }
-
-    async fn stop_managed_process_inner(
-        &self,
-        wait_for_install: bool,
-    ) -> Result<bool, VscodeCliError> {
-        loop {
-            let state = self.inner.lock().await;
-            if wait_for_install && state.runtime.is_installing() {
-                let notified = self.notify.notified();
-                drop(state);
-                notified.await;
-                continue;
-            }
-            drop(state);
-            break;
-        }
-
-        let had_running = match self
-            .process_handle
-            .begin_stop()
-            .await
-            .map_err(map_managed_process_error_vscode_cli)?
-        {
-            ManagedProcessStopTarget::Running(mut runtime) => {
-                if let Err(error) = runtime
-                    .shutdown()
-                    .await
-                    .map_err(map_managed_process_error_vscode_cli)
-                {
-                    self.process_handle.finish_error(error.to_string()).await;
-                    return Err(error);
-                }
-                true
-            }
-            ManagedProcessStopTarget::NotRunning => false,
-        };
-
-        {
-            let mut state = self.inner.lock().await;
-            state.install_progress = None;
-            if wait_for_install || !state.runtime.is_installing() {
-                state.runtime = VscodeCliRuntimeState::Idle;
-            }
-        }
-        self.notify.notify_waiters();
-        self.process_handle.finish_stopped().await;
-        Ok(had_running)
+fn detect_platform() -> Result<VscodeCliPlatform, RuntimeError> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("linux", "x86_64") => Ok(VscodeCliPlatform {
+            os: "linux",
+            arch: "x64",
+            cli_download_segment: "cli-linux-x64",
+            update_segment: "linux-x64",
+            archive_format: ArchiveFormat::TarGz,
+        }),
+        ("macos", "aarch64") => Ok(VscodeCliPlatform {
+            os: "darwin",
+            arch: "arm64",
+            cli_download_segment: "cli-darwin-arm64",
+            update_segment: "darwin-arm64",
+            archive_format: ArchiveFormat::Zip,
+        }),
+        ("macos", "x86_64") => Ok(VscodeCliPlatform {
+            os: "darwin",
+            arch: "x64",
+            cli_download_segment: "cli-darwin-x64",
+            update_segment: "darwin",
+            archive_format: ArchiveFormat::Zip,
+        }),
+        ("windows", "x86_64") => Ok(VscodeCliPlatform {
+            os: "win32",
+            arch: "x64",
+            cli_download_segment: "cli-win32-x64",
+            update_segment: "win32-x64-archive",
+            archive_format: ArchiveFormat::Zip,
+        }),
+        (os, arch) => Err(RuntimeError::UnsupportedPlatform(format!(
+            "unsupported VS Code CLI host platform: {os}/{arch}"
+        ))),
     }
 }
 
-impl ManagedProcessController for VscodeCliManager {
-    fn id(&self) -> &str {
-        self.process_handle.id()
-    }
+#[cfg(test)]
+pub(super) fn detect_vscode_cli_platform() -> Result<VscodeCliPlatform, VscodeCliError> {
+    detect_platform().map_err(Into::into)
+}
 
-    fn kind(&self) -> &str {
-        self.process_handle.kind()
-    }
+fn normalize_version(raw: &str) -> Result<String, RuntimeError> {
+    let version = raw.trim().trim_start_matches('v');
+    Version::parse(version)
+        .map_err(|_| RuntimeError::InvalidVersion(format!("invalid VS Code version: {raw}")))?;
+    Ok(version.to_string())
+}
 
-    fn start(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.start_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
-    }
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VscodeUpdateApiResponse {
+    name: String,
+}
 
-    fn stop(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.stop_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
-    }
+async fn fetch_latest_release(client: reqwest::Client) -> Result<String, VscodeCliError> {
+    let platform = detect_platform()?;
+    let response = client
+        .get(format!(
+            "{VSCODE_UPDATE_BASE_URL}/api/update/{}/stable/latest",
+            platform.update_segment
+        ))
+        .send()
+        .await?
+        .error_for_status()?;
+    let payload: VscodeUpdateApiResponse = response.json().await?;
+    normalize_version(&payload.name).map_err(Into::into)
+}
 
-    fn restart(
-        &self,
-    ) -> BoxFuture<'_, Result<ManagedProcessStatusSnapshot, ManagedProcessActionError>> {
-        Box::pin(async move {
-            self.stop_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.start_managed_process()
-                .await
-                .map_err(|error| ManagedProcessActionError::internal(error.to_string()))?;
-            self.process_handle.status().await
-        })
+fn locate_extracted_root(extract_dir: &Path, platform: VscodeCliPlatform) -> Option<PathBuf> {
+    if vscode_cli_runtime_binary(extract_dir, platform).is_some() {
+        return Some(extract_dir.to_path_buf());
+    }
+    std::fs::read_dir(extract_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.is_dir() && vscode_cli_runtime_binary(path, platform).is_some())
+}
+
+fn vscode_cli_runtime_binary(root: &Path, platform: VscodeCliPlatform) -> Option<PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    let wanted = if platform.os == "win32" {
+        vec!["code.cmd", "code.exe"]
+    } else {
+        vec!["code"]
+    };
+    while let Some(dir) = stack.pop() {
+        let entries = std::fs::read_dir(&dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            if wanted.contains(&name) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+async fn prepare_launch(
+    request: VscodeCliLaunchRequest,
+) -> Result<LaunchConfig<VscodeConnection>, RuntimeError> {
+    tokio::fs::create_dir_all(&request.runtime_dir).await?;
+    tokio::fs::create_dir_all(&request.cli_data_dir).await?;
+    tokio::fs::create_dir_all(&request.server_data_dir).await?;
+    tokio::fs::create_dir_all(
+        request
+            .connection_token_file
+            .parent()
+            .unwrap_or_else(|| Path::new(".")),
+    )
+    .await?;
+    tokio::fs::write(&request.connection_token_file, &request.connection_token).await?;
+    let mut command = Command::new(&request.binary_path);
+    command
+        .arg("serve-web")
+        .arg("--host")
+        .arg(&request.host)
+        .arg("--port")
+        .arg(request.port.to_string())
+        .arg("--accept-server-license-terms")
+        .arg("--server-base-path")
+        .arg(VSCODE_CLI_PUBLIC_BASE_PATH)
+        .arg("--server-data-dir")
+        .arg(&request.server_data_dir)
+        .arg("--connection-token-file")
+        .arg(&request.connection_token_file)
+        .arg("--disable-telemetry")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .current_dir(&request.runtime_dir);
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(target_os = "linux")]
+    configure_parent_death_signal(&mut command);
+    Ok(LaunchConfig {
+        command,
+        connection: VscodeConnection {
+            runtime: VscodeRuntimeKind::VscodeCli,
+            base_url: format!("http://{}:{}", request.host, request.port),
+            ws_base_url: format!("ws://{}:{}", request.host, request.port),
+            upstream_base_path: VSCODE_CLI_UPSTREAM_BASE_PATH.to_string(),
+            connection_token: Some(request.connection_token.clone()),
+        },
+        binary_path: request.binary_path,
+    })
+}
+
+async fn wait_for_ready(connection: VscodeConnection) -> Result<(), RuntimeError> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let started = tokio::time::Instant::now();
+    let authenticated_url = connection.http_url(&upsert_query_param(
+        "/",
+        VSCODE_TOKEN_QUERY_PARAM,
+        connection.connection_token.as_deref().unwrap_or_default(),
+    ));
+    let ready_url = connection.http_url("/");
+    let mut cookie = None;
+    loop {
+        let response = client.get(&authenticated_url).send().await;
+        match response {
+            Ok(response) if response.status() == StatusCode::ACCEPTED => {}
+            Ok(response) => {
+                if cookie.is_none() {
+                    cookie = extract_vscode_token_cookie(response.headers());
+                }
+                if let Some(cookie) = cookie.as_deref() {
+                    let ready_response =
+                        client.get(&ready_url).header("cookie", cookie).send().await;
+                    if let Ok(ready_response) = ready_response
+                        && ready_response.status() == StatusCode::OK
+                    {
+                        return Ok(());
+                    }
+                } else if response.status() == StatusCode::OK {
+                    return Ok(());
+                }
+            }
+            Err(_) => {}
+        }
+        if started.elapsed() >= READY_TIMEOUT {
+            return Err(RuntimeError::StartupTimeout("VS Code CLI"));
+        }
+        tokio::time::sleep(READY_POLL_INTERVAL).await;
     }
 }
