@@ -1,4 +1,4 @@
-import type { DesktopRuntimeConfig } from "./desktopRuntimeConfig.generated";
+import type { DesktopRuntimeConfig } from "@/lib/desktopRuntimeConfig.generated";
 
 function runtimeConfig(): DesktopRuntimeConfig | null {
   return window.__HUBRIS_DESKTOP_CONFIG__ ?? null;

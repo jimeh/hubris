@@ -181,11 +181,17 @@ async fn fake_vscode_cli_server_helper() {
         && !gate.is_empty()
     {
         let gate = PathBuf::from(gate);
+        // Bounded so a parent-test failure that never writes the gate
+        // cannot leave this spawned child process spinning forever.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
             if let Ok(contents) = tokio::fs::read_to_string(&gate).await
                 && !contents.trim().is_empty()
             {
                 break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return;
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
