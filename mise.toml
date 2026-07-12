@@ -230,7 +230,7 @@ run = "bun run --filter hubris-desktop test"
 description = "Run desktop tests"
 
 [tasks."test:server"]
-run = "cd apps/server && cargo test"
+run = "cargo test"
 description = "Run server tests"
 
 [tasks."test:e2e:real"]

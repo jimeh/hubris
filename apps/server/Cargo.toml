@@ -29,8 +29,6 @@ thiserror = "2"
 bytes = "1"
 dirs = "6"
 listenfd = "1"
-vt100 = "0.16"
-git2 = { version = "0.20.4", default-features = false, features = ["vendored-libgit2"] }
 notify = "8"
 jsonc-parser = { version = "0.32", features = ["serde"] }
 toml = "0.8"
@@ -47,6 +45,8 @@ fs4 = "0.13"
 agui-rs-core = "0.1.1"
 agui-rs-encoder = "0.1.1"
 codex-ag-ui = { path = "../../crates/codex-ag-ui" }
+hubris-git = { path = "../../crates/hubris-git" }
+hubris-pty = { path = "../../crates/hubris-pty" }
 
 [dev-dependencies]
 anyhow = "1"

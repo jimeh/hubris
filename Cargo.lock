@@ -959,6 +959,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "hubris-git"
+version = "0.1.0"
+dependencies = [
+ "git2",
+ "libc",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "ts-rs",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
+name = "hubris-pty"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "portable-pty",
+ "serde",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "utoipa",
+ "vt100",
+]
+
+[[package]]
 name = "hubris-server"
 version = "0.1.0"
 dependencies = [
@@ -974,7 +1006,8 @@ dependencies = [
  "flate2",
  "fs4",
  "futures-util",
- "git2",
+ "hubris-git",
+ "hubris-pty",
  "jsonc-parser",
  "libc",
  "listenfd",
@@ -1001,7 +1034,6 @@ dependencies = [
  "ts-rs",
  "utoipa",
  "uuid",
- "vt100",
  "zip",
 ]
 

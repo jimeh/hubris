@@ -22,6 +22,8 @@ use crate::git;
 use crate::state::AppState;
 use crate::worktree_state::WorktreeRestoreState;
 
+pub use hubris_git::{GitCommitPerson, GitCommitSummary, GitFileChange, GitFileChangeType};
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ListWorktreesResponse {
     pub worktrees: Vec<Worktree>,
@@ -122,45 +124,6 @@ pub struct ResolvedWorktree {
     pub project_id: String,
     pub local_root: PathBuf,
     pub worktree: Worktree,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, TS)]
-#[serde(rename_all = "snake_case")]
-pub enum GitFileChangeType {
-    Added,
-    Copied,
-    Renamed,
-    Conflict,
-    Modified,
-    Deleted,
-    Typechange,
-    Untracked,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
-pub struct GitFileChange {
-    pub path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub original_path: Option<String>,
-    pub change_type: GitFileChangeType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub insertions: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deletions: Option<usize>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
-pub struct GitCommitSummary {
-    pub id: String,
-    pub short_id: String,
-    pub summary: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
-pub struct GitCommitPerson {
-    pub name: String,
-    pub email: String,
-    pub date: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
