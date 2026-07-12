@@ -159,3 +159,44 @@ pub async fn list_worktrees_for_project(state: &AppState, project: &Project) -> 
 
     ordered
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_meta_serializes_with_internal_snake_case_keys() {
+        let meta = ProjectMeta {
+            worktree_order: vec!["managed-1".to_string()],
+            managed_worktrees: vec![ManagedWorktree {
+                id: "managed-1".to_string(),
+                path: "/repos/project/.worktrees/managed-1".to_string(),
+                branch: "feature/internal-format".to_string(),
+                name: Some("Internal format".to_string()),
+                source_ref: Some("origin/main".to_string()),
+                imported: true,
+            }],
+            worktree_ui_modes: HashMap::from([("managed-1".to_string(), WorktreeUiMode::Vscode)]),
+        };
+
+        let serialized = serde_json::to_value(meta).unwrap();
+
+        assert_eq!(
+            serialized,
+            serde_json::json!({
+                "worktree_order": ["managed-1"],
+                "managed_worktrees": [{
+                    "id": "managed-1",
+                    "path": "/repos/project/.worktrees/managed-1",
+                    "branch": "feature/internal-format",
+                    "name": "Internal format",
+                    "source_ref": "origin/main",
+                    "imported": true
+                }],
+                "worktree_ui_modes": {
+                    "managed-1": "vscode"
+                }
+            })
+        );
+    }
+}

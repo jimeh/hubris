@@ -312,6 +312,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn load_preserves_every_field_from_pre_casing_sweep_fixture() {
+        let tmp = TempDir::new().unwrap();
+        let fixture = r#"[
+          {
+            "id": "project-before-casing-sweep",
+            "name": "Pre-sweep project",
+            "path": "/repos/pre-sweep",
+            "position": 12.5,
+            "git_error": "repository is temporarily unavailable"
+          }
+        ]"#;
+        std::fs::write(projects_path(&tmp), fixture).unwrap();
+
+        let store = ProjectStore::load(projects_path(&tmp)).await.unwrap();
+        let projects = store.list().await;
+        let project = &projects[0];
+
+        assert_eq!(
+            (
+                project.id.as_str(),
+                project.name.as_str(),
+                project.path.as_str(),
+                project.position,
+                project.git_error.as_deref(),
+            ),
+            (
+                "project-before-casing-sweep",
+                "Pre-sweep project",
+                "/repos/pre-sweep",
+                12.5,
+                Some("repository is temporarily unavailable"),
+            )
+        );
+    }
+
+    #[tokio::test]
     async fn add_persists_and_deduplicates_by_path() {
         let tmp = TempDir::new().unwrap();
         let store = new_store(&tmp).await;
