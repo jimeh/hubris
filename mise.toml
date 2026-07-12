@@ -231,7 +231,7 @@ description = "Run desktop tests"
 
 [tasks."test:server"]
 run = "cargo test"
-description = "Run server tests"
+description = "Run Rust tests (server + workspace crates, matching CI)"
 
 [tasks."test:e2e:real"]
 run = ".mise/tasks/test-e2e-real"
