@@ -105,6 +105,20 @@ export default tseslint.config(
   ...featureNames.map(featureBoundary),
   nonFeatureBoundary,
   {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/**/*.generated.*",
+      "src/**/*.test.{ts,tsx}",
+      "src/**/*.spec.{ts,tsx}",
+    ],
+    rules: {
+      "max-lines": [
+        "warn",
+        { max: 800, skipBlankLines: true, skipComments: true },
+      ],
+    },
+  },
+  {
     files: ["src/lib/stores/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
