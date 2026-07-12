@@ -193,6 +193,13 @@ but too specific for the root `AGENTS.md` map.
 - `EventBus::subscribe()` attaches to the broadcast side, but events already in
   its MPSC input queue may still arrive afterward. Tests that need a clean event
   boundary should enqueue and consume a non-delta barrier after subscribing.
+- An interrupted `bun install` (killed mid-run) can leave the workspace's `.bun`
+  store partially linked: `bun run --filter hubris-web build` then fails at
+  bundle time with `Rolldown failed to resolve import "vfile" from "unified"`
+  (or similar deep-dependency resolution errors) while dev servers and unit
+  tests still pass. Heal it by removing every `node_modules` in the affected
+  checkout (`rm -rf node_modules apps/*/node_modules`) and re-running
+  `bun install` to completion.
 - React Compiler was evaluated (2026-07-12, refactor task 6.4) and NOT adopted.
   With `babel-plugin-react-compiler@1.0` wired into the vite react() plugin, all
   713 web unit tests, the smoke lane, the production build, and the real-server
