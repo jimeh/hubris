@@ -120,7 +120,36 @@ async fn wait_for_start_count(path: &Path, expected: usize) -> String {
 }
 
 async fn wait_for_process_status(client: &reqwest::Client, base: &str, expected: &str) -> Value {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    wait_for_vscode_state(client, base, |body| {
+        body["vscodeCli"]["processStatus"] == expected
+    })
+    .await
+}
+
+/// Poll /api/vscode until the whole install task has settled: the
+/// process status matches AND the task bookkeeping (installProgress,
+/// activeTaskId) is cleared. Asserting bookkeeping fields the moment
+/// the process turns running races the task's final updates on slow
+/// runners.
+async fn wait_for_settled_process_status(
+    client: &reqwest::Client,
+    base: &str,
+    expected: &str,
+) -> Value {
+    wait_for_vscode_state(client, base, |body| {
+        body["vscodeCli"]["processStatus"] == expected
+            && body["vscodeCli"]["installProgress"].is_null()
+            && body["vscodeCli"]["activeTaskId"].is_null()
+    })
+    .await
+}
+
+async fn wait_for_vscode_state(
+    client: &reqwest::Client,
+    base: &str,
+    reached: impl Fn(&Value) -> bool,
+) -> Value {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
         let response = client
             .get(format!("{base}/api/vscode"))
@@ -129,13 +158,13 @@ async fn wait_for_process_status(client: &reqwest::Client, base: &str, expected:
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body: Value = response.json().await.unwrap();
-        if body["vscodeCli"]["processStatus"] == expected {
+        if reached(&body) {
             return body;
         }
 
         assert!(
             tokio::time::Instant::now() < deadline,
-            "VS Code CLI did not reach {expected}: {body}"
+            "VS Code CLI did not reach the expected state: {body}"
         );
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
@@ -216,10 +245,8 @@ async fn test_install_start_stop_and_restart_control_local_runtime() {
     assert_eq!(accepted["selectedRuntime"], "vscodeCli");
     assert!(accepted["vscodeCli"]["activeTaskId"].is_string());
 
-    let installed = wait_for_process_status(&client, &base, "running").await;
+    let installed = wait_for_settled_process_status(&client, &base, "running").await;
     assert_eq!(installed["vscodeCli"]["installedVersion"], RUNTIME_VERSION);
-    assert!(installed["vscodeCli"]["installProgress"].is_null());
-    assert!(installed["vscodeCli"]["activeTaskId"].is_null());
     wait_for_start_count(&marker, 1).await;
 
     let response = client
