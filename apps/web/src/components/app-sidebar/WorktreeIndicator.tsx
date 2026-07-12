@@ -12,9 +12,9 @@ export default function WorktreeIndicator({ worktreeId }: Props) {
   const hasNotification = useTabStore((state) =>
     selectTabsForWorktree(state, worktreeId).some(
       (tab) =>
-        tab.worktree_id === worktreeId &&
+        tab.worktreeId === worktreeId &&
         tab.type === "terminal" &&
-        !!tab.has_notification,
+        !!tab.hasNotification,
     ),
   );
 

@@ -23,19 +23,19 @@ function makeWorktree(
   overrides: Partial<{
     branch: string;
     position: number;
-    ui_mode: "hubris" | "vscode";
+    uiMode: "hubris" | "vscode";
   }> = {},
 ) {
   return {
     id,
-    project_id: projectId,
+    projectId: projectId,
     name,
     path: `/tmp/${name}`,
     branch: overrides.branch ?? name,
-    source_ref: null,
-    ui_mode: overrides.ui_mode ?? "hubris",
-    is_local: false,
-    missing_on_disk: false,
+    sourceRef: null,
+    uiMode: overrides.uiMode ?? "hubris",
+    isLocal: false,
+    missingOnDisk: false,
     position: overrides.position ?? 1,
   };
 }
@@ -50,11 +50,11 @@ function makeTerminalTab(
     id,
     label,
     position,
-    worktree_id: worktreeId,
-    pane_id: "pane-1",
-    session_id: "default",
+    worktreeId: worktreeId,
+    paneId: "pane-1",
+    sessionId: "default",
     type: "terminal" as const,
-    created_at: 0,
+    createdAt: 0,
     preview: false,
   };
 }
@@ -69,13 +69,13 @@ function makeAgentChatTab(
     id,
     label,
     position,
-    worktree_id: worktreeId,
-    pane_id: "pane-1",
-    session_id: "default",
+    worktreeId: worktreeId,
+    paneId: "pane-1",
+    sessionId: "default",
     type: "agent_chat" as const,
-    created_at: 0,
+    createdAt: 0,
     preview: false,
-    conversation_id: "chat-1",
+    conversationId: "chat-1",
   };
 }
 
@@ -101,12 +101,12 @@ describe("command palette items", () => {
     const selectedWorktree = makeWorktree("w1", project.id, "local", {
       branch: "main",
       position: 1,
-      ui_mode: "hubris",
+      uiMode: "hubris",
     });
     const siblingWorktree = makeWorktree("w2", project.id, "feature-a", {
       branch: "feature-a",
       position: 2,
-      ui_mode: "vscode",
+      uiMode: "vscode",
     });
     const activeTab = makeTerminalTab("t1", selectedWorktree.id, "Shell", 1);
     const secondaryTab = makeTerminalTab("t2", selectedWorktree.id, "Logs", 2);
@@ -353,7 +353,7 @@ describe("command palette items", () => {
     const project = makeProject("p1", "Devbox");
     const selectedWorktree = makeWorktree("w1", project.id, ".git/local", {
       branch: "main",
-      ui_mode: "hubris",
+      uiMode: "hubris",
     });
 
     const items = getCommandPaletteItems(

@@ -98,7 +98,7 @@ function readCoordinationSnapshot(): SidebarCoordinationSnapshot {
 
   return {
     selectedWorktreeId: worktree?.id ?? null,
-    selectedProjectId: worktree?.project_id ?? null,
+    selectedProjectId: worktree?.projectId ?? null,
     sidebarVisible: isSidebarVisible(sidebarState),
     activeTab: sidebarState.activeTab,
     pendingGeneration: worktreeState?.pendingGeneration ?? 0,
@@ -168,30 +168,30 @@ async function runSidebarCoordination(): Promise<void> {
       }
 
       if (pendingGeneration > 0) {
-        await fileManager.refreshPendingPaths(worktree.project_id, worktree.id);
+        await fileManager.refreshPendingPaths(worktree.projectId, worktree.id);
         continue;
       }
 
       if (pendingGitGeneration > 0) {
-        await fileManager.loadGitStatus(worktree.project_id, worktree.id, {
+        await fileManager.loadGitStatus(worktree.projectId, worktree.id, {
           force: true,
         });
         continue;
       }
 
       if (sidebarState.activeTab === WORKTREE_RIGHT_SIDEBAR_ALL_FILES_TAB) {
-        await fileManager.loadDirectory(worktree.project_id, worktree.id, "");
+        await fileManager.loadDirectory(worktree.projectId, worktree.id, "");
         await Promise.all([
-          fileManager.loadGitStatus(worktree.project_id, worktree.id),
+          fileManager.loadGitStatus(worktree.projectId, worktree.id),
           fileManager.preloadVisibleDirectories(
-            worktree.project_id,
+            worktree.projectId,
             worktree.id,
           ),
         ]);
         continue;
       }
 
-      await fileManager.loadGitStatus(worktree.project_id, worktree.id);
+      await fileManager.loadGitStatus(worktree.projectId, worktree.id);
     } while (coordinationReschedule);
   } finally {
     coordinationRunning = false;

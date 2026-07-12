@@ -86,7 +86,7 @@ function AppHeader({
   const fileManagerLabel = fileManagerVisible
     ? "Hide file manager"
     : "Show file manager";
-  const isVscodeMode = selectedWorktree?.ui_mode === "vscode";
+  const isVscodeMode = selectedWorktree?.uiMode === "vscode";
 
   const homeDir = useSystemStore((state) => state.homeDir);
   const displayPath = selectedWorktree?.path ?? selectedProject?.path ?? null;
@@ -143,7 +143,7 @@ function AppHeader({
               onClick={() => {
                 void executeCommand({
                   args: {
-                    projectId: selectedWorktree.project_id,
+                    projectId: selectedWorktree.projectId,
                     uiMode: "hubris",
                     worktreeId: selectedWorktree.id,
                   },
@@ -162,7 +162,7 @@ function AppHeader({
               onClick={() => {
                 void executeCommand({
                   args: {
-                    projectId: selectedWorktree.project_id,
+                    projectId: selectedWorktree.projectId,
                     uiMode: "vscode",
                     worktreeId: selectedWorktree.id,
                   },
@@ -177,12 +177,12 @@ function AppHeader({
         ) : null}
       </div>
       <div className="min-w-0 flex-1 md:shrink-0 md:flex-initial">
-        {selectedWorktree && !selectedWorktree.is_local ? (
+        {selectedWorktree && !selectedWorktree.isLocal ? (
           <BranchInfo
-            projectId={selectedWorktree.project_id}
+            projectId={selectedWorktree.projectId}
             worktreeId={selectedWorktree.id}
             branch={selectedWorktree.branch}
-            sourceRef={selectedWorktree.source_ref ?? null}
+            sourceRef={selectedWorktree.sourceRef ?? null}
           />
         ) : selectedProject ? (
           <div className="flex items-center gap-1.5 truncate text-sm">
@@ -300,7 +300,7 @@ export default function App() {
     }
 
     return (
-      projects.find((project) => project.id === selectedWorktree.project_id) ??
+      projects.find((project) => project.id === selectedWorktree.projectId) ??
       null
     );
   }, [projects, selectedWorktree]);
@@ -336,15 +336,15 @@ export default function App() {
   }, [allWorktrees, pruneMissingHubrisWorktrees, pruneMissingVscodeWorktrees]);
 
   useEffect(() => {
-    if (selectedWorktree?.ui_mode === "hubris") {
+    if (selectedWorktree?.uiMode === "hubris") {
       markHubrisWorkbenchLoaded(selectedWorktree.id);
-    } else if (selectedWorktree?.ui_mode === "vscode") {
+    } else if (selectedWorktree?.uiMode === "vscode") {
       markVscodeWorkbenchLoaded(selectedWorktree.id);
     }
   }, [markHubrisWorkbenchLoaded, markVscodeWorkbenchLoaded, selectedWorktree]);
 
   const activeHubrisWorktreeId =
-    selectedWorktree?.ui_mode === "hubris" ? selectedWorktree.id : null;
+    selectedWorktree?.uiMode === "hubris" ? selectedWorktree.id : null;
   const visibleHubrisWorktreeIds = useMemo(() => {
     if (
       activeHubrisWorktreeId &&
@@ -364,7 +364,7 @@ export default function App() {
   );
 
   const activeVscodeWorktreeId =
-    selectedWorktree?.ui_mode === "vscode" ? selectedWorktree.id : null;
+    selectedWorktree?.uiMode === "vscode" ? selectedWorktree.id : null;
   const visibleVscodeWorktreeIds = useMemo(() => {
     if (
       activeVscodeWorktreeId &&
@@ -413,7 +413,7 @@ export default function App() {
                     worktree={worktree}
                     active={
                       worktree.id === selectedWorktree.id &&
-                      selectedWorktree.ui_mode === "hubris"
+                      selectedWorktree.uiMode === "hubris"
                     }
                   />
                 ))}
@@ -423,7 +423,7 @@ export default function App() {
                     worktree={worktree}
                     active={
                       worktree.id === selectedWorktree.id &&
-                      selectedWorktree.ui_mode === "vscode"
+                      selectedWorktree.uiMode === "vscode"
                     }
                   />
                 ))}

@@ -82,14 +82,14 @@ vi.mock("@/components/WorktreeAllFilesPanel", () => ({
 function makeWorktree(overrides?: Partial<Worktree>): Worktree {
   return {
     id: "w1",
-    project_id: "p1",
+    projectId: "p1",
     name: "feature-a",
     path: "/tmp/feature-a",
     branch: "feature-a",
-    source_ref: "main",
-    ui_mode: "hubris",
-    is_local: false,
-    missing_on_disk: false,
+    sourceRef: "main",
+    uiMode: "hubris",
+    isLocal: false,
+    missingOnDisk: false,
     position: 2,
     ...overrides,
   };
@@ -98,7 +98,7 @@ function makeWorktree(overrides?: Partial<Worktree>): Worktree {
 async function seedSelectedWorktree(worktree = makeWorktree()): Promise<void> {
   useWorktreeStore.setState({
     worktreesByProject: {
-      [worktree.project_id]: [worktree],
+      [worktree.projectId]: [worktree],
     },
     projectErrors: {},
     selectedWorktreeId: worktree.id,
@@ -236,7 +236,7 @@ describe("WorktreeRightSidebar", () => {
         "chat-1": {
           id: "chat-1",
           sessionId: "default",
-          projectId: worktree.project_id,
+          projectId: worktree.projectId,
           worktreeId: worktree.id,
           provider: "codex",
           providerThreadId: "thread-1",
@@ -478,17 +478,17 @@ describe("WorktreeRightSidebar", () => {
           selectedPath: null,
           renamePath: null,
           gitStatus: {
-            source_ref: "main",
+            sourceRef: "main",
             generation: 1,
-            unstaged_files: [
-              { path: "foo.txt", change_type: "modified" },
-              { path: "bar.txt", change_type: "untracked" },
+            unstagedFiles: [
+              { path: "foo.txt", changeType: "modified" },
+              { path: "bar.txt", changeType: "untracked" },
             ],
-            staged_files: [{ path: "README.md", change_type: "added" }],
-            ahead_count: 0,
-            ahead_commits: [],
-            comparison_available: true,
-            comparison_error: null,
+            stagedFiles: [{ path: "README.md", changeType: "added" }],
+            aheadCount: 0,
+            aheadCommits: [],
+            comparisonAvailable: true,
+            comparisonError: null,
           },
           gitStatusStatus: "loaded",
           gitError: null,
@@ -521,17 +521,17 @@ describe("WorktreeRightSidebar", () => {
           selectedPath: null,
           renamePath: null,
           gitStatus: {
-            source_ref: "main",
+            sourceRef: "main",
             generation: 1,
-            unstaged_files: [
-              { path: "foo.txt", change_type: "modified" },
-              { path: "bar.txt", change_type: "untracked" },
+            unstagedFiles: [
+              { path: "foo.txt", changeType: "modified" },
+              { path: "bar.txt", changeType: "untracked" },
             ],
-            staged_files: [{ path: "README.md", change_type: "added" }],
-            ahead_count: 0,
-            ahead_commits: [],
-            comparison_available: true,
-            comparison_error: null,
+            stagedFiles: [{ path: "README.md", changeType: "added" }],
+            aheadCount: 0,
+            aheadCommits: [],
+            comparisonAvailable: true,
+            comparisonError: null,
           },
           gitStatusStatus: "loaded",
           gitError: null,
@@ -761,7 +761,7 @@ describe("WorktreeRightSidebar", () => {
     });
     useWorktreeStore.setState({
       worktreesByProject: {
-        [selectedWorktree.project_id]: [selectedWorktree, unrelatedWorktree],
+        [selectedWorktree.projectId]: [selectedWorktree, unrelatedWorktree],
       },
       projectErrors: {},
       selectedWorktreeId: selectedWorktree.id,

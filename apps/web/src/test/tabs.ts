@@ -11,8 +11,8 @@ export function normalizedTabState(
   const tabIdsByPane: Record<string, string[]> = {};
 
   for (const tab of sortedTabs) {
-    (tabIdsByWorktree[tab.worktree_id] ??= []).push(tab.id);
-    (tabIdsByPane[tab.pane_id] ??= []).push(tab.id);
+    (tabIdsByWorktree[tab.worktreeId] ??= []).push(tab.id);
+    (tabIdsByPane[tab.paneId] ??= []).push(tab.id);
   }
 
   return {

@@ -44,7 +44,7 @@ type WorktreesState = {
   updateUiMode: (
     projectId: string,
     worktreeId: string,
-    uiMode: Worktree["ui_mode"],
+    uiMode: Worktree["uiMode"],
   ) => Promise<void>;
   updateSourceRef: (
     projectId: string,
@@ -89,7 +89,7 @@ function allWorktrees(
 }
 
 function byStableFallback(a: Worktree, b: Worktree): number {
-  const byProjectId = a.project_id.localeCompare(b.project_id);
+  const byProjectId = a.projectId.localeCompare(b.projectId);
   if (byProjectId !== 0) return byProjectId;
 
   const byPositionValue = a.position - b.position;
@@ -284,7 +284,7 @@ function upsertWorktree(
   worktreesByProject: Record<string, Worktree[]>,
   worktree: Worktree,
 ): Record<string, Worktree[]> {
-  const list = worktreesByProject[worktree.project_id] ?? [];
+  const list = worktreesByProject[worktree.projectId] ?? [];
   const nextList = list.some((candidate) => candidate.id === worktree.id)
     ? byPosition(
         list.map((candidate) =>
@@ -295,7 +295,7 @@ function upsertWorktree(
 
   return {
     ...worktreesByProject,
-    [worktree.project_id]: nextList,
+    [worktree.projectId]: nextList,
   };
 }
 
@@ -323,9 +323,9 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
     );
     set((state) => {
       const list = state.worktreesByProject[projectId] ?? [];
-      const local = list.find((candidate) => candidate.is_local);
+      const local = list.find((candidate) => candidate.isLocal);
       const nonLocal = list.filter(
-        (candidate) => !candidate.is_local && candidate.id !== worktree.id,
+        (candidate) => !candidate.isLocal && candidate.id !== worktree.id,
       );
       const next = [
         ...(local ? [{ ...local, position: 1 }] : []),
@@ -360,9 +360,9 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
     const worktree = await importProjectWorktree(projectId, path);
     set((state) => {
       const list = state.worktreesByProject[projectId] ?? [];
-      const local = list.find((candidate) => candidate.is_local);
+      const local = list.find((candidate) => candidate.isLocal);
       const nonLocal = list.filter(
-        (candidate) => !candidate.is_local && candidate.id !== worktree.id,
+        (candidate) => !candidate.isLocal && candidate.id !== worktree.id,
       );
       const next = [
         ...(local ? [{ ...local, position: 1 }] : []),
@@ -440,8 +440,8 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
   async reorder(projectId, orderedIds) {
     set((state) => {
       const current = state.worktreesByProject[projectId] ?? [];
-      const local = current.find((worktree) => worktree.is_local);
-      const nonLocal = current.filter((worktree) => !worktree.is_local);
+      const local = current.find((worktree) => worktree.isLocal);
+      const nonLocal = current.filter((worktree) => !worktree.isLocal);
       const nonLocalById = Object.fromEntries(
         nonLocal.map((worktree) => [worktree.id, worktree]),
       ) as Record<string, Worktree>;
@@ -482,7 +482,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
         [projectId]: (state.worktreesByProject[projectId] ?? []).map(
           (worktree) =>
             worktree.id === worktreeId
-              ? { ...worktree, ui_mode: uiMode }
+              ? { ...worktree, uiMode: uiMode }
               : worktree,
         ),
       },
@@ -490,7 +490,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
 
     try {
       const updated = await updateProjectWorktree(projectId, worktreeId, {
-        ui_mode: uiMode,
+        uiMode: uiMode,
       });
       set((state) => ({
         worktreesByProject: upsertWorktree(state.worktreesByProject, updated),
@@ -513,7 +513,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
         [projectId]: (state.worktreesByProject[projectId] ?? []).map(
           (worktree) =>
             worktree.id === worktreeId
-              ? { ...worktree, source_ref: sourceRef }
+              ? { ...worktree, sourceRef: sourceRef }
               : worktree,
         ),
       },
@@ -521,7 +521,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
 
     try {
       const updated = await updateProjectWorktree(projectId, worktreeId, {
-        source_ref: sourceRef ?? "",
+        sourceRef: sourceRef ?? "",
       });
       set((state) => ({
         worktreesByProject: upsertWorktree(state.worktreesByProject, updated),
@@ -566,7 +566,7 @@ export function initializeWorktreeStore(): void {
         ]),
       );
       const projectErrors = Object.fromEntries(
-        Object.entries(data.project_errors ?? {}).filter(([, value]) => value),
+        Object.entries(data.projectErrors ?? {}).filter(([, value]) => value),
       ) as Record<string, string>;
 
       useWorktreeStore.setState((state) => ({
@@ -579,12 +579,12 @@ export function initializeWorktreeStore(): void {
         }),
       }));
     }),
-    events.on("project_removed", ({ project_id }) => {
+    events.on("project_removed", ({ projectId }) => {
       useWorktreeStore.setState((state) => {
         const worktreesByProject = { ...state.worktreesByProject };
         const projectErrors = { ...state.projectErrors };
-        delete worktreesByProject[project_id];
-        delete projectErrors[project_id];
+        delete worktreesByProject[projectId];
+        delete projectErrors[projectId];
         return {
           worktreesByProject,
           projectErrors,
@@ -601,12 +601,12 @@ export function initializeWorktreeStore(): void {
         worktreesByProject: upsertWorktree(state.worktreesByProject, worktree),
       }));
     }),
-    events.on("worktree_deleted", ({ project_id, worktree_id }) => {
+    events.on("worktree_deleted", ({ projectId, worktreeId }) => {
       useWorktreeStore.setState((state) => {
         const worktreesByProject = {
           ...state.worktreesByProject,
-          [project_id]: (state.worktreesByProject[project_id] ?? []).filter(
-            (worktree) => worktree.id !== worktree_id,
+          [projectId]: (state.worktreesByProject[projectId] ?? []).filter(
+            (worktree) => worktree.id !== worktreeId,
           ),
         };
         return {
@@ -619,27 +619,27 @@ export function initializeWorktreeStore(): void {
         };
       });
     }),
-    events.on("worktrees_reordered", ({ project_id, worktrees }) => {
+    events.on("worktrees_reordered", ({ projectId, worktrees }) => {
       useWorktreeStore.setState((state) => ({
         worktreesByProject: {
           ...state.worktreesByProject,
-          [project_id]: byPosition(worktrees),
+          [projectId]: byPosition(worktrees),
         },
       }));
     }),
     events.on(
       "project_worktrees_updated",
-      ({ project_id, worktrees, git_error }) => {
+      ({ projectId, worktrees, gitError }) => {
         useWorktreeStore.setState((state) => {
           const worktreesByProject = {
             ...state.worktreesByProject,
-            [project_id]: byPosition(worktrees),
+            [projectId]: byPosition(worktrees),
           };
           const projectErrors = { ...state.projectErrors };
-          if (git_error) {
-            projectErrors[project_id] = git_error;
+          if (gitError) {
+            projectErrors[projectId] = gitError;
           } else {
-            delete projectErrors[project_id];
+            delete projectErrors[projectId];
           }
           return {
             worktreesByProject,

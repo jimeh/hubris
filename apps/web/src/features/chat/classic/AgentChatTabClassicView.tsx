@@ -36,14 +36,14 @@ function isInteractiveShortcutTarget(target: EventTarget | null): boolean {
 export function AgentChatTabClassicView({ tab, visible }: AgentChatTabProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const detailState = useChatStore((state) =>
-    selectChatDetailState(state, tab.conversation_id),
+    selectChatDetailState(state, tab.conversationId),
   );
   const { hasBlockingRequest, isRunActive } = useChatStore(
     useShallow((state) => {
-      const header = selectChatHeaderSlice(state, tab.conversation_id);
+      const header = selectChatHeaderSlice(state, tab.conversationId);
       return {
         hasBlockingRequest:
-          selectChatActivePendingRequestIds(state, tab.conversation_id).length >
+          selectChatActivePendingRequestIds(state, tab.conversationId).length >
           0,
         isRunActive:
           isRuntimeRunning(header.runtime?.lifecycle) ||
@@ -73,7 +73,7 @@ export function AgentChatTabClassicView({ tab, visible }: AgentChatTabProps) {
     }
     if (event.key === "Escape" && isRunActive) {
       event.preventDefault();
-      void interruptRun(tab.conversation_id);
+      void interruptRun(tab.conversationId);
       return;
     }
     if (event.altKey && event.key.toLowerCase() === "a" && hasBlockingRequest) {
@@ -90,12 +90,12 @@ export function AgentChatTabClassicView({ tab, visible }: AgentChatTabProps) {
     if (!visible) {
       return;
     }
-    void ensureConversationLoaded(tab.conversation_id);
+    void ensureConversationLoaded(tab.conversationId);
     void ensureModelsLoaded();
   }, [
     ensureConversationLoaded,
     ensureModelsLoaded,
-    tab.conversation_id,
+    tab.conversationId,
     visible,
   ]);
 
@@ -103,11 +103,11 @@ export function AgentChatTabClassicView({ tab, visible }: AgentChatTabProps) {
     if (!visible || !detailState.needsRefresh) {
       return;
     }
-    void refreshConversation(tab.conversation_id);
+    void refreshConversation(tab.conversationId);
   }, [
     detailState.needsRefresh,
     refreshConversation,
-    tab.conversation_id,
+    tab.conversationId,
     visible,
   ]);
 
@@ -120,12 +120,12 @@ export function AgentChatTabClassicView({ tab, visible }: AgentChatTabProps) {
       onKeyDown={handleKeyDown}
       aria-label="Codex chat tab"
     >
-      <ChatHeader conversationId={tab.conversation_id} label={tab.label} />
-      <ReconciliationBanner conversationId={tab.conversation_id} />
-      <ChatTranscript conversationId={tab.conversation_id} />
+      <ChatHeader conversationId={tab.conversationId} label={tab.label} />
+      <ReconciliationBanner conversationId={tab.conversationId} />
+      <ChatTranscript conversationId={tab.conversationId} />
       <ChatComposer
-        conversationId={tab.conversation_id}
-        worktreeId={tab.worktree_id}
+        conversationId={tab.conversationId}
+        worktreeId={tab.worktreeId}
       />
     </div>
   );

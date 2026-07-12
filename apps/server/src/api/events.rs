@@ -83,6 +83,7 @@ impl SnapshotEvent {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct EventStreamParams {
     #[serde(default = "default_session_id")]

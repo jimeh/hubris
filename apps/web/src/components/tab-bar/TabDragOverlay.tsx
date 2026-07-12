@@ -45,7 +45,7 @@ export default function TabDragOverlay({
       isActive={isActive}
       paneFocused={paneFocused}
       preview={tab.preview}
-      notification={tab.type === "terminal" && !!tab.has_notification}
+      notification={tab.type === "terminal" && !!tab.hasNotification}
       isOverlay
       showCloseButton
       width={width}

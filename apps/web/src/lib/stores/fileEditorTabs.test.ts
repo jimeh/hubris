@@ -89,7 +89,7 @@ describe("fileEditorTabs store", () => {
     const { useFileEditorStore } = getStore();
     mockSaveProjectWorktreeFileContent.mockImplementation(async () => {
       useFileEditorStore.getState().updateDraft("file-1", "draft-2");
-      return { version_token: "v2" };
+      return { versionToken: "v2" };
     });
 
     useFileEditorStore.setState({
@@ -132,7 +132,7 @@ describe("fileEditorTabs store", () => {
 
   it("does not recreate a discarded session when save finishes later", async () => {
     const { useFileEditorStore } = getStore();
-    const saveRequest = deferred<{ version_token: string }>();
+    const saveRequest = deferred<{ versionToken: string }>();
     mockSaveProjectWorktreeFileContent.mockImplementation(
       () => saveRequest.promise,
     );
@@ -163,7 +163,7 @@ describe("fileEditorTabs store", () => {
       .save("p1", "w1", "file-1");
 
     useFileEditorStore.getState().discardSession("file-1");
-    saveRequest.resolve({ version_token: "v2" });
+    saveRequest.resolve({ versionToken: "v2" });
     await savePromise;
 
     expect(useFileEditorStore.getState().sessions["file-1"]).toBeUndefined();
@@ -173,10 +173,10 @@ describe("fileEditorTabs store", () => {
     const { useFileEditorStore } = getStore();
     const loadRequest = deferred<{
       content: string;
-      version_token: string;
+      versionToken: string;
       language: string;
-      read_only: boolean;
-      unsupported_reason: string | null;
+      readOnly: boolean;
+      unsupportedReason: string | null;
     }>();
     mockGetProjectWorktreeFileContent.mockImplementation(
       () => loadRequest.promise,
@@ -186,11 +186,11 @@ describe("fileEditorTabs store", () => {
       id: "file-1",
       label: "main.ts",
       position: 1,
-      worktree_id: "w1",
-      pane_id: "pane-1",
-      session_id: "default",
+      worktreeId: "w1",
+      paneId: "pane-1",
+      sessionId: "default",
       type: "file" as const,
-      created_at: 0,
+      createdAt: 0,
       preview: false,
       path: "src/main.ts",
     };
@@ -202,10 +202,10 @@ describe("fileEditorTabs store", () => {
     useFileEditorStore.getState().discardSession("file-1");
     loadRequest.resolve({
       content: "hello\n",
-      version_token: "v1",
+      versionToken: "v1",
       language: "typescript",
-      read_only: false,
-      unsupported_reason: null,
+      readOnly: false,
+      unsupportedReason: null,
     });
     await ensurePromise;
 
@@ -223,11 +223,11 @@ describe("fileEditorTabs store", () => {
       id: "file-1",
       label: "main.ts",
       position: 1,
-      worktree_id: "w1",
-      pane_id: "pane-1",
-      session_id: "default",
+      worktreeId: "w1",
+      paneId: "pane-1",
+      sessionId: "default",
       type: "file" as const,
-      created_at: 0,
+      createdAt: 0,
       preview: false,
       path: "src/main.ts",
     };
@@ -383,11 +383,11 @@ describe("fileEditorTabs store", () => {
           id: "file-1",
           label: "main.ts",
           position: 1,
-          worktree_id: "w1",
-          pane_id: "pane-1",
-          session_id: "default",
+          worktreeId: "w1",
+          paneId: "pane-1",
+          sessionId: "default",
           type: "file",
-          created_at: 0,
+          createdAt: 0,
           preview: false,
           path: "src/main.ts",
         },

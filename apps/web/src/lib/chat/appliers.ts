@@ -132,12 +132,12 @@ function applyMessageDelta(
   state: ChatViewModelState,
   data: SseEventData<"chat_message_delta">,
 ): ChatViewModelState {
-  if (!isConversationLoaded(state, data.conversation_id)) {
-    return markConversationDirtyInBatch(state, data.conversation_id);
+  if (!isConversationLoaded(state, data.conversationId)) {
+    return markConversationDirtyInBatch(state, data.conversationId);
   }
-  const message = state.messagesById[data.message_id];
+  const message = state.messagesById[data.messageId];
   if (!message) {
-    return markConversationDirtyInBatch(state, data.conversation_id);
+    return markConversationDirtyInBatch(state, data.conversationId);
   }
   const nextMessage = {
     ...message,
@@ -145,7 +145,7 @@ function applyMessageDelta(
   };
   const messagesById = {
     ...state.messagesById,
-    [data.message_id]: nextMessage,
+    [data.messageId]: nextMessage,
   };
   const nextState = { ...state, messagesById };
   return {
@@ -155,16 +155,16 @@ function applyMessageDelta(
       hasAssistantMessageProjection(nextMessage)
         ? {
             ...state.timelineIdsByConversationId,
-            [data.conversation_id]: timelineIdsForState(
+            [data.conversationId]: timelineIdsForState(
               nextState,
-              data.conversation_id,
+              data.conversationId,
               messagesById,
             ),
           }
         : state.timelineIdsByConversationId,
     detailsByConversationId: {
       ...state.detailsByConversationId,
-      [data.conversation_id]: loadedDetailState(),
+      [data.conversationId]: loadedDetailState(),
     },
   };
 }
@@ -435,11 +435,11 @@ function applyActivityDelta(
   state: ChatViewModelState,
   data: SseEventData<"chat_activity_delta">,
 ): ChatViewModelState {
-  if (!isConversationLoaded(state, data.conversation_id)) {
-    return markConversationDirtyInBatch(state, data.conversation_id);
+  if (!isConversationLoaded(state, data.conversationId)) {
+    return markConversationDirtyInBatch(state, data.conversationId);
   }
-  if (!state.itemsById[data.item_id]) {
-    return markConversationDirtyInBatch(state, data.conversation_id);
+  if (!state.itemsById[data.itemId]) {
+    return markConversationDirtyInBatch(state, data.conversationId);
   }
   const output = data.output;
   const outputsById = { ...state.outputsById, [output.id]: output };
@@ -448,8 +448,8 @@ function applyActivityDelta(
     outputsById,
     outputIdsByItemId: {
       ...state.outputIdsByItemId,
-      [data.item_id]: upsertSortedEntity(
-        state.outputIdsByItemId[data.item_id] ?? [],
+      [data.itemId]: upsertSortedEntity(
+        state.outputIdsByItemId[data.itemId] ?? [],
         outputsById,
         output,
         sortOutputs,
@@ -457,9 +457,9 @@ function applyActivityDelta(
     },
     activityDetailsByItemId: {
       ...state.activityDetailsByItemId,
-      [data.item_id]: {
+      [data.itemId]: {
         status:
-          state.activityDetailsByItemId[data.item_id]?.status === "loaded"
+          state.activityDetailsByItemId[data.itemId]?.status === "loaded"
             ? "loaded"
             : "partial",
         error: null,
@@ -467,7 +467,7 @@ function applyActivityDelta(
     },
     detailsByConversationId: {
       ...state.detailsByConversationId,
-      [data.conversation_id]: loadedDetailState(),
+      [data.conversationId]: loadedDetailState(),
     },
   };
 }
@@ -509,26 +509,26 @@ export function applyQueuedChatEvents<T extends ChatViewModelState>(
       case "message_updated":
         return applyMessageUpdated(
           nextState,
-          event.data.conversation_id,
+          event.data.conversationId,
           event.data.message,
         );
       case "run_updated":
         return applyRunUpdated(
           nextState,
-          event.data.conversation_id,
+          event.data.conversationId,
           event.data.run,
         );
       case "turn_updated":
         return applyTurnUpdated(
           nextState,
-          event.data.conversation_id,
+          event.data.conversationId,
           event.data.turn,
         );
       case "item_updated":
       case "activity_updated":
         return applyItemUpdated(
           nextState,
-          event.data.conversation_id,
+          event.data.conversationId,
           event.data.item,
         );
       case "activity_delta":
@@ -538,13 +538,13 @@ export function applyQueuedChatEvents<T extends ChatViewModelState>(
       case "plan_updated":
         return applyPlanUpdated(
           nextState,
-          event.data.conversation_id,
+          event.data.conversationId,
           event.data.plan,
         );
       case "diff_updated":
         return applyDiffUpdated(
           nextState,
-          event.data.conversation_id,
+          event.data.conversationId,
           event.data.diff,
         );
       case "context_usage_updated":

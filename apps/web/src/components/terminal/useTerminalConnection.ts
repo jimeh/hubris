@@ -265,7 +265,7 @@ export function useTerminalConnection({
     }
 
     let url = terminalWsUrl(tabId);
-    url += `&resume_from=${bytePositionRef.current}`;
+    url += `&resumeFrom=${bytePositionRef.current}`;
 
     const generation = connectionGenerationRef.current + 1;
     connectionGenerationRef.current = generation;
@@ -312,7 +312,7 @@ export function useTerminalConnection({
               return;
             case "attached":
               applyPtySize(message.cols, message.rows);
-              bytePositionRef.current = message.byte_offset;
+              bytePositionRef.current = message.byteOffset;
               if (message.snapshot) {
                 terminalRef.current?.clear();
               }

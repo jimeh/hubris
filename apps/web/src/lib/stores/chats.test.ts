@@ -327,15 +327,15 @@ describe("chat store", () => {
     initializeChatStore();
 
     mockEvents.emit("snapshot", {
-      chat_app_server: {
+      chatAppServer: {
         lifecycle: "ready",
         lastError: null,
         updatedAt: 10,
       },
-      chat_conversations: [conversation],
-      chat_context_usage: [contextUsage],
-      chat_reconciliations: [reconciliation],
-      chat_runtimes: [
+      chatConversations: [conversation],
+      chatContextUsage: [contextUsage],
+      chatReconciliations: [reconciliation],
+      chatRuntimes: [
         {
           conversationId: "chat-1",
           sessionId: "default",
@@ -349,7 +349,7 @@ describe("chat store", () => {
           updatedAt: 10,
         },
       ],
-      chat_thread_streams: [
+      chatThreadStreams: [
         {
           conversationId: "chat-1",
           sessionId: "default",
@@ -395,14 +395,14 @@ describe("chat store", () => {
         {
           type: "agent_chat",
           id: "tab-1",
-          session_id: "default",
-          worktree_id: "worktree-1",
-          pane_id: "pane-1",
+          sessionId: "default",
+          worktreeId: "worktree-1",
+          paneId: "pane-1",
           label: "New Chat",
           position: 1,
-          created_at: 10,
+          createdAt: 10,
           preview: false,
-          conversation_id: "chat-1",
+          conversationId: "chat-1",
         },
       ]),
     });
@@ -418,9 +418,9 @@ describe("chat store", () => {
     );
 
     mockEvents.emit("chat_message_delta", {
-      session_id: "default",
-      conversation_id: "chat-1",
-      message_id: "message-1",
+      sessionId: "default",
+      conversationId: "chat-1",
+      messageId: "message-1",
       delta: " world",
       revision: 2n,
     });
@@ -436,8 +436,8 @@ describe("chat store", () => {
     );
 
     mockEvents.emit("chat_message_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       message: {
         ...detail.messages[0],
         reasoningText: "Inspecting the worktree state",
@@ -450,7 +450,7 @@ describe("chat store", () => {
     ).toBe("Inspecting the worktree state");
 
     mockEvents.emit("chat_conversation_updated", {
-      session_id: "default",
+      sessionId: "default",
       conversation: {
         ...conversation,
         title: "Investigate build failure",
@@ -481,8 +481,8 @@ describe("chat store", () => {
     ]);
 
     mockEvents.emit("chat_turn_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       turn: {
         ...detail.turns[0],
         status: "completed",
@@ -500,8 +500,8 @@ describe("chat store", () => {
     ]);
 
     mockEvents.emit("chat_item_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       item: {
         ...detail.items[0],
         status: "completed",
@@ -526,13 +526,13 @@ describe("chat store", () => {
     ).toBe(false);
 
     mockEvents.emit("snapshot", {
-      chat_app_server: null,
-      chat_conversations: [{ ...conversation, revision: 2 }],
-      chat_context_usage: [],
-      chat_pending_requests: [],
-      chat_reconciliations: [],
-      chat_runtimes: [],
-      chat_thread_streams: [],
+      chatAppServer: null,
+      chatConversations: [{ ...conversation, revision: 2 }],
+      chatContextUsage: [],
+      chatPendingRequests: [],
+      chatReconciliations: [],
+      chatRuntimes: [],
+      chatThreadStreams: [],
     });
 
     expect(
@@ -565,8 +565,8 @@ describe("chat store", () => {
     ]);
 
     mockEvents.emit("chat_plan_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       plan: {
         ...plan,
         status: "completed",
@@ -575,8 +575,8 @@ describe("chat store", () => {
       },
     });
     mockEvents.emit("chat_diff_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       diff: {
         ...diffSummary,
         changedFileCount: 2,
@@ -584,7 +584,7 @@ describe("chat store", () => {
       },
     });
     mockEvents.emit("chat_context_usage_updated", {
-      session_id: "default",
+      sessionId: "default",
       usage: {
         ...contextUsage,
         percentUsed: 22,
@@ -624,14 +624,14 @@ describe("chat store", () => {
     ]);
 
     mockEvents.emit("chat_activity_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       item: commandItem,
     });
     mockEvents.emit("chat_activity_delta", {
-      session_id: "default",
-      conversation_id: "chat-1",
-      item_id: "item-command-1",
+      sessionId: "default",
+      conversationId: "chat-1",
+      itemId: "item-command-1",
       output: commandOutput,
     });
     flushChatStoreSseBatchForTests();
@@ -688,10 +688,10 @@ describe("chat store", () => {
     });
 
     mockEvents.emit("chat_conversation_deleted", {
-      session_id: "default",
-      conversation_id: "chat-1",
-      project_id: "project-1",
-      branch_name: null,
+      sessionId: "default",
+      conversationId: "chat-1",
+      projectId: "project-1",
+      branchName: null,
     });
 
     expect(useChatStore.getState().conversationsById["chat-1"]).toBeUndefined();
@@ -965,7 +965,7 @@ describe("chat store", () => {
     ).toBe("running");
 
     mockEvents.emit("chat_reconciliation_failed", {
-      session_id: "default",
+      sessionId: "default",
       reconciliation: {
         ...reconciliation,
         status: "failed",
@@ -997,7 +997,7 @@ describe("chat store", () => {
     ).toBe("pending");
 
     mockEvents.emit("chat_pending_request_resolved", {
-      session_id: "default",
+      sessionId: "default",
       request: {
         ...pendingRequest,
         status: "resolved",
@@ -1047,8 +1047,8 @@ describe("chat store", () => {
     initializeChatStore();
 
     mockEvents.emit("chat_turn_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       turn: detail.turns[0],
     });
     flushChatStoreSseBatchForTests();
@@ -1063,8 +1063,8 @@ describe("chat store", () => {
     mockEvents = new MockEventClient();
     initializeChatStore();
     mockEvents.emit("chat_item_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       item: detail.items[0],
     });
     flushChatStoreSseBatchForTests();
@@ -1076,9 +1076,9 @@ describe("chat store", () => {
     mockEvents = new MockEventClient();
     initializeChatStore();
     mockEvents.emit("chat_activity_delta", {
-      session_id: "default",
-      conversation_id: "chat-1",
-      item_id: "item-command-1",
+      sessionId: "default",
+      conversationId: "chat-1",
+      itemId: "item-command-1",
       output: commandOutput,
     });
     flushChatStoreSseBatchForTests();
@@ -1090,8 +1090,8 @@ describe("chat store", () => {
     mockEvents = new MockEventClient();
     initializeChatStore();
     mockEvents.emit("chat_plan_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       plan,
     });
     flushChatStoreSseBatchForTests();
@@ -1103,8 +1103,8 @@ describe("chat store", () => {
     mockEvents = new MockEventClient();
     initializeChatStore();
     mockEvents.emit("chat_diff_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       diff: diffSummary,
     });
     flushChatStoreSseBatchForTests();
@@ -1116,7 +1116,7 @@ describe("chat store", () => {
     mockEvents = new MockEventClient();
     initializeChatStore();
     mockEvents.emit("chat_context_usage_updated", {
-      session_id: "default",
+      sessionId: "default",
       usage: contextUsage,
     });
     flushChatStoreSseBatchForTests();
@@ -1139,16 +1139,16 @@ describe("chat store", () => {
     await useChatStore.getState().ensureConversationLoaded("chat-1");
 
     mockEvents.emit("chat_message_delta", {
-      session_id: "default",
-      conversation_id: "chat-1",
-      message_id: "message-1",
+      sessionId: "default",
+      conversationId: "chat-1",
+      messageId: "message-1",
       delta: " world",
       revision: 2n,
     });
     mockEvents.emit("chat_message_delta", {
-      session_id: "default",
-      conversation_id: "chat-1",
-      message_id: "message-1",
+      sessionId: "default",
+      conversationId: "chat-1",
+      messageId: "message-1",
       delta: "!",
       revision: 3n,
     });
@@ -1164,15 +1164,15 @@ describe("chat store", () => {
     );
 
     mockEvents.emit("chat_message_delta", {
-      session_id: "default",
-      conversation_id: "chat-1",
-      message_id: "message-1",
+      sessionId: "default",
+      conversationId: "chat-1",
+      messageId: "message-1",
       delta: " ignored by update",
       revision: 4n,
     });
     mockEvents.emit("chat_message_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       message: {
         ...detail.messages[0],
         status: "completed",
@@ -1180,9 +1180,9 @@ describe("chat store", () => {
       },
     });
     mockEvents.emit("chat_message_delta", {
-      session_id: "default",
-      conversation_id: "chat-1",
-      message_id: "message-1",
+      sessionId: "default",
+      conversationId: "chat-1",
+      messageId: "message-1",
       delta: ".",
       revision: 5n,
     });
@@ -1219,9 +1219,9 @@ describe("chat store", () => {
     ]);
 
     mockEvents.emit("chat_message_delta", {
-      session_id: "default",
-      conversation_id: "chat-1",
-      message_id: "message-1",
+      sessionId: "default",
+      conversationId: "chat-1",
+      messageId: "message-1",
       delta: "First token",
       revision: 2n,
     });
@@ -1239,8 +1239,8 @@ describe("chat store", () => {
     await useChatStore.getState().ensureConversationLoaded("chat-1");
 
     mockEvents.emit("chat_run_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       run: {
         ...detail.latestRun,
         status: "completed",
@@ -1248,8 +1248,8 @@ describe("chat store", () => {
       },
     });
     mockEvents.emit("chat_turn_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       turn: {
         ...detail.turns[0],
         status: "completed",
@@ -1257,8 +1257,8 @@ describe("chat store", () => {
       },
     });
     mockEvents.emit("chat_item_updated", {
-      session_id: "default",
-      conversation_id: "chat-1",
+      sessionId: "default",
+      conversationId: "chat-1",
       item: {
         ...detail.items[0],
         status: "completed",

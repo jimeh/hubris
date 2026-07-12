@@ -13,13 +13,19 @@ use crate::tab::{
 use crate::util::default_session_id;
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum CreateTabRequest {
+    #[serde(rename_all = "camelCase")]
     Terminal {
         worktree_id: String,
         #[serde(default)]
         pane_id: Option<String>,
     },
+    #[serde(rename_all = "camelCase")]
     File {
         worktree_id: String,
         path: String,
@@ -28,6 +34,7 @@ pub enum CreateTabRequest {
         #[serde(default)]
         preview: bool,
     },
+    #[serde(rename_all = "camelCase")]
     GitDiff {
         worktree_id: String,
         path: String,
@@ -41,12 +48,14 @@ pub enum CreateTabRequest {
         #[serde(default)]
         preview: bool,
     },
+    #[serde(rename_all = "camelCase")]
     Browser {
         worktree_id: String,
         #[serde(default)]
         pane_id: Option<String>,
         url: String,
     },
+    #[serde(rename_all = "camelCase")]
     AgentChat {
         worktree_id: String,
         #[serde(default)]
@@ -57,6 +66,7 @@ pub enum CreateTabRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateTabRequest {
     #[serde(default)]
     pub custom_label: Option<String>,
@@ -74,6 +84,7 @@ pub struct UpdateTabRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ReorderTabsRequest {
     pub worktree_id: String,
     pub pane_id: String,
@@ -89,6 +100,7 @@ pub struct UpdateWorktreeTabLayoutRequest {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct ListTabsParams {
     #[serde(default = "default_session_id")]
@@ -178,10 +190,10 @@ pub async fn update_tab(
 
 #[utoipa::path(
     put,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/tab-layout",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/tab-layout",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
     ),
     request_body = UpdateWorktreeTabLayoutRequest,
     responses(

@@ -31,13 +31,13 @@ export async function listProjectWorktreeChats(
 ): Promise<ChatConversationSummary[]> {
   return requestJson(
     "GET",
-    "/api/projects/{project_id}/worktrees/{worktree_id}/chats",
+    "/api/projects/{projectId}/worktrees/{worktreeId}/chats",
     {
-      path: { project_id: projectId, worktree_id: worktreeId },
+      path: { projectId: projectId, worktreeId: worktreeId },
       query: {
-        session_id: sessionId,
+        sessionId: sessionId,
         ...(options.scope ? { scope: options.scope } : {}),
-        ...(options.includeArchived ? { include_archived: true } : {}),
+        ...(options.includeArchived ? { includeArchived: true } : {}),
       },
     },
   );
@@ -46,8 +46,8 @@ export async function listProjectWorktreeChats(
 export async function getChat(
   conversationId: string,
 ): Promise<ChatConversationDetail> {
-  return requestJson("GET", "/api/chats/{conversation_id}", {
-    path: { conversation_id: conversationId },
+  return requestJson("GET", "/api/chats/{conversationId}", {
+    path: { conversationId: conversationId },
   });
 }
 
@@ -55,8 +55,8 @@ export async function getChatActivity(
   conversationId: string,
   itemId: string,
 ): Promise<ChatActivityDetail> {
-  return requestJson("GET", "/api/chats/{conversation_id}/activity/{item_id}", {
-    path: { conversation_id: conversationId, item_id: itemId },
+  return requestJson("GET", "/api/chats/{conversationId}/activity/{itemId}", {
+    path: { conversationId: conversationId, itemId: itemId },
   });
 }
 
@@ -68,8 +68,8 @@ export async function patchChatSettings(
   conversationId: string,
   patch: ChatConversationSettingsPatch,
 ): Promise<ChatConversationSummary> {
-  return requestJson("PATCH", "/api/chats/{conversation_id}/settings", {
-    path: { conversation_id: conversationId },
+  return requestJson("PATCH", "/api/chats/{conversationId}/settings", {
+    path: { conversationId: conversationId },
     body: patch,
   });
 }
@@ -79,11 +79,11 @@ export async function sendChatMessage(
   text: string,
   worktreeId?: string,
 ): Promise<void> {
-  await requestVoid("POST", "/api/chats/{conversation_id}/messages", {
-    path: { conversation_id: conversationId },
+  await requestVoid("POST", "/api/chats/{conversationId}/messages", {
+    path: { conversationId: conversationId },
     body: {
       text,
-      ...(worktreeId ? { worktree_id: worktreeId } : {}),
+      ...(worktreeId ? { worktreeId: worktreeId } : {}),
     },
   });
 }
@@ -95,23 +95,23 @@ export function codexAgUiChatUrl(conversationId: string): string {
 export async function archiveChat(
   conversationId: string,
 ): Promise<ChatConversationSummary> {
-  return requestJson("POST", "/api/chats/{conversation_id}/archive", {
-    path: { conversation_id: conversationId },
+  return requestJson("POST", "/api/chats/{conversationId}/archive", {
+    path: { conversationId: conversationId },
   });
 }
 
 export async function unarchiveChat(
   conversationId: string,
 ): Promise<ChatConversationSummary> {
-  return requestJson("POST", "/api/chats/{conversation_id}/unarchive", {
-    path: { conversation_id: conversationId },
+  return requestJson("POST", "/api/chats/{conversationId}/unarchive", {
+    path: { conversationId: conversationId },
   });
 }
 
 export async function deleteChat(conversationId: string): Promise<void> {
   try {
-    await requestVoid("DELETE", "/api/chats/{conversation_id}", {
-      path: { conversation_id: conversationId },
+    await requestVoid("DELETE", "/api/chats/{conversationId}", {
+      path: { conversationId: conversationId },
     });
   } catch (error) {
     if (!(error instanceof ApiStatusError && error.status === 404)) throw error;
@@ -119,8 +119,8 @@ export async function deleteChat(conversationId: string): Promise<void> {
 }
 
 export async function interruptChat(conversationId: string): Promise<void> {
-  await requestVoid("POST", "/api/chats/{conversation_id}/interrupt", {
-    path: { conversation_id: conversationId },
+  await requestVoid("POST", "/api/chats/{conversationId}/interrupt", {
+    path: { conversationId: conversationId },
   });
 }
 
@@ -131,9 +131,9 @@ export async function resolveChatPendingRequest(
 ): Promise<ChatPendingRequest> {
   return requestJson(
     "POST",
-    "/api/chats/{conversation_id}/requests/{request_id}/resolve",
+    "/api/chats/{conversationId}/requests/{requestId}/resolve",
     {
-      path: { conversation_id: conversationId, request_id: requestId },
+      path: { conversationId: conversationId, requestId },
       body: request,
     },
   );

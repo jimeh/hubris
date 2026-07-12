@@ -91,19 +91,19 @@ function makeWorktree(
   overrides: Partial<{
     branch: string;
     position: number;
-    ui_mode: "hubris" | "vscode";
+    uiMode: "hubris" | "vscode";
   }> = {},
 ) {
   return {
     id,
-    project_id: projectId,
+    projectId: projectId,
     name,
     path: `/tmp/${name}`,
     branch: overrides.branch ?? name,
-    source_ref: null,
-    ui_mode: overrides.ui_mode ?? "hubris",
-    is_local: false,
-    missing_on_disk: false,
+    sourceRef: null,
+    uiMode: overrides.uiMode ?? "hubris",
+    isLocal: false,
+    missingOnDisk: false,
     position: overrides.position ?? 1,
   };
 }

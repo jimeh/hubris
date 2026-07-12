@@ -810,21 +810,21 @@ export function initializeWorktreeFileManagerStore(): void {
     events.on("worktree_deleted", (data) => {
       useWorktreeFileManagerStore.setState((state) => {
         const next = { ...state.worktrees };
-        delete next[data.worktree_id];
+        delete next[data.worktreeId];
         return { worktrees: next };
       });
     }),
     events.on("worktree_files_updated", (data) => {
       useWorktreeFileManagerStore.setState((state) => {
-        const worktreeId = data.worktree_id;
+        const worktreeId = data.worktreeId;
         const current = getSlice(state.worktrees, worktreeId);
         const pendingChangedPaths = mergePendingPaths(
           current.pendingChangedPaths,
-          data.changed_paths,
+          data.changedPaths,
         );
         const pendingListingPaths = mergePendingPaths(
           current.pendingListingPaths,
-          data.listing_paths,
+          data.listingPaths,
         );
         return {
           worktrees: {
@@ -849,7 +849,7 @@ export function initializeWorktreeFileManagerStore(): void {
     }),
     events.on("worktree_git_status_updated", (data) => {
       useWorktreeFileManagerStore.setState((state) => {
-        const worktreeId = data.worktree_id;
+        const worktreeId = data.worktreeId;
         const current = getSlice(state.worktrees, worktreeId);
         return {
           worktrees: {

@@ -19,11 +19,11 @@ function makeTerminalTab(
     id,
     label: `Terminal ${id}`,
     position,
-    worktree_id: "w1",
-    pane_id: paneId,
-    session_id: "default",
+    worktreeId: "w1",
+    paneId: paneId,
+    sessionId: "default",
     type: "terminal",
-    created_at: position,
+    createdAt: position,
     preview: false,
   };
 }
@@ -35,15 +35,15 @@ function splitLayout(
   return {
     rootId: "split-root",
     nodes: [
-      { type: "leaf", id: "leaf-left", pane_id: leftPaneId },
-      { type: "leaf", id: "leaf-right", pane_id: rightPaneId },
+      { type: "leaf", id: "leaf-left", paneId: leftPaneId },
+      { type: "leaf", id: "leaf-right", paneId: rightPaneId },
       {
         type: "split",
         id: "split-root",
         axis: "vertical",
         ratio: 0.5,
-        first_id: "leaf-left",
-        second_id: "leaf-right",
+        firstId: "leaf-left",
+        secondId: "leaf-right",
       },
     ],
   };
@@ -73,12 +73,12 @@ describe("tabLayout", () => {
     const next = moveTabBetweenPanes(layout, tabs, "tab-a", "pane-b", "center");
 
     expect(next).not.toBeNull();
-    expect(
-      next?.tabs.map((tab) => [tab.id, tab.pane_id, tab.position]),
-    ).toEqual([
-      ["tab-b", "pane-b", 1],
-      ["tab-a", "pane-b", 2],
-    ]);
+    expect(next?.tabs.map((tab) => [tab.id, tab.paneId, tab.position])).toEqual(
+      [
+        ["tab-b", "pane-b", 1],
+        ["tab-a", "pane-b", 2],
+      ],
+    );
     expect(collectLeafPaneIds(buildPaneTree(next?.layout ?? layout))).toEqual([
       "pane-b",
     ]);
@@ -101,7 +101,7 @@ describe("tabLayout", () => {
   it("splits a pane when dropping on an edge target", () => {
     const layout: WorktreeTabLayout = {
       rootId: "leaf-root",
-      nodes: [{ type: "leaf", id: "leaf-root", pane_id: "pane-a" }],
+      nodes: [{ type: "leaf", id: "leaf-root", paneId: "pane-a" }],
     };
     const tabs: Tab[] = [
       makeTerminalTab("tab-a", "pane-a", 1),
@@ -115,10 +115,8 @@ describe("tabLayout", () => {
     expect(tree?.type).toBe("split");
     expect(tree && tree.type === "split" ? tree.axis : null).toBe("vertical");
     expect(collectLeafPaneIds(tree)).toHaveLength(2);
-    expect(next?.tabs.find((tab) => tab.id === "tab-a")?.pane_id).toBe(
-      "pane-a",
-    );
-    expect(next?.tabs.find((tab) => tab.id === "tab-b")?.pane_id).not.toBe(
+    expect(next?.tabs.find((tab) => tab.id === "tab-a")?.paneId).toBe("pane-a");
+    expect(next?.tabs.find((tab) => tab.id === "tab-b")?.paneId).not.toBe(
       "pane-a",
     );
   });
@@ -141,15 +139,15 @@ describe("tabLayout", () => {
 
     expect(next.rootId).toBe("split-root");
     expect(next.nodes).toEqual([
-      { type: "leaf", id: "leaf-left", pane_id: "pane-a" },
-      { type: "leaf", id: "leaf-right", pane_id: "pane-b" },
+      { type: "leaf", id: "leaf-left", paneId: "pane-a" },
+      { type: "leaf", id: "leaf-right", paneId: "pane-b" },
       {
         type: "split",
         id: "split-root",
         axis: "vertical",
         ratio: 0.7,
-        first_id: "leaf-left",
-        second_id: "leaf-right",
+        firstId: "leaf-left",
+        secondId: "leaf-right",
       },
     ]);
   });
@@ -159,13 +157,13 @@ describe("tabLayout", () => {
       makeTerminalTab("tab-a", "pane-a", 1),
       {
         ...makeTerminalTab("tab-a", "pane-b", 2),
-        created_at: 10,
+        createdAt: 10,
       },
       makeTerminalTab("tab-b", "pane-b", 1),
     ];
 
     expect(tabs.map((tab) => tab.id)).toEqual(["tab-a", "tab-a", "tab-b"]);
-    expect(sortTabs(tabs).map((tab) => [tab.id, tab.pane_id])).toEqual([
+    expect(sortTabs(tabs).map((tab) => [tab.id, tab.paneId])).toEqual([
       ["tab-b", "pane-b"],
       ["tab-a", "pane-b"],
     ]);

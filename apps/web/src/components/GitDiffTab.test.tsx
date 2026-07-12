@@ -117,16 +117,16 @@ function makeTab(overrides: Partial<GitDiffTabType> = {}): GitDiffTabType {
     id: "diff-1",
     label: "README.md",
     position: 1,
-    worktree_id: "w1",
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: "default",
+    worktreeId: "w1",
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: "default",
     type: "git_diff",
-    created_at: 0,
+    createdAt: 0,
     preview: false,
     path: "README.md",
     scope: "unstaged",
-    original_path: null,
-    commit_id: null,
+    originalPath: null,
+    commitId: null,
     ...overrides,
   };
 }
@@ -178,7 +178,7 @@ describe("GitDiffTab", () => {
       <GitDiffTab
         projectId="p1"
         worktreeId="w1"
-        tab={makeTab({ scope: "commit", commit_id: "abcdef123456" })}
+        tab={makeTab({ scope: "commit", commitId: "abcdef123456" })}
         visible
       />,
     );

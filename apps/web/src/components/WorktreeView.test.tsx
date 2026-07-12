@@ -174,14 +174,14 @@ function getTerminalRenderCounts(): Record<string, number> {
 function makeWorktree(): Worktree {
   return {
     id: "w1",
-    project_id: "p1",
+    projectId: "p1",
     name: "local",
     path: "/tmp/devbox",
     branch: "main",
-    source_ref: null,
-    ui_mode: "hubris",
-    is_local: true,
-    missing_on_disk: false,
+    sourceRef: null,
+    uiMode: "hubris",
+    isLocal: true,
+    missingOnDisk: false,
     position: 1,
   };
 }
@@ -195,11 +195,11 @@ function makeTab(
     id,
     label: `Tab ${id.toUpperCase()}`,
     position: overrides.position ?? 1,
-    worktree_id: worktreeId,
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: overrides.session_id ?? "default",
+    worktreeId: worktreeId,
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: overrides.sessionId ?? "default",
     type: overrides.type ?? "terminal",
-    created_at: overrides.created_at ?? 0,
+    createdAt: overrides.createdAt ?? 0,
     preview: overrides.preview ?? false,
   };
 }
@@ -214,11 +214,11 @@ function makeFileTab(
     id,
     label: path.split("/").filter(Boolean).at(-1) ?? path,
     position: overrides.position ?? 1,
-    worktree_id: worktreeId,
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: overrides.session_id ?? "default",
+    worktreeId: worktreeId,
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: overrides.sessionId ?? "default",
     type: "file",
-    created_at: overrides.created_at ?? 0,
+    createdAt: overrides.createdAt ?? 0,
     preview: overrides.preview ?? false,
     path,
   };
@@ -234,15 +234,15 @@ function makeGitDiffTab(
     id,
     label: path.split("/").filter(Boolean).at(-1) ?? path,
     position: overrides.position ?? 1,
-    worktree_id: worktreeId,
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: overrides.session_id ?? "default",
+    worktreeId: worktreeId,
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: overrides.sessionId ?? "default",
     type: "git_diff",
-    created_at: overrides.created_at ?? 0,
+    createdAt: overrides.createdAt ?? 0,
     preview: overrides.preview ?? false,
     path,
     scope: overrides.scope ?? "unstaged",
-    original_path: overrides.original_path ?? null,
+    originalPath: overrides.originalPath ?? null,
   };
 }
 
@@ -255,15 +255,15 @@ function makeBrowserTab(
     id,
     label: overrides.label ?? "localhost",
     position: overrides.position ?? 1,
-    worktree_id: worktreeId,
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: overrides.session_id ?? "default",
+    worktreeId: worktreeId,
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: overrides.sessionId ?? "default",
     type: "browser",
-    created_at: overrides.created_at ?? 0,
+    createdAt: overrides.createdAt ?? 0,
     preview: overrides.preview ?? false,
     url: overrides.url ?? "http://localhost:3000/",
     history: overrides.history ?? [overrides.url ?? "http://localhost:3000/"],
-    history_index: overrides.history_index ?? 0,
+    historyIndex: overrides.historyIndex ?? 0,
   };
 }
 
@@ -271,15 +271,15 @@ function makeSplitLayout() {
   return {
     rootId: "split-root",
     nodes: [
-      { type: "leaf" as const, id: "leaf-a", pane_id: "pane-1" },
-      { type: "leaf" as const, id: "leaf-b", pane_id: "pane-2" },
+      { type: "leaf" as const, id: "leaf-a", paneId: "pane-1" },
+      { type: "leaf" as const, id: "leaf-b", paneId: "pane-2" },
       {
         type: "split" as const,
         id: "split-root",
         axis: "vertical" as const,
         ratio: 0.5,
-        first_id: "leaf-a",
-        second_id: "leaf-b",
+        firstId: "leaf-a",
+        secondId: "leaf-b",
       },
     ],
   };
@@ -407,8 +407,8 @@ describe("WorktreeView", () => {
 
     useTabStore.setState({
       ...normalizedTabState([
-        makeTab("a", worktree.id, { position: 1, created_at: 1 }),
-        makeTab("b", worktree.id, { position: 2, created_at: 2 }),
+        makeTab("a", worktree.id, { position: 1, createdAt: 1 }),
+        makeTab("b", worktree.id, { position: 2, createdAt: 2 }),
       ]),
       activeTabId: "a",
       activeTabByWorktree: { [worktree.id]: "a" },
@@ -445,11 +445,11 @@ describe("WorktreeView", () => {
 
     useTabStore.setState({
       ...normalizedTabState([
-        makeTab("a", worktree.id, { position: 1, created_at: 10 }),
-        makeTab("b", worktree.id, { position: 2, created_at: 20 }),
+        makeTab("a", worktree.id, { position: 1, createdAt: 10 }),
+        makeTab("b", worktree.id, { position: 2, createdAt: 20 }),
         makeGitDiffTab("diff-1", worktree.id, {
           position: 3,
-          created_at: 30,
+          createdAt: 30,
           path: "README copy.md",
         }),
       ]),
@@ -733,11 +733,11 @@ describe("WorktreeView", () => {
   it("renders active scenes in both panes of a split layout", () => {
     const worktree = makeWorktree();
     const terminalTab = makeTab("terminal-a", worktree.id, {
-      pane_id: "pane-1",
+      paneId: "pane-1",
       position: 1,
     });
     const browserTab = makeBrowserTab("browser-b", worktree.id, {
-      pane_id: "pane-2",
+      paneId: "pane-2",
       position: 1,
       url: "https://example.com/docs",
     });
@@ -774,11 +774,11 @@ describe("WorktreeView", () => {
   it("shows active-tab actions only in the focused pane", () => {
     const worktree = makeWorktree();
     const leftTab = makeGitDiffTab("diff-a", worktree.id, {
-      pane_id: "pane-1",
+      paneId: "pane-1",
       position: 1,
     });
     const rightTab = makeGitDiffTab("diff-b", worktree.id, {
-      pane_id: "pane-2",
+      paneId: "pane-2",
       position: 1,
     });
 
@@ -807,11 +807,11 @@ describe("WorktreeView", () => {
   it("switches active-tab actions when pane focus changes", () => {
     const worktree = makeWorktree();
     const leftTab = makeGitDiffTab("diff-a", worktree.id, {
-      pane_id: "pane-1",
+      paneId: "pane-1",
       position: 1,
     });
     const rightTab = makeGitDiffTab("diff-b", worktree.id, {
-      pane_id: "pane-2",
+      paneId: "pane-2",
       position: 1,
     });
 
@@ -852,11 +852,11 @@ describe("WorktreeView", () => {
   it("focuses a pane when clicking inside its terminal scene", () => {
     const worktree = makeWorktree();
     const leftTab = makeTab("terminal-a", worktree.id, {
-      pane_id: "pane-1",
+      paneId: "pane-1",
       position: 1,
     });
     const rightTab = makeTab("terminal-b", worktree.id, {
-      pane_id: "pane-2",
+      paneId: "pane-2",
       position: 1,
     });
 
@@ -884,11 +884,11 @@ describe("WorktreeView", () => {
   it("renders horizontal split handles as a 1px line with external hit margins", () => {
     const worktree = makeWorktree();
     const topTab = makeTab("terminal-a", worktree.id, {
-      pane_id: "pane-1",
+      paneId: "pane-1",
       position: 1,
     });
     const bottomTab = makeTab("terminal-b", worktree.id, {
-      pane_id: "pane-2",
+      paneId: "pane-2",
       position: 1,
     });
 

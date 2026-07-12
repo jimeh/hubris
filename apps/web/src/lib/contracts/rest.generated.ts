@@ -20,7 +20,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/chats/{conversation_id}": {
+  "/api/chats/{conversationId}": {
     parameters: {
       query?: never;
       header?: never;
@@ -36,7 +36,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/chats/{conversation_id}/activity/{item_id}": {
+  "/api/chats/{conversationId}/activity/{itemId}": {
     parameters: {
       query?: never;
       header?: never;
@@ -52,7 +52,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/chats/{conversation_id}/ag-ui": {
+  "/api/chats/{conversationId}/ag-ui": {
     parameters: {
       query?: never;
       header?: never;
@@ -69,7 +69,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/chats/{conversation_id}/archive": {
+  "/api/chats/{conversationId}/archive": {
     parameters: {
       query?: never;
       header?: never;
@@ -85,7 +85,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/chats/{conversation_id}/interrupt": {
+  "/api/chats/{conversationId}/interrupt": {
     parameters: {
       query?: never;
       header?: never;
@@ -101,7 +101,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/chats/{conversation_id}/messages": {
+  "/api/chats/{conversationId}/messages": {
     parameters: {
       query?: never;
       header?: never;
@@ -117,7 +117,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/chats/{conversation_id}/requests/{request_id}/resolve": {
+  "/api/chats/{conversationId}/requests/{requestId}/resolve": {
     parameters: {
       query?: never;
       header?: never;
@@ -133,7 +133,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/chats/{conversation_id}/settings": {
+  "/api/chats/{conversationId}/settings": {
     parameters: {
       query?: never;
       header?: never;
@@ -149,7 +149,7 @@ export interface paths {
     patch: operations["patch_chat_settings"];
     trace?: never;
   };
-  "/api/chats/{conversation_id}/unarchive": {
+  "/api/chats/{conversationId}/unarchive": {
     parameters: {
       query?: never;
       header?: never;
@@ -510,7 +510,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}": {
+  "/api/projects/{id}/worktrees/{worktreeId}": {
     parameters: {
       query?: never;
       header?: never;
@@ -526,7 +526,7 @@ export interface paths {
     patch: operations["update_project_worktree"];
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/files": {
+  "/api/projects/{id}/worktrees/{worktreeId}/files": {
     parameters: {
       query?: never;
       header?: never;
@@ -542,7 +542,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/files/content": {
+  "/api/projects/{id}/worktrees/{worktreeId}/files/content": {
     parameters: {
       query?: never;
       header?: never;
@@ -558,7 +558,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/files/rename": {
+  "/api/projects/{id}/worktrees/{worktreeId}/files/rename": {
     parameters: {
       query?: never;
       header?: never;
@@ -574,7 +574,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/git-status": {
+  "/api/projects/{id}/worktrees/{worktreeId}/git-status": {
     parameters: {
       query?: never;
       header?: never;
@@ -590,7 +590,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}": {
+  "/api/projects/{id}/worktrees/{worktreeId}/git/commits/{commitId}": {
     parameters: {
       query?: never;
       header?: never;
@@ -606,7 +606,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/git/diff": {
+  "/api/projects/{id}/worktrees/{worktreeId}/git/diff": {
     parameters: {
       query?: never;
       header?: never;
@@ -622,7 +622,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/git/discard": {
+  "/api/projects/{id}/worktrees/{worktreeId}/git/discard": {
     parameters: {
       query?: never;
       header?: never;
@@ -638,7 +638,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/git/rename-branch": {
+  "/api/projects/{id}/worktrees/{worktreeId}/git/rename-branch": {
     parameters: {
       query?: never;
       header?: never;
@@ -654,7 +654,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/git/stage": {
+  "/api/projects/{id}/worktrees/{worktreeId}/git/stage": {
     parameters: {
       query?: never;
       header?: never;
@@ -670,7 +670,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/git/unstage": {
+  "/api/projects/{id}/worktrees/{worktreeId}/git/unstage": {
     parameters: {
       query?: never;
       header?: never;
@@ -686,7 +686,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/restore-state": {
+  "/api/projects/{id}/worktrees/{worktreeId}/restore-state": {
     parameters: {
       query?: never;
       header?: never;
@@ -702,7 +702,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{id}/worktrees/{worktree_id}/tab-layout": {
+  "/api/projects/{id}/worktrees/{worktreeId}/tab-layout": {
     parameters: {
       query?: never;
       header?: never;
@@ -718,7 +718,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/projects/{project_id}/worktrees/{worktree_id}/chats": {
+  "/api/projects/{projectId}/worktrees/{worktreeId}/chats": {
     parameters: {
       query?: never;
       header?: never;
@@ -1556,51 +1556,51 @@ export interface components {
     CopilotKitThemeMode: "hubris" | "stock";
     CreateTabRequest:
       | {
-          pane_id?: string | null;
+          paneId?: string | null;
           /** @enum {string} */
           type: "terminal";
-          worktree_id: string;
+          worktreeId: string;
         }
       | {
-          pane_id?: string | null;
+          paneId?: string | null;
           path: string;
           preview?: boolean;
           /** @enum {string} */
           type: "file";
-          worktree_id: string;
+          worktreeId: string;
         }
       | {
-          commit_id?: string | null;
-          original_path?: string | null;
-          pane_id?: string | null;
+          commitId?: string | null;
+          originalPath?: string | null;
+          paneId?: string | null;
           path: string;
           preview?: boolean;
           scope: components["schemas"]["GitDiffScope"];
           /** @enum {string} */
           type: "git_diff";
-          worktree_id: string;
+          worktreeId: string;
         }
       | {
-          pane_id?: string | null;
+          paneId?: string | null;
           /** @enum {string} */
           type: "browser";
           url: string;
-          worktree_id: string;
+          worktreeId: string;
         }
       | {
-          conversation_id?: string | null;
-          pane_id?: string | null;
+          conversationId?: string | null;
+          paneId?: string | null;
           /** @enum {string} */
           type: "agent_chat";
-          worktree_id: string;
+          worktreeId: string;
         };
     CreateWorktreeRequest: {
       branch: string;
-      source_ref?: string | null;
-      start_point?: string | null;
+      sourceRef?: string | null;
+      startPoint?: string | null;
     };
     DirEntry: {
-      is_git_repo: boolean;
+      isGitRepo: boolean;
       name: string;
     };
     DiscoveredExtension: {
@@ -1647,7 +1647,7 @@ export interface components {
       files: components["schemas"]["GitFileChange"][];
       id: string;
       message: string;
-      short_id: string;
+      shortId: string;
       summary: string;
     };
     GitCommitPerson: {
@@ -1657,16 +1657,16 @@ export interface components {
     };
     GitCommitSummary: {
       id: string;
-      short_id: string;
+      shortId: string;
       summary: string;
     };
     /** @enum {string} */
     GitDiffScope: "staged" | "unstaged" | "commit";
     GitFileChange: {
-      change_type: components["schemas"]["GitFileChangeType"];
+      changeType: components["schemas"]["GitFileChangeType"];
       deletions?: number | null;
       insertions?: number | null;
-      original_path?: string | null;
+      originalPath?: string | null;
       path: string;
     };
     /** @enum {string} */
@@ -1727,13 +1727,13 @@ export interface components {
       /** @description Subdirectories within `path`. */
       entries: components["schemas"]["DirEntry"][];
       /** @description User's home directory (for quick-nav in UI). */
-      home_dir?: string | null;
+      homeDir?: string | null;
       /** @description Canonical absolute path of the listed directory. */
       path: string;
     };
     ListImportableWorktreesResponse: {
-      git_error?: string | null;
-      importable_worktrees: components["schemas"]["ImportableWorktree"][];
+      gitError?: string | null;
+      importableWorktrees: components["schemas"]["ImportableWorktree"][];
     };
     ListWorktreeFilesResponse: {
       entries: components["schemas"]["WorktreeFileEntry"][];
@@ -1743,12 +1743,12 @@ export interface components {
       path: string;
     };
     ListWorktreeStartPointsResponse: {
-      default_start_point?: string | null;
-      git_error?: string | null;
-      start_points: components["schemas"]["StartPoint"][];
+      defaultStartPoint?: string | null;
+      gitError?: string | null;
+      startPoints: components["schemas"]["StartPoint"][];
     };
     ListWorktreesResponse: {
-      git_error?: string | null;
+      gitError?: string | null;
       worktrees: components["schemas"]["Worktree"][];
     };
     ManagedProcessExitInfo: {
@@ -1777,7 +1777,7 @@ export interface components {
       startedAt?: string | null;
     };
     Project: {
-      git_error?: string | null;
+      gitError?: string | null;
       id: string;
       name: string;
       path: string;
@@ -1785,11 +1785,11 @@ export interface components {
       position?: number;
     };
     RenameWorktreeBranchRequest: {
-      new_branch: string;
+      newBranch: string;
     };
     RenameWorktreeFileRequest: {
       /** @description New basename for the file or directory. */
-      new_name: string;
+      newName: string;
       /** @description Relative path from the worktree root. */
       path: string;
     };
@@ -1798,15 +1798,15 @@ export interface components {
       path: string;
     };
     ReorderProjectsRequest: {
-      project_ids: string[];
+      projectIds: string[];
     };
     ReorderTabsRequest: {
-      pane_id: string;
-      tab_ids: string[];
-      worktree_id: string;
+      paneId: string;
+      tabIds: string[];
+      worktreeId: string;
     };
     ReorderWorktreesRequest: {
-      worktree_ids: string[];
+      worktreeIds: string[];
     };
     /** @description Request body for resolving a pending Codex server request. */
     ResolveChatPendingRequestRequest: {
@@ -1815,15 +1815,15 @@ export interface components {
     };
     SendChatMessageRequest: {
       text: string;
-      worktree_id?: string | null;
+      worktreeId?: string | null;
     };
     ServerControlMessage:
       | {
           /** Format: int64 */
-          byte_offset: number;
+          byteOffset: number;
           /** Format: int32 */
           cols: number;
-          data_lost: boolean;
+          dataLost: boolean;
           /** Format: int32 */
           rows: number;
           snapshot: boolean;
@@ -1873,8 +1873,8 @@ export interface components {
     /** @enum {string} */
     SettingsStatusKind: "ok" | "invalidFile";
     StartPoint: {
-      local_ref?: string | null;
-      remote_refs: string[];
+      localRef?: string | null;
+      remoteRefs: string[];
       sha: string;
       value: string;
     };
@@ -1885,89 +1885,89 @@ export interface components {
     /** @description Static system information that does not change at runtime. */
     SystemInfo: {
       /** @description The current user's home directory, if available. */
-      home_dir?: string | null;
+      homeDir?: string | null;
     };
     TabInfo:
       | (components["schemas"]["TerminalTabLabels"] & {
           /** Format: int64 */
-          created_at: number;
-          has_notification?: boolean;
+          createdAt: number;
+          hasNotification?: boolean;
           id: string;
           label: string;
-          pane_id: string;
+          paneId: string;
           /** Format: double */
           position: number;
           preview: boolean;
-          session_id: string;
-          worktree_id: string;
+          sessionId: string;
+          worktreeId: string;
         } & {
           /** @enum {string} */
           type: "terminal";
         })
       | {
           /** Format: int64 */
-          created_at: number;
+          createdAt: number;
           id: string;
           label: string;
-          pane_id: string;
+          paneId: string;
           path: string;
           /** Format: double */
           position: number;
           preview: boolean;
-          session_id: string;
+          sessionId: string;
           /** @enum {string} */
           type: "file";
-          worktree_id: string;
+          worktreeId: string;
         }
       | {
-          commit_id?: string | null;
+          commitId?: string | null;
           /** Format: int64 */
-          created_at: number;
+          createdAt: number;
           id: string;
           label: string;
-          original_path?: string | null;
-          pane_id: string;
+          originalPath?: string | null;
+          paneId: string;
           path: string;
           /** Format: double */
           position: number;
           preview: boolean;
           scope: components["schemas"]["GitDiffScope"];
-          session_id: string;
+          sessionId: string;
           /** @enum {string} */
           type: "git_diff";
-          worktree_id: string;
+          worktreeId: string;
         }
       | {
           /** Format: int64 */
-          created_at: number;
+          createdAt: number;
           history: string[];
-          history_index: number;
+          historyIndex: number;
           id: string;
           label: string;
-          pane_id: string;
+          paneId: string;
           /** Format: double */
           position: number;
           preview: boolean;
-          session_id: string;
+          sessionId: string;
           /** @enum {string} */
           type: "browser";
           url: string;
-          worktree_id: string;
+          worktreeId: string;
         }
       | {
-          conversation_id: string;
+          conversationId: string;
           /** Format: int64 */
-          created_at: number;
+          createdAt: number;
           id: string;
           label: string;
-          pane_id: string;
+          paneId: string;
           /** Format: double */
           position: number;
           preview: boolean;
-          session_id: string;
+          sessionId: string;
           /** @enum {string} */
           type: "agent_chat";
-          worktree_id: string;
+          worktreeId: string;
         };
     /** @enum {string} */
     TabPaneSplitAxis: "horizontal" | "vertical";
@@ -2084,10 +2084,10 @@ export interface components {
       name?: string | null;
     };
     UpdateTabRequest: {
-      custom_label?: string | null;
-      has_notification?: boolean | null;
+      customLabel?: string | null;
+      hasNotification?: boolean | null;
       history?: string[] | null;
-      history_index?: number | null;
+      historyIndex?: number | null;
       label?: string | null;
       /** Format: double */
       position?: number | null;
@@ -2096,8 +2096,8 @@ export interface components {
     };
     UpdateWorktreeRequest: {
       name?: string | null;
-      source_ref?: string | null;
-      ui_mode?: null | components["schemas"]["WorktreeUiMode"];
+      sourceRef?: string | null;
+      uiMode?: null | components["schemas"]["WorktreeUiMode"];
     };
     UpdateWorktreeRestoreStateRequest: {
       activeTabId?: string | null;
@@ -2194,16 +2194,16 @@ export interface components {
     Worktree: {
       branch: string;
       id: string;
-      is_imported?: boolean;
-      is_local: boolean;
-      missing_on_disk?: boolean;
+      isImported?: boolean;
+      isLocal: boolean;
+      missingOnDisk?: boolean;
       name: string;
       path: string;
       /** Format: double */
       position: number;
-      project_id: string;
-      source_ref?: string | null;
-      ui_mode: components["schemas"]["WorktreeUiMode"];
+      projectId: string;
+      sourceRef?: string | null;
+      uiMode: components["schemas"]["WorktreeUiMode"];
     };
     WorktreeFileContentParams: {
       /** @description Relative path from the worktree root. */
@@ -2213,12 +2213,12 @@ export interface components {
       content: string;
       language: string;
       path: string;
-      read_only: boolean;
-      unsupported_reason?: string | null;
-      version_token: string;
+      readOnly: boolean;
+      unsupportedReason?: string | null;
+      versionToken: string;
     };
     WorktreeFileEntry: {
-      is_symlink: boolean;
+      isSymlink: boolean;
       kind: components["schemas"]["WorktreeFileKind"];
       name: string;
       path: string;
@@ -2226,60 +2226,60 @@ export interface components {
     /** @enum {string} */
     WorktreeFileKind: "directory" | "file";
     WorktreeGitDiffParams: {
-      commit_id?: string | null;
+      commitId?: string | null;
       /** @description Original relative path for rename/copy actions. */
-      original_path?: string | null;
+      originalPath?: string | null;
       /** @description Relative path from the worktree root. */
       path: string;
       scope: components["schemas"]["GitDiffScope"];
     };
     WorktreeGitDiffResponse: {
-      commit_id?: string | null;
+      commitId?: string | null;
       language: string;
-      left_content: string;
-      left_label: string;
-      modified_version_token?: string | null;
-      original_path?: string | null;
+      leftContent: string;
+      leftLabel: string;
+      modifiedVersionToken?: string | null;
+      originalPath?: string | null;
       path: string;
-      read_only: boolean;
-      right_content: string;
-      right_label: string;
+      readOnly: boolean;
+      rightContent: string;
+      rightLabel: string;
       scope: components["schemas"]["GitDiffScope"];
-      unsupported_reason?: string | null;
+      unsupportedReason?: string | null;
     };
     WorktreeGitPathActionRequest: {
       /** @description Original relative path for rename/copy actions. */
-      original_path?: string | null;
+      originalPath?: string | null;
       /** @description Relative path from the worktree root. */
       path: string;
     };
     WorktreeGitStatusResponse: {
-      ahead_commits: components["schemas"]["GitCommitSummary"][];
-      ahead_count: number;
-      comparison_available: boolean;
-      comparison_error?: string | null;
+      aheadCommits: components["schemas"]["GitCommitSummary"][];
+      aheadCount: number;
+      comparisonAvailable: boolean;
+      comparisonError?: string | null;
       /** Format: int32 */
       generation: number;
-      source_ref?: string | null;
-      staged_files: components["schemas"]["GitFileChange"][];
-      unstaged_files: components["schemas"]["GitFileChange"][];
+      sourceRef?: string | null;
+      stagedFiles: components["schemas"]["GitFileChange"][];
+      unstagedFiles: components["schemas"]["GitFileChange"][];
     };
     /** @enum {string} */
     WorktreeLocationMode: "dataDir" | "repoLocalDotHubris";
     WorktreePaneNode:
       | {
           id: string;
-          pane_id: string;
+          paneId: string;
           /** @enum {string} */
           type: "leaf";
         }
       | {
           axis: components["schemas"]["TabPaneSplitAxis"];
-          first_id: string;
+          firstId: string;
           id: string;
           /** Format: double */
           ratio: number;
-          second_id: string;
+          secondId: string;
           /** @enum {string} */
           type: "split";
         };
@@ -2305,12 +2305,12 @@ export interface components {
     WorktreeUiMode: "hubris" | "vscode";
     WriteWorktreeFileContentRequest: {
       content: string;
-      expected_version_token: string;
+      expectedVersionToken: string;
       path: string;
     };
     WriteWorktreeFileContentResponse: {
       path: string;
-      version_token: string;
+      versionToken: string;
     };
   };
   responses: never;
@@ -2353,12 +2353,12 @@ export interface operations {
   get_chat: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path: {
         /** @description Conversation ID */
-        conversation_id: string;
+        conversationId: string;
       };
       cookie?: never;
     };
@@ -2387,12 +2387,12 @@ export interface operations {
   delete_chat: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path: {
         /** @description Conversation ID */
-        conversation_id: string;
+        conversationId: string;
       };
       cookie?: never;
     };
@@ -2428,14 +2428,14 @@ export interface operations {
   get_chat_activity: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path: {
         /** @description Conversation ID */
-        conversation_id: string;
+        conversationId: string;
         /** @description Activity item ID */
-        item_id: string;
+        itemId: string;
       };
       cookie?: never;
     };
@@ -2467,7 +2467,7 @@ export interface operations {
       header?: never;
       path: {
         /** @description Conversation ID */
-        conversation_id: string;
+        conversationId: string;
       };
       cookie?: never;
     };
@@ -2535,12 +2535,12 @@ export interface operations {
   archive_chat: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path: {
         /** @description Conversation ID */
-        conversation_id: string;
+        conversationId: string;
       };
       cookie?: never;
     };
@@ -2578,12 +2578,12 @@ export interface operations {
   interrupt_chat: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path: {
         /** @description Conversation ID */
-        conversation_id: string;
+        conversationId: string;
       };
       cookie?: never;
     };
@@ -2619,12 +2619,12 @@ export interface operations {
   send_chat_message: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path: {
         /** @description Conversation ID */
-        conversation_id: string;
+        conversationId: string;
       };
       cookie?: never;
     };
@@ -2682,14 +2682,14 @@ export interface operations {
   resolve_chat_pending_request: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path: {
         /** @description Conversation ID */
-        conversation_id: string;
+        conversationId: string;
         /** @description Pending request ID */
-        request_id: string;
+        requestId: string;
       };
       cookie?: never;
     };
@@ -2731,12 +2731,12 @@ export interface operations {
   patch_chat_settings: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path: {
         /** @description Conversation ID */
-        conversation_id: string;
+        conversationId: string;
       };
       cookie?: never;
     };
@@ -2769,12 +2769,12 @@ export interface operations {
   unarchive_chat: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path: {
         /** @description Conversation ID */
-        conversation_id: string;
+        conversationId: string;
       };
       cookie?: never;
     };
@@ -2977,7 +2977,7 @@ export interface operations {
   event_stream: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path?: never;
@@ -3000,7 +3000,7 @@ export interface operations {
         /** @description Directory to list. Defaults to home dir. */
         path?: string;
         /** @description Whether to include dotfiles. Defaults to false. */
-        show_hidden?: boolean;
+        showHidden?: boolean;
       };
       header?: never;
       path?: never;
@@ -3387,7 +3387,7 @@ export interface operations {
     parameters: {
       query?: {
         force?: boolean;
-        delete_managed_worktrees?: boolean;
+        deleteManagedWorktrees?: boolean;
       };
       header?: never;
       path: {
@@ -3749,14 +3749,14 @@ export interface operations {
     parameters: {
       query?: {
         force?: boolean;
-        untrack_only?: boolean;
+        untrackOnly?: boolean;
       };
       header?: never;
       path: {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -3807,7 +3807,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -3853,7 +3853,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -3909,7 +3909,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -3970,7 +3970,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4044,7 +4044,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4108,7 +4108,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4147,9 +4147,9 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
         /** @description Commit SHA */
-        commit_id: string;
+        commitId: string;
       };
       cookie?: never;
     };
@@ -4187,15 +4187,15 @@ export interface operations {
         path: string;
         scope: components["schemas"]["GitDiffScope"];
         /** @description Original relative path for rename/copy actions. */
-        original_path?: string;
-        commit_id?: string;
+        originalPath?: string;
+        commitId?: string;
       };
       header?: never;
       path: {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4256,7 +4256,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4311,7 +4311,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4361,7 +4361,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4416,7 +4416,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4471,7 +4471,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4505,7 +4505,7 @@ export interface operations {
         /** @description Project ID */
         id: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4547,16 +4547,16 @@ export interface operations {
   list_project_worktree_chats: {
     parameters: {
       query: {
-        session_id: string;
+        sessionId: string;
         scope?: components["schemas"]["ChatListScopeParam"];
-        include_archived?: boolean;
+        includeArchived?: boolean;
       };
       header?: never;
       path: {
         /** @description Project ID */
-        project_id: string;
+        projectId: string;
         /** @description Worktree ID */
-        worktree_id: string;
+        worktreeId: string;
       };
       cookie?: never;
     };
@@ -4708,7 +4708,7 @@ export interface operations {
   list_tabs: {
     parameters: {
       query?: {
-        session_id?: string;
+        sessionId?: string;
       };
       header?: never;
       path?: never;
@@ -5006,13 +5006,13 @@ export interface operations {
   ws_handler: {
     parameters: {
       query: {
-        tab_id: string;
+        tabId: string;
         /**
          * @description Byte offset for resumable reconnection. When
          *     present, the server only replays scrollback bytes
          *     the client missed.
          */
-        resume_from?: number;
+        resumeFrom?: number;
       };
       header?: never;
       path?: never;

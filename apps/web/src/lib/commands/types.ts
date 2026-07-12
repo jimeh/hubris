@@ -113,7 +113,7 @@ export type CommandArgsById = {
   "worktree.setUiMode":
     | {
         projectId?: string;
-        uiMode?: Worktree["ui_mode"] | "cycle";
+        uiMode?: Worktree["uiMode"] | "cycle";
         worktreeId?: string;
       }
     | undefined;

@@ -61,15 +61,15 @@ function makeBrowserTab(
     id: overrides.id ?? "browser-1",
     label: overrides.label ?? "New Browser",
     position: overrides.position ?? 1,
-    worktree_id: overrides.worktree_id ?? "w1",
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: overrides.session_id ?? "default",
+    worktreeId: overrides.worktreeId ?? "w1",
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: overrides.sessionId ?? "default",
     type: "browser",
-    created_at: overrides.created_at ?? 0,
+    createdAt: overrides.createdAt ?? 0,
     preview: overrides.preview ?? false,
     url: overrides.url ?? "about:blank",
     history: overrides.history ?? ["about:blank"],
-    history_index: overrides.history_index ?? 0,
+    historyIndex: overrides.historyIndex ?? 0,
   };
 }
 
@@ -95,7 +95,7 @@ describe("BrowserTab", () => {
     useTabStore.setState({
       ...normalizedTabState([tab]),
       activeTabId: tab.id,
-      activeTabByWorktree: { [tab.worktree_id]: tab.id },
+      activeTabByWorktree: { [tab.worktreeId]: tab.id },
     });
 
     render(<BrowserTab tab={tab} visible />);
@@ -122,7 +122,7 @@ describe("BrowserTab", () => {
     useTabStore.setState({
       ...normalizedTabState([tab]),
       activeTabId: tab.id,
-      activeTabByWorktree: { [tab.worktree_id]: tab.id },
+      activeTabByWorktree: { [tab.worktreeId]: tab.id },
     });
 
     const fetchMock = vi
@@ -135,7 +135,7 @@ describe("BrowserTab", () => {
       label: updates.label,
       url: updates.url,
       history: updates.history,
-      history_index: updates.history_index,
+      historyIndex: updates.historyIndex,
     }));
 
     render(<BrowserTab tab={tab} visible />);
@@ -180,7 +180,7 @@ describe("BrowserTab", () => {
       expect(selectAllTabs(useTabStore.getState())[0]).toMatchObject({
         url: "https://example.com/docs",
         history: ["about:blank", "https://example.com/docs"],
-        history_index: 1,
+        historyIndex: 1,
       });
     });
   });
@@ -190,7 +190,7 @@ describe("BrowserTab", () => {
     useTabStore.setState({
       ...normalizedTabState([tab]),
       activeTabId: tab.id,
-      activeTabByWorktree: { [tab.worktree_id]: tab.id },
+      activeTabByWorktree: { [tab.worktreeId]: tab.id },
     });
 
     const fetchMock = vi
@@ -203,7 +203,7 @@ describe("BrowserTab", () => {
       label: updates.label,
       url: updates.url,
       history: updates.history,
-      history_index: updates.history_index,
+      historyIndex: updates.historyIndex,
     }));
 
     render(<BrowserTab tab={tab} visible />);
@@ -248,7 +248,7 @@ describe("BrowserTab", () => {
       expect(selectAllTabs(useTabStore.getState())[0]).toMatchObject({
         url: "https://github.com/",
         history: ["about:blank", "https://github.com/"],
-        history_index: 1,
+        historyIndex: 1,
       });
     });
 
@@ -260,7 +260,7 @@ describe("BrowserTab", () => {
     useTabStore.setState({
       ...normalizedTabState([tab]),
       activeTabId: tab.id,
-      activeTabByWorktree: { [tab.worktree_id]: tab.id },
+      activeTabByWorktree: { [tab.worktreeId]: tab.id },
     });
 
     const fetchMock = vi
@@ -271,7 +271,7 @@ describe("BrowserTab", () => {
       label: updates.label,
       url: updates.url,
       history: updates.history,
-      history_index: updates.history_index,
+      historyIndex: updates.historyIndex,
     }));
 
     render(<BrowserTab tab={tab} visible />);
@@ -297,7 +297,7 @@ describe("BrowserTab", () => {
       expect(selectAllTabs(useTabStore.getState())[0]).toMatchObject({
         url: "https://jimeh.me/",
         history: ["about:blank", "https://jimeh.me/"],
-        history_index: 1,
+        historyIndex: 1,
       });
     });
   });
@@ -307,7 +307,7 @@ describe("BrowserTab", () => {
     useTabStore.setState({
       ...normalizedTabState([tab]),
       activeTabId: tab.id,
-      activeTabByWorktree: { [tab.worktree_id]: tab.id },
+      activeTabByWorktree: { [tab.worktreeId]: tab.id },
     });
 
     const fetchRequest = deferred<Response>();
@@ -319,7 +319,7 @@ describe("BrowserTab", () => {
       label: updates.label,
       url: updates.url,
       history: updates.history,
-      history_index: updates.history_index,
+      historyIndex: updates.historyIndex,
     }));
 
     render(<BrowserTab tab={tab} visible />);
@@ -334,7 +334,7 @@ describe("BrowserTab", () => {
           ...tab,
           url: "https://mid.example/",
           history: ["about:blank", "https://mid.example/"],
-          history_index: 1,
+          historyIndex: 1,
         }),
       ]),
     });
@@ -357,7 +357,7 @@ describe("BrowserTab", () => {
       expect(selectAllTabs(useTabStore.getState())[0]).toMatchObject({
         url: "https://jimeh.me/",
         history: ["about:blank", "https://mid.example/", "https://jimeh.me/"],
-        history_index: 2,
+        historyIndex: 2,
       });
     });
   });
@@ -367,7 +367,7 @@ describe("BrowserTab", () => {
     useTabStore.setState({
       ...normalizedTabState([tab]),
       activeTabId: tab.id,
-      activeTabByWorktree: { [tab.worktree_id]: tab.id },
+      activeTabByWorktree: { [tab.worktreeId]: tab.id },
     });
 
     render(<BrowserTab tab={tab} visible />);
@@ -396,14 +396,14 @@ describe("BrowserTab", () => {
     useTabStore.setState({
       ...normalizedTabState([tab]),
       activeTabId: tab.id,
-      activeTabByWorktree: { [tab.worktree_id]: tab.id },
+      activeTabByWorktree: { [tab.worktreeId]: tab.id },
     });
     mockUpdateTab.mockImplementation(async (_id, updates) => ({
       ...tab,
       label: updates.label,
       url: updates.url,
       history: updates.history,
-      history_index: updates.history_index,
+      historyIndex: updates.historyIndex,
     }));
 
     render(<BrowserTab tab={tab} visible />);
@@ -437,7 +437,7 @@ describe("BrowserTab", () => {
     useTabStore.setState({
       ...normalizedTabState([tab]),
       activeTabId: tab.id,
-      activeTabByWorktree: { [tab.worktree_id]: tab.id },
+      activeTabByWorktree: { [tab.worktreeId]: tab.id },
     });
     render(<BrowserTab tab={tab} visible />);
 
@@ -460,7 +460,7 @@ describe("BrowserTab", () => {
       url: tab.url,
       title: "Docs",
       history: tab.history,
-      historyIndex: tab.history_index,
+      historyIndex: tab.historyIndex,
       canGoBack: false,
       canGoForward: false,
       isLoading: false,
@@ -482,7 +482,7 @@ describe("BrowserTab", () => {
       ...tab,
       url: "http://localhost:3000/docs",
       history: ["http://localhost:3000/", "http://localhost:3000/docs"],
-      history_index: 1,
+      historyIndex: 1,
     };
     rerender(<BrowserTab tab={navigatedTab} visible />);
 

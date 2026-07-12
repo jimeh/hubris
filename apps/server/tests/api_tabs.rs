@@ -121,7 +121,7 @@ async fn create_tab(client: &reqwest::Client, base: &str, worktree_id: &str) -> 
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "terminal",
-            "worktree_id": worktree_id
+            "worktreeId": worktree_id
         }))
         .send()
         .await
@@ -140,8 +140,8 @@ async fn create_tab_in_pane(
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "terminal",
-            "worktree_id": worktree_id,
-            "pane_id": pane_id,
+            "worktreeId": worktree_id,
+            "paneId": pane_id,
         }))
         .send()
         .await
@@ -160,7 +160,7 @@ async fn create_browser_tab(
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "browser",
-            "worktree_id": worktree_id,
+            "worktreeId": worktree_id,
             "url": url
         }))
         .send()
@@ -209,7 +209,7 @@ async fn patch_tab_custom_label(
     let res = client
         .patch(format!("{}/api/tabs/{}", base, tab_id))
         .json(&serde_json::json!({
-            "custom_label": custom_label
+            "customLabel": custom_label
         }))
         .send()
         .await
@@ -272,12 +272,12 @@ async fn test_create_tab() {
     let tab = create_tab(&client, &base, &worktree_id).await;
 
     assert!(tab["id"].is_string());
-    assert_eq!(tab["session_id"], "default");
-    assert_eq!(tab["worktree_id"], worktree_id);
+    assert_eq!(tab["sessionId"], "default");
+    assert_eq!(tab["worktreeId"], worktree_id);
     assert_eq!(tab["label"], "Terminal 1");
     assert_eq!(tab["type"], "terminal");
     assert!(tab["position"].is_f64());
-    assert!(tab["created_at"].is_u64());
+    assert!(tab["createdAt"].is_u64());
 }
 
 #[tokio::test]
@@ -292,14 +292,14 @@ async fn test_create_browser_tab() {
     let tab = create_browser_tab(&client, &base, &worktree_id, "localhost:4173/docs").await;
 
     assert_eq!(tab["type"], "browser");
-    assert_eq!(tab["worktree_id"], worktree_id);
+    assert_eq!(tab["worktreeId"], worktree_id);
     assert_eq!(tab["label"], "localhost");
     assert_eq!(tab["url"], "http://localhost:4173/docs");
     assert_eq!(
         tab["history"],
         serde_json::json!(["http://localhost:4173/docs"])
     );
-    assert_eq!(tab["history_index"], 0);
+    assert_eq!(tab["historyIndex"], 0);
     assert_eq!(tab["preview"], false);
 }
 
@@ -318,7 +318,7 @@ async fn test_create_browser_tab_accepts_about_blank() {
     assert_eq!(tab["label"], "New Browser");
     assert_eq!(tab["url"], "about:blank");
     assert_eq!(tab["history"], serde_json::json!(["about:blank"]));
-    assert_eq!(tab["history_index"], 0);
+    assert_eq!(tab["historyIndex"], 0);
 }
 
 #[tokio::test]
@@ -335,7 +335,7 @@ async fn test_create_browser_tab_rejects_invalid_url() {
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "browser",
-            "worktree_id": worktree_id,
+            "worktreeId": worktree_id,
             "url": "javascript:alert(1)"
         }))
         .send()
@@ -360,7 +360,7 @@ async fn test_create_tab_invalid_worktree() {
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "terminal",
-            "worktree_id": "nonexistent"
+            "worktreeId": "nonexistent"
         }))
         .send()
         .await
@@ -378,7 +378,7 @@ async fn test_create_chat_tab_disabled_before_worktree_lookup() {
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "agent_chat",
-            "worktree_id": "nonexistent"
+            "worktreeId": "nonexistent"
         }))
         .send()
         .await
@@ -406,7 +406,7 @@ async fn test_create_commit_diff_tab_requires_commit_id() {
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "git_diff",
-            "worktree_id": worktree_id,
+            "worktreeId": worktree_id,
             "path": "README.md",
             "scope": "commit",
             "preview": true
@@ -434,10 +434,10 @@ async fn test_create_commit_diff_tab_rejects_blank_commit_id() {
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "git_diff",
-            "worktree_id": worktree_id,
+            "worktreeId": worktree_id,
             "path": "README.md",
             "scope": "commit",
-            "commit_id": "   ",
+            "commitId": "   ",
             "preview": true
         }))
         .send()
@@ -464,10 +464,10 @@ async fn test_create_commit_diff_tab_accepts_valid_commit_id() {
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "git_diff",
-            "worktree_id": worktree_id,
+            "worktreeId": worktree_id,
             "path": "README.md",
             "scope": "commit",
-            "commit_id": commit_id,
+            "commitId": commit_id,
             "preview": true
         }))
         .send()
@@ -478,7 +478,7 @@ async fn test_create_commit_diff_tab_accepts_valid_commit_id() {
     let body: Value = res.json().await.unwrap();
     assert_eq!(body["type"], "git_diff");
     assert_eq!(body["scope"], "commit");
-    assert_eq!(body["commit_id"], commit_id);
+    assert_eq!(body["commitId"], commit_id);
     assert_eq!(body["path"], "README.md");
 }
 
@@ -496,10 +496,10 @@ async fn test_create_non_commit_diff_tab_discards_commit_id() {
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "git_diff",
-            "worktree_id": worktree_id,
+            "worktreeId": worktree_id,
             "path": "README.md",
             "scope": "staged",
-            "commit_id": "abcdef123456",
+            "commitId": "abcdef123456",
             "preview": true
         }))
         .send()
@@ -508,7 +508,7 @@ async fn test_create_non_commit_diff_tab_discards_commit_id() {
 
     assert_eq!(res.status(), StatusCode::CREATED);
     let body: Value = res.json().await.unwrap();
-    assert!(body["commit_id"].is_null());
+    assert!(body["commitId"].is_null());
     assert_eq!(body["scope"], "staged");
 }
 
@@ -540,7 +540,7 @@ async fn test_create_tab_for_external_non_managed_worktree_returns_not_found() {
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "terminal",
-            "worktree_id": external_id
+            "worktreeId": external_id
         }))
         .send()
         .await
@@ -751,7 +751,7 @@ async fn test_update_tab() {
     let res = client
         .patch(format!("{}/api/tabs/{}", base, tab_id))
         .json(&serde_json::json!({
-            "custom_label": "Renamed tab",
+            "customLabel": "Renamed tab",
             "position": 42.5
         }))
         .send()
@@ -793,7 +793,7 @@ async fn test_update_browser_tab() {
                 "http://localhost:4173",
                 "http://localhost:4173/reference"
             ],
-            "history_index": 1
+            "historyIndex": 1
         }))
         .send()
         .await
@@ -806,7 +806,7 @@ async fn test_update_browser_tab() {
         updated["history"],
         serde_json::json!(["http://localhost:4173/", "http://localhost:4173/reference"])
     );
-    assert_eq!(updated["history_index"], 1);
+    assert_eq!(updated["historyIndex"], 1);
 }
 
 #[tokio::test]
@@ -853,7 +853,7 @@ async fn test_update_browser_tab_rejects_invalid_history_index() {
         .patch(format!("{}/api/tabs/{}", base, tab_id))
         .json(&serde_json::json!({
             "history": ["http://localhost:4173"],
-            "history_index": 2
+            "historyIndex": 2
         }))
         .send()
         .await
@@ -875,7 +875,7 @@ async fn test_update_browser_tab_rejects_invalid_history_index() {
         persisted["history"],
         serde_json::json!(["http://localhost:4173/"])
     );
-    assert_eq!(persisted["history_index"], 0);
+    assert_eq!(persisted["historyIndex"], 0);
 }
 
 #[tokio::test]
@@ -896,7 +896,7 @@ async fn test_update_browser_tab_accepts_about_blank() {
             "label": "New Browser",
             "url": "about:blank",
             "history": ["about:blank"],
-            "history_index": 0
+            "historyIndex": 0
         }))
         .send()
         .await
@@ -907,7 +907,7 @@ async fn test_update_browser_tab_accepts_about_blank() {
     assert_eq!(updated["label"], "New Browser");
     assert_eq!(updated["url"], "about:blank");
     assert_eq!(updated["history"], serde_json::json!(["about:blank"]));
-    assert_eq!(updated["history_index"], 0);
+    assert_eq!(updated["historyIndex"], 0);
 }
 
 #[tokio::test]
@@ -954,15 +954,15 @@ async fn test_reorder_tabs() {
     let id1 = t1["id"].as_str().unwrap();
     let id2 = t2["id"].as_str().unwrap();
     let id3 = t3["id"].as_str().unwrap();
-    let pane_id = t1["pane_id"].as_str().unwrap();
+    let pane_id = t1["paneId"].as_str().unwrap();
 
     // Reorder: 3, 1, 2
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
-            "worktree_id": worktree_id,
-            "pane_id": pane_id,
-            "tab_ids": [id3, id1, id2]
+            "worktreeId": worktree_id,
+            "paneId": pane_id,
+            "tabIds": [id3, id1, id2]
         }))
         .send()
         .await
@@ -995,15 +995,15 @@ async fn test_reorder_tabs_emits_session_scoped_event() {
     let t2 = create_tab(&client, &base, &worktree_id).await;
     let id1 = t1["id"].as_str().unwrap();
     let id2 = t2["id"].as_str().unwrap();
-    let pane_id = t1["pane_id"].as_str().unwrap();
+    let pane_id = t1["paneId"].as_str().unwrap();
     let mut rx = state.events.subscribe();
 
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
-            "worktree_id": worktree_id,
-            "pane_id": pane_id,
-            "tab_ids": [id2, id1]
+            "worktreeId": worktree_id,
+            "paneId": pane_id,
+            "tabIds": [id2, id1]
         }))
         .send()
         .await
@@ -1085,9 +1085,9 @@ async fn test_reorder_tabs_rejects_mixed_sessions() {
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
-            "worktree_id": "w1",
-            "pane_id": "pane-1",
-            "tab_ids": ["tab-b", "tab-a"]
+            "worktreeId": "w1",
+            "paneId": "pane-1",
+            "tabIds": ["tab-b", "tab-a"]
         }))
         .send()
         .await
@@ -1108,15 +1108,15 @@ async fn test_reorder_tabs_wrong_ids() {
 
     let first = create_tab(&client, &base, &worktree_id).await;
     create_tab(&client, &base, &worktree_id).await;
-    let pane_id = first["pane_id"].as_str().unwrap();
+    let pane_id = first["paneId"].as_str().unwrap();
 
     // Missing one tab
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
-            "worktree_id": worktree_id,
-            "pane_id": pane_id,
-            "tab_ids": ["nonexistent"]
+            "worktreeId": worktree_id,
+            "paneId": pane_id,
+            "tabIds": ["nonexistent"]
         }))
         .send()
         .await
@@ -1127,9 +1127,9 @@ async fn test_reorder_tabs_wrong_ids() {
     let res = client
         .put(format!("{}/api/tabs/reorder", base))
         .json(&serde_json::json!({
-            "worktree_id": worktree_id,
-            "pane_id": pane_id,
-            "tab_ids": ["nonexistent", "also-nonexistent"]
+            "worktreeId": worktree_id,
+            "paneId": pane_id,
+            "tabIds": ["nonexistent", "also-nonexistent"]
         }))
         .send()
         .await
@@ -1148,7 +1148,7 @@ async fn test_update_worktree_tab_layout_preserves_intentional_empty_split_pane(
     let worktree_id = first_worktree_id(&client, &base, &project_id).await;
     let first = create_tab(&client, &base, &worktree_id).await;
     let first_id = first["id"].as_str().unwrap();
-    let pane_id = first["pane_id"].as_str().unwrap();
+    let pane_id = first["paneId"].as_str().unwrap();
 
     let updated = update_worktree_tab_layout(
         &client,
@@ -1158,15 +1158,15 @@ async fn test_update_worktree_tab_layout_preserves_intentional_empty_split_pane(
         serde_json::json!({
             "rootId": "split-root",
             "nodes": [
-                { "type": "leaf", "id": "left-leaf", "pane_id": pane_id },
-                { "type": "leaf", "id": "right-leaf", "pane_id": "pane-2" },
+                { "type": "leaf", "id": "left-leaf", "paneId": pane_id },
+                { "type": "leaf", "id": "right-leaf", "paneId": "pane-2" },
                 {
                     "type": "split",
                     "id": "split-root",
                     "axis": "vertical",
                     "ratio": 0.5,
-                    "first_id": "left-leaf",
-                    "second_id": "right-leaf"
+                    "firstId": "left-leaf",
+                    "secondId": "right-leaf"
                 }
             ],
             "panes": [
@@ -1181,11 +1181,11 @@ async fn test_update_worktree_tab_layout_preserves_intentional_empty_split_pane(
     assert_eq!(updated["tabs"].as_array().unwrap().len(), 1);
 
     let created = create_tab_in_pane(&client, &base, &worktree_id, "pane-2").await;
-    assert_eq!(created["pane_id"], "pane-2");
+    assert_eq!(created["paneId"], "pane-2");
 
     let tabs = list_tabs(&client, &base).await;
     assert_eq!(tabs.len(), 2);
-    assert!(tabs.iter().any(|tab| tab["pane_id"] == "pane-2"));
+    assert!(tabs.iter().any(|tab| tab["paneId"] == "pane-2"));
 }
 
 #[tokio::test]
@@ -1200,7 +1200,7 @@ async fn test_update_worktree_tab_layout_rejects_project_worktree_mismatch() {
     let project_b = create_project(&client, &base, repo_b.path().to_str().unwrap()).await;
     let worktree_a = first_worktree_id(&client, &base, &project_a).await;
     let first = create_tab(&client, &base, &worktree_a).await;
-    let pane_id = first["pane_id"].as_str().unwrap();
+    let pane_id = first["paneId"].as_str().unwrap();
     let tab_id = first["id"].as_str().unwrap();
 
     let res = client
@@ -1211,7 +1211,7 @@ async fn test_update_worktree_tab_layout_rejects_project_worktree_mismatch() {
         .json(&serde_json::json!({
             "rootId": "root",
             "nodes": [
-                { "type": "leaf", "id": "root", "pane_id": pane_id }
+                { "type": "leaf", "id": "root", "paneId": pane_id }
             ],
             "panes": [
                 { "paneId": pane_id, "tabIds": [tab_id] }

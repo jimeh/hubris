@@ -302,7 +302,7 @@ export default function WorktreeRightSidebar({ worktree, active }: Props) {
       return null;
     }
 
-    return gitStatus.staged_files.length + gitStatus.unstaged_files.length;
+    return gitStatus.stagedFiles.length + gitStatus.unstagedFiles.length;
   }, [worktreeState?.gitStatus]);
   const viewMode = useWorktreeGitStatusViewStore(
     (state) => state.viewModeByWorktree[worktree.id] ?? "tree",
@@ -337,16 +337,16 @@ export default function WorktreeRightSidebar({ worktree, active }: Props) {
   const changesLoading = worktreeState?.gitStatusStatus === "loading";
 
   const handleAllFilesRefresh = useCallback(() => {
-    void refreshVisiblePaths(worktree.project_id, worktree.id, {
+    void refreshVisiblePaths(worktree.projectId, worktree.id, {
       force: true,
     });
-  }, [refreshVisiblePaths, worktree.id, worktree.project_id]);
+  }, [refreshVisiblePaths, worktree.id, worktree.projectId]);
 
   const handleChangesRefresh = useCallback(() => {
-    void loadGitStatus(worktree.project_id, worktree.id, {
+    void loadGitStatus(worktree.projectId, worktree.id, {
       force: true,
     });
-  }, [loadGitStatus, worktree.id, worktree.project_id]);
+  }, [loadGitStatus, worktree.id, worktree.projectId]);
 
   const handleViewModeChange = useCallback(
     (nextViewMode: "list" | "tree") => {

@@ -236,8 +236,8 @@ function buildRestoreStatePayload(
             selectAllTabs(state).find(
               (tab) =>
                 tab.id === tabId &&
-                tab.worktree_id === worktreeId &&
-                tab.pane_id === paneId,
+                tab.worktreeId === worktreeId &&
+                tab.paneId === paneId,
             ) != null,
         ),
       ])
@@ -287,7 +287,7 @@ function restoreStateWorktreeIds(state: TabsState): string[] {
     ...Object.keys(state.focusedPaneHistoryByWorktree),
   ]);
   for (const tab of selectAllTabs(state)) {
-    worktreeIds.add(tab.worktree_id);
+    worktreeIds.add(tab.worktreeId);
   }
   return [...worktreeIds];
 }
@@ -319,7 +319,7 @@ function seedSelectionFromBackendRestore(
       ? (tabs.find(
           (tab) =>
             tab.id === restoreState.activeTabId &&
-            tab.worktree_id === worktreeId,
+            tab.worktreeId === worktreeId,
         ) ?? null)
       : null;
     const paneMru = (
@@ -331,7 +331,7 @@ function seedSelectionFromBackendRestore(
       paneIds.includes(restoreState.focusedPaneId)
         ? restoreState.focusedPaneId
         : null) ||
-      activeTab?.pane_id ||
+      activeTab?.paneId ||
       paneIds[0];
 
     const focusedPaneHistory = [
@@ -359,11 +359,11 @@ function seedSelectionFromBackendRestore(
     if (activeTab) {
       nextTabMruByPane = promoteTabMru(
         nextTabMruByPane,
-        activeTab.pane_id,
+        activeTab.paneId,
         activeTab.id,
       );
       nextActiveTabByWorktree[worktreeId] = activeTab.id;
-      nextActiveTabByPane[activeTab.pane_id] = activeTab.id;
+      nextActiveTabByPane[activeTab.paneId] = activeTab.id;
     } else {
       const activePaneTabId = preferredPaneTabId(
         tabsForPane(worktreeTabs, focusedPaneId),
@@ -462,23 +462,23 @@ function activateLocal(state: TabsState, id: string): SelectionState {
 
   const nextFocusedPaneHistoryByWorktree = pushPaneFocusHistory(
     state.focusedPaneHistoryByWorktree,
-    tab.worktree_id,
-    tab.pane_id,
+    tab.worktreeId,
+    tab.paneId,
   );
-  const nextTabMruByPane = promoteTabMru(state.tabMruByPane, tab.pane_id, id);
+  const nextTabMruByPane = promoteTabMru(state.tabMruByPane, tab.paneId, id);
   const selection = {
     activeTabId: id,
     activeTabByWorktree: {
       ...state.activeTabByWorktree,
-      [tab.worktree_id]: id,
+      [tab.worktreeId]: id,
     },
     activeTabByPane: {
       ...state.activeTabByPane,
-      [tab.pane_id]: id,
+      [tab.paneId]: id,
     },
     focusedPaneByWorktree: {
       ...state.focusedPaneByWorktree,
-      [tab.worktree_id]: tab.pane_id,
+      [tab.worktreeId]: tab.paneId,
     },
     focusedPaneHistoryByWorktree: nextFocusedPaneHistoryByWorktree,
     tabMruByPane: nextTabMruByPane,
@@ -496,10 +496,10 @@ function reconcileSelection(
   const previousActiveWorktreeId =
     state.activeTabId &&
     selectAllTabs(state).find((tab) => tab.id === state.activeTabId)
-      ?.worktree_id;
+      ?.worktreeId;
   const nextActiveTabByPane = Object.fromEntries(
     Object.entries(state.activeTabByPane).filter(
-      ([paneId, tabId]) => tabsById.get(tabId)?.pane_id === paneId,
+      ([paneId, tabId]) => tabsById.get(tabId)?.paneId === paneId,
     ),
   );
   const nextFocusedPaneByWorktree: Record<string, string> = {};
@@ -510,7 +510,7 @@ function reconcileSelection(
   const nextTabMruByPane = pruneTabMruByPane(state.tabMruByPane, nextTabs);
   const worktreeIds = new Set([
     ...Object.keys(nextLayoutsByWorktree),
-    ...nextTabs.map((tab) => tab.worktree_id),
+    ...nextTabs.map((tab) => tab.worktreeId),
   ]);
 
   for (const worktreeId of worktreeIds) {
@@ -587,14 +587,14 @@ function reconcileSelection(
   if (activeTabId) {
     const activeTab = tabsById.get(activeTabId);
     if (activeTab) {
-      nextActiveTabByPane[activeTab.pane_id] = activeTab.id;
-      nextActiveTabByWorktree[activeTab.worktree_id] = activeTab.id;
-      nextFocusedPaneByWorktree[activeTab.worktree_id] = activeTab.pane_id;
-      nextFocusedPaneHistoryByWorktree[activeTab.worktree_id] = [
-        activeTab.pane_id,
+      nextActiveTabByPane[activeTab.paneId] = activeTab.id;
+      nextActiveTabByWorktree[activeTab.worktreeId] = activeTab.id;
+      nextFocusedPaneByWorktree[activeTab.worktreeId] = activeTab.paneId;
+      nextFocusedPaneHistoryByWorktree[activeTab.worktreeId] = [
+        activeTab.paneId,
         ...(
-          nextFocusedPaneHistoryByWorktree[activeTab.worktree_id] ?? []
-        ).filter((paneId) => paneId !== activeTab.pane_id),
+          nextFocusedPaneHistoryByWorktree[activeTab.worktreeId] ?? []
+        ).filter((paneId) => paneId !== activeTab.paneId),
       ];
     }
   }
@@ -617,7 +617,7 @@ function nextStateAfterWorktreeLayout(
   nextLayoutState: WorktreeTabLayoutState,
 ): Partial<TabsState> {
   const nextTabs = sortTabs([
-    ...selectAllTabs(state).filter((tab) => tab.worktree_id !== worktreeId),
+    ...selectAllTabs(state).filter((tab) => tab.worktreeId !== worktreeId),
     ...nextLayoutState.tabs,
   ]);
   const nextLayoutsByWorktree = ensureLayoutsForTabs(nextTabs, {
@@ -641,10 +641,10 @@ function removeFromState(state: TabsState, id: string): Partial<TabsState> {
   );
   const nextLayoutsByWorktree = { ...state.layoutsByWorktree };
 
-  if (closingTab && nextLayoutsByWorktree[closingTab.worktree_id]) {
-    nextLayoutsByWorktree[closingTab.worktree_id] = collapseLayoutToTabs(
-      nextLayoutsByWorktree[closingTab.worktree_id],
-      tabsForWorktreeInternal(nextTabs, closingTab.worktree_id),
+  if (closingTab && nextLayoutsByWorktree[closingTab.worktreeId]) {
+    nextLayoutsByWorktree[closingTab.worktreeId] = collapseLayoutToTabs(
+      nextLayoutsByWorktree[closingTab.worktreeId],
+      tabsForWorktreeInternal(nextTabs, closingTab.worktreeId),
     );
   }
 
@@ -711,7 +711,7 @@ export const useTabStore = create<TabsState>((set, get) => {
       set((state) => {
         const nextTabs = selectAllTabs(state).map((tab) =>
           tab.type === "agent_chat" &&
-          tab.conversation_id === conversationId &&
+          tab.conversationId === conversationId &&
           tab.label !== title
             ? { ...tab, label: title }
             : tab,
@@ -770,7 +770,7 @@ export const useTabStore = create<TabsState>((set, get) => {
       );
 
       try {
-        return await updateTab(id, { custom_label: customLabel });
+        return await updateTab(id, { customLabel: customLabel });
       } catch {
         return { ...existing, customLabel: nextCustomLabel };
       }
@@ -819,8 +819,8 @@ export const useTabStore = create<TabsState>((set, get) => {
 
       const tab = await createTab({
         type: "file",
-        worktree_id: options.worktreeId,
-        pane_id: paneId,
+        worktreeId: options.worktreeId,
+        paneId: paneId,
         path: options.path,
         preview: options.preview,
       });
@@ -902,12 +902,12 @@ export const useTabStore = create<TabsState>((set, get) => {
 
         const tab = await createTab({
           type: "git_diff",
-          worktree_id: options.worktreeId,
-          pane_id: paneId,
+          worktreeId: options.worktreeId,
+          paneId: paneId,
           path: options.path,
           scope: options.scope,
-          original_path: options.originalPath ?? undefined,
-          commit_id: options.commitId ?? undefined,
+          originalPath: options.originalPath ?? undefined,
+          commitId: options.commitId ?? undefined,
           preview: options.preview,
         });
         set((state) => {
@@ -974,8 +974,8 @@ export const useTabStore = create<TabsState>((set, get) => {
       });
       const tab = await createTab({
         type: "browser",
-        worktree_id: options.worktreeId,
-        pane_id: paneId,
+        worktreeId: options.worktreeId,
+        paneId: paneId,
         url,
       });
       set((state) => {
@@ -1006,8 +1006,8 @@ export const useTabStore = create<TabsState>((set, get) => {
           : (selectAllTabs(get()).find(
               (tab) =>
                 tab.type === "agent_chat" &&
-                tab.worktree_id === options.worktreeId &&
-                tab.conversation_id === options.conversationId,
+                tab.worktreeId === options.worktreeId &&
+                tab.conversationId === options.conversationId,
             ) ?? null);
       if (existing) {
         set((state) => activateLocal(state, existing.id));
@@ -1028,9 +1028,9 @@ export const useTabStore = create<TabsState>((set, get) => {
       const pendingPromise = (async () => {
         const tab = await createTab({
           type: "agent_chat",
-          worktree_id: options.worktreeId,
-          pane_id: paneId,
-          conversation_id: options.conversationId,
+          worktreeId: options.worktreeId,
+          paneId: paneId,
+          conversationId: options.conversationId,
         });
         set((state) => {
           const nextTabs = addTabIfMissing(selectAllTabs(state), tab);
@@ -1076,9 +1076,9 @@ export const useTabStore = create<TabsState>((set, get) => {
             normalizeBrowserUrl(entry, { allowBlank: true }),
           )
         : existing.history;
-      const nextHistoryIndex = updates.historyIndex ?? existing.history_index;
+      const nextHistoryIndex = updates.historyIndex ?? existing.historyIndex;
       if (nextHistory.length === 0 || nextHistoryIndex >= nextHistory.length) {
-        throw new Error("history_index must point at an entry in history.");
+        throw new Error("historyIndex must point at an entry in history.");
       }
       const nextLabel =
         updates.label ?? existing.label ?? browserLabelFromUrl(nextUrl);
@@ -1086,7 +1086,7 @@ export const useTabStore = create<TabsState>((set, get) => {
       if (
         nextLabel === existing.label &&
         nextUrl === existing.url &&
-        nextHistoryIndex === existing.history_index &&
+        nextHistoryIndex === existing.historyIndex &&
         nextHistory.length === existing.history.length &&
         nextHistory.every((entry, index) => entry === existing.history[index])
       ) {
@@ -1098,7 +1098,7 @@ export const useTabStore = create<TabsState>((set, get) => {
         label: nextLabel,
         url: nextUrl,
         history: nextHistory,
-        history_index: nextHistoryIndex,
+        historyIndex: nextHistoryIndex,
       };
       set((state) =>
         replaceTabs(
@@ -1116,7 +1116,7 @@ export const useTabStore = create<TabsState>((set, get) => {
           label: nextLabel,
           url: nextUrl,
           history: nextHistory,
-          history_index: nextHistoryIndex,
+          historyIndex: nextHistoryIndex,
         })) as BrowserTab;
       } catch {
         return optimistic;
@@ -1231,7 +1231,7 @@ export const useTabStore = create<TabsState>((set, get) => {
           state,
           sortTabs(
             selectAllTabs(state).map((tab) => {
-              if (tab.worktree_id !== worktreeId || tab.pane_id !== paneId) {
+              if (tab.worktreeId !== worktreeId || tab.paneId !== paneId) {
                 return tab;
               }
               const index = orderedIds.indexOf(tab.id);
@@ -1258,7 +1258,7 @@ export const useTabStore = create<TabsState>((set, get) => {
       );
       const layout =
         state.layoutsByWorktree[worktreeId] ??
-        createSinglePaneLayout(worktreeTabs[0]?.pane_id);
+        createSinglePaneLayout(worktreeTabs[0]?.paneId);
       const targetIndex =
         targetTabId && placement === "center"
           ? tabsForPane(worktreeTabs, targetPaneId).findIndex(
@@ -1282,7 +1282,7 @@ export const useTabStore = create<TabsState>((set, get) => {
       set((current) => {
         const nextTabs = sortTabs([
           ...selectAllTabs(current).filter(
-            (tab) => tab.worktree_id !== worktreeId,
+            (tab) => tab.worktreeId !== worktreeId,
           ),
           ...next.tabs,
         ]);
@@ -1323,7 +1323,7 @@ export const useTabStore = create<TabsState>((set, get) => {
       );
       const layout =
         state.layoutsByWorktree[worktreeId] ??
-        createSinglePaneLayout(worktreeTabs[0]?.pane_id);
+        createSinglePaneLayout(worktreeTabs[0]?.paneId);
       const next = splitPaneInLayout(
         layout,
         paneId,
@@ -1383,7 +1383,7 @@ export const useTabStore = create<TabsState>((set, get) => {
       );
       const previousLayout =
         state.layoutsByWorktree[worktreeId] ??
-        createSinglePaneLayout(previousTabs[0]?.pane_id);
+        createSinglePaneLayout(previousTabs[0]?.paneId);
       const destinationPaneId = await get().createSplitPane(
         projectId,
         worktreeId,
@@ -1415,7 +1415,7 @@ export const useTabStore = create<TabsState>((set, get) => {
           const current = selectAllTabs(state).find(
             (tab) => tab.id === state.activeTabId,
           );
-          if (current?.worktree_id === worktreeId) {
+          if (current?.worktreeId === worktreeId) {
             return state;
           }
         }
@@ -1513,7 +1513,7 @@ function notifiedActiveTerminalTabId(state: TabsState): string | null {
     (candidate) =>
       candidate.id === state.activeTabId &&
       candidate.type === "terminal" &&
-      !!candidate.has_notification,
+      !!candidate.hasNotification,
   );
   return tab ? tab.id : null;
 }
@@ -1538,7 +1538,7 @@ function activeEditorPathKey(state: TabsState): string {
   if (tab?.type !== "file" && tab?.type !== "git_diff") {
     return "";
   }
-  return `${tab.worktree_id}:${tab.path}`;
+  return `${tab.worktreeId}:${tab.path}`;
 }
 
 function syncActiveEditorPath(state: TabsState): void {
@@ -1546,7 +1546,7 @@ function syncActiveEditorPath(state: TabsState): void {
   if (tab?.type === "file" || tab?.type === "git_diff") {
     useWorktreeFileManagerStore
       .getState()
-      .setSelectedPath(tab.worktree_id, tab.path);
+      .setSelectedPath(tab.worktreeId, tab.path);
   }
 }
 
@@ -1563,7 +1563,7 @@ export function initializeTabStore(): void {
       const incomingTabs = sortTabs(data.tabs);
       const incomingLayouts = ensureLayoutsForTabs(
         incomingTabs,
-        data.tab_layouts,
+        data.tabLayouts,
       );
       useTabStore.setState((state) => {
         const selectionSeedState = hasHydratedBackendRestoreSelection
@@ -1572,7 +1572,7 @@ export function initializeTabStore(): void {
               state,
               incomingTabs,
               incomingLayouts,
-              data.worktree_restore_state ?? {},
+              data.worktreeRestoreState ?? {},
             );
         const selection = reconcileSelection(
           selectionSeedState,
@@ -1631,14 +1631,14 @@ export function initializeTabStore(): void {
         };
       });
     }),
-    events.on("tab_closed", ({ tab_id }) => {
+    events.on("tab_closed", ({ tabId }) => {
       useTabStore.setState((state) => {
-        const closedTab = selectAllTabs(state).find((tab) => tab.id === tab_id);
+        const closedTab = selectAllTabs(state).find((tab) => tab.id === tabId);
         if (closedTab) {
           disposeDesktopBrowserTab(closedTab);
           scheduleDisposeTabModels(closedTab);
         }
-        return removeFromState(state, tab_id);
+        return removeFromState(state, tabId);
       });
     }),
     events.on("tab_updated", ({ tab }) => {
@@ -1665,9 +1665,9 @@ export function initializeTabStore(): void {
     }),
     events.on(
       "worktree_tab_layout_updated",
-      ({ worktree_id, state: nextState }) => {
+      ({ worktreeId, state: nextState }) => {
         useTabStore.setState((current) =>
-          nextStateAfterWorktreeLayout(current, worktree_id, nextState),
+          nextStateAfterWorktreeLayout(current, worktreeId, nextState),
         );
       },
     ),
@@ -1725,12 +1725,12 @@ export function initializeTabStore(): void {
           state,
           selectAllTabs(state).map((tab) =>
             tab.id === nextId && tab.type === "terminal"
-              ? { ...tab, has_notification: false }
+              ? { ...tab, hasNotification: false }
               : tab,
           ),
         ),
       );
-      void updateTab(nextId, { has_notification: false }).catch(() => {});
+      void updateTab(nextId, { hasNotification: false }).catch(() => {});
     }, 1500);
   });
   eventUnsubscribers.push(unsubscribeNotification);

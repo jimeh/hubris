@@ -24,7 +24,7 @@ export function findFileTab(
   return (
     tabs.find(
       (tab) =>
-        tab.worktree_id === worktreeId &&
+        tab.worktreeId === worktreeId &&
         tab.type === "file" &&
         tab.path === path,
     ) ?? null
@@ -42,12 +42,12 @@ export function findGitDiffTab(
   return (
     tabs.find(
       (tab): tab is GitDiffTab =>
-        tab.worktree_id === worktreeId &&
+        tab.worktreeId === worktreeId &&
         tab.type === "git_diff" &&
         tab.path === path &&
         tab.scope === scope &&
-        (tab.original_path ?? null) === (originalPath ?? null) &&
-        (tab.commit_id ?? null) === (commitId ?? null),
+        (tab.originalPath ?? null) === (originalPath ?? null) &&
+        (tab.commitId ?? null) === (commitId ?? null),
     ) ?? null
   );
 }
@@ -60,8 +60,8 @@ export function findPreviewTab(
   return (
     tabs.find(
       (tab) =>
-        tab.worktree_id === worktreeId &&
-        tab.pane_id === paneId &&
+        tab.worktreeId === worktreeId &&
+        tab.paneId === paneId &&
         tab.preview &&
         tab.type !== "terminal",
     ) ?? null

@@ -134,7 +134,7 @@ async fn create_tab(
         .header(reqwest::header::COOKIE, cookie)
         .json(&serde_json::json!({
             "type": "terminal",
-            "worktree_id": worktree_id,
+            "worktreeId": worktree_id,
         }))
         .send()
         .await
@@ -202,14 +202,14 @@ async fn packaged_desktop_blocks_unauthenticated_requests() {
     assert_eq!(code_server.status(), StatusCode::UNAUTHORIZED);
 
     let events = client
-        .get(format!("{base}/api/events?session_id=default"))
+        .get(format!("{base}/api/events?sessionId=default"))
         .send()
         .await
         .unwrap();
     assert_eq!(events.status(), StatusCode::UNAUTHORIZED);
 
     let ws_url = format!(
-        "{}/api/terminal/ws?tab_id=missing",
+        "{}/api/terminal/ws?tabId=missing",
         base.replacen("http://", "ws://", 1)
     );
     let error = connect_async(ws_url).await.unwrap_err();
@@ -274,7 +274,7 @@ async fn packaged_desktop_bootstrap_is_one_time_and_authenticates_http_sse_and_w
     assert_ne!(code_server.status(), StatusCode::UNAUTHORIZED);
 
     let events = client
-        .get(format!("{base}/api/events?session_id=default"))
+        .get(format!("{base}/api/events?sessionId=default"))
         .header(reqwest::header::COOKIE, &cookie)
         .send()
         .await
@@ -288,7 +288,7 @@ async fn packaged_desktop_bootstrap_is_one_time_and_authenticates_http_sse_and_w
     let tab_id = create_tab(&client, &base, &cookie, &worktree_id).await;
 
     let ws_url = format!(
-        "{}/api/terminal/ws?tab_id={tab_id}",
+        "{}/api/terminal/ws?tabId={tab_id}",
         base.replacen("http://", "ws://", 1)
     );
     let mut request = ws_url.into_client_request().unwrap();

@@ -14,9 +14,9 @@ export type ClientControlMessage = {
 export type ServerControlMessage =
   | {
       type: "attached";
-      byte_offset: number;
+      byteOffset: number;
       snapshot: boolean;
-      data_lost: boolean;
+      dataLost: boolean;
       cols: number;
       rows: number;
     }

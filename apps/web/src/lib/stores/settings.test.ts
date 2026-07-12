@@ -532,8 +532,8 @@ describe("settings store", () => {
       settings: createSettingsState("10", {
         appearance: { colorScheme: "dark" },
       }).settings,
-      settings_generation: "10",
-      settings_status: okStatus,
+      settingsGeneration: "10",
+      settingsStatus: okStatus,
     });
 
     emit("settings_updated", {
@@ -686,8 +686,8 @@ describe("settings store", () => {
       settings: createSettingsState("10", {
         appearance: { colorScheme: "auto" },
       }).settings,
-      settings_generation: "10",
-      settings_status: okStatus,
+      settingsGeneration: "10",
+      settingsStatus: okStatus,
     });
 
     emit("settings_updated", {

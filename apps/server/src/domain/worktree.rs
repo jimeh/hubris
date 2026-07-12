@@ -10,6 +10,7 @@ use crate::git;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct Worktree {
     pub id: String,
     pub project_id: String,

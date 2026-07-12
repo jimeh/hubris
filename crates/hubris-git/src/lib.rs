@@ -29,6 +29,7 @@ pub enum GitFileChangeType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct GitFileChange {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -41,6 +42,7 @@ pub struct GitFileChange {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct GitCommitSummary {
     pub id: String,
     pub short_id: String,
@@ -48,6 +50,7 @@ pub struct GitCommitSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct GitCommitPerson {
     pub name: String,
     pub email: String,

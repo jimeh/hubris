@@ -66,7 +66,7 @@ function makeProject(overrides: Partial<Project> & { id: string }): Project {
     name: overrides.name ?? `Project ${overrides.id}`,
     path: overrides.path ?? `/tmp/${overrides.id}`,
     position: overrides.position ?? 1,
-    git_error: overrides.git_error,
+    gitError: overrides.gitError,
   };
 }
 

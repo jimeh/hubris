@@ -819,14 +819,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   async archiveConversation(conversationId) {
     const summary = await archiveChat(conversationId);
     handleConversationEvent({
-      session_id: summary.sessionId,
+      sessionId: summary.sessionId,
       conversation: summary,
     });
   },
   async unarchiveConversation(conversationId) {
     const summary = await unarchiveChat(conversationId);
     handleConversationEvent({
-      session_id: summary.sessionId,
+      sessionId: summary.sessionId,
       conversation: summary,
     });
   },
@@ -846,7 +846,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   async updateConversationSettings(conversationId, patch) {
     const summary = await patchChatSettings(conversationId, patch);
     handleConversationEvent({
-      session_id: summary.sessionId,
+      sessionId: summary.sessionId,
       conversation: summary,
     });
   },
@@ -1098,7 +1098,7 @@ function removeConversationFromStore(conversationId: string): void {
 function handleConversationDeletedEvent(
   data: SseEventData<"chat_conversation_deleted">,
 ): void {
-  removeConversationFromStore(data.conversation_id);
+  removeConversationFromStore(data.conversationId);
 }
 
 function handleRuntimeEvent(data: SseEventData<"chat_runtime_updated">): void {
@@ -1114,7 +1114,7 @@ function handleAppServerEvent(
   data: SseEventData<"chat_app_server_updated">,
 ): void {
   useChatStore.setState({
-    appServerStatus: data.app_server,
+    appServerStatus: data.appServer,
   });
 }
 
@@ -1231,9 +1231,9 @@ export function initializeChatStore(): void {
   eventUnsubscribers = [
     events.on("snapshot", (data) => {
       flushQueuedChatEvents();
-      const nextConversations = indexConversations(data.chat_conversations);
+      const nextConversations = indexConversations(data.chatConversations);
       const nextPendingRequestSummaries = indexPendingRequestSummaries(
-        data.chat_pending_requests,
+        data.chatPendingRequests,
       );
       useChatStore.setState((state) => {
         const conversationIds = new Set(Object.keys(nextConversations));
@@ -1302,11 +1302,11 @@ export function initializeChatStore(): void {
         );
 
         return {
-          appServerStatus: data.chat_app_server ?? null,
+          appServerStatus: data.chatAppServer ?? null,
           conversationsById: nextConversations,
-          runtimesByConversationId: indexRuntimes(data.chat_runtimes),
+          runtimesByConversationId: indexRuntimes(data.chatRuntimes),
           threadStreamsByConversationId: indexThreadStreams(
-            data.chat_thread_streams,
+            data.chatThreadStreams,
           ),
           detailsByConversationId,
           messageIdsByConversationId,
@@ -1359,13 +1359,13 @@ export function initializeChatStore(): void {
             ),
           ),
           contextUsageByConversationId: Object.fromEntries(
-            (data.chat_context_usage ?? []).map((usage) => [
+            (data.chatContextUsage ?? []).map((usage) => [
               usage.conversationId,
               usage,
             ]),
           ),
           reconciliationsByConversationId: indexReconciliations(
-            data.chat_reconciliations,
+            data.chatReconciliations,
           ),
           latestRunByConversationId: Object.fromEntries(
             Object.entries(state.latestRunByConversationId).filter(

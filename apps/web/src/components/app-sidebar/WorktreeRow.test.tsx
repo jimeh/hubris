@@ -127,16 +127,16 @@ vi.mock("@/components/ui/context-menu", async () => {
 function makeWorktree(overrides: Partial<Worktree> = {}): Worktree {
   return {
     id: overrides.id ?? "w1",
-    project_id: overrides.project_id ?? "p1",
+    projectId: overrides.projectId ?? "p1",
     path: overrides.path ?? "/tmp/feature-a",
     branch: overrides.branch ?? "feature-a",
-    source_ref: overrides.source_ref ?? null,
-    ui_mode: overrides.ui_mode ?? "hubris",
+    sourceRef: overrides.sourceRef ?? null,
+    uiMode: overrides.uiMode ?? "hubris",
     name: overrides.name ?? "feature-a",
     position: overrides.position ?? 1,
-    is_local: overrides.is_local ?? false,
-    missing_on_disk: overrides.missing_on_disk ?? false,
-    is_imported: overrides.is_imported,
+    isLocal: overrides.isLocal ?? false,
+    missingOnDisk: overrides.missingOnDisk ?? false,
+    isImported: overrides.isImported,
   };
 }
 
@@ -223,7 +223,7 @@ describe("WorktreeRow", () => {
           localWorktree={makeWorktree({
             id: "local",
             name: "local",
-            is_local: true,
+            isLocal: true,
           })}
           worktrees={[]}
           projectError={null}

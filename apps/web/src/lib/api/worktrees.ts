@@ -35,7 +35,7 @@ export type WorktreeFileContent = WorktreeFileContentResponse;
 export type SaveWorktreeFileContentResponse = WriteWorktreeFileContentResponse;
 export type WorktreeGitDiff = WorktreeGitDiffResponse;
 export type ImportableWorktree =
-  ListImportableWorktreesResponse["importable_worktrees"][number];
+  ListImportableWorktreesResponse["importableWorktrees"][number];
 
 export async function listProjectWorktrees(
   projectId: string,
@@ -63,8 +63,8 @@ export async function createProjectWorktree(
     path: { id: projectId },
     body: {
       branch,
-      ...(startPoint ? { start_point: startPoint } : {}),
-      ...(sourceRef ? { source_ref: sourceRef } : {}),
+      ...(startPoint ? { startPoint: startPoint } : {}),
+      ...(sourceRef ? { sourceRef: sourceRef } : {}),
     },
   });
 }
@@ -92,8 +92,8 @@ export async function updateProjectWorktree(
   worktreeId: string,
   updates: UpdateWorktreeRequest,
 ): Promise<Worktree> {
-  return requestJson("PATCH", "/api/projects/{id}/worktrees/{worktree_id}", {
-    path: { id: projectId, worktree_id: worktreeId },
+  return requestJson("PATCH", "/api/projects/{id}/worktrees/{worktreeId}", {
+    path: { id: projectId, worktreeId: worktreeId },
     body: updates,
   });
 }
@@ -105,10 +105,10 @@ export async function renameWorktreeBranch(
 ): Promise<Worktree> {
   return requestJson(
     "POST",
-    "/api/projects/{id}/worktrees/{worktree_id}/git/rename-branch",
+    "/api/projects/{id}/worktrees/{worktreeId}/git/rename-branch",
     {
-      path: { id: projectId, worktree_id: worktreeId },
-      body: { new_branch: newBranch },
+      path: { id: projectId, worktreeId: worktreeId },
+      body: { newBranch: newBranch },
     },
   );
 }
@@ -119,8 +119,8 @@ export async function getProjectWorktreeGitStatus(
 ): Promise<WorktreeGitStatusResponse> {
   return requestJson(
     "GET",
-    "/api/projects/{id}/worktrees/{worktree_id}/git-status",
-    { path: { id: projectId, worktree_id: worktreeId } },
+    "/api/projects/{id}/worktrees/{worktreeId}/git-status",
+    { path: { id: projectId, worktreeId: worktreeId } },
   );
 }
 
@@ -131,12 +131,12 @@ export async function getProjectWorktreeCommitDetails(
 ): Promise<GitCommitDetailsResponse> {
   return requestJson(
     "GET",
-    "/api/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}",
+    "/api/projects/{id}/worktrees/{worktreeId}/git/commits/{commitId}",
     {
       path: {
         id: projectId,
-        worktree_id: worktreeId,
-        commit_id: commitId,
+        worktreeId: worktreeId,
+        commitId: commitId,
       },
     },
   );
@@ -150,15 +150,15 @@ async function postWorktreeGitPathAction(
   originalPath?: string,
 ): Promise<void> {
   const requestPath = {
-    stage: "/api/projects/{id}/worktrees/{worktree_id}/git/stage",
-    unstage: "/api/projects/{id}/worktrees/{worktree_id}/git/unstage",
-    discard: "/api/projects/{id}/worktrees/{worktree_id}/git/discard",
+    stage: "/api/projects/{id}/worktrees/{worktreeId}/git/stage",
+    unstage: "/api/projects/{id}/worktrees/{worktreeId}/git/unstage",
+    discard: "/api/projects/{id}/worktrees/{worktreeId}/git/discard",
   } as const;
   await requestVoid("POST", requestPath[action], {
-    path: { id: projectId, worktree_id: worktreeId },
+    path: { id: projectId, worktreeId: worktreeId },
     body: {
       path,
-      ...(originalPath ? { original_path: originalPath } : {}),
+      ...(originalPath ? { originalPath: originalPath } : {}),
     },
   });
 }
@@ -206,14 +206,10 @@ export async function listProjectWorktreeFiles(
   worktreeId: string,
   path = "",
 ): Promise<ListWorktreeFilesResponse> {
-  return requestJson(
-    "GET",
-    "/api/projects/{id}/worktrees/{worktree_id}/files",
-    {
-      path: { id: projectId, worktree_id: worktreeId },
-      ...(path ? { query: { path } } : {}),
-    },
-  );
+  return requestJson("GET", "/api/projects/{id}/worktrees/{worktreeId}/files", {
+    path: { id: projectId, worktreeId: worktreeId },
+    ...(path ? { query: { path } } : {}),
+  });
 }
 
 export async function renameProjectWorktreeFile(
@@ -224,10 +220,10 @@ export async function renameProjectWorktreeFile(
 ): Promise<RenameWorktreeFileResponse> {
   return requestJson(
     "POST",
-    "/api/projects/{id}/worktrees/{worktree_id}/files/rename",
+    "/api/projects/{id}/worktrees/{worktreeId}/files/rename",
     {
-      path: { id: projectId, worktree_id: worktreeId },
-      body: { path, new_name: newName },
+      path: { id: projectId, worktreeId: worktreeId },
+      body: { path, newName: newName },
     },
   );
 }
@@ -239,9 +235,9 @@ export async function getProjectWorktreeFileContent(
 ): Promise<WorktreeFileContentResponse> {
   return requestJson(
     "GET",
-    "/api/projects/{id}/worktrees/{worktree_id}/files/content",
+    "/api/projects/{id}/worktrees/{worktreeId}/files/content",
     {
-      path: { id: projectId, worktree_id: worktreeId },
+      path: { id: projectId, worktreeId: worktreeId },
       query: { path },
     },
   );
@@ -256,13 +252,13 @@ export async function saveProjectWorktreeFileContent(
 ): Promise<WriteWorktreeFileContentResponse> {
   return requestJson(
     "PUT",
-    "/api/projects/{id}/worktrees/{worktree_id}/files/content",
+    "/api/projects/{id}/worktrees/{worktreeId}/files/content",
     {
-      path: { id: projectId, worktree_id: worktreeId },
+      path: { id: projectId, worktreeId: worktreeId },
       body: {
         path,
         content,
-        expected_version_token: expectedVersionToken,
+        expectedVersionToken: expectedVersionToken,
       },
     },
   );
@@ -278,14 +274,14 @@ export async function getProjectWorktreeGitDiff(
 ): Promise<WorktreeGitDiffResponse> {
   return requestJson(
     "GET",
-    "/api/projects/{id}/worktrees/{worktree_id}/git/diff",
+    "/api/projects/{id}/worktrees/{worktreeId}/git/diff",
     {
-      path: { id: projectId, worktree_id: worktreeId },
+      path: { id: projectId, worktreeId: worktreeId },
       query: {
         path,
         scope,
-        ...(originalPath ? { original_path: originalPath } : {}),
-        ...(commitId ? { commit_id: commitId } : {}),
+        ...(originalPath ? { originalPath: originalPath } : {}),
+        ...(commitId ? { commitId: commitId } : {}),
       },
     },
   );
@@ -297,7 +293,7 @@ export async function reorderProjectWorktrees(
 ): Promise<Worktree[]> {
   return requestJson("PUT", "/api/projects/{id}/worktrees/reorder", {
     path: { id: projectId },
-    body: { worktree_ids: worktreeIds },
+    body: { worktreeIds: worktreeIds },
   });
 }
 
@@ -309,11 +305,11 @@ export async function deleteProjectWorktree(
 ): Promise<void> {
   const query = {
     ...(force ? { force: true } : {}),
-    ...(untrackOnly ? { untrack_only: true } : {}),
+    ...(untrackOnly ? { untrackOnly: true } : {}),
   };
   try {
-    await requestVoid("DELETE", "/api/projects/{id}/worktrees/{worktree_id}", {
-      path: { id: projectId, worktree_id: worktreeId },
+    await requestVoid("DELETE", "/api/projects/{id}/worktrees/{worktreeId}", {
+      path: { id: projectId, worktreeId: worktreeId },
       ...(Object.keys(query).length > 0 ? { query } : {}),
     });
   } catch (error) {

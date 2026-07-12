@@ -48,13 +48,13 @@ function FileBrowserRow({
       className={[
         "flex w-full items-center gap-2 rounded-sm border-l-2 px-2 py-1 text-left text-sm transition-colors hover:bg-accent/50",
         selected ? "bg-accent text-accent-foreground" : "",
-        entry.is_git_repo ? "border-primary" : "border-transparent",
+        entry.isGitRepo ? "border-primary" : "border-transparent",
       ].join(" ")}
       onClick={() => onNavigate(entry)}
       onDoubleClick={() => onSelectEntry(entry)}
       type="button"
     >
-      {entry.is_git_repo ? (
+      {entry.isGitRepo ? (
         <FolderGit className="h-4 w-4 shrink-0 text-primary" />
       ) : (
         <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -117,8 +117,8 @@ export default function FileBrowser({
         setEntries(response.entries);
         setBrowsedPath(response.path);
         onCurrentPathChange(response.path);
-        if (response.home_dir) {
-          setHomeDir(response.home_dir);
+        if (response.homeDir) {
+          setHomeDir(response.homeDir);
         }
       } catch (fetchError) {
         setError((fetchError as Error).message);

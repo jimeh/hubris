@@ -139,7 +139,7 @@ async fn put_keybindings_writes_file_and_emits_sse_update() {
     let (event_name, snapshot) = next_sse_event(&mut events, &mut buffer).await;
     assert_eq!(event_name, "snapshot");
     assert_eq!(snapshot["data"]["keybindings"].as_array().unwrap().len(), 0);
-    assert_eq!(snapshot["data"]["keybindings_status"]["kind"], "ok");
+    assert_eq!(snapshot["data"]["keybindingsStatus"]["kind"], "ok");
 
     let res = client
         .put(format!("{}/api/keybindings", base))

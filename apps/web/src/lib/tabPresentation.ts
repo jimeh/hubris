@@ -44,7 +44,7 @@ function formatGitDiffScope(tab: GitDiffTab): string {
     return "Working Tree";
   }
 
-  const commitLabel = shortCommitId(tab.commit_id);
+  const commitLabel = shortCommitId(tab.commitId);
   return commitLabel ? `Commit ${commitLabel}` : "Commit";
 }
 
@@ -57,7 +57,7 @@ function matchGitChange(
     changes.find(
       (change) =>
         change.path === path &&
-        (change.original_path ?? null) === (originalPath ?? null),
+        (change.originalPath ?? null) === (originalPath ?? null),
     ) ??
     changes.find((change) => change.path === path) ??
     null
@@ -77,9 +77,9 @@ function gitDiffChange(
   }
 
   return matchGitChange(
-    tab.scope === "staged" ? gitStatus.staged_files : gitStatus.unstaged_files,
+    tab.scope === "staged" ? gitStatus.stagedFiles : gitStatus.unstagedFiles,
     tab.path,
-    tab.original_path,
+    tab.originalPath,
   );
 }
 
@@ -148,7 +148,7 @@ export function presentTab(
   }
 
   const change = gitDiffChange(tab, gitStatus);
-  const statusLabel = change ? gitChangeTypeLabel(change.change_type) : null;
+  const statusLabel = change ? gitChangeTypeLabel(change.changeType) : null;
   const scopeLabel = `(${formatGitDiffScope(tab)})`;
   const label = baseName(tab.path);
   const title = `${tab.path} ${scopeLabel}${
@@ -163,6 +163,6 @@ export function presentTab(
     iconKind: "material",
     iconPath: icon.iconPath,
     iconId: icon.iconId,
-    toneClass: change ? gitChangeTypeClass(change.change_type) : undefined,
+    toneClass: change ? gitChangeTypeClass(change.changeType) : undefined,
   };
 }

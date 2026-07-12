@@ -18,9 +18,9 @@ describe("WS contract typing", () => {
       Extract<ServerControlMessage, { type: "attached" }>
     >().toEqualTypeOf<{
       type: "attached";
-      byte_offset: number;
+      byteOffset: number;
       snapshot: boolean;
-      data_lost: boolean;
+      dataLost: boolean;
       cols: number;
       rows: number;
     }>();

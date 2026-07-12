@@ -485,14 +485,14 @@ vi.mock("@/lib/api", async () => {
 function makeWorktree(overrides?: Partial<Worktree>): Worktree {
   return {
     id: "w1",
-    project_id: "p1",
+    projectId: "p1",
     name: "feature-a",
     path: "/tmp/feature-a",
     branch: "feature-a",
-    source_ref: "main",
-    ui_mode: "hubris",
-    is_local: false,
-    missing_on_disk: false,
+    sourceRef: "main",
+    uiMode: "hubris",
+    isLocal: false,
+    missingOnDisk: false,
     position: 2,
     ...overrides,
   };
@@ -500,67 +500,67 @@ function makeWorktree(overrides?: Partial<Worktree>): Worktree {
 
 function makeGitStatusResponse(overrides?: Record<string, unknown>) {
   return {
-    source_ref: "main",
+    sourceRef: "main",
     generation: 1,
-    unstaged_files: [
+    unstagedFiles: [
       {
         path: "tmp2/bar/bar.txt",
-        change_type: "modified",
+        changeType: "modified",
         insertions: 5,
         deletions: 2,
       },
       {
         path: "tmp2/bar/baz/fox.txt",
-        change_type: "untracked",
+        changeType: "untracked",
         insertions: 10,
         deletions: 0,
       },
       {
         path: "tmp2/bar/baz/qux/deep.txt",
-        change_type: "modified",
+        changeType: "modified",
         insertions: 3,
         deletions: 1,
       },
       {
         path: "tmp2/foo.txt",
-        change_type: "modified",
+        changeType: "modified",
         insertions: 0,
         deletions: 0,
       },
     ],
-    staged_files: [
+    stagedFiles: [
       {
         path: "README.md",
-        change_type: "added",
+        changeType: "added",
         insertions: 20,
         deletions: 0,
       },
       {
         path: "src/main.ts",
-        change_type: "modified",
+        changeType: "modified",
         insertions: 8,
         deletions: 4,
       },
     ],
-    ahead_count: 1,
-    ahead_commits: [
-      { id: "abcdef123456", short_id: "abcdef1", summary: "Ahead commit" },
+    aheadCount: 1,
+    aheadCommits: [
+      { id: "abcdef123456", shortId: "abcdef1", summary: "Ahead commit" },
     ],
-    comparison_available: true,
-    comparison_error: null,
+    comparisonAvailable: true,
+    comparisonError: null,
     ...overrides,
   };
 }
 
 function makeMinimalNestedGitStatusResponse() {
   return makeGitStatusResponse({
-    unstaged_files: [
-      { path: "tmp2/bar/bar.txt", change_type: "modified" },
-      { path: "tmp2/foo.txt", change_type: "modified" },
+    unstagedFiles: [
+      { path: "tmp2/bar/bar.txt", changeType: "modified" },
+      { path: "tmp2/foo.txt", changeType: "modified" },
     ],
-    staged_files: [{ path: "README.md", change_type: "added" }],
-    ahead_count: 0,
-    ahead_commits: [],
+    stagedFiles: [{ path: "README.md", changeType: "added" }],
+    aheadCount: 0,
+    aheadCommits: [],
   });
 }
 
@@ -599,7 +599,7 @@ function renderPanelWithWorktree(
   const worktree = makeWorktree(worktreeOverrides);
   useWorktreeStore.setState({
     worktreesByProject: {
-      [worktree.project_id]: [worktree],
+      [worktree.projectId]: [worktree],
     },
     projectErrors: {},
     selectedWorktreeId: worktree.id,
@@ -647,7 +647,7 @@ describe("WorktreeGitStatusPanel", () => {
     mockDiscardProjectWorktreePath.mockResolvedValue(undefined);
     mockGetProjectWorktreeCommitDetails.mockResolvedValue({
       id: "abcdef123456",
-      short_id: "abcdef1",
+      shortId: "abcdef1",
       summary: "Ahead commit",
       message: "Ahead commit\n\nMore context",
       author: {
@@ -661,8 +661,8 @@ describe("WorktreeGitStatusPanel", () => {
         date: "2026-03-19T12:30:00+00:00",
       },
       files: [
-        { path: "src/nested/deep.ts", change_type: "modified" },
-        { path: "src/main.ts", change_type: "added" },
+        { path: "src/nested/deep.ts", changeType: "modified" },
+        { path: "src/main.ts", changeType: "added" },
       ],
     });
   });
@@ -689,14 +689,14 @@ describe("WorktreeGitStatusPanel", () => {
         new Promise((resolve) => {
           setTimeout(() => {
             resolve({
-              source_ref: "main",
+              sourceRef: "main",
               generation: 1,
-              unstaged_files: [],
-              staged_files: [],
-              ahead_count: 0,
-              ahead_commits: [],
-              comparison_available: true,
-              comparison_error: null,
+              unstagedFiles: [],
+              stagedFiles: [],
+              aheadCount: 0,
+              aheadCommits: [],
+              comparisonAvailable: true,
+              comparisonError: null,
             });
           }, 300);
         }),
@@ -794,16 +794,14 @@ describe("WorktreeGitStatusPanel", () => {
 
   it("renders compacted directory labels with faded slash separators", async () => {
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
-      source_ref: "main",
+      sourceRef: "main",
       generation: 1,
-      unstaged_files: [],
-      staged_files: [
-        { path: "tmp2/bar/baz/file.txt", change_type: "modified" },
-      ],
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      comparison_error: null,
+      unstagedFiles: [],
+      stagedFiles: [{ path: "tmp2/bar/baz/file.txt", changeType: "modified" }],
+      aheadCount: 0,
+      aheadCommits: [],
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     renderPanel();
@@ -867,17 +865,17 @@ describe("WorktreeGitStatusPanel", () => {
 
   it("renders copied, renamed, and conflict badges", async () => {
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
-      source_ref: "main",
+      sourceRef: "main",
       generation: 1,
-      unstaged_files: [
-        { path: "copied.txt", change_type: "copied" },
-        { path: "conflicted.txt", change_type: "conflict" },
+      unstagedFiles: [
+        { path: "copied.txt", changeType: "copied" },
+        { path: "conflicted.txt", changeType: "conflict" },
       ],
-      staged_files: [{ path: "renamed.txt", change_type: "renamed" }],
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      comparison_error: null,
+      stagedFiles: [{ path: "renamed.txt", changeType: "renamed" }],
+      aheadCount: 0,
+      aheadCommits: [],
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     renderPanel();
@@ -899,17 +897,17 @@ describe("WorktreeGitStatusPanel", () => {
       .mockImplementation(() => {});
 
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
-      source_ref: "main",
+      sourceRef: "main",
       generation: 1,
-      unstaged_files: [],
-      staged_files: [
-        { path: "README copy.md", change_type: "modified" },
-        { path: "README copy.md", change_type: "modified" },
+      unstagedFiles: [],
+      stagedFiles: [
+        { path: "README copy.md", changeType: "modified" },
+        { path: "README copy.md", changeType: "modified" },
       ],
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      comparison_error: null,
+      aheadCount: 0,
+      aheadCommits: [],
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     renderPanel();
@@ -961,21 +959,21 @@ describe("WorktreeGitStatusPanel", () => {
 
   it("renders a head marker and connector segments for the commit timeline", async () => {
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
-      source_ref: "main",
+      sourceRef: "main",
       generation: 1,
-      unstaged_files: [],
-      staged_files: [],
-      ahead_count: 2,
-      ahead_commits: [
-        { id: "head123456", short_id: "head123", summary: "Head commit" },
+      unstagedFiles: [],
+      stagedFiles: [],
+      aheadCount: 2,
+      aheadCommits: [
+        { id: "head123456", shortId: "head123", summary: "Head commit" },
         {
           id: "older123456",
-          short_id: "older12",
+          shortId: "older12",
           summary: "Older commit",
         },
       ],
-      comparison_available: true,
-      comparison_error: null,
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     renderPanel();
@@ -994,24 +992,24 @@ describe("WorktreeGitStatusPanel", () => {
 
   it("expands a commit into a changed-file tree", async () => {
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
-      source_ref: "main",
+      sourceRef: "main",
       generation: 1,
-      unstaged_files: [
-        { path: "tmp2/bar/bar.txt", change_type: "modified" },
-        { path: "tmp2/foo.txt", change_type: "modified" },
+      unstagedFiles: [
+        { path: "tmp2/bar/bar.txt", changeType: "modified" },
+        { path: "tmp2/foo.txt", changeType: "modified" },
       ],
-      staged_files: [{ path: "README.md", change_type: "added" }],
-      ahead_count: 2,
-      ahead_commits: [
-        { id: "abcdef123456", short_id: "abcdef1", summary: "Ahead commit" },
+      stagedFiles: [{ path: "README.md", changeType: "added" }],
+      aheadCount: 2,
+      aheadCommits: [
+        { id: "abcdef123456", shortId: "abcdef1", summary: "Ahead commit" },
         {
           id: "older123456",
-          short_id: "older12",
+          shortId: "older12",
           summary: "Older commit",
         },
       ],
-      comparison_available: true,
-      comparison_error: null,
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     renderPanel();
@@ -1036,7 +1034,7 @@ describe("WorktreeGitStatusPanel", () => {
   it("opens commit tree files as preview diffs on click", async () => {
     mockGetProjectWorktreeCommitDetails.mockResolvedValueOnce({
       id: "abcdef123456",
-      short_id: "abcdef1",
+      shortId: "abcdef1",
       summary: "Ahead commit",
       message: "Ahead commit\n\nMore context",
       author: {
@@ -1049,7 +1047,7 @@ describe("WorktreeGitStatusPanel", () => {
         email: "committer@example.com",
         date: "2026-03-19T12:30:00+00:00",
       },
-      files: [{ path: "src/commit-only.ts", change_type: "modified" }],
+      files: [{ path: "src/commit-only.ts", changeType: "modified" }],
     });
     renderPanel();
 
@@ -1155,23 +1153,23 @@ describe("WorktreeGitStatusPanel", () => {
     });
   });
 
-  it("passes original_path when staging a renamed file in list view", async () => {
+  it("passes originalPath when staging a renamed file in list view", async () => {
     const user = userEvent.setup();
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
-      source_ref: "main",
+      sourceRef: "main",
       generation: 1,
-      unstaged_files: [
+      unstagedFiles: [
         {
           path: "new/target.txt",
-          original_path: "old/source.txt",
-          change_type: "renamed",
+          originalPath: "old/source.txt",
+          changeType: "renamed",
         },
       ],
-      staged_files: [],
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      comparison_error: null,
+      stagedFiles: [],
+      aheadCount: 0,
+      aheadCommits: [],
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     renderPanel();
@@ -1190,23 +1188,23 @@ describe("WorktreeGitStatusPanel", () => {
     });
   });
 
-  it("passes original_path when staging a copied file in tree view", async () => {
+  it("passes originalPath when staging a copied file in tree view", async () => {
     const user = userEvent.setup();
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
-      source_ref: "main",
+      sourceRef: "main",
       generation: 1,
-      unstaged_files: [
+      unstagedFiles: [
         {
           path: "copied-target.txt",
-          original_path: "copy-source.txt",
-          change_type: "copied",
+          originalPath: "copy-source.txt",
+          changeType: "copied",
         },
       ],
-      staged_files: [],
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      comparison_error: null,
+      stagedFiles: [],
+      aheadCount: 0,
+      aheadCommits: [],
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     renderPanel();
@@ -1242,18 +1240,18 @@ describe("WorktreeGitStatusPanel", () => {
 
   it("aggregates directory dots by most significant descendant change", async () => {
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
-      source_ref: "main",
+      sourceRef: "main",
       generation: 1,
-      unstaged_files: [
-        { path: "tmp2/added.txt", change_type: "added" },
-        { path: "tmp2/deleted.txt", change_type: "deleted" },
-        { path: "tmp2/nested/copied.txt", change_type: "copied" },
+      unstagedFiles: [
+        { path: "tmp2/added.txt", changeType: "added" },
+        { path: "tmp2/deleted.txt", changeType: "deleted" },
+        { path: "tmp2/nested/copied.txt", changeType: "copied" },
       ],
-      staged_files: [],
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      comparison_error: null,
+      stagedFiles: [],
+      aheadCount: 0,
+      aheadCommits: [],
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     renderPanel();
@@ -1501,7 +1499,7 @@ describe("WorktreeGitStatusPanel", () => {
     const beta = makeWorktree({ id: "w-beta", name: "feature-b" });
     useWorktreeStore.setState({
       worktreesByProject: {
-        [alpha.project_id]: [alpha, beta],
+        [alpha.projectId]: [alpha, beta],
       },
       projectErrors: {},
       selectedWorktreeId: alpha.id,
@@ -1575,58 +1573,58 @@ describe("WorktreeGitStatusPanel", () => {
 
     // After staging bar.txt (+5 -2): it moves from unstaged to staged
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
-      source_ref: "main",
+      sourceRef: "main",
       generation: 2,
-      unstaged_files: [
+      unstagedFiles: [
         {
           path: "tmp2/bar/baz/fox.txt",
-          change_type: "untracked",
+          changeType: "untracked",
           insertions: 10,
           deletions: 0,
         },
         {
           path: "tmp2/bar/baz/qux/deep.txt",
-          change_type: "modified",
+          changeType: "modified",
           insertions: 3,
           deletions: 1,
         },
         {
           path: "tmp2/foo.txt",
-          change_type: "modified",
+          changeType: "modified",
           insertions: 0,
           deletions: 0,
         },
       ],
-      staged_files: [
+      stagedFiles: [
         {
           path: "README.md",
-          change_type: "added",
+          changeType: "added",
           insertions: 20,
           deletions: 0,
         },
         {
           path: "src/main.ts",
-          change_type: "modified",
+          changeType: "modified",
           insertions: 8,
           deletions: 4,
         },
         {
           path: "tmp2/bar/bar.txt",
-          change_type: "modified",
+          changeType: "modified",
           insertions: 5,
           deletions: 2,
         },
       ],
-      ahead_count: 1,
-      ahead_commits: [
+      aheadCount: 1,
+      aheadCommits: [
         {
           id: "abcdef123456",
-          short_id: "abcdef1",
+          shortId: "abcdef1",
           summary: "Ahead commit",
         },
       ],
-      comparison_available: true,
-      comparison_error: null,
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     fireEvent.contextMenu(screen.getByText("bar.txt"));

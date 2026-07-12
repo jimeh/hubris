@@ -25,6 +25,7 @@ use crate::worktree_state::WorktreeRestoreState;
 pub use hubris_git::{GitCommitPerson, GitCommitSummary, GitFileChange, GitFileChangeType};
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ListWorktreesResponse {
     pub worktrees: Vec<Worktree>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -32,6 +33,7 @@ pub struct ListWorktreesResponse {
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct StartPoint {
     pub value: String,
     pub sha: String,
@@ -41,6 +43,7 @@ pub struct StartPoint {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ListWorktreeStartPointsResponse {
     pub start_points: Vec<StartPoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,6 +53,7 @@ pub struct ListWorktreeStartPointsResponse {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateWorktreeRequest {
     pub branch: String,
     #[serde(default)]
@@ -59,6 +63,7 @@ pub struct CreateWorktreeRequest {
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ImportableWorktree {
     pub id: String,
     pub path: String,
@@ -66,6 +71,7 @@ pub struct ImportableWorktree {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ListImportableWorktreesResponse {
     pub importable_worktrees: Vec<ImportableWorktree>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,16 +79,19 @@ pub struct ListImportableWorktreesResponse {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ImportWorktreeRequest {
     pub path: String,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ReorderWorktreesRequest {
     pub worktree_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateWorktreeRequest {
     #[serde(default)]
     pub name: Option<String>,
@@ -106,11 +115,13 @@ pub struct UpdateWorktreeRestoreStateRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct RenameWorktreeBranchRequest {
     pub new_branch: String,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct DeleteWorktreeParams {
     #[serde(default)]
@@ -127,6 +138,7 @@ pub struct ResolvedWorktree {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct GitCommitDetailsResponse {
     pub id: String,
     pub short_id: String,
@@ -138,6 +150,7 @@ pub struct GitCommitDetailsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct WorktreeGitStatusResponse {
     pub generation: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -152,6 +165,7 @@ pub struct WorktreeGitStatusResponse {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct WorktreeGitPathActionRequest {
     /// Relative path from the worktree root.
     pub path: String,
@@ -294,10 +308,10 @@ fn normalize_restore_state(
 
 #[utoipa::path(
     put,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/restore-state",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/restore-state",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
     ),
     request_body = UpdateWorktreeRestoreStateRequest,
     responses(
@@ -358,10 +372,10 @@ pub async fn list_project_worktrees(
 
 #[utoipa::path(
     patch,
-    path = "/api/projects/{id}/worktrees/{worktree_id}",
+    path = "/api/projects/{id}/worktrees/{worktreeId}",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
     ),
     request_body = UpdateWorktreeRequest,
     responses(
@@ -544,10 +558,10 @@ pub async fn create_project_worktree(
 
 #[utoipa::path(
     get,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/git-status",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/git-status",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
     ),
     responses(
         (
@@ -592,11 +606,11 @@ pub async fn get_project_worktree_git_status(
 
 #[utoipa::path(
     get,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/git/commits/{commitId}",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
-        ("commit_id" = String, Path, description = "Commit SHA"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
+        ("commitId" = String, Path, description = "Commit SHA"),
     ),
     responses(
         (
@@ -655,10 +669,10 @@ pub async fn get_project_worktree_commit_details(
 
 #[utoipa::path(
     post,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/git/stage",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/git/stage",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
     ),
     request_body = WorktreeGitPathActionRequest,
     responses(
@@ -687,10 +701,10 @@ pub async fn stage_project_worktree_path(
 
 #[utoipa::path(
     post,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/git/unstage",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/git/unstage",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
     ),
     request_body = WorktreeGitPathActionRequest,
     responses(
@@ -719,10 +733,10 @@ pub async fn unstage_project_worktree_path(
 
 #[utoipa::path(
     post,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/git/discard",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/git/discard",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
     ),
     request_body = WorktreeGitPathActionRequest,
     responses(
@@ -751,10 +765,10 @@ pub async fn discard_project_worktree_path(
 
 #[utoipa::path(
     post,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/git/rename-branch",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/git/rename-branch",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
     ),
     request_body = RenameWorktreeBranchRequest,
     responses(
@@ -1290,10 +1304,10 @@ pub async fn import_project_worktree(
 
 #[utoipa::path(
     delete,
-    path = "/api/projects/{id}/worktrees/{worktree_id}",
+    path = "/api/projects/{id}/worktrees/{worktreeId}",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
         DeleteWorktreeParams,
     ),
     responses(

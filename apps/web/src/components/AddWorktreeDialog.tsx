@@ -155,11 +155,11 @@ const CreatePanel = forwardRef<
     if (useCustomStartPoint) {
       return customStartPoint.trim() || "Custom ref…";
     }
-    if (selectedStartPoint?.local_ref) {
-      return selectedStartPoint.local_ref;
+    if (selectedStartPoint?.localRef) {
+      return selectedStartPoint.localRef;
     }
-    if (selectedStartPoint?.remote_refs?.length) {
-      return selectedStartPoint.remote_refs[0];
+    if (selectedStartPoint?.remoteRefs?.length) {
+      return selectedStartPoint.remoteRefs[0];
     }
     if (defaultStartPoint) {
       return defaultStartPoint;
@@ -178,22 +178,22 @@ const CreatePanel = forwardRef<
         setStartPointWarning("");
         try {
           const response = await listProjectWorktreeStartPoints(projectId);
-          setStartPoints(response.start_points);
-          const nextDefault = response.default_start_point?.trim() ?? "";
+          setStartPoints(response.startPoints);
+          const nextDefault = response.defaultStartPoint?.trim() ?? "";
           setDefaultStartPoint(nextDefault);
           const matchedDefault = nextDefault
-            ? response.start_points.find(
+            ? response.startPoints.find(
                 (startPoint) =>
                   startPoint.value === nextDefault ||
-                  startPoint.local_ref === nextDefault ||
-                  startPoint.remote_refs.includes(nextDefault),
+                  startPoint.localRef === nextDefault ||
+                  startPoint.remoteRefs.includes(nextDefault),
               )
             : undefined;
           setSelectedStartPointValue(
-            matchedDefault?.value || response.start_points[0]?.value || "",
+            matchedDefault?.value || response.startPoints[0]?.value || "",
           );
-          if (response.git_error) {
-            setStartPointWarning(response.git_error);
+          if (response.gitError) {
+            setStartPointWarning(response.gitError);
           }
         } catch (loadError) {
           setStartPointWarning(
@@ -236,12 +236,12 @@ const CreatePanel = forwardRef<
           : startPoints.find(
               (startPoint) =>
                 startPoint.value === effectiveStartPoint ||
-                startPoint.local_ref === effectiveStartPoint ||
-                startPoint.remote_refs.includes(effectiveStartPoint),
+                startPoint.localRef === effectiveStartPoint ||
+                startPoint.remoteRefs.includes(effectiveStartPoint),
             );
       const sourceRef =
-        matchedStartPoint?.remote_refs[0] ??
-        matchedStartPoint?.local_ref ??
+        matchedStartPoint?.remoteRefs[0] ??
+        matchedStartPoint?.localRef ??
         undefined;
 
       await onSubmit(effectiveBranch, effectiveStartPoint, sourceRef);
@@ -324,22 +324,22 @@ const CreatePanel = forwardRef<
                     </>
                   ) : selectedStartPoint ? (
                     <>
-                      {selectedStartPoint.local_ref ? (
+                      {selectedStartPoint.localRef ? (
                         <Badge
                           variant="outline"
                           className="deterministic-tag-badge max-w-full truncate text-xs"
-                          style={tagStyle(selectedStartPoint.local_ref)}
+                          style={tagStyle(selectedStartPoint.localRef)}
                         >
-                          {selectedStartPoint.local_ref}
+                          {selectedStartPoint.localRef}
                         </Badge>
                       ) : null}
-                      {!selectedStartPoint.local_ref &&
-                      selectedStartPoint.remote_refs.length === 0 ? (
+                      {!selectedStartPoint.localRef &&
+                      selectedStartPoint.remoteRefs.length === 0 ? (
                         <span className="truncate text-muted-foreground">
                           {startPointTriggerLabel}
                         </span>
                       ) : null}
-                      {selectedStartPoint.remote_refs.map((remoteRef) => (
+                      {selectedStartPoint.remoteRefs.map((remoteRef) => (
                         <Badge
                           key={remoteRef}
                           variant="outline"
@@ -380,8 +380,8 @@ const CreatePanel = forwardRef<
                           keywords={[
                             startPoint.value,
                             startPoint.sha,
-                            startPoint.local_ref ?? "",
-                            ...startPoint.remote_refs,
+                            startPoint.localRef ?? "",
+                            ...startPoint.remoteRefs,
                           ]}
                           className="start-point-command-item"
                           onSelect={() => {
@@ -394,16 +394,16 @@ const CreatePanel = forwardRef<
                           <GitBranch className="h-4 w-4 text-muted-foreground" />
                           <div className="min-w-0 flex-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1">
-                              {startPoint.local_ref ? (
+                              {startPoint.localRef ? (
                                 <Badge
                                   variant="outline"
                                   className="deterministic-tag-badge max-w-full truncate text-xs"
-                                  style={tagStyle(startPoint.local_ref)}
+                                  style={tagStyle(startPoint.localRef)}
                                 >
-                                  {startPoint.local_ref}
+                                  {startPoint.localRef}
                                 </Badge>
                               ) : null}
-                              {startPoint.remote_refs.map((remoteRef) => (
+                              {startPoint.remoteRefs.map((remoteRef) => (
                                 <Badge
                                   key={remoteRef}
                                   variant="outline"
@@ -413,8 +413,8 @@ const CreatePanel = forwardRef<
                                   {remoteRef}
                                 </Badge>
                               ))}
-                              {!startPoint.local_ref &&
-                              startPoint.remote_refs.length === 0 ? (
+                              {!startPoint.localRef &&
+                              startPoint.remoteRefs.length === 0 ? (
                                 <span className="truncate">
                                   {startPoint.value}
                                 </span>
@@ -512,9 +512,9 @@ function ImportPanel({
       try {
         const response = await listImportableWorktrees(projectId);
         if (cancelled) return;
-        setWorktrees(response.importable_worktrees);
-        if (response.git_error) {
-          setError(response.git_error);
+        setWorktrees(response.importableWorktrees);
+        if (response.gitError) {
+          setError(response.gitError);
         }
       } catch (loadError) {
         if (cancelled) return;

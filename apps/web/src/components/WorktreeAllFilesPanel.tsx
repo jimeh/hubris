@@ -93,11 +93,11 @@ function buildDecorations(worktreeState: DecorationState): {
     }
   }
 
-  for (const change of worktreeState.gitStatus?.staged_files ?? []) {
-    record(change.change_type as GitChangeType, change.path);
+  for (const change of worktreeState.gitStatus?.stagedFiles ?? []) {
+    record(change.changeType as GitChangeType, change.path);
   }
-  for (const change of worktreeState.gitStatus?.unstaged_files ?? []) {
-    record(change.change_type as GitChangeType, change.path);
+  for (const change of worktreeState.gitStatus?.unstagedFiles ?? []) {
+    record(change.changeType as GitChangeType, change.path);
   }
 
   return { fileChanges, directoryChanges };
@@ -513,7 +513,7 @@ function ExplorerTreeRow({
           <FileIcon
             path={entry.path}
             theme={theme}
-            isSymlink={entry.is_symlink}
+            isSymlink={entry.isSymlink}
           />
           {renameInput ?? (
             <span
@@ -572,7 +572,7 @@ function ExplorerTreeRow({
             name={entry.name}
             open={expanded}
             theme={theme}
-            isSymlink={entry.is_symlink}
+            isSymlink={entry.isSymlink}
           />
           {renameInput ?? (
             <span
@@ -786,8 +786,8 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
         setSelectedPath(worktree.id, path);
         if (nextExpanded) {
           void (async () => {
-            await loadDirectory(worktree.project_id, worktree.id, path);
-            await preloadVisibleDirectories(worktree.project_id, worktree.id);
+            await loadDirectory(worktree.projectId, worktree.id, path);
+            await preloadVisibleDirectories(worktree.projectId, worktree.id);
           })();
         }
       },
@@ -798,7 +798,7 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
       setExpanded,
       setSelectedPath,
       worktree.id,
-      worktree.project_id,
+      worktree.projectId,
     ],
   );
 
@@ -811,18 +811,13 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
       }
 
       try {
-        await renameEntry(
-          worktree.project_id,
-          worktree.id,
-          entry.path,
-          trimmed,
-        );
+        await renameEntry(worktree.projectId, worktree.id, entry.path, trimmed);
         toast.success("Renamed");
       } catch (error) {
         toast.error((error as Error).message);
       }
     },
-    [renameEntry, setRenamePath, worktree.id, worktree.project_id],
+    [renameEntry, setRenamePath, worktree.id, worktree.projectId],
   );
 
   const handleOpenFile = useCallback(
@@ -850,11 +845,11 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
   );
   const handleRetryDirectory = useCallback(
     (path: string) => {
-      void loadDirectory(worktree.project_id, worktree.id, path, {
+      void loadDirectory(worktree.projectId, worktree.id, path, {
         force: true,
       });
     },
-    [loadDirectory, worktree.id, worktree.project_id],
+    [loadDirectory, worktree.id, worktree.projectId],
   );
 
   return (
@@ -882,7 +877,7 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
               size="sm"
               className="mt-3"
               onClick={() => {
-                void loadDirectory(worktree.project_id, worktree.id, "", {
+                void loadDirectory(worktree.projectId, worktree.id, "", {
                   force: true,
                 });
               }}
@@ -896,7 +891,7 @@ export default function WorktreeAllFilesPanel({ worktree }: Props) {
               <RefreshErrorBanner
                 error={rootDirectory.error}
                 onRetry={() => {
-                  void loadDirectory(worktree.project_id, worktree.id, "", {
+                  void loadDirectory(worktree.projectId, worktree.id, "", {
                     force: true,
                   });
                 }}

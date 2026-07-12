@@ -102,11 +102,11 @@ function makeTab(
     id: overrides.id,
     label: overrides.label ?? `Terminal ${overrides.id}`,
     position: overrides.position ?? 1,
-    worktree_id: overrides.worktree_id ?? "w1",
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: overrides.session_id ?? "default",
+    worktreeId: overrides.worktreeId ?? "w1",
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: overrides.sessionId ?? "default",
     type: overrides.type ?? "terminal",
-    created_at: overrides.created_at ?? 0,
+    createdAt: overrides.createdAt ?? 0,
     preview: overrides.preview ?? false,
   };
 }
@@ -121,11 +121,11 @@ function makeFileTab(
       overrides.path.split("/").filter(Boolean).at(-1) ??
       overrides.path,
     position: overrides.position ?? 1,
-    worktree_id: overrides.worktree_id ?? "w1",
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: overrides.session_id ?? "default",
+    worktreeId: overrides.worktreeId ?? "w1",
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: overrides.sessionId ?? "default",
     type: "file",
-    created_at: overrides.created_at ?? 0,
+    createdAt: overrides.createdAt ?? 0,
     preview: overrides.preview ?? true,
     path: overrides.path,
   };
@@ -141,16 +141,16 @@ function makeGitDiffTab(
       overrides.path.split("/").filter(Boolean).at(-1) ??
       overrides.path,
     position: overrides.position ?? 1,
-    worktree_id: overrides.worktree_id ?? "w1",
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: overrides.session_id ?? "default",
+    worktreeId: overrides.worktreeId ?? "w1",
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: overrides.sessionId ?? "default",
     type: "git_diff",
-    created_at: overrides.created_at ?? 0,
+    createdAt: overrides.createdAt ?? 0,
     preview: overrides.preview ?? true,
     path: overrides.path,
     scope: overrides.scope ?? "unstaged",
-    original_path: overrides.original_path ?? null,
-    commit_id: overrides.commit_id ?? null,
+    originalPath: overrides.originalPath ?? null,
+    commitId: overrides.commitId ?? null,
   };
 }
 
@@ -161,32 +161,32 @@ function makeBrowserTab(
     id: overrides.id,
     label: overrides.label ?? "localhost",
     position: overrides.position ?? 1,
-    worktree_id: overrides.worktree_id ?? "w1",
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: overrides.session_id ?? "default",
+    worktreeId: overrides.worktreeId ?? "w1",
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: overrides.sessionId ?? "default",
     type: "browser",
-    created_at: overrides.created_at ?? 0,
+    createdAt: overrides.createdAt ?? 0,
     preview: overrides.preview ?? false,
     url: overrides.url,
     history: overrides.history ?? [overrides.url],
-    history_index: overrides.history_index ?? 0,
+    historyIndex: overrides.historyIndex ?? 0,
   };
 }
 
 function makeAgentChatTab(
-  overrides: Partial<AgentChatTab> & { id: string; conversation_id: string },
+  overrides: Partial<AgentChatTab> & { id: string; conversationId: string },
 ): AgentChatTab {
   return {
     id: overrides.id,
     label: overrides.label ?? "New Chat",
     position: overrides.position ?? 1,
-    worktree_id: overrides.worktree_id ?? "w1",
-    pane_id: overrides.pane_id ?? "pane-1",
-    session_id: overrides.session_id ?? "default",
+    worktreeId: overrides.worktreeId ?? "w1",
+    paneId: overrides.paneId ?? "pane-1",
+    sessionId: overrides.sessionId ?? "default",
     type: "agent_chat",
-    created_at: overrides.created_at ?? 0,
+    createdAt: overrides.createdAt ?? 0,
     preview: overrides.preview ?? false,
-    conversation_id: overrides.conversation_id,
+    conversationId: overrides.conversationId,
   };
 }
 
@@ -242,8 +242,8 @@ describe("Tab store", () => {
     const store = await getStore();
     mockEvents.emit("snapshot", {
       tabs: [
-        makeTab({ id: "one", worktree_id: "w1" }),
-        makeTab({ id: "two", worktree_id: "w2" }),
+        makeTab({ id: "one", worktreeId: "w1" }),
+        makeTab({ id: "two", worktreeId: "w2" }),
       ],
     });
     store.useTabStore.getState().activate("one");
@@ -270,8 +270,8 @@ describe("Tab store", () => {
     const store = await getStore();
     mockEvents.emit("snapshot", {
       tabs: [
-        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" }),
-        makeTab({ id: "b", worktree_id: "w2", pane_id: "pane-2" }),
+        makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1" }),
+        makeTab({ id: "b", worktreeId: "w2", paneId: "pane-2" }),
       ],
     });
     const state = store.useTabStore.getState();
@@ -283,8 +283,8 @@ describe("Tab store", () => {
       tab: makeTab({
         id: "b",
         label: "updated",
-        worktree_id: "w2",
-        pane_id: "pane-2",
+        worktreeId: "w2",
+        paneId: "pane-2",
       }),
     });
     const nextState = store.useTabStore.getState();
@@ -300,9 +300,9 @@ describe("Tab store", () => {
 
     mockEvents.emit("snapshot", {
       tabs: [
-        makeTab({ id: "a", position: 1, worktree_id: "w1" }),
-        makeTab({ id: "b", position: 2, worktree_id: "w1" }),
-        makeTab({ id: "c", position: 3, worktree_id: "w1" }),
+        makeTab({ id: "a", position: 1, worktreeId: "w1" }),
+        makeTab({ id: "b", position: 2, worktreeId: "w1" }),
+        makeTab({ id: "c", position: 3, worktreeId: "w1" }),
       ],
     });
 
@@ -325,19 +325,19 @@ describe("Tab store", () => {
 
     mockEvents.emit("snapshot", {
       tabs: [
-        makeTab({ id: "a", position: 1, worktree_id: "w1" }),
-        makeTab({ id: "b", position: 2, worktree_id: "w1" }),
-        makeTab({ id: "c", position: 3, worktree_id: "w1" }),
+        makeTab({ id: "a", position: 1, worktreeId: "w1" }),
+        makeTab({ id: "b", position: 2, worktreeId: "w1" }),
+        makeTab({ id: "c", position: 3, worktreeId: "w1" }),
       ],
     });
 
     mockEvents.emit("tabs_reordered", {
-      session_id: "default",
-      worktree_id: "w1",
+      sessionId: "default",
+      worktreeId: "w1",
       tabs: [
-        makeTab({ id: "c", position: 1, worktree_id: "w1" }),
-        makeTab({ id: "a", position: 2, worktree_id: "w1" }),
-        makeTab({ id: "b", position: 3, worktree_id: "w1" }),
+        makeTab({ id: "c", position: 1, worktreeId: "w1" }),
+        makeTab({ id: "a", position: 2, worktreeId: "w1" }),
+        makeTab({ id: "b", position: 3, worktreeId: "w1" }),
       ],
     });
 
@@ -353,18 +353,18 @@ describe("Tab store", () => {
 
     mockEvents.emit("snapshot", {
       tabs: [
-        makeTab({ id: "a", position: 1, worktree_id: "w1" }),
-        makeTab({ id: "b", position: 2, worktree_id: "w1" }),
-        makeTab({ id: "x", position: 1, worktree_id: "w2" }),
+        makeTab({ id: "a", position: 1, worktreeId: "w1" }),
+        makeTab({ id: "b", position: 2, worktreeId: "w1" }),
+        makeTab({ id: "x", position: 1, worktreeId: "w2" }),
       ],
     });
 
     mockEvents.emit("tabs_reordered", {
-      session_id: "default",
-      worktree_id: "w1",
+      sessionId: "default",
+      worktreeId: "w1",
       tabs: [
-        makeTab({ id: "b", position: 1, worktree_id: "w1" }),
-        makeTab({ id: "a", position: 2, worktree_id: "w1" }),
+        makeTab({ id: "b", position: 1, worktreeId: "w1" }),
+        makeTab({ id: "a", position: 2, worktreeId: "w1" }),
       ],
     });
 
@@ -381,42 +381,42 @@ describe("Tab store", () => {
       layout: {
         rootId: "split-root",
         nodes: [
-          { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
-          { type: "leaf", id: "leaf-b", pane_id: "pane-2" },
+          { type: "leaf", id: "leaf-a", paneId: "pane-1" },
+          { type: "leaf", id: "leaf-b", paneId: "pane-2" },
           {
             type: "split",
             id: "split-root",
             axis: "vertical",
             ratio: 0.7,
-            first_id: "leaf-a",
-            second_id: "leaf-b",
+            firstId: "leaf-a",
+            secondId: "leaf-b",
           },
         ],
       },
       tabs: [
-        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" }),
-        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-2" }),
+        makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1" }),
+        makeTab({ id: "b", worktreeId: "w1", paneId: "pane-2" }),
       ],
     });
 
     mockEvents.emit("snapshot", {
       tabs: [
-        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" }),
-        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-2" }),
+        makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1" }),
+        makeTab({ id: "b", worktreeId: "w1", paneId: "pane-2" }),
       ],
-      tab_layouts: {
+      tabLayouts: {
         w1: {
           rootId: "split-root",
           nodes: [
-            { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
-            { type: "leaf", id: "leaf-b", pane_id: "pane-2" },
+            { type: "leaf", id: "leaf-a", paneId: "pane-1" },
+            { type: "leaf", id: "leaf-b", paneId: "pane-2" },
             {
               type: "split",
               id: "split-root",
               axis: "vertical",
               ratio: 0.5,
-              first_id: "leaf-a",
-              second_id: "leaf-b",
+              firstId: "leaf-a",
+              secondId: "leaf-b",
             },
           ],
         },
@@ -431,15 +431,15 @@ describe("Tab store", () => {
     expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledWith("p1", "w1", {
       rootId: "split-root",
       nodes: [
-        { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
-        { type: "leaf", id: "leaf-b", pane_id: "pane-2" },
+        { type: "leaf", id: "leaf-a", paneId: "pane-1" },
+        { type: "leaf", id: "leaf-b", paneId: "pane-2" },
         {
           type: "split",
           id: "split-root",
           axis: "vertical",
           ratio: 0.7,
-          first_id: "leaf-a",
-          second_id: "leaf-b",
+          firstId: "leaf-a",
+          secondId: "leaf-b",
         },
       ],
       panes: [
@@ -459,38 +459,38 @@ describe("Tab store", () => {
       layout: {
         rootId: "split-root",
         nodes: [
-          { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
+          { type: "leaf", id: "leaf-a", paneId: "pane-1" },
           {
             type: "leaf",
             id: "leaf-b",
-            pane_id: "00000000-0000-4000-8000-000000000000",
+            paneId: "00000000-0000-4000-8000-000000000000",
           },
           {
             type: "split",
             id: "split-root",
             axis: "vertical",
             ratio: 0.5,
-            first_id: "leaf-a",
-            second_id: "leaf-b",
+            firstId: "leaf-a",
+            secondId: "leaf-b",
           },
         ],
       },
-      tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+      tabs: [makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1" })],
     });
     mockCreateTerminalTab.mockResolvedValue(
       makeTab({
         id: "b",
-        worktree_id: "w1",
-        pane_id: "00000000-0000-4000-8000-000000000000",
+        worktreeId: "w1",
+        paneId: "00000000-0000-4000-8000-000000000000",
       }),
     );
 
     mockEvents.emit("snapshot", {
-      tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
-      tab_layouts: {
+      tabs: [makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1" })],
+      tabLayouts: {
         w1: {
           rootId: "leaf-a",
-          nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+          nodes: [{ type: "leaf", id: "leaf-a", paneId: "pane-1" }],
         },
       },
     });
@@ -501,7 +501,7 @@ describe("Tab store", () => {
     expect(layoutRequest).toEqual({
       rootId: expect.any(String),
       nodes: expect.arrayContaining([
-        expect.objectContaining({ type: "leaf", pane_id: "pane-1" }),
+        expect.objectContaining({ type: "leaf", paneId: "pane-1" }),
         expect.objectContaining({ type: "leaf" }),
         expect.objectContaining({ type: "split", axis: "vertical" }),
       ]),
@@ -531,39 +531,39 @@ describe("Tab store", () => {
         layout: {
           rootId: "split-root",
           nodes: [
-            { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
+            { type: "leaf", id: "leaf-a", paneId: "pane-1" },
             {
               type: "leaf",
               id: "leaf-b",
-              pane_id: "00000000-0000-4000-8000-000000000000",
+              paneId: "00000000-0000-4000-8000-000000000000",
             },
             {
               type: "split",
               id: "split-root",
               axis: "vertical",
               ratio: 0.5,
-              first_id: "leaf-a",
-              second_id: "leaf-b",
+              firstId: "leaf-a",
+              secondId: "leaf-b",
             },
           ],
         },
-        tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+        tabs: [makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1" })],
       })
       .mockResolvedValueOnce({
         layout: {
           rootId: "leaf-a",
-          nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+          nodes: [{ type: "leaf", id: "leaf-a", paneId: "pane-1" }],
         },
-        tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
+        tabs: [makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1" })],
       });
     mockCreateTerminalTab.mockRejectedValue(new Error("boom"));
 
     mockEvents.emit("snapshot", {
-      tabs: [makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" })],
-      tab_layouts: {
+      tabs: [makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1" })],
+      tabLayouts: {
         w1: {
           rootId: "leaf-a",
-          nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+          nodes: [{ type: "leaf", id: "leaf-a", paneId: "pane-1" }],
         },
       },
     });
@@ -575,12 +575,12 @@ describe("Tab store", () => {
     expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(2);
     expect(mockUpdateWorktreeTabLayout.mock.calls[1]?.[2]).toEqual({
       rootId: "leaf-a",
-      nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+      nodes: [{ type: "leaf", id: "leaf-a", paneId: "pane-1" }],
       panes: [{ paneId: "pane-1", tabIds: ["a"] }],
     });
     expect(store.useTabStore.getState().layoutsByWorktree.w1).toEqual({
       rootId: "leaf-a",
-      nodes: [{ type: "leaf", id: "leaf-a", pane_id: "pane-1" }],
+      nodes: [{ type: "leaf", id: "leaf-a", paneId: "pane-1" }],
     });
   });
 
@@ -590,32 +590,32 @@ describe("Tab store", () => {
 
     mockEvents.emit("snapshot", {
       tabs: [
-        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1" }),
-        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-2" }),
-        makeTab({ id: "c", worktree_id: "w1", pane_id: "pane-3" }),
+        makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1" }),
+        makeTab({ id: "b", worktreeId: "w1", paneId: "pane-2" }),
+        makeTab({ id: "c", worktreeId: "w1", paneId: "pane-3" }),
       ],
-      tab_layouts: {
+      tabLayouts: {
         w1: {
           rootId: "split-root",
           nodes: [
-            { type: "leaf", id: "leaf-a", pane_id: "pane-1" },
-            { type: "leaf", id: "leaf-b", pane_id: "pane-2" },
-            { type: "leaf", id: "leaf-c", pane_id: "pane-3" },
+            { type: "leaf", id: "leaf-a", paneId: "pane-1" },
+            { type: "leaf", id: "leaf-b", paneId: "pane-2" },
+            { type: "leaf", id: "leaf-c", paneId: "pane-3" },
             {
               type: "split",
               id: "split-right",
               axis: "horizontal",
               ratio: 0.5,
-              first_id: "leaf-b",
-              second_id: "leaf-c",
+              firstId: "leaf-b",
+              secondId: "leaf-c",
             },
             {
               type: "split",
               id: "split-root",
               axis: "vertical",
               ratio: 0.5,
-              first_id: "leaf-a",
-              second_id: "split-right",
+              firstId: "leaf-a",
+              secondId: "split-right",
             },
           ],
         },
@@ -646,7 +646,7 @@ describe("Tab store", () => {
     const store = await getStore();
 
     mockEvents.emit("snapshot", {
-      tabs: [makeTab({ id: "a", worktree_id: "w1", position: 1 })],
+      tabs: [makeTab({ id: "a", worktreeId: "w1", position: 1 })],
     });
 
     expect(store.useTabStore.getState().activeTabId).toBeNull();
@@ -665,9 +665,9 @@ describe("Tab store", () => {
 
     mockEvents.emit("snapshot", {
       tabs: [
-        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1", position: 1 }),
-        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-1", position: 2 }),
-        makeTab({ id: "c", worktree_id: "w1", pane_id: "pane-1", position: 3 }),
+        makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1", position: 1 }),
+        makeTab({ id: "b", worktreeId: "w1", paneId: "pane-1", position: 2 }),
+        makeTab({ id: "c", worktreeId: "w1", paneId: "pane-1", position: 3 }),
       ],
     });
 
@@ -686,9 +686,9 @@ describe("Tab store", () => {
 
     mockEvents.emit("snapshot", {
       tabs: [
-        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1", position: 1 }),
-        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-1", position: 2 }),
-        makeTab({ id: "c", worktree_id: "w1", pane_id: "pane-1", position: 3 }),
+        makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1", position: 1 }),
+        makeTab({ id: "b", worktreeId: "w1", paneId: "pane-1", position: 2 }),
+        makeTab({ id: "c", worktreeId: "w1", paneId: "pane-1", position: 3 }),
       ],
     });
 
@@ -714,28 +714,28 @@ describe("Tab store", () => {
 
     mockEvents.emit("snapshot", {
       tabs: [
-        makeTab({ id: "a", worktree_id: "w1", pane_id: "pane-1", position: 1 }),
-        makeTab({ id: "b", worktree_id: "w1", pane_id: "pane-1", position: 2 }),
-        makeTab({ id: "c", worktree_id: "w1", pane_id: "pane-2", position: 1 }),
+        makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1", position: 1 }),
+        makeTab({ id: "b", worktreeId: "w1", paneId: "pane-1", position: 2 }),
+        makeTab({ id: "c", worktreeId: "w1", paneId: "pane-2", position: 1 }),
       ],
-      tab_layouts: {
+      tabLayouts: {
         w1: {
           rootId: "split-root",
           nodes: [
-            { type: "leaf", id: "leaf-1", pane_id: "pane-1" },
-            { type: "leaf", id: "leaf-2", pane_id: "pane-2" },
+            { type: "leaf", id: "leaf-1", paneId: "pane-1" },
+            { type: "leaf", id: "leaf-2", paneId: "pane-2" },
             {
               type: "split",
               id: "split-root",
               axis: "vertical",
               ratio: 0.5,
-              first_id: "leaf-1",
-              second_id: "leaf-2",
+              firstId: "leaf-1",
+              secondId: "leaf-2",
             },
           ],
         },
       },
-      worktree_restore_state: {
+      worktreeRestoreState: {
         w1: {
           focusedPaneId: "pane-1",
           paneMru: ["pane-1", "pane-2"],
@@ -773,13 +773,13 @@ describe("Tab store", () => {
           p1: [
             {
               id: "w1",
-              project_id: "p1",
+              projectId: "p1",
               name: "local",
               branch: "main",
               path: "/repo",
-              source_ref: null,
-              ui_mode: "hubris",
-              is_local: true,
+              sourceRef: null,
+              uiMode: "hubris",
+              isLocal: true,
               position: 1,
             },
           ],
@@ -793,24 +793,24 @@ describe("Tab store", () => {
         tabs: [
           makeTab({
             id: "a",
-            worktree_id: "w1",
-            pane_id: "pane-1",
+            worktreeId: "w1",
+            paneId: "pane-1",
             position: 1,
           }),
           makeTab({
             id: "b",
-            worktree_id: "w1",
-            pane_id: "pane-1",
+            worktreeId: "w1",
+            paneId: "pane-1",
             position: 2,
           }),
         ],
-        tab_layouts: {
+        tabLayouts: {
           w1: {
             rootId: "root",
-            nodes: [{ type: "leaf", id: "root", pane_id: "pane-1" }],
+            nodes: [{ type: "leaf", id: "root", paneId: "pane-1" }],
           },
         },
-        worktree_restore_state: {
+        worktreeRestoreState: {
           w1: {
             activeTabId: "b",
             focusedPaneId: "pane-1",
@@ -838,13 +838,13 @@ describe("Tab store", () => {
     const store = await getStore();
     const tab = makeFileTab({
       id: "file-1",
-      worktree_id: "w1",
+      worktreeId: "w1",
       path: "src/main.ts",
       preview: true,
     });
     mockCreateTab.mockImplementation(async () => {
       mockEvents.emit("tab_created", {
-        session_id: "default",
+        sessionId: "default",
         tab,
       });
       return tab;
@@ -865,13 +865,13 @@ describe("Tab store", () => {
     const store = await getStore();
     const previewTab = makeFileTab({
       id: "preview-1",
-      worktree_id: "w1",
+      worktreeId: "w1",
       path: "src/old.ts",
       preview: true,
     });
     const nextTab = makeFileTab({
       id: "preview-2",
-      worktree_id: "w1",
+      worktreeId: "w1",
       path: "src/new.ts",
       preview: true,
       position: 2,
@@ -896,14 +896,14 @@ describe("Tab store", () => {
     ]);
   });
 
-  it("openGitDiff dedupes commit diff tabs by commit_id", async () => {
+  it("openGitDiff dedupes commit diff tabs by commitId", async () => {
     const store = await getStore();
     const existing = makeGitDiffTab({
       id: "diff-1",
-      worktree_id: "w1",
+      worktreeId: "w1",
       path: "src/main.ts",
       scope: "commit",
-      commit_id: "abcdef123456",
+      commitId: "abcdef123456",
       preview: false,
     });
 
@@ -927,10 +927,10 @@ describe("Tab store", () => {
     const store = await getStore();
     const created = makeGitDiffTab({
       id: "diff-2",
-      worktree_id: "w1",
+      worktreeId: "w1",
       path: "src/main.ts",
       scope: "commit",
-      commit_id: "fedcba654321",
+      commitId: "fedcba654321",
       preview: false,
       position: 2,
     });
@@ -940,10 +940,10 @@ describe("Tab store", () => {
       tabs: [
         makeGitDiffTab({
           id: "diff-1",
-          worktree_id: "w1",
+          worktreeId: "w1",
           path: "src/main.ts",
           scope: "commit",
-          commit_id: "abcdef123456",
+          commitId: "abcdef123456",
           preview: false,
         }),
       ],
@@ -959,12 +959,12 @@ describe("Tab store", () => {
 
     expect(mockCreateTab).toHaveBeenCalledWith({
       type: "git_diff",
-      worktree_id: "w1",
-      pane_id: "pane-1",
+      worktreeId: "w1",
+      paneId: "pane-1",
       path: "src/main.ts",
       scope: "commit",
-      original_path: undefined,
-      commit_id: "fedcba654321",
+      originalPath: undefined,
+      commitId: "fedcba654321",
       preview: false,
     });
     expect(tab.id).toBe("diff-2");
@@ -1005,10 +1005,10 @@ describe("Tab store", () => {
     resolveCreate(
       makeGitDiffTab({
         id: "diff-3",
-        worktree_id: "w1",
+        worktreeId: "w1",
         path: "src/main.ts",
         scope: "commit",
-        commit_id: "abcdef123456",
+        commitId: "abcdef123456",
         preview: true,
       }),
     );
@@ -1046,8 +1046,8 @@ describe("Tab store", () => {
     resolveCreate(
       makeAgentChatTab({
         id: "chat-tab-1",
-        worktree_id: "w1",
-        conversation_id: "chat-1",
+        worktreeId: "w1",
+        conversationId: "chat-1",
       }),
     );
 
@@ -1088,9 +1088,9 @@ describe("Tab store", () => {
     resolveCreate(
       makeAgentChatTab({
         id: "chat-tab-1",
-        pane_id: "pane-1",
-        worktree_id: "w1",
-        conversation_id: "chat-1",
+        paneId: "pane-1",
+        worktreeId: "w1",
+        conversationId: "chat-1",
       }),
     );
 
@@ -1112,10 +1112,10 @@ describe("Tab store", () => {
     mockUpdateTab.mockResolvedValue(
       makeGitDiffTab({
         id: "diff-4",
-        worktree_id: "w1",
+        worktreeId: "w1",
         path: "src/main.ts",
         scope: "commit",
-        commit_id: "abcdef123456",
+        commitId: "abcdef123456",
         preview: false,
       }),
     );
@@ -1142,10 +1142,10 @@ describe("Tab store", () => {
     resolveCreate(
       makeGitDiffTab({
         id: "diff-4",
-        worktree_id: "w1",
+        worktreeId: "w1",
         path: "src/main.ts",
         scope: "commit",
-        commit_id: "abcdef123456",
+        commitId: "abcdef123456",
         preview: true,
       }),
     );
@@ -1166,7 +1166,7 @@ describe("Tab store", () => {
     const store = await getStore();
     const tab = makeBrowserTab({
       id: "browser-1",
-      worktree_id: "w1",
+      worktreeId: "w1",
       position: 1,
       label: "New Browser",
       url: "about:blank",
@@ -1180,8 +1180,8 @@ describe("Tab store", () => {
 
     expect(mockCreateTab).toHaveBeenCalledWith({
       type: "browser",
-      worktree_id: "w1",
-      pane_id: "pane-1",
+      worktreeId: "w1",
+      paneId: "pane-1",
       url: "about:blank",
     });
     expect(created).toEqual(tab);
@@ -1193,7 +1193,7 @@ describe("Tab store", () => {
     const store = await getStore();
     const browserTab = makeBrowserTab({
       id: "browser-2",
-      worktree_id: "w1",
+      worktreeId: "w1",
       url: "http://localhost:3000/",
     });
     const updated = makeBrowserTab({
@@ -1201,7 +1201,7 @@ describe("Tab store", () => {
       label: "docs",
       url: "https://example.com/docs",
       history: ["http://localhost:3000/", "https://example.com/docs"],
-      history_index: 1,
+      historyIndex: 1,
     });
     mockUpdateTab.mockResolvedValue(updated);
 
@@ -1222,13 +1222,13 @@ describe("Tab store", () => {
       label: "docs",
       url: "https://example.com/docs",
       history: ["http://localhost:3000/", "https://example.com/docs"],
-      history_index: 1,
+      historyIndex: 1,
     });
     expect(result).toEqual(updated);
     expect(store.tabsForWorktree("w1")[0]).toMatchObject({
       url: "https://example.com/docs",
       history: ["http://localhost:3000/", "https://example.com/docs"],
-      history_index: 1,
+      historyIndex: 1,
     });
   });
 
@@ -1236,7 +1236,7 @@ describe("Tab store", () => {
     const store = await getStore();
     const browserTab = makeBrowserTab({
       id: "browser-3",
-      worktree_id: "w1",
+      worktreeId: "w1",
       url: "http://localhost:3000/",
     });
     mockDeleteTab.mockResolvedValue(undefined);
@@ -1256,7 +1256,7 @@ describe("Tab store", () => {
     const store = await getStore();
     const browserTab = makeBrowserTab({
       id: "browser-4",
-      worktree_id: "w1",
+      worktreeId: "w1",
       url: "http://localhost:3000/",
     });
 
@@ -1266,7 +1266,7 @@ describe("Tab store", () => {
     mockDesktopBrowserDestroy.mockClear();
 
     mockEvents.emit("tab_closed", {
-      tab_id: browserTab.id,
+      tabId: browserTab.id,
     });
 
     expect(mockDesktopBrowserDestroy).toHaveBeenCalledWith({

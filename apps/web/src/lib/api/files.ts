@@ -8,7 +8,7 @@ export async function listFiles(
   return requestJson("GET", "/api/files", {
     query: {
       ...(path ? { path } : {}),
-      ...(showHidden ? { show_hidden: true } : {}),
+      ...(showHidden ? { showHidden: true } : {}),
     },
   });
 }

@@ -31,8 +31,8 @@ export async function createTerminalTab(
 ): Promise<Tab> {
   return createTab({
     type: "terminal",
-    worktree_id: worktreeId,
-    pane_id: paneId,
+    worktreeId: worktreeId,
+    paneId: paneId,
   });
 }
 
@@ -61,9 +61,9 @@ export async function reorderTabs(
 ): Promise<Tab[]> {
   return requestJson("PUT", "/api/tabs/reorder", {
     body: {
-      worktree_id: worktreeId,
-      pane_id: paneId,
-      tab_ids: tabIds,
+      worktreeId: worktreeId,
+      paneId: paneId,
+      tabIds: tabIds,
     },
   });
 }
@@ -79,9 +79,9 @@ export async function updateWorktreeTabLayout(
 ): Promise<WorktreeTabLayoutState> {
   return requestJson(
     "PUT",
-    "/api/projects/{id}/worktrees/{worktree_id}/tab-layout",
+    "/api/projects/{id}/worktrees/{worktreeId}/tab-layout",
     {
-      path: { id: projectId, worktree_id: worktreeId },
+      path: { id: projectId, worktreeId: worktreeId },
       body: {
         rootId: layout.rootId,
         nodes: layout.nodes,
@@ -99,9 +99,9 @@ export async function updateWorktreeRestoreState(
   try {
     await requestVoid(
       "PUT",
-      "/api/projects/{id}/worktrees/{worktree_id}/restore-state",
+      "/api/projects/{id}/worktrees/{worktreeId}/restore-state",
       {
-        path: { id: projectId, worktree_id: worktreeId },
+        path: { id: projectId, worktreeId: worktreeId },
         body: {
           activeTabId: restoreState.activeTabId ?? null,
           focusedPaneId: restoreState.focusedPaneId ?? null,

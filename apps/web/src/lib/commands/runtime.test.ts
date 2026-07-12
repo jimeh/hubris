@@ -45,21 +45,21 @@ function makeWorktree(
   name: string,
   overrides: Partial<{
     branch: string;
-    is_local: boolean;
+    isLocal: boolean;
     position: number;
-    ui_mode: "hubris" | "vscode";
+    uiMode: "hubris" | "vscode";
   }> = {},
 ) {
   return {
     id,
-    project_id: projectId,
+    projectId: projectId,
     name,
     path: `/tmp/${name}`,
     branch: overrides.branch ?? name,
-    source_ref: null,
-    ui_mode: overrides.ui_mode ?? "hubris",
-    is_local: overrides.is_local ?? false,
-    missing_on_disk: false,
+    sourceRef: null,
+    uiMode: overrides.uiMode ?? "hubris",
+    isLocal: overrides.isLocal ?? false,
+    missingOnDisk: false,
     position: overrides.position ?? 1,
   };
 }
@@ -69,11 +69,11 @@ function makeTerminalTab(id: string, worktreeId: string, paneId = "pane-1") {
     id,
     label: `Tab ${id}`,
     position: 1,
-    worktree_id: worktreeId,
-    pane_id: paneId,
-    session_id: "default",
+    worktreeId: worktreeId,
+    paneId: paneId,
+    sessionId: "default",
     type: "terminal" as const,
-    created_at: 0,
+    createdAt: 0,
     preview: false,
   };
 }
@@ -82,7 +82,7 @@ function seedContext() {
   const projectOne = makeProject("p1", "Alpha", 1);
   const projectTwo = makeProject("p2", "Beta", 2);
   const worktreeOne = makeWorktree("w1", "p1", "local", {
-    is_local: true,
+    isLocal: true,
   });
   const worktreeTwo = makeWorktree("w2", "p2", "feature");
 
@@ -186,13 +186,13 @@ describe("command runtime", () => {
       id: "chat-tab-1",
       label: "New Chat",
       position: 2,
-      worktree_id: worktreeOne.id,
-      pane_id: "pane-1",
-      session_id: "default",
+      worktreeId: worktreeOne.id,
+      paneId: "pane-1",
+      sessionId: "default",
       type: "agent_chat" as const,
-      created_at: 0,
+      createdAt: 0,
       preview: false,
-      conversation_id: "conversation-1",
+      conversationId: "conversation-1",
     };
     const openAgentChatSpy = vi
       .spyOn(useTabStore.getState(), "openAgentChat")
@@ -218,7 +218,7 @@ describe("command runtime", () => {
         "chat-cross-project": {
           id: "chat-cross-project",
           sessionId: "default",
-          projectId: worktreeTwo.project_id,
+          projectId: worktreeTwo.projectId,
           worktreeId: worktreeTwo.id,
           branchName: worktreeOne.branch,
           provider: "codex",
@@ -250,7 +250,7 @@ describe("command runtime", () => {
         "chat-2": {
           id: "chat-2",
           sessionId: "default",
-          projectId: worktreeTwo.project_id,
+          projectId: worktreeTwo.projectId,
           worktreeId: worktreeTwo.id,
           provider: "codex",
           providerThreadId: null,
@@ -376,7 +376,7 @@ describe("command runtime", () => {
   it("switches to the next and previous project local worktree", async () => {
     const { projectTwo, worktreeOne, worktreeTwo } = seedContext();
     const projectTwoLocal = makeWorktree("w2-local", projectTwo.id, "local", {
-      is_local: true,
+      isLocal: true,
       position: 1,
     });
     useWorktreeStore.setState({
@@ -541,7 +541,7 @@ describe("command runtime", () => {
     useWorktreeStore.setState({
       selectedWorktreeId: worktreeOne.id,
       worktreesByProject: {
-        [projectOne.id]: [{ ...worktreeOne, ui_mode: "vscode" }],
+        [projectOne.id]: [{ ...worktreeOne, uiMode: "vscode" }],
       },
     });
     const updateSpy = vi

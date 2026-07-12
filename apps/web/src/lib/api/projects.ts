@@ -26,7 +26,7 @@ export async function reorderProjects(
   projectIds: string[],
 ): Promise<Project[]> {
   return requestJson("PUT", "/api/projects/reorder", {
-    body: { project_ids: projectIds },
+    body: { projectIds: projectIds },
   });
 }
 
@@ -40,9 +40,7 @@ export async function deleteProject(
   options: DeleteProjectOptions = {},
 ): Promise<void> {
   const query = {
-    ...(options.deleteManagedWorktrees
-      ? { delete_managed_worktrees: true }
-      : {}),
+    ...(options.deleteManagedWorktrees ? { deleteManagedWorktrees: true } : {}),
     ...(options.force ? { force: true } : {}),
   };
   try {

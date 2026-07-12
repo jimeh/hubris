@@ -51,8 +51,8 @@ function gitChangeKey(
   return [
     section,
     change.path,
-    change.original_path ?? "",
-    change.change_type,
+    change.originalPath ?? "",
+    change.changeType,
     index,
   ].join(":");
 }
@@ -190,7 +190,7 @@ function FilePathRow({
           onAction(
             action,
             change.path,
-            change.original_path ?? undefined,
+            change.originalPath ?? undefined,
             basename,
             false,
           )
@@ -203,7 +203,7 @@ function FilePathRow({
             onOpenDiff(
               change.path,
               section,
-              change.original_path ?? undefined,
+              change.originalPath ?? undefined,
               undefined,
               true,
             )
@@ -242,19 +242,19 @@ function FilePathRow({
                 onAction(
                   nextAction,
                   change.path,
-                  change.original_path ?? undefined,
+                  change.originalPath ?? undefined,
                   basename,
                   false,
                 )
               }
             />
           ))}
-          badge={<ChangeStatusBadge changeType={change.change_type} />}
+          badge={<ChangeStatusBadge changeType={change.changeType} />}
           onClick={() =>
             onOpenDiff(
               change.path,
               section,
-              change.original_path ?? undefined,
+              change.originalPath ?? undefined,
               undefined,
               true,
             )
@@ -263,7 +263,7 @@ function FilePathRow({
             onOpenDiff(
               change.path,
               section,
-              change.original_path ?? undefined,
+              change.originalPath ?? undefined,
               undefined,
               false,
             )
@@ -321,7 +321,7 @@ export function StatusFileSection({
             onAction(
               action,
               node.path,
-              node.change.original_path ?? undefined,
+              node.change.originalPath ?? undefined,
               node.name,
               false,
             )
@@ -334,7 +334,7 @@ export function StatusFileSection({
               onOpenDiff(
                 node.path,
                 section,
-                node.change.original_path ?? undefined,
+                node.change.originalPath ?? undefined,
                 undefined,
                 true,
               )
@@ -362,19 +362,19 @@ export function StatusFileSection({
                   onAction(
                     nextAction,
                     node.path,
-                    node.change.original_path ?? undefined,
+                    node.change.originalPath ?? undefined,
                     node.name,
                     false,
                   )
                 }
               />
             ))}
-            badge={<ChangeStatusBadge changeType={node.change.change_type} />}
+            badge={<ChangeStatusBadge changeType={node.change.changeType} />}
             onClick={() =>
               onOpenDiff(
                 node.path,
                 section,
-                node.change.original_path ?? undefined,
+                node.change.originalPath ?? undefined,
                 undefined,
                 true,
               )
@@ -383,7 +383,7 @@ export function StatusFileSection({
               onOpenDiff(
                 node.path,
                 section,
-                node.change.original_path ?? undefined,
+                node.change.originalPath ?? undefined,
                 undefined,
                 false,
               )

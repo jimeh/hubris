@@ -24,14 +24,14 @@ function makeProject(id: string, name: string) {
 function makeWorktree(id: string, projectId: string, name: string) {
   return {
     id,
-    project_id: projectId,
+    projectId: projectId,
     name,
     path: `/tmp/${name}`,
     branch: name,
-    source_ref: null,
-    ui_mode: "hubris" as const,
-    is_local: false,
-    missing_on_disk: false,
+    sourceRef: null,
+    uiMode: "hubris" as const,
+    isLocal: false,
+    missingOnDisk: false,
     position: 1,
   };
 }

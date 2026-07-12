@@ -65,19 +65,19 @@ describe("connection store", () => {
     expect(useConnectionStore.getState().snapshotError).toBeNull();
 
     mockEvents.emit("snapshot_unavailable", {
-      scope: "chat_conversations",
+      scope: "chatConversations",
       message: "database is locked",
     });
 
     expect(useConnectionStore.getState().snapshotError).toEqual({
-      scope: "chat_conversations",
+      scope: "chatConversations",
       message: "database is locked",
     });
   });
 
   it("clears the error when a snapshot arrives", () => {
     mockEvents.emit("snapshot_unavailable", {
-      scope: "chat_runtimes",
+      scope: "chatRuntimes",
       message: "boom",
     });
     expect(useConnectionStore.getState().snapshotError).not.toBeNull();

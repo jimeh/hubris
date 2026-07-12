@@ -128,7 +128,7 @@ async fn test_list_files_default_path() {
     let body: Value = res.json().await.unwrap();
     assert!(body["path"].is_string());
     assert!(body["entries"].is_array());
-    assert!(body["home_dir"].is_string());
+    assert!(body["homeDir"].is_string());
 }
 
 #[tokio::test]
@@ -172,13 +172,13 @@ async fn test_list_files_explicit_path() {
 
     // myrepo should be detected as git repo
     let myrepo = entries.iter().find(|e| e["name"] == "myrepo").unwrap();
-    assert_eq!(myrepo["is_git_repo"], true);
+    assert_eq!(myrepo["isGitRepo"], true);
 
     let linkedrepo = entries.iter().find(|e| e["name"] == "linkedrepo").unwrap();
-    assert_eq!(linkedrepo["is_git_repo"], true);
+    assert_eq!(linkedrepo["isGitRepo"], true);
 
     let mydir = entries.iter().find(|e| e["name"] == "mydir").unwrap();
-    assert_eq!(mydir["is_git_repo"], false);
+    assert_eq!(mydir["isGitRepo"], false);
 }
 
 #[tokio::test]
@@ -191,7 +191,7 @@ async fn test_list_files_show_hidden() {
 
     let res = client
         .get(format!(
-            "{}/api/files?path={}&show_hidden=true",
+            "{}/api/files?path={}&showHidden=true",
             base,
             tmp.path().display()
         ))
@@ -346,7 +346,7 @@ async fn test_worktree_file_content_can_be_saved_and_detects_conflicts() {
     assert_eq!(loaded.status(), StatusCode::OK);
     let loaded_body: Value = loaded.json().await.unwrap();
     assert_eq!(loaded_body["content"], "first\n");
-    let original_token = loaded_body["version_token"].as_str().unwrap().to_string();
+    let original_token = loaded_body["versionToken"].as_str().unwrap().to_string();
 
     let saved = client
         .put(format!(
@@ -356,15 +356,15 @@ async fn test_worktree_file_content_can_be_saved_and_detects_conflicts() {
         .json(&serde_json::json!({
             "path": "notes.txt",
             "content": "second\n",
-            "expected_version_token": original_token,
+            "expectedVersionToken": original_token,
         }))
         .send()
         .await
         .unwrap();
     assert_eq!(saved.status(), StatusCode::OK);
     let saved_body: Value = saved.json().await.unwrap();
-    let updated_token = saved_body["version_token"].as_str().unwrap();
-    assert_ne!(updated_token, loaded_body["version_token"]);
+    let updated_token = saved_body["versionToken"].as_str().unwrap();
+    assert_ne!(updated_token, loaded_body["versionToken"]);
     assert_eq!(
         std::fs::read_to_string(repo.path().join("notes.txt")).unwrap(),
         "second\n"
@@ -389,7 +389,7 @@ async fn test_worktree_file_content_can_be_saved_and_detects_conflicts() {
         .json(&serde_json::json!({
             "path": "notes.txt",
             "content": "third\n",
-            "expected_version_token": loaded_body["version_token"],
+            "expectedVersionToken": loaded_body["versionToken"],
         }))
         .send()
         .await
@@ -431,14 +431,14 @@ async fn test_worktree_file_content_noop_save_returns_same_token() {
         .json(&serde_json::json!({
             "path": "notes.txt",
             "content": "first\n",
-            "expected_version_token": loaded_body["version_token"],
+            "expectedVersionToken": loaded_body["versionToken"],
         }))
         .send()
         .await
         .unwrap();
     assert_eq!(saved.status(), StatusCode::OK);
     let saved_body: Value = saved.json().await.unwrap();
-    assert_eq!(saved_body["version_token"], loaded_body["version_token"]);
+    assert_eq!(saved_body["versionToken"], loaded_body["versionToken"]);
     assert_eq!(
         std::fs::read_to_string(repo.path().join("notes.txt")).unwrap(),
         "first\n"
@@ -467,9 +467,9 @@ async fn test_binary_worktree_file_content_is_read_only_and_cannot_be_saved() {
     assert_eq!(loaded.status(), StatusCode::OK);
     let loaded_body: Value = loaded.json().await.unwrap();
     assert_eq!(loaded_body["content"], "");
-    assert_eq!(loaded_body["read_only"], true);
+    assert_eq!(loaded_body["readOnly"], true);
     assert_eq!(
-        loaded_body["unsupported_reason"],
+        loaded_body["unsupportedReason"],
         "Binary files are read-only."
     );
 
@@ -481,7 +481,7 @@ async fn test_binary_worktree_file_content_is_read_only_and_cannot_be_saved() {
         .json(&serde_json::json!({
             "path": "binary.bin",
             "content": "text\n",
-            "expected_version_token": loaded_body["version_token"],
+            "expectedVersionToken": loaded_body["versionToken"],
         }))
         .send()
         .await
@@ -589,7 +589,7 @@ async fn test_worktree_file_content_rejects_symlink_escape_on_save() {
         .json(&serde_json::json!({
             "path": "escape-link",
             "content": "inside\n",
-            "expected_version_token": "ignored",
+            "expectedVersionToken": "ignored",
         }))
         .send()
         .await
@@ -652,7 +652,7 @@ async fn test_linked_worktree_symlink_into_repo_root_is_allowed_for_content_and_
         .json(&serde_json::json!({
             "path": ".env.local",
             "content": "ROOT=two\n",
-            "expected_version_token": loaded_body["version_token"],
+            "expectedVersionToken": loaded_body["versionToken"],
         }))
         .send()
         .await
@@ -673,8 +673,8 @@ async fn test_linked_worktree_symlink_into_repo_root_is_allowed_for_content_and_
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let diff_body: Value = diff.json().await.unwrap();
-    assert_eq!(diff_body["left_content"], "");
-    assert_eq!(diff_body["right_content"], "ROOT=two\n");
+    assert_eq!(diff_body["leftContent"], "");
+    assert_eq!(diff_body["rightContent"], "ROOT=two\n");
 
     let listing = client
         .get(format!(
@@ -694,7 +694,7 @@ async fn test_linked_worktree_symlink_into_repo_root_is_allowed_for_content_and_
             .any(|entry| {
                 entry["path"] == ".env.local"
                     && entry["kind"] == "file"
-                    && entry["is_symlink"] == true
+                    && entry["isSymlink"] == true
             })
     );
     assert!(
@@ -705,7 +705,7 @@ async fn test_linked_worktree_symlink_into_repo_root_is_allowed_for_content_and_
             .any(|entry| {
                 entry["path"] == "shared-link"
                     && entry["kind"] == "directory"
-                    && entry["is_symlink"] == true
+                    && entry["isSymlink"] == true
             })
     );
 
@@ -767,7 +767,7 @@ async fn test_worktree_file_content_save_failure_does_not_truncate_original() {
         .json(&serde_json::json!({
             "path": "notes.txt",
             "content": "second\n",
-            "expected_version_token": loaded_body["version_token"],
+            "expectedVersionToken": loaded_body["versionToken"],
         }))
         .send()
         .await
@@ -805,11 +805,11 @@ async fn test_unstaged_git_diff_for_missing_worktree_file_returns_empty_right_si
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(body["left_content"], "hello\n");
-    assert_eq!(body["right_content"], "");
-    assert_eq!(body["right_label"], "Working Tree");
-    assert_eq!(body["read_only"], true);
-    assert!(body["modified_version_token"].is_null());
+    assert_eq!(body["leftContent"], "hello\n");
+    assert_eq!(body["rightContent"], "");
+    assert_eq!(body["rightLabel"], "Working Tree");
+    assert_eq!(body["readOnly"], true);
+    assert!(body["modifiedVersionToken"].is_null());
 }
 
 #[tokio::test]
@@ -833,10 +833,10 @@ async fn test_unstaged_git_diff_for_text_worktree_file_is_editable() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(body["left_content"], "hello\n");
-    assert_eq!(body["right_content"], "hello world\n");
-    assert_eq!(body["read_only"], false);
-    assert!(body["modified_version_token"].as_str().is_some());
+    assert_eq!(body["leftContent"], "hello\n");
+    assert_eq!(body["rightContent"], "hello world\n");
+    assert_eq!(body["readOnly"], false);
+    assert!(body["modifiedVersionToken"].as_str().is_some());
 }
 
 #[tokio::test]
@@ -861,11 +861,11 @@ async fn test_staged_git_diff_for_new_file_returns_empty_left_side() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(body["left_content"], "");
-    assert_eq!(body["right_content"], "new file\n");
-    assert_eq!(body["read_only"], true);
-    assert!(body["modified_version_token"].is_null());
-    assert!(body["unsupported_reason"].is_null());
+    assert_eq!(body["leftContent"], "");
+    assert_eq!(body["rightContent"], "new file\n");
+    assert_eq!(body["readOnly"], true);
+    assert!(body["modifiedVersionToken"].is_null());
+    assert!(body["unsupportedReason"].is_null());
 }
 
 #[tokio::test]
@@ -903,10 +903,10 @@ async fn test_staged_git_diff_infers_monaco_languages() {
             .unwrap();
         assert_eq!(diff.status(), StatusCode::OK, "path={path}");
         let body: Value = diff.json().await.unwrap();
-        assert_eq!(body["left_content"], "", "path={path}");
-        assert_eq!(body["right_content"], content, "path={path}");
+        assert_eq!(body["leftContent"], "", "path={path}");
+        assert_eq!(body["rightContent"], content, "path={path}");
         assert_eq!(body["language"], expected_language, "path={path}");
-        assert!(body["unsupported_reason"].is_null(), "path={path}");
+        assert!(body["unsupportedReason"].is_null(), "path={path}");
     }
 }
 
@@ -932,12 +932,9 @@ async fn test_staged_git_diff_for_binary_index_blob_is_unsupported() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(
-        body["unsupported_reason"],
-        "Binary diffs are not supported."
-    );
-    assert_eq!(body["left_content"], "");
-    assert_eq!(body["right_content"], "");
+    assert_eq!(body["unsupportedReason"], "Binary diffs are not supported.");
+    assert_eq!(body["leftContent"], "");
+    assert_eq!(body["rightContent"], "");
 }
 
 #[tokio::test]
@@ -963,14 +960,11 @@ async fn test_unstaged_git_diff_for_binary_index_blob_is_unsupported() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(
-        body["unsupported_reason"],
-        "Binary diffs are not supported."
-    );
-    assert_eq!(body["left_content"], "");
-    assert_eq!(body["right_content"], "worktree\n");
-    assert_eq!(body["read_only"], true);
-    assert!(body["modified_version_token"].is_null());
+    assert_eq!(body["unsupportedReason"], "Binary diffs are not supported.");
+    assert_eq!(body["leftContent"], "");
+    assert_eq!(body["rightContent"], "worktree\n");
+    assert_eq!(body["readOnly"], true);
+    assert!(body["modifiedVersionToken"].is_null());
 }
 
 #[tokio::test]
@@ -987,7 +981,7 @@ async fn test_staged_git_diff_uses_original_path_for_left_side() {
 
     let diff = client
         .get(format!(
-            "{}/api/projects/{}/worktrees/{}/git/diff?path=renamed.md&scope=staged&original_path=README.md",
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=renamed.md&scope=staged&originalPath=README.md",
             base, project_id, worktree_id
         ))
         .send()
@@ -995,8 +989,8 @@ async fn test_staged_git_diff_uses_original_path_for_left_side() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(body["left_content"], "hello\n");
-    assert_eq!(body["right_content"], "updated\n");
+    assert_eq!(body["leftContent"], "hello\n");
+    assert_eq!(body["rightContent"], "updated\n");
 }
 
 #[tokio::test]
@@ -1015,7 +1009,7 @@ async fn test_commit_git_diff_returns_parent_to_commit_content() {
 
     let diff = client
         .get(format!(
-            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=commit&commit_id={}",
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=commit&commitId={}",
             base, project_id, worktree_id, commit_id
         ))
         .send()
@@ -1023,13 +1017,13 @@ async fn test_commit_git_diff_returns_parent_to_commit_content() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(body["left_content"], "hello\n");
-    assert_eq!(body["right_content"], "hello world\n");
-    assert_eq!(body["left_label"], "Parent");
-    assert_eq!(body["right_label"], "Commit");
-    assert_eq!(body["read_only"], true);
-    assert!(body["modified_version_token"].is_null());
-    assert_eq!(body["commit_id"], commit_id);
+    assert_eq!(body["leftContent"], "hello\n");
+    assert_eq!(body["rightContent"], "hello world\n");
+    assert_eq!(body["leftLabel"], "Parent");
+    assert_eq!(body["rightLabel"], "Commit");
+    assert_eq!(body["readOnly"], true);
+    assert!(body["modifiedVersionToken"].is_null());
+    assert_eq!(body["commitId"], commit_id);
 }
 
 #[tokio::test]
@@ -1044,7 +1038,7 @@ async fn test_commit_git_diff_handles_root_commit_diff() {
 
     let diff = client
         .get(format!(
-            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=commit&commit_id={}",
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=README.md&scope=commit&commitId={}",
             base, project_id, worktree_id, root_commit_id
         ))
         .send()
@@ -1052,8 +1046,8 @@ async fn test_commit_git_diff_handles_root_commit_diff() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(body["left_content"], "");
-    assert_eq!(body["right_content"], "hello\n");
+    assert_eq!(body["leftContent"], "");
+    assert_eq!(body["rightContent"], "hello\n");
 }
 
 #[tokio::test]
@@ -1082,7 +1076,7 @@ async fn test_commit_git_diff_uses_first_parent_for_merge_commits() {
 
     let diff = client
         .get(format!(
-            "{}/api/projects/{}/worktrees/{}/git/diff?path=feature.txt&scope=commit&commit_id={}",
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=feature.txt&scope=commit&commitId={}",
             base, project_id, worktree_id, merge_commit_id
         ))
         .send()
@@ -1090,8 +1084,8 @@ async fn test_commit_git_diff_uses_first_parent_for_merge_commits() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(body["left_content"], "");
-    assert_eq!(body["right_content"], "feature\n");
+    assert_eq!(body["leftContent"], "");
+    assert_eq!(body["rightContent"], "feature\n");
 }
 
 #[tokio::test]
@@ -1111,7 +1105,7 @@ async fn test_commit_git_diff_uses_original_path_for_left_side() {
 
     let diff = client
         .get(format!(
-            "{}/api/projects/{}/worktrees/{}/git/diff?path=renamed.md&scope=commit&commit_id={}&original_path=README.md",
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=renamed.md&scope=commit&commitId={}&originalPath=README.md",
             base, project_id, worktree_id, commit_id
         ))
         .send()
@@ -1119,8 +1113,8 @@ async fn test_commit_git_diff_uses_original_path_for_left_side() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(body["left_content"], "hello\n");
-    assert_eq!(body["right_content"], "updated\n");
+    assert_eq!(body["leftContent"], "hello\n");
+    assert_eq!(body["rightContent"], "updated\n");
 }
 
 #[tokio::test]
@@ -1142,7 +1136,7 @@ async fn test_commit_git_diff_for_deleted_file_returns_empty_right_side() {
 
     let diff = client
         .get(format!(
-            "{}/api/projects/{}/worktrees/{}/git/diff?path=extra.txt&scope=commit&commit_id={}",
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=extra.txt&scope=commit&commitId={}",
             base, project_id, worktree_id, commit_id
         ))
         .send()
@@ -1150,8 +1144,8 @@ async fn test_commit_git_diff_for_deleted_file_returns_empty_right_side() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(body["left_content"], "extra\n");
-    assert_eq!(body["right_content"], "");
+    assert_eq!(body["leftContent"], "extra\n");
+    assert_eq!(body["rightContent"], "");
 }
 
 #[tokio::test]
@@ -1180,7 +1174,7 @@ async fn test_commit_git_diff_for_submodule_entry_is_unsupported() {
 
     let diff = client
         .get(format!(
-            "{}/api/projects/{}/worktrees/{}/git/diff?path=deps/submodule&scope=commit&commit_id={}",
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=deps/submodule&scope=commit&commitId={}",
             base, project_id, worktree_id, commit_id
         ))
         .send()
@@ -1189,11 +1183,11 @@ async fn test_commit_git_diff_for_submodule_entry_is_unsupported() {
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
     assert_eq!(
-        body["unsupported_reason"],
+        body["unsupportedReason"],
         "Submodule diffs are not supported."
     );
-    assert_eq!(body["left_content"], "");
-    assert_eq!(body["right_content"], "");
+    assert_eq!(body["leftContent"], "");
+    assert_eq!(body["rightContent"], "");
 }
 
 #[tokio::test]
@@ -1212,7 +1206,7 @@ async fn test_commit_git_diff_for_binary_blob_is_unsupported() {
 
     let diff = client
         .get(format!(
-            "{}/api/projects/{}/worktrees/{}/git/diff?path=binary.bin&scope=commit&commit_id={}",
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=binary.bin&scope=commit&commitId={}",
             base, project_id, worktree_id, commit_id
         ))
         .send()
@@ -1220,12 +1214,9 @@ async fn test_commit_git_diff_for_binary_blob_is_unsupported() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(
-        body["unsupported_reason"],
-        "Binary diffs are not supported."
-    );
-    assert_eq!(body["left_content"], "");
-    assert_eq!(body["right_content"], "");
+    assert_eq!(body["unsupportedReason"], "Binary diffs are not supported.");
+    assert_eq!(body["leftContent"], "");
+    assert_eq!(body["rightContent"], "");
 }
 
 #[tokio::test]
@@ -1245,7 +1236,7 @@ async fn test_commit_git_diff_for_large_blob_is_unsupported() {
 
     let diff = client
         .get(format!(
-            "{}/api/projects/{}/worktrees/{}/git/diff?path=large.txt&scope=commit&commit_id={}",
+            "{}/api/projects/{}/worktrees/{}/git/diff?path=large.txt&scope=commit&commitId={}",
             base, project_id, worktree_id, commit_id
         ))
         .send()
@@ -1254,11 +1245,11 @@ async fn test_commit_git_diff_for_large_blob_is_unsupported() {
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
     assert_eq!(
-        body["unsupported_reason"],
+        body["unsupportedReason"],
         "Diffs larger than 1 MiB are read-only."
     );
-    assert_eq!(body["left_content"], "");
-    assert_eq!(body["right_content"], "");
+    assert_eq!(body["leftContent"], "");
+    assert_eq!(body["rightContent"], "");
 }
 
 #[tokio::test]
@@ -1283,9 +1274,9 @@ async fn test_staged_git_diff_in_unborn_repo_returns_empty_head_side() {
         .unwrap();
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
-    assert_eq!(body["left_content"], "");
-    assert_eq!(body["right_content"], "new file\n");
-    assert!(body["unsupported_reason"].is_null());
+    assert_eq!(body["leftContent"], "");
+    assert_eq!(body["rightContent"], "new file\n");
+    assert!(body["unsupportedReason"].is_null());
 }
 
 #[tokio::test]
@@ -1311,13 +1302,13 @@ async fn test_unstaged_git_diff_for_large_worktree_file_is_unsupported() {
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
     assert_eq!(
-        body["unsupported_reason"],
+        body["unsupportedReason"],
         "Diffs larger than 1 MiB are read-only."
     );
-    assert_eq!(body["left_content"], "hello\n");
-    assert_eq!(body["right_content"], "");
-    assert_eq!(body["read_only"], true);
-    assert!(body["modified_version_token"].is_null());
+    assert_eq!(body["leftContent"], "hello\n");
+    assert_eq!(body["rightContent"], "");
+    assert_eq!(body["readOnly"], true);
+    assert!(body["modifiedVersionToken"].is_null());
 }
 
 #[tokio::test]
@@ -1344,11 +1335,11 @@ async fn test_staged_git_diff_for_large_index_blob_is_unsupported() {
     assert_eq!(diff.status(), StatusCode::OK);
     let body: Value = diff.json().await.unwrap();
     assert_eq!(
-        body["unsupported_reason"],
+        body["unsupportedReason"],
         "Diffs larger than 1 MiB are read-only."
     );
-    assert_eq!(body["left_content"], "");
-    assert_eq!(body["right_content"], "");
+    assert_eq!(body["leftContent"], "");
+    assert_eq!(body["rightContent"], "");
 }
 
 #[cfg(unix)]
@@ -1398,7 +1389,7 @@ async fn test_rename_worktree_file_succeeds_for_file_and_directory() {
         ))
         .json(&serde_json::json!({
             "path": "old-name.txt",
-            "new_name": "new-name.txt"
+            "newName": "new-name.txt"
         }))
         .send()
         .await
@@ -1415,7 +1406,7 @@ async fn test_rename_worktree_file_succeeds_for_file_and_directory() {
         ))
         .json(&serde_json::json!({
             "path": "old-dir",
-            "new_name": "new-dir"
+            "newName": "new-dir"
         }))
         .send()
         .await
@@ -1447,7 +1438,7 @@ async fn test_rename_worktree_file_rejects_invalid_requests() {
         ))
         .json(&serde_json::json!({
             "path": "../file.txt",
-            "new_name": "renamed.txt"
+            "newName": "renamed.txt"
         }))
         .send()
         .await
@@ -1461,7 +1452,7 @@ async fn test_rename_worktree_file_rejects_invalid_requests() {
         ))
         .json(&serde_json::json!({
             "path": "file.txt",
-            "new_name": "nested/name.txt"
+            "newName": "nested/name.txt"
         }))
         .send()
         .await
@@ -1475,7 +1466,7 @@ async fn test_rename_worktree_file_rejects_invalid_requests() {
         ))
         .json(&serde_json::json!({
             "path": "file.txt",
-            "new_name": ""
+            "newName": ""
         }))
         .send()
         .await
@@ -1489,7 +1480,7 @@ async fn test_rename_worktree_file_rejects_invalid_requests() {
         ))
         .json(&serde_json::json!({
             "path": "file.txt",
-            "new_name": "taken.txt"
+            "newName": "taken.txt"
         }))
         .send()
         .await
@@ -1503,7 +1494,7 @@ async fn test_rename_worktree_file_rejects_invalid_requests() {
         ))
         .json(&serde_json::json!({
             "path": "source-dir",
-            "new_name": "taken-dir"
+            "newName": "taken-dir"
         }))
         .send()
         .await
@@ -1517,7 +1508,7 @@ async fn test_rename_worktree_file_rejects_invalid_requests() {
         ))
         .json(&serde_json::json!({
             "path": "file.txt\u{0000}evil",
-            "new_name": "renamed.txt"
+            "newName": "renamed.txt"
         }))
         .send()
         .await
@@ -1531,7 +1522,7 @@ async fn test_rename_worktree_file_rejects_invalid_requests() {
         ))
         .json(&serde_json::json!({
             "path": "file.txt",
-            "new_name": "renamed\u{0000}.txt"
+            "newName": "renamed\u{0000}.txt"
         }))
         .send()
         .await
@@ -1560,7 +1551,7 @@ async fn test_rename_worktree_file_emits_immediate_invalidation_for_old_and_new_
         ))
         .json(&serde_json::json!({
             "path": "old/file.txt",
-            "new_name": "renamed.txt"
+            "newName": "renamed.txt"
         }))
         .send()
         .await

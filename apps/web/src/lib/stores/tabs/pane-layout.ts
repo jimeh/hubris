@@ -38,7 +38,7 @@ export function tabsForWorktreeInternal(
   tabs: Tab[],
   worktreeId: string,
 ): Tab[] {
-  return sortTabs(tabs.filter((tab) => tab.worktree_id === worktreeId));
+  return sortTabs(tabs.filter((tab) => tab.worktreeId === worktreeId));
 }
 
 export function ensureLayoutsForTabs(
@@ -47,8 +47,8 @@ export function ensureLayoutsForTabs(
 ): Record<string, WorktreeTabLayout> {
   const nextLayouts = { ...layoutsByWorktree };
   for (const tab of tabs) {
-    if (!nextLayouts[tab.worktree_id]) {
-      nextLayouts[tab.worktree_id] = createSinglePaneLayout(tab.pane_id);
+    if (!nextLayouts[tab.worktreeId]) {
+      nextLayouts[tab.worktreeId] = createSinglePaneLayout(tab.paneId);
     }
   }
   return nextLayouts;
@@ -65,9 +65,7 @@ export function paneIdsForWorktree(
   }
 
   return Array.from(
-    new Set(
-      tabsForWorktreeInternal(tabs, worktreeId).map((tab) => tab.pane_id),
-    ),
+    new Set(tabsForWorktreeInternal(tabs, worktreeId).map((tab) => tab.paneId)),
   );
 }
 
@@ -93,7 +91,7 @@ function resolvePaneIdForOpen(
 
   return (
     firstPaneId(state.layoutsByWorktree[worktreeId]) ??
-    tabsForWorktreeInternal(selectAllTabs(state), worktreeId)[0]?.pane_id ??
+    tabsForWorktreeInternal(selectAllTabs(state), worktreeId)[0]?.paneId ??
     requestedPaneId ??
     DEFAULT_ROOT_PANE_ID
   );
@@ -183,7 +181,7 @@ export function pruneTabMruByPane(
         const seen = new Set<string>();
         const nextTabIds = tabIds.filter((tabId) => {
           const tab = tabsById.get(tabId);
-          if (!tab || tab.pane_id !== paneId || seen.has(tabId)) {
+          if (!tab || tab.paneId !== paneId || seen.has(tabId)) {
             return false;
           }
           seen.add(tabId);

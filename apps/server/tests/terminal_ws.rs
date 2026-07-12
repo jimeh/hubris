@@ -134,7 +134,7 @@ async fn create_tab(client: &reqwest::Client, base: &str, worktree_id: &str) -> 
         .post(format!("{}/api/tabs", base))
         .json(&serde_json::json!({
             "type": "terminal",
-            "worktree_id": worktree_id
+            "worktreeId": worktree_id
         }))
         .send()
         .await
@@ -156,11 +156,11 @@ async fn connect_terminal_with_resume(
     resume_from: Option<u64>,
 ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
     let ws_url = format!(
-        "{}/api/terminal/ws?tab_id={}{}",
+        "{}/api/terminal/ws?tabId={}{}",
         base.replacen("http://", "ws://", 1),
         tab_id,
         resume_from
-            .map(|resume_from| format!("&resume_from={resume_from}"))
+            .map(|resume_from| format!("&resumeFrom={resume_from}"))
             .unwrap_or_default()
     );
     let (socket, _) = connect_async(ws_url).await.unwrap();

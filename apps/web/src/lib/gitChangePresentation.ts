@@ -1,6 +1,6 @@
 import type { WorktreeGitFileChange } from "@/lib/api";
 
-export type GitChangeType = WorktreeGitFileChange["change_type"];
+export type GitChangeType = WorktreeGitFileChange["changeType"];
 
 const GIT_CHANGE_TYPE_PRIORITY: Record<GitChangeType, number> = {
   conflict: 8,

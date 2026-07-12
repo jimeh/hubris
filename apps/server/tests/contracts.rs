@@ -14,8 +14,8 @@ fn sse_event_uses_type_and_data_envelope() {
     .unwrap();
 
     assert_eq!(json["type"], "tab_closed");
-    assert_eq!(json["data"]["session_id"], "default");
-    assert_eq!(json["data"]["tab_id"], "tab-1");
+    assert_eq!(json["data"]["sessionId"], "default");
+    assert_eq!(json["data"]["tabId"], "tab-1");
 }
 
 #[test]
@@ -30,9 +30,9 @@ fn ws_server_message_uses_stable_keys() {
     .unwrap();
 
     assert_eq!(attached["type"], "attached");
-    assert_eq!(attached["byte_offset"], 42);
+    assert_eq!(attached["byteOffset"], 42);
     assert_eq!(attached["snapshot"], true);
-    assert_eq!(attached["data_lost"], true);
+    assert_eq!(attached["dataLost"], true);
     assert_eq!(attached["cols"], 80);
     assert_eq!(attached["rows"], 24);
 
@@ -47,7 +47,7 @@ fn ws_server_message_uses_stable_keys() {
 
     let closed = serde_json::to_value(ServerControlMessage::TabClosed).unwrap();
     assert_eq!(closed["type"], "tab_closed");
-    assert!(closed.get("byte_offset").is_none());
+    assert!(closed.get("byteOffset").is_none());
 }
 
 #[test]

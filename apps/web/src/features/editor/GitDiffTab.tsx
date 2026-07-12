@@ -64,10 +64,10 @@ function GitDiffTab({
         tab.id,
         tab.path,
         tab.scope,
-        tab.original_path,
-        tab.commit_id,
+        tab.originalPath,
+        tab.commitId,
       ),
-    [worktreeId, tab.commit_id, tab.id, tab.original_path, tab.path, tab.scope],
+    [worktreeId, tab.commitId, tab.id, tab.originalPath, tab.path, tab.scope],
   );
   const diffOptions = useMemo(
     () => ({
@@ -282,8 +282,8 @@ function arePropsEqual(previous: Props, next: Props): boolean {
     previous.tab.id === next.tab.id &&
     previous.tab.path === next.tab.path &&
     previous.tab.scope === next.tab.scope &&
-    (previous.tab.original_path ?? null) === (next.tab.original_path ?? null) &&
-    (previous.tab.commit_id ?? null) === (next.tab.commit_id ?? null)
+    (previous.tab.originalPath ?? null) === (next.tab.originalPath ?? null) &&
+    (previous.tab.commitId ?? null) === (next.tab.commitId ?? null)
   );
 }
 

@@ -5,16 +5,16 @@ import AddWorktreeDialog from "@/components/AddWorktreeDialog";
 
 vi.mock("@/lib/api", () => ({
   listProjectWorktreeStartPoints: vi.fn(async () => ({
-    start_points: [
+    startPoints: [
       {
         value: "refs/heads/main",
         sha: "0123456789abcdef",
-        local_ref: "main",
-        remote_refs: ["origin/main"],
+        localRef: "main",
+        remoteRefs: ["origin/main"],
       },
     ],
-    default_start_point: "refs/heads/main",
-    git_error: null,
+    defaultStartPoint: "refs/heads/main",
+    gitError: null,
   })),
 }));
 
@@ -56,7 +56,7 @@ describe("AddWorktreeDialog", () => {
     expect(portalContainer).toContainElement(popoverContent);
   });
 
-  it("submits source_ref for selected branch start points", async () => {
+  it("submits sourceRef for selected branch start points", async () => {
     const onAdd = vi.fn(async () => {});
     render(
       <AddWorktreeDialog
@@ -82,7 +82,7 @@ describe("AddWorktreeDialog", () => {
     });
   });
 
-  it("omits source_ref for custom start points", async () => {
+  it("omits sourceRef for custom start points", async () => {
     const onAdd = vi.fn(async () => {});
     render(
       <AddWorktreeDialog

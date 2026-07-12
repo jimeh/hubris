@@ -30,7 +30,7 @@ pub struct Event {
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
-#[serde(tag = "type", content = "data")]
+#[serde(tag = "type", content = "data", rename_all_fields = "camelCase")]
 pub enum EventKind {
     #[serde(rename = "snapshot")]
     Snapshot {

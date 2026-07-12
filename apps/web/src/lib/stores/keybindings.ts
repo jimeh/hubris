@@ -45,9 +45,9 @@ export const useKeybindingsStore = create<KeybindingsStoreState>(() => ({
     const unsubscribers = [
       events.on("snapshot", (data) => {
         commitKeybindingsState({
-          generation: data.keybindings_generation,
+          generation: data.keybindingsGeneration,
           keybindings: data.keybindings,
-          status: data.keybindings_status,
+          status: data.keybindingsStatus,
         });
       }),
       events.on("keybindings_updated", (data) => {

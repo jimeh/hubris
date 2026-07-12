@@ -10,19 +10,19 @@ function tabKey(tab: Tab): string {
         tab.smartLabel ?? "",
         tab.titleLabel ?? "",
         tab.position,
-        tab.worktree_id,
-        tab.pane_id,
+        tab.worktreeId,
+        tab.paneId,
         tab.preview,
         tab.type,
-        tab.has_notification ?? false,
+        tab.hasNotification ?? false,
       ].join("|");
     case "file":
       return [
         tab.id,
         tab.label,
         tab.position,
-        tab.worktree_id,
-        tab.pane_id,
+        tab.worktreeId,
+        tab.paneId,
         tab.preview,
         tab.type,
         tab.path,
@@ -32,38 +32,38 @@ function tabKey(tab: Tab): string {
         tab.id,
         tab.label,
         tab.position,
-        tab.worktree_id,
-        tab.pane_id,
+        tab.worktreeId,
+        tab.paneId,
         tab.preview,
         tab.type,
         tab.path,
         tab.scope,
-        tab.original_path ?? "",
-        tab.commit_id ?? "",
+        tab.originalPath ?? "",
+        tab.commitId ?? "",
       ].join("|");
     case "browser":
       return [
         tab.id,
         tab.label,
         tab.position,
-        tab.worktree_id,
-        tab.pane_id,
+        tab.worktreeId,
+        tab.paneId,
         tab.preview,
         tab.type,
         tab.url,
         tab.history.join("||"),
-        tab.history_index,
+        tab.historyIndex,
       ].join("|");
     case "agent_chat":
       return [
         tab.id,
         tab.label,
         tab.position,
-        tab.worktree_id,
-        tab.pane_id,
+        tab.worktreeId,
+        tab.paneId,
         tab.preview,
         tab.type,
-        tab.conversation_id,
+        tab.conversationId,
       ].join("|");
   }
 }

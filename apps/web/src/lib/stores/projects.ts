@@ -152,13 +152,13 @@ export function initializeProjectStore(): void {
         };
       });
     }),
-    events.on("project_removed", ({ project_id }) => {
+    events.on("project_removed", ({ projectId }) => {
       useProjectStore.setState((state) => {
         const projects = state.projects.filter(
-          (project) => project.id !== project_id,
+          (project) => project.id !== projectId,
         );
         const expandedById = { ...state.expandedById };
-        delete expandedById[project_id];
+        delete expandedById[projectId];
         lsSet(LS_EXPANDED, expandedById);
         return { projects, expandedById };
       });

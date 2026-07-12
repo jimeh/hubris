@@ -18,12 +18,15 @@ pub enum TabPaneSplitAxis {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, TS)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum WorktreePaneNode {
-    Leaf {
-        id: String,
-        pane_id: String,
-    },
+    #[serde(rename_all = "camelCase")]
+    Leaf { id: String, pane_id: String },
+    #[serde(rename_all = "camelCase")]
     Split {
         id: String,
         axis: TabPaneSplitAxis,
@@ -66,8 +69,13 @@ pub struct TerminalTabLabels {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, TS)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum TabInfo {
+    #[serde(rename_all = "camelCase")]
     Terminal {
         id: String,
         session_id: String,
@@ -83,6 +91,7 @@ pub enum TabInfo {
         #[serde(flatten)]
         labels: TerminalTabLabels,
     },
+    #[serde(rename_all = "camelCase")]
     File {
         id: String,
         session_id: String,
@@ -95,6 +104,7 @@ pub enum TabInfo {
         preview: bool,
         path: String,
     },
+    #[serde(rename_all = "camelCase")]
     GitDiff {
         id: String,
         session_id: String,
@@ -112,6 +122,7 @@ pub enum TabInfo {
         #[serde(skip_serializing_if = "Option::is_none")]
         commit_id: Option<String>,
     },
+    #[serde(rename_all = "camelCase")]
     Browser {
         id: String,
         session_id: String,
@@ -126,6 +137,7 @@ pub enum TabInfo {
         history: Vec<String>,
         history_index: usize,
     },
+    #[serde(rename_all = "camelCase")]
     AgentChat {
         id: String,
         session_id: String,
