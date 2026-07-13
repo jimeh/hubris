@@ -11,6 +11,16 @@ but too specific for the root `AGENTS.md` map.
   pin was lifted after `useIsMobile` moved to `useSyncExternalStore` and
   `AddWorktreeDialog` moved import loading out of its effect into an explicit
   tab-triggered action, satisfying the stricter ref/effect rules.
+- React Compiler under vite 8 (rolldown) is NOT enabled via
+  `react({ babel: ... })` — `@vitejs/plugin-react` v6 dropped the `babel` option
+  and silently ignores it. The working wiring is `@rolldown/plugin-babel`
+  (default export) with `reactCompilerPreset()` from `@vitejs/plugin-react` as a
+  separate plugins entry. Keep `@babel/core` on `^7.x`: `8.0.1` fails under bun
+  with `ENOENT @babel/types` resolution errors.
+- React Compiler drops dead `void someDep;` statements inside `useMemo` bodies
+  when inferring dependencies, so that trick for forcing memo invalidation
+  silently stops working. Pass the value as a real function argument instead
+  (see `readInitialMessages` in `CopilotKitAgentChatTab.tsx`).
 - Keep `material-icon-theme` pinned at `5.33.1` until its dependency graph is
   reviewed. Updating to `5.35.0` pulls old `biome`/`request` transitives and
   adds critical Bun audit findings.
