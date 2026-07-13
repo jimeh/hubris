@@ -338,7 +338,14 @@ function buildInitialMessages(
   return messages;
 }
 
-function readInitialMessages(conversationId: string): Message[] {
+// The version argument is unused directly: it exists so callers memoizing
+// on this call re-read the store whenever the message signature changes.
+// A `void version` statement inside a useMemo body is NOT enough — React
+// Compiler infers dependencies from real data flow and drops dead code.
+function readInitialMessages(
+  conversationId: string,
+  _version: string,
+): Message[] {
   return buildInitialMessages(useChatStore.getState(), conversationId);
 }
 
@@ -918,10 +925,10 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
     void refreshConversation(conversationId);
   }, [conversationId, detailState.needsRefresh, refreshConversation, visible]);
 
-  const initialMessages = useMemo(() => {
-    void initialMessageVersion;
-    return readInitialMessages(conversationId);
-  }, [conversationId, initialMessageVersion]);
+  const initialMessages = useMemo(
+    () => readInitialMessages(conversationId, initialMessageVersion),
+    [conversationId, initialMessageVersion],
+  );
   const agent = useMemo(
     () =>
       new HttpAgent({
