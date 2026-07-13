@@ -395,12 +395,51 @@ describe("Worktree store", () => {
     expect(useHubrisWorkbenchStore.getState().loadedWorktreeIds).toEqual([
       "feature",
     ]);
-    expect(useVscodeWorkbenchStore.getState().loadedWorktreeIds).toEqual([
-      "feature",
-    ]);
+    // "feature" is hubris-mode, so the vscode cache entry is evicted
+    // too: an id may only be cached in its current mode's store.
+    expect(useVscodeWorkbenchStore.getState().loadedWorktreeIds).toEqual([]);
     expect(store.useWorktreeStore.getState().selectedWorktreeId).toBe(
       "feature",
     );
+  });
+
+  it("evicts the previous mode's cache when uiMode changes", async () => {
+    await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({ id: "local", projectId: "p1", position: 1 }),
+          makeWorktree({
+            id: "feature",
+            projectId: "p1",
+            position: 2,
+            uiMode: "vscode",
+          }),
+        ],
+      },
+      projectErrors: {},
+    });
+    useHubrisWorkbenchStore.getState().markLoaded("local");
+    useVscodeWorkbenchStore.getState().markLoaded("feature");
+
+    mockEvents.emit("project_worktrees_updated", {
+      projectId: "p1",
+      worktrees: [
+        makeWorktree({ id: "local", projectId: "p1", position: 1 }),
+        makeWorktree({
+          id: "feature",
+          projectId: "p1",
+          position: 2,
+          uiMode: "hubris",
+        }),
+      ],
+      gitError: null,
+    });
+
+    expect(useHubrisWorkbenchStore.getState().loadedWorktreeIds).toEqual([
+      "local",
+    ]);
+    expect(useVscodeWorkbenchStore.getState().loadedWorktreeIds).toEqual([]);
   });
 
   it("prunes stale worktree navigation entries after updates", async () => {

@@ -306,11 +306,22 @@ function syncWorkbenchStores(
   pruneMissing: boolean,
 ): void {
   if (pruneMissing) {
-    const worktreeIds = allWorktrees(state.worktreesByProject).map(
-      (worktree) => worktree.id,
-    );
-    useHubrisWorkbenchStore.getState().pruneMissing(worktreeIds);
-    useVscodeWorkbenchStore.getState().pruneMissing(worktreeIds);
+    // Partition by current uiMode (mirroring App's `=== "vscode"` split)
+    // so a worktree never stays cached in the store of a mode it left —
+    // a hidden workbench pane for the abandoned mode is pure waste.
+    // This runs only on authoritative updates, so an optimistic uiMode
+    // change that the server rejects never evicts the rolled-back pane.
+    const hubrisIds: string[] = [];
+    const vscodeIds: string[] = [];
+    for (const worktree of allWorktrees(state.worktreesByProject)) {
+      if (worktree.uiMode === "vscode") {
+        vscodeIds.push(worktree.id);
+      } else {
+        hubrisIds.push(worktree.id);
+      }
+    }
+    useHubrisWorkbenchStore.getState().pruneMissing(hubrisIds);
+    useVscodeWorkbenchStore.getState().pruneMissing(vscodeIds);
   }
 
   const selectedWorktree = resolveSelected(
