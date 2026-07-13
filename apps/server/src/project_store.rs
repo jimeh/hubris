@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_preserves_every_field_from_pre_casing_sweep_fixture() {
+    async fn load_tolerates_legacy_git_error_and_drops_it_on_persist() {
         let tmp = TempDir::new().unwrap();
         let fixture = r#"[
           {
@@ -338,6 +338,20 @@ mod tests {
                 12.5,
             )
         );
+
+        // A persist cycle rewrites the file without the removed legacy
+        // field while keeping every live field.
+        store
+            .reorder(&["project-before-casing-sweep".to_string()])
+            .await
+            .unwrap();
+        let rewritten = std::fs::read_to_string(projects_path(&tmp)).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&rewritten).unwrap();
+        assert!(value[0].get("git_error").is_none());
+        assert!(value[0].get("gitError").is_none());
+        assert_eq!(value[0]["id"], "project-before-casing-sweep");
+        assert_eq!(value[0]["name"], "Pre-sweep project");
+        assert_eq!(value[0]["path"], "/repos/pre-sweep");
     }
 
     #[tokio::test]
