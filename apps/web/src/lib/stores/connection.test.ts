@@ -4,11 +4,13 @@ import {
   initializeConnectionStore,
   resetConnectionStoreForTests,
   retrySnapshot,
+  shouldReloadForBuildMismatch,
   useConnectionStore,
 } from "./connection";
 
 const mockConnect = vi.fn();
 const mockDisconnect = vi.fn();
+const mockReload = vi.fn();
 
 class MockEventClient {
   private handlers = new Map<SseEventName, Set<EventHandler<unknown>>>();
@@ -54,7 +56,11 @@ describe("connection store", () => {
   beforeEach(() => {
     mockConnect.mockClear();
     mockDisconnect.mockClear();
-    initializeConnectionStore();
+    mockReload.mockClear();
+    initializeConnectionStore({
+      clientBuildId: "client-build",
+      reload: mockReload,
+    });
   });
 
   afterEach(() => {
@@ -87,10 +93,34 @@ describe("connection store", () => {
     expect(useConnectionStore.getState().snapshotError).toBeNull();
   });
 
+  it("reloads once when the server build differs", () => {
+    mockEvents.emit("snapshot", { buildId: "server-build" });
+    mockEvents.emit("snapshot", { buildId: "server-build" });
+
+    expect(mockReload).toHaveBeenCalledTimes(1);
+  });
+
   it("retrySnapshot reconnects the event stream", () => {
     retrySnapshot();
 
     expect(mockDisconnect).toHaveBeenCalledTimes(1);
     expect(mockConnect).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("shouldReloadForBuildMismatch", () => {
+  it.each([
+    ["client", "server", false, true],
+    ["client", "client", false, false],
+    [undefined, "server", false, false],
+    ["client", undefined, false, false],
+    ["client", "server", true, false],
+  ] as const)(
+    "client=%s server=%s reloaded=%s returns %s",
+    (clientBuildId, serverBuildId, hasReloaded, expected) => {
+      expect(
+        shouldReloadForBuildMismatch(clientBuildId, serverBuildId, hasReloaded),
+      ).toBe(expected);
+    },
+  );
 });

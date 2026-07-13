@@ -125,7 +125,6 @@ impl ProjectStore {
             name,
             path: canonical_path,
             position: max_pos + 1.0,
-            git_error: None,
         };
 
         let mut next = projects.clone();
@@ -221,11 +220,7 @@ impl ProjectStore {
 /// sibling temp file, rename it over the target, then fsync the
 /// parent directory.
 async fn persist(path: &Path, projects: &[Project]) -> Result<(), ProjectStoreError> {
-    let mut to_store = projects.to_vec();
-    for project in &mut to_store {
-        project.git_error = None;
-    }
-    let contents = serde_json::to_string_pretty(&to_store).map_err(std::io::Error::other)?;
+    let contents = serde_json::to_string_pretty(projects).map_err(std::io::Error::other)?;
 
     let temp_path = temp_projects_path(path);
     let mut file = OpenOptions::new()
@@ -312,7 +307,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_preserves_every_field_from_pre_casing_sweep_fixture() {
+    async fn load_tolerates_legacy_git_error_and_drops_it_on_persist() {
         let tmp = TempDir::new().unwrap();
         let fixture = r#"[
           {
@@ -335,16 +330,28 @@ mod tests {
                 project.name.as_str(),
                 project.path.as_str(),
                 project.position,
-                project.git_error.as_deref(),
             ),
             (
                 "project-before-casing-sweep",
                 "Pre-sweep project",
                 "/repos/pre-sweep",
                 12.5,
-                Some("repository is temporarily unavailable"),
             )
         );
+
+        // A persist cycle rewrites the file without the removed legacy
+        // field while keeping every live field.
+        store
+            .reorder(&["project-before-casing-sweep".to_string()])
+            .await
+            .unwrap();
+        let rewritten = std::fs::read_to_string(projects_path(&tmp)).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&rewritten).unwrap();
+        assert!(value[0].get("git_error").is_none());
+        assert!(value[0].get("gitError").is_none());
+        assert_eq!(value[0]["id"], "project-before-casing-sweep");
+        assert_eq!(value[0]["name"], "Pre-sweep project");
+        assert_eq!(value[0]["path"], "/repos/pre-sweep");
     }
 
     #[tokio::test]

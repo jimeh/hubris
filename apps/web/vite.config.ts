@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -15,6 +16,22 @@ const isDesktopDev = Boolean(
   devId && devTmp && desktopBootstrapToken && desktopSessionToken,
 );
 const desktopDevHost = "desktop.internal.hubris.build";
+
+function buildIdPlugin(buildId: string | undefined): Plugin {
+  return {
+    name: "hubris-build-id",
+    apply: "build",
+    generateBundle() {
+      if (!buildId) return;
+
+      this.emitFile({
+        type: "asset",
+        fileName: "build-id.json",
+        source: JSON.stringify({ buildId }),
+      });
+    },
+  };
+}
 
 async function waitForBackendState(
   timeoutMs = 120_000,
@@ -80,7 +97,8 @@ function devInstancePlugin(): Plugin {
   };
 }
 
-export default defineConfig(async () => {
+export default defineConfig(async ({ command }) => {
+  const buildId = command === "build" ? randomUUID() : undefined;
   const backend = await waitForBackendState();
   const backendPort = backend?.port ?? 3101;
   const port = Number.parseInt(
@@ -90,7 +108,16 @@ export default defineConfig(async () => {
   const host = process.env.HOST;
 
   return {
-    plugins: [react(), tailwindcss(), devInstancePlugin()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      devInstancePlugin(),
+      buildIdPlugin(buildId),
+    ],
+    define: {
+      "import.meta.env.HUBRIS_BUILD_ID":
+        buildId === undefined ? "undefined" : JSON.stringify(buildId),
+    },
     resolve: {
       alias: {
         "@": path.resolve("./src"),

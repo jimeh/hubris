@@ -1,6 +1,6 @@
 import type { components } from "@/lib/contracts/rest.generated";
 
-export type Project = components["schemas"]["Project"];
+export type Project = components["schemas"]["ProjectListItem"];
 export type Worktree = components["schemas"]["Worktree"];
 export type Tab = components["schemas"]["TabInfo"];
 export type TerminalTab = Extract<Tab, { type: "terminal" }>;

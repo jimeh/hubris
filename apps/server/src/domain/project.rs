@@ -10,6 +10,4 @@ pub struct Project {
     pub path: String,
     #[serde(default)]
     pub position: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "git_error")]
-    pub git_error: Option<String>,
 }

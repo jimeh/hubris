@@ -2,6 +2,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+use hubris_server::api::worktrees::resolve_worktree;
 use hubris_server::events::EventKind;
 use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
@@ -106,6 +107,88 @@ async fn create_project(client: &reqwest::Client, base: &str, path: &str) -> Str
     assert_eq!(res.status(), StatusCode::CREATED);
     let body: Value = res.json().await.unwrap();
     body["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn test_resolve_worktree_falls_back_after_cached_project_is_deleted() {
+    let data_dir = tempfile::TempDir::new().unwrap();
+    let state = AppState::new(data_dir.path().to_path_buf()).await;
+    let deleted_repo = init_git_repo();
+    let actual_repo = init_git_repo();
+    let deleted_project = state
+        .projects
+        .add(
+            deleted_repo.path().to_string_lossy().into_owned(),
+            "deleted".to_string(),
+        )
+        .await
+        .unwrap()
+        .project;
+    let actual_project = state
+        .projects
+        .add(
+            actual_repo.path().to_string_lossy().into_owned(),
+            "actual".to_string(),
+        )
+        .await
+        .unwrap()
+        .project;
+    let worktree_id = hubris_server::git::worktree_id(actual_repo.path());
+    state.remember_worktree_project(&worktree_id, &deleted_project.id);
+    assert!(state.projects.remove(&deleted_project.id).await.unwrap());
+
+    let resolved = resolve_worktree(&state, &worktree_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let cached_project_id = state.project_id_for_worktree(&worktree_id);
+
+    assert_eq!(
+        (resolved.project_id.as_str(), cached_project_id.as_deref()),
+        (actual_project.id.as_str(), Some(actual_project.id.as_str()),)
+    );
+}
+
+#[tokio::test]
+async fn test_resolve_worktree_falls_back_when_cached_project_lacks_worktree() {
+    let data_dir = tempfile::TempDir::new().unwrap();
+    let state = AppState::new(data_dir.path().to_path_buf()).await;
+    let stale_repo = init_git_repo();
+    let actual_repo = init_git_repo();
+    let stale_project = state
+        .projects
+        .add(
+            stale_repo.path().to_string_lossy().into_owned(),
+            "stale".to_string(),
+        )
+        .await
+        .unwrap()
+        .project;
+    let actual_project = state
+        .projects
+        .add(
+            actual_repo.path().to_string_lossy().into_owned(),
+            "actual".to_string(),
+        )
+        .await
+        .unwrap()
+        .project;
+    let worktree_id = hubris_server::git::worktree_id(actual_repo.path());
+    // Point the cache at a project that exists but does not contain
+    // this worktree: the guarded-eviction branch, distinct from the
+    // deleted-project branch covered above.
+    state.remember_worktree_project(&worktree_id, &stale_project.id);
+
+    let resolved = resolve_worktree(&state, &worktree_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let cached_project_id = state.project_id_for_worktree(&worktree_id);
+
+    assert_eq!(
+        (resolved.project_id.as_str(), cached_project_id.as_deref()),
+        (actual_project.id.as_str(), Some(actual_project.id.as_str()),)
+    );
 }
 
 #[tokio::test]

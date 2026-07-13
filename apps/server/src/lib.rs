@@ -435,6 +435,8 @@ pub fn build_router(state: AppState) -> Router {
 /// Build the API router with explicit runtime options.
 pub fn build_router_with_options(state: AppState, options: ServerOptions) -> Router {
     let ServerOptions { frontend, access } = options;
+    let mut state = state;
+    state.build_id = frontend.build_id();
     let api = api_router();
 
     let cors = if cfg!(debug_assertions) && !access.is_desktop_locked() {

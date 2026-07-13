@@ -327,6 +327,7 @@ async fn build_snapshot_event(state: &AppState, session_id: &str) -> SnapshotEve
     }
 
     let snapshot = EventKind::Snapshot {
+        build_id: state.build_id.clone(),
         tabs,
         tab_layouts,
         worktree_restore_state,

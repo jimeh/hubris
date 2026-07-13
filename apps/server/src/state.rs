@@ -35,6 +35,7 @@ pub struct AppState {
     pub worktree_files: Arc<WorktreeFilesService>,
     pub chats: Arc<ChatService>,
     pub cancellation_token: CancellationToken,
+    pub(crate) build_id: Option<String>,
     pub(crate) lagged_snapshot_cache: Arc<LaggedSnapshotCache>,
 }
 
@@ -122,6 +123,7 @@ impl AppState {
             )),
             chats,
             cancellation_token,
+            build_id: None,
             lagged_snapshot_cache: Arc::new(LaggedSnapshotCache::default()),
         })
     }
