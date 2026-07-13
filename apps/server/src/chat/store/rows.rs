@@ -670,7 +670,11 @@ pub(super) fn compact_payload_json(value: &Value) -> String {
     if text.len() <= MAX_LEN {
         return text;
     }
-    text.truncate(MAX_LEN);
+    let mut cutoff = MAX_LEN;
+    while !text.is_char_boundary(cutoff) {
+        cutoff -= 1;
+    }
+    text.truncate(cutoff);
     serde_json::to_string(&json!({
         "truncated": true,
         "prefix": text,

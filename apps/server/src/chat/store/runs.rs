@@ -183,6 +183,7 @@ impl ChatService {
         provider_turn_id: Option<&str>,
     ) -> Result<(), ChatServiceError> {
         let now = now_ms() as i64;
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             "
             UPDATE chat_messages
@@ -194,19 +195,20 @@ impl ChatService {
         .bind(now)
         .bind(turn_id)
         .bind(conversation_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
         sqlx::query(
             "
             UPDATE chat_runs
             SET provider_turn_id = ?, status = ?
-            WHERE id = ?
+            WHERE id = ? AND conversation_id = ?
             ",
         )
         .bind(provider_turn_id)
         .bind(ChatRunStatus::Running.as_str())
         .bind(run_id)
-        .execute(&self.pool)
+        .bind(conversation_id)
+        .execute(&mut *tx)
         .await?;
         sqlx::query(
             "
@@ -220,7 +222,7 @@ impl ChatService {
         .bind(now)
         .bind(turn_id)
         .bind(conversation_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
         sqlx::query(
             "
@@ -233,8 +235,9 @@ impl ChatService {
         .bind(now)
         .bind(now)
         .bind(conversation_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         if let Some(summary) = self.emit_conversation_updated(conversation_id).await? {
             let session_id = summary.session_id.clone();
             if let Some(turn) = self.get_turn_by_id(conversation_id, turn_id).await? {
@@ -425,6 +428,7 @@ impl ChatService {
         error_message: Option<String>,
     ) -> Result<ChatRun, ChatServiceError> {
         let now = now_ms() as i64;
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             "
             UPDATE chat_runs
@@ -437,7 +441,7 @@ impl ChatService {
         .bind(&error_message)
         .bind(run_id)
         .bind(conversation_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
         sqlx::query(
             "
@@ -456,7 +460,7 @@ impl ChatService {
         .bind(status.as_str())
         .bind(&error_message)
         .bind(conversation_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
         sqlx::query(
             "
@@ -472,14 +476,30 @@ impl ChatService {
         .bind(now)
         .bind(run_id)
         .bind(conversation_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-        self.latest_run(conversation_id).await?.ok_or_else(|| {
+        let run = sqlx::query_as::<_, RunRow>(
+            "
+            SELECT
+                id, conversation_id, turn_id, provider_turn_id, status,
+                started_at_ms, finished_at_ms, error_message
+            FROM chat_runs
+            WHERE id = ? AND conversation_id = ?
+            ",
+        )
+        .bind(run_id)
+        .bind(conversation_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .map(run_from_row)
+        .ok_or_else(|| {
             ChatServiceError::new(
                 ChatErrorKind::Internal,
                 "chat run missing after finalization",
             )
-        })
+        })?;
+        tx.commit().await?;
+        Ok(run)
     }
 
     async fn latest_run(&self, conversation_id: &str) -> Result<Option<ChatRun>, ChatServiceError> {
