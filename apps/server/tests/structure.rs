@@ -2,14 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const API_DEPENDENCY_ALLOWLIST: &[&str] = &[
-    // CreateTabRequest, ReorderTabsRequest, UpdateTabRequest,
-    // UpdateWorktreeTabLayoutRequest, and resolve_worktree.
-    "src/tabs/service.rs",
-    // ListWorktreeFilesResponse, WorktreeFileEntry, WorktreeFileKind,
-    // GitFileChange, and GitFileChangeType.
-    "src/worktree_files.rs",
-];
+const API_DEPENDENCY_ALLOWLIST: &[&str] = &[];
 
 const MODULE_SIZE_WARNING_LINES: usize = 2_000;
 const MODULE_SIZE_FAILURE_LINES: usize = 7_000;
@@ -93,8 +86,9 @@ fn non_api_modules_do_not_add_api_dependencies() {
 
     assert!(
         new_violations.is_empty() && clean_allowlist_entries.is_empty(),
-        "new violation: move the shared type out of api/ instead: {new_violations:?}\n\
-         allowlist entry now clean: delete it: {clean_allowlist_entries:?}"
+        "non-api modules must not import crate::api; move shared types or functions out of api/: \
+         {new_violations:?}\n\
+         allowlist entries no longer needed; delete them: {clean_allowlist_entries:?}"
     );
 }
 
