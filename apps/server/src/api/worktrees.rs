@@ -126,7 +126,11 @@ pub struct RenameWorktreeBranchRequest {
 pub struct DeleteWorktreeParams {
     #[serde(default)]
     pub force: bool,
-    #[serde(default)]
+    // The pre-camelCase spelling stays accepted as an alias: this flag
+    // separates "untrack" from "delete the worktree directory", and a
+    // stale client whose `untrack_only=true` was silently dropped by
+    // the `#[serde(default)]` would fall into the destructive branch.
+    #[serde(default, alias = "untrack_only")]
     pub untrack_only: bool,
 }
 
@@ -1397,4 +1401,23 @@ pub async fn delete_project_worktree(
 
 pub(crate) fn is_missing_worktree_remove_error(message: &str) -> bool {
     is_missing_worktree_error(message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DeleteWorktreeParams;
+    use axum::extract::Query;
+    use axum::http::Uri;
+
+    fn parse(query: &str) -> DeleteWorktreeParams {
+        let uri: Uri = format!("http://host/?{query}").parse().unwrap();
+        Query::try_from_uri(&uri).map(|Query(p)| p).unwrap()
+    }
+
+    #[test]
+    fn delete_worktree_params_accept_both_untrack_spellings() {
+        assert!(parse("untrackOnly=true").untrack_only);
+        assert!(parse("untrack_only=true").untrack_only);
+        assert!(!parse("").untrack_only);
+    }
 }
