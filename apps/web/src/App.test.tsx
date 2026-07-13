@@ -35,6 +35,10 @@ const hubrisViewUnmountCounts: Record<string, number> = {};
 const vscodePaneMountCounts: Record<string, number> = {};
 const vscodePaneUnmountCounts: Record<string, number> = {};
 
+function recordWorktreeViewRender(): void {
+  worktreeViewRenderCount += 1;
+}
+
 vi.mock("@/components/SidebarResizeHandle", () => ({
   default: () => null,
 }));
@@ -67,7 +71,8 @@ vi.mock("@/components/AppSidebar", () => {
 });
 
 vi.mock("@/components/WorktreeView", async () => {
-  const { useEffect } = await vi.importActual<typeof import("react")>("react");
+  const { Profiler, useEffect } =
+    await vi.importActual<typeof import("react")>("react");
 
   function MockWorktreeView({
     worktree,
@@ -76,9 +81,6 @@ vi.mock("@/components/WorktreeView", async () => {
     worktree: { id: string; name: string };
     active: boolean;
   }) {
-    // eslint-disable-next-line react-hooks/globals
-    worktreeViewRenderCount += 1;
-
     useEffect(() => {
       hubrisViewMountCounts[worktree.id] =
         (hubrisViewMountCounts[worktree.id] ?? 0) + 1;
@@ -90,12 +92,14 @@ vi.mock("@/components/WorktreeView", async () => {
     }, [worktree.id]);
 
     return (
-      <div
-        data-testid={`hubris-view-${worktree.id}`}
-        data-active={active ? "true" : "false"}
-      >
-        Active worktree: {worktree.name}
-      </div>
+      <Profiler id="mock-worktree-view" onRender={recordWorktreeViewRender}>
+        <div
+          data-testid={`hubris-view-${worktree.id}`}
+          data-active={active ? "true" : "false"}
+        >
+          Active worktree: {worktree.name}
+        </div>
+      </Profiler>
     );
   }
 

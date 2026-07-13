@@ -47,6 +47,10 @@ import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar"
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type { Worktree } from "@/lib/types";
 
+function readSidebarWidth(): number {
+  return useSidebarWidthStore.getState().width;
+}
+
 function AppSidebarCommandController() {
   const sidebar = useSidebar();
 
@@ -269,7 +273,7 @@ export default function App() {
     (state) => state.pruneMissing,
   );
   const appRootRef = useRef<HTMLDivElement | null>(null);
-  const initialSidebarWidthRef = useRef(useSidebarWidthStore.getState().width);
+  const [initialSidebarWidth] = useState(readSidebarWidth);
   const allWorktrees = useMemo(
     () => Object.values(worktreesByProject).flat(),
     [worktreesByProject],
@@ -389,7 +393,7 @@ export default function App() {
         className={isResizing ? "sidebar-resizing" : undefined}
         style={
           {
-            "--sidebar-width": `${initialSidebarWidthRef.current}px`,
+            "--sidebar-width": `${initialSidebarWidth}px`,
           } as React.CSSProperties
         }
       >

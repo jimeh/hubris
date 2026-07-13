@@ -659,9 +659,6 @@ function ExplorerTreeBranch({
 }
 
 function ExplorerTree({ nodes, ...props }: ExplorerTreeProps) {
-  // The rest-object is fresh every render; depending on it would rebuild
-  // renderRow/renderBranch each time and defeat TreeRow's memoization.
-  // Depend on the individual values instead.
   const {
     worktree,
     fileChanges,
@@ -674,12 +671,19 @@ function ExplorerTree({ nodes, ...props }: ExplorerTreeProps) {
     onRenameSubmit,
     onRetryDirectory,
   } = props;
-  const renderRow = useCallback(
-    (rowProps: TreeRowRenderProps<WorktreeFileEntry>) => (
-      <ExplorerTreeRow {...rowProps} {...props} />
-    ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fields of
-    // `props`, enumerated so the identity is value-driven
+  const treeProps = useMemo<Omit<ExplorerTreeProps, "nodes">>(
+    () => ({
+      worktree,
+      fileChanges,
+      directoryChanges,
+      theme,
+      expansion,
+      onPreviewFile,
+      onOpenFile,
+      onRenamePathChange,
+      onRenameSubmit,
+      onRetryDirectory,
+    }),
     [
       worktree,
       fileChanges,
@@ -693,23 +697,17 @@ function ExplorerTree({ nodes, ...props }: ExplorerTreeProps) {
       onRetryDirectory,
     ],
   );
+  const renderRow = useCallback(
+    (rowProps: TreeRowRenderProps<WorktreeFileEntry>) => (
+      <ExplorerTreeRow {...rowProps} {...treeProps} />
+    ),
+    [treeProps],
+  );
   const renderBranch = useCallback(
     (branchProps: TreeBranchRenderProps<WorktreeFileEntry>) => (
-      <ExplorerTreeBranch {...branchProps} {...props} />
+      <ExplorerTreeBranch {...branchProps} {...treeProps} />
     ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- same as above
-    [
-      worktree,
-      fileChanges,
-      directoryChanges,
-      theme,
-      expansion,
-      onPreviewFile,
-      onOpenFile,
-      onRenamePathChange,
-      onRenameSubmit,
-      onRetryDirectory,
-    ],
+    [treeProps],
   );
 
   return (
@@ -718,7 +716,7 @@ function ExplorerTree({ nodes, ...props }: ExplorerTreeProps) {
       className="gap-0.5 py-0.5"
       getPath={getExplorerEntryPath}
       isBranch={isExplorerDirectory}
-      expansion={props.expansion}
+      expansion={expansion}
       renderRow={renderRow}
       renderBranch={renderBranch}
     />

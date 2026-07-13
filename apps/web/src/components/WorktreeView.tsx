@@ -52,6 +52,10 @@ import { cn } from "@/lib/utils";
 const FileEditorTab = lazy(() => import("@/components/FileEditorTab"));
 const GitDiffTab = lazy(() => import("@/components/GitDiffTab"));
 
+function readRightSidebarWidth(): number {
+  return useWorktreeRightSidebarWidthStore.getState().width;
+}
+
 function EditorTabFallback() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -116,6 +120,15 @@ type ViewportRect = {
   top: number;
   width: number;
   height: number;
+};
+
+type SceneRectState = {
+  active: boolean;
+  activePaneTabIds: Record<string, string | null>;
+  paneViewportRects: Record<string, ViewportRect>;
+  sceneTabs: readonly Tab[];
+  lastVisibleSceneRects: Record<string, ViewportRect>;
+  rectsByTabId: Record<string, ViewportRect | null>;
 };
 
 const PARKED_SCENE_STYLE = {
@@ -343,6 +356,40 @@ function byStableSceneOrder(left: Tab, right: Tab): number {
   return left.id.localeCompare(right.id);
 }
 
+function buildSceneRectState(
+  lastVisibleSceneRects: Record<string, ViewportRect>,
+  active: boolean,
+  activePaneTabIds: Record<string, string | null>,
+  paneViewportRects: Record<string, ViewportRect>,
+  sceneTabs: readonly Tab[],
+): SceneRectState {
+  const nextKnownRects = { ...lastVisibleSceneRects };
+  const rectsByTabId: Record<string, ViewportRect | null> = {};
+
+  for (const tab of sceneTabs) {
+    const isVisible = active && activePaneTabIds[tab.paneId] === tab.id;
+    if (!isVisible) {
+      rectsByTabId[tab.id] = null;
+      continue;
+    }
+
+    const measuredRect = paneViewportRects[tab.paneId];
+    if (measuredRect) {
+      nextKnownRects[tab.id] = measuredRect;
+    }
+    rectsByTabId[tab.id] = measuredRect ?? nextKnownRects[tab.id] ?? null;
+  }
+
+  return {
+    active,
+    activePaneTabIds,
+    paneViewportRects,
+    sceneTabs,
+    lastVisibleSceneRects: nextKnownRects,
+    rectsByTabId,
+  };
+}
+
 function PaneLeaf({
   worktree,
   paneId,
@@ -494,9 +541,7 @@ export default function WorktreeView({ worktree, active }: Props) {
   const isRightSidebarResizing = useWorktreeRightSidebarWidthStore(
     (state) => state.isResizing,
   );
-  const initialRightSidebarWidthRef = useRef(
-    useWorktreeRightSidebarWidthStore.getState().width,
-  );
+  const [initialRightSidebarWidth] = useState(readRightSidebarWidth);
   const layoutPersistTimersRef = useRef<
     Map<string, ReturnType<typeof setTimeout>>
   >(new Map());
@@ -504,7 +549,6 @@ export default function WorktreeView({ worktree, active }: Props) {
   const paneSceneLayerRef = useRef<HTMLDivElement | null>(null);
   const paneViewportObserverRef = useRef<ResizeObserver | null>(null);
   const paneViewportElementsRef = useRef(new Map<string, HTMLDivElement>());
-  const lastVisibleSceneRectsRef = useRef<Record<string, ViewportRect>>({});
   const paneViewportRecalcFrameRef = useRef<number | null>(null);
   const paneViewportRecalcFrameAfterPaintRef = useRef<number | null>(null);
   const sensors = useSensors(
@@ -756,6 +800,16 @@ export default function WorktreeView({ worktree, active }: Props) {
     });
   }, [recalculatePaneViewportRects]);
 
+  const registerPaneSceneLayer = useCallback(
+    (element: HTMLDivElement | null) => {
+      paneSceneLayerRef.current = element;
+      if (element) {
+        recalculatePaneViewportRects();
+      }
+    },
+    [recalculatePaneViewportRects],
+  );
+
   useLayoutEffect(() => {
     const observer = new ResizeObserver(() => {
       schedulePaneViewportRecalc();
@@ -774,7 +828,6 @@ export default function WorktreeView({ worktree, active }: Props) {
     };
 
     window.addEventListener("resize", handleWindowResize);
-    schedulePaneViewportRecalc();
 
     return () => {
       paneViewportObserverRef.current = null;
@@ -790,16 +843,6 @@ export default function WorktreeView({ worktree, active }: Props) {
       }
     };
   }, [schedulePaneViewportRecalc]);
-
-  useLayoutEffect(() => {
-    schedulePaneViewportRecalc();
-  }, [
-    active,
-    activePaneTabIds,
-    paneTree,
-    schedulePaneViewportRecalc,
-    worktreeTabs.length,
-  ]);
 
   useEffect(
     () => () => {
@@ -1066,27 +1109,32 @@ export default function WorktreeView({ worktree, active }: Props) {
     ],
   );
 
-  const sceneRectsByTabId = useMemo(() => {
-    const nextKnownRects = { ...lastVisibleSceneRectsRef.current };
-    const rectsByTabId: Record<string, ViewportRect | null> = {};
-
-    for (const tab of sceneTabs) {
-      const isVisible = active && activePaneTabIds[tab.paneId] === tab.id;
-      if (!isVisible) {
-        rectsByTabId[tab.id] = null;
-        continue;
-      }
-
-      const measuredRect = paneViewportRects[tab.paneId];
-      if (measuredRect) {
-        nextKnownRects[tab.id] = measuredRect;
-      }
-      rectsByTabId[tab.id] = measuredRect ?? nextKnownRects[tab.id] ?? null;
-    }
-
-    lastVisibleSceneRectsRef.current = nextKnownRects;
-    return rectsByTabId;
-  }, [active, activePaneTabIds, paneViewportRects, sceneTabs]);
+  const [storedSceneRectState, setStoredSceneRectState] = useState(() =>
+    buildSceneRectState(
+      {},
+      active,
+      activePaneTabIds,
+      paneViewportRects,
+      sceneTabs,
+    ),
+  );
+  let sceneRectState = storedSceneRectState;
+  if (
+    storedSceneRectState.active !== active ||
+    storedSceneRectState.activePaneTabIds !== activePaneTabIds ||
+    storedSceneRectState.paneViewportRects !== paneViewportRects ||
+    storedSceneRectState.sceneTabs !== sceneTabs
+  ) {
+    sceneRectState = buildSceneRectState(
+      storedSceneRectState.lastVisibleSceneRects,
+      active,
+      activePaneTabIds,
+      paneViewportRects,
+      sceneTabs,
+    );
+    setStoredSceneRectState(sceneRectState);
+  }
+  const sceneRectsByTabId = sceneRectState.rectsByTabId;
 
   return (
     <div
@@ -1100,7 +1148,7 @@ export default function WorktreeView({ worktree, active }: Props) {
       )}
       style={
         {
-          "--worktree-right-sidebar-width": `${initialRightSidebarWidthRef.current}px`,
+          "--worktree-right-sidebar-width": `${initialRightSidebarWidth}px`,
         } as CSSProperties
       }
     >
@@ -1114,7 +1162,7 @@ export default function WorktreeView({ worktree, active }: Props) {
           onDragCancel={clearDragState}
         >
           <div
-            ref={paneSceneLayerRef}
+            ref={registerPaneSceneLayer}
             className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
           >
             {paneTree ? (
