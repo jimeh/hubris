@@ -125,7 +125,6 @@ impl ProjectStore {
             name,
             path: canonical_path,
             position: max_pos + 1.0,
-            git_error: None,
         };
 
         let mut next = projects.clone();
@@ -221,11 +220,7 @@ impl ProjectStore {
 /// sibling temp file, rename it over the target, then fsync the
 /// parent directory.
 async fn persist(path: &Path, projects: &[Project]) -> Result<(), ProjectStoreError> {
-    let mut to_store = projects.to_vec();
-    for project in &mut to_store {
-        project.git_error = None;
-    }
-    let contents = serde_json::to_string_pretty(&to_store).map_err(std::io::Error::other)?;
+    let contents = serde_json::to_string_pretty(projects).map_err(std::io::Error::other)?;
 
     let temp_path = temp_projects_path(path);
     let mut file = OpenOptions::new()
@@ -335,14 +330,12 @@ mod tests {
                 project.name.as_str(),
                 project.path.as_str(),
                 project.position,
-                project.git_error.as_deref(),
             ),
             (
                 "project-before-casing-sweep",
                 "Pre-sweep project",
                 "/repos/pre-sweep",
                 12.5,
-                Some("repository is temporarily unavailable"),
             )
         );
     }

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::worktrees::{
@@ -42,25 +42,39 @@ pub struct DeleteProjectParams {
     pub delete_managed_worktrees: bool,
 }
 
-async fn with_git_errors(mut projects: Vec<Project>) -> Vec<Project> {
-    for project in &mut projects {
+/// Project listing response with a freshly computed repository error.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectListItem {
+    #[serde(flatten)]
+    project: Project,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    git_error: Option<String>,
+}
+
+async fn with_git_errors(projects: Vec<Project>) -> Vec<ProjectListItem> {
+    let mut responses = Vec::with_capacity(projects.len());
+    for project in projects {
         let path = PathBuf::from(&project.path);
-        project.git_error = match git::resolve_local_root(&path).await {
+        let git_error = match git::resolve_local_root(&path).await {
             Ok(_) => None,
             Err(err) => Some(err.message),
         };
+        responses.push(ProjectListItem { project, git_error });
     }
-    projects
+    responses
 }
 
 #[utoipa::path(
     get,
     path = "/api/projects",
     responses(
-        (status = 200, description = "List projects", body = [Project]),
+        (status = 200, description = "List projects", body = [ProjectListItem]),
     ),
 )]
-pub async fn list_projects(State(state): State<AppState>) -> Result<Json<Vec<Project>>, ApiError> {
+pub async fn list_projects(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ProjectListItem>>, ApiError> {
     let projects = state.projects.list().await;
     Ok(Json(with_git_errors(projects).await))
 }
@@ -287,4 +301,57 @@ pub async fn delete_project(
     });
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn project() -> Project {
+        Project {
+            id: "project-id".to_string(),
+            name: "Project".to_string(),
+            path: "/repo".to_string(),
+            position: 2.0,
+        }
+    }
+
+    #[test]
+    fn project_list_item_omits_absent_git_error() {
+        let item = ProjectListItem {
+            project: project(),
+            git_error: None,
+        };
+
+        assert_eq!(
+            serde_json::to_value(item).unwrap(),
+            json!({
+                "id": "project-id",
+                "name": "Project",
+                "path": "/repo",
+                "position": 2.0,
+            })
+        );
+    }
+
+    #[test]
+    fn project_list_item_includes_present_git_error() {
+        let item = ProjectListItem {
+            project: project(),
+            git_error: Some("repository unavailable".to_string()),
+        };
+
+        assert_eq!(
+            serde_json::to_value(item).unwrap(),
+            json!({
+                "id": "project-id",
+                "name": "Project",
+                "path": "/repo",
+                "position": 2.0,
+                "gitError": "repository unavailable",
+            })
+        );
+    }
 }

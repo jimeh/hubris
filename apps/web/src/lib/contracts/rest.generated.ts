@@ -1777,12 +1777,15 @@ export interface components {
       startedAt?: string | null;
     };
     Project: {
-      gitError?: string | null;
       id: string;
       name: string;
       path: string;
       /** Format: double */
       position?: number;
+    };
+    /** @description Project listing response with a freshly computed repository error. */
+    ProjectListItem: components["schemas"]["Project"] & {
+      gitError?: string | null;
     };
     RenameWorktreeBranchRequest: {
       newBranch: string;
@@ -3293,7 +3296,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["Project"][];
+          "application/json": components["schemas"]["ProjectListItem"][];
         };
       };
     };

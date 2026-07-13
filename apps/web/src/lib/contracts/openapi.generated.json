@@ -1139,7 +1139,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Project"
+                    "$ref": "#/components/schemas/ProjectListItem"
                   }
                 }
               }
@@ -5380,9 +5380,6 @@
         "type": "object",
         "required": ["id", "name", "path"],
         "properties": {
-          "gitError": {
-            "type": ["string", "null"]
-          },
           "id": {
             "type": "string"
           },
@@ -5397,6 +5394,22 @@
             "format": "double"
           }
         }
+      },
+      "ProjectListItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Project"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "gitError": {
+                "type": ["string", "null"]
+              }
+            }
+          }
+        ],
+        "description": "Project listing response with a freshly computed repository error."
       },
       "RenameWorktreeBranchRequest": {
         "type": "object",
