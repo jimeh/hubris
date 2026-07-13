@@ -300,11 +300,34 @@ describe("CopilotKitAgentChatTab", () => {
     copilotKitMock.latestAgent = null;
   });
 
-  it("renders a loaded conversation", async () => {
+  it("rebuilds the agent when loaded messages change", async () => {
     await renderChat();
 
     expect(screen.getByTestId("agent-chat-tab")).toBeVisible();
     expect(screen.getByTestId("copilot-message-list")).toBeVisible();
+
+    const previousAgent = copilotKitMock.latestAgent;
+    const updatedText = "Please inspect the updated repository";
+
+    act(() => {
+      useChatStore.setState((state) => ({
+        messagesById: {
+          ...state.messagesById,
+          "message-user-1": {
+            ...state.messagesById["message-user-1"]!,
+            contentText: updatedText,
+            updatedAt: 30,
+          },
+        },
+      }));
+    });
+
+    expect(copilotKitMock.latestAgent).not.toBe(previousAgent);
+    expect(copilotKitMock.latestAgent?.initialMessages).toContainEqual({
+      id: "message-user-1",
+      role: "user",
+      content: updatedText,
+    });
   });
 
   it("preserves the message-view DOM node across running-state changes", async () => {

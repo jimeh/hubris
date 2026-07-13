@@ -2,7 +2,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { defineConfig, type Plugin } from "vite";
-import react from "@vitejs/plugin-react";
+import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import { handleDesktopBootstrapRequest } from "./viteDesktopBootstrap";
 
@@ -110,6 +111,7 @@ export default defineConfig(async ({ command }) => {
   return {
     plugins: [
       react(),
+      babel({ presets: [reactCompilerPreset()] }),
       tailwindcss(),
       devInstancePlugin(),
       buildIdPlugin(buildId),
