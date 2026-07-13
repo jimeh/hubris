@@ -268,6 +268,26 @@ pub async fn resolve_worktree(
     state: &AppState,
     worktree_id: &str,
 ) -> Result<Option<ResolvedWorktree>, ApiError> {
+    if let Some(project_id) = state.project_id_for_worktree(worktree_id) {
+        if let Some(project) = state.projects.get(&project_id).await {
+            let worktrees = list_worktrees_for_project(state, &project).await;
+
+            if let Some(worktree) = worktrees.into_iter().find(|w| w.id == worktree_id) {
+                return Ok(Some(ResolvedWorktree {
+                    project_id: project.id.clone(),
+                    local_root: PathBuf::from(&project.path),
+                    worktree,
+                }));
+            }
+        }
+
+        state
+            .project_id_by_worktree
+            .remove_if(worktree_id, |_, cached_project_id| {
+                cached_project_id == &project_id
+            });
+    }
+
     let projects = state.projects.list().await;
 
     for project in projects {
