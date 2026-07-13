@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::api::worktrees::ResolvedWorktree;
+use crate::domain::worktree::ResolvedWorktree;
 
 pub const DISALLOWED_PATH_MESSAGE: &str = "This path resolves outside the allowed roots. Only files inside this \
      worktree or symlinks into the repository root can be opened.";

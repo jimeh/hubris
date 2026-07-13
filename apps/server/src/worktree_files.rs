@@ -15,8 +15,8 @@ use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::api::files::{ListWorktreeFilesResponse, WorktreeFileEntry, WorktreeFileKind};
-use crate::api::worktrees::ResolvedWorktree;
 use crate::api::worktrees::{GitFileChange, GitFileChangeType};
+use crate::domain::worktree::ResolvedWorktree;
 use crate::events::{EventBus, EventKind};
 use crate::git;
 use crate::util::now_ms;

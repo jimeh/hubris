@@ -1,78 +1,18 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::Arc;
-#[cfg(test)]
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use std::time::Instant;
 
 use axum::extract::{Query, State};
 use axum::response::sse::{self, Sse};
 use futures_util::Stream;
 use serde::Deserialize;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::broadcast;
 use utoipa::IntoParams;
 
 use crate::api::worktrees::list_worktrees_for_project;
-use crate::events::{Event, EventKind};
+use crate::events::{Event, EventKind, SnapshotEvent};
 use crate::state::AppState;
 use crate::util::default_session_id;
-
-const LAGGED_SNAPSHOT_TTL: Duration = Duration::from_secs(1);
-
-pub(crate) struct LaggedSnapshotCache {
-    entries: Mutex<HashMap<String, CachedSnapshot>>,
-    #[cfg(test)]
-    build_count: AtomicU64,
-}
-
-struct CachedSnapshot {
-    built_at: Instant,
-    event: Arc<SnapshotEvent>,
-}
-
-struct SnapshotEvent {
-    event_name: &'static str,
-    data: String,
-}
-
-impl Default for LaggedSnapshotCache {
-    fn default() -> Self {
-        Self {
-            entries: Mutex::new(HashMap::new()),
-            #[cfg(test)]
-            build_count: AtomicU64::new(0),
-        }
-    }
-}
-
-impl LaggedSnapshotCache {
-    async fn get_or_build(&self, state: &AppState, session_id: &str) -> Arc<SnapshotEvent> {
-        let mut entries = self.entries.lock().await;
-        let now = Instant::now();
-        entries.retain(|_, cached| now.duration_since(cached.built_at) < LAGGED_SNAPSHOT_TTL);
-        if let Some(cached) = entries.get(session_id) {
-            return Arc::clone(&cached.event);
-        }
-
-        #[cfg(test)]
-        self.build_count.fetch_add(1, Ordering::Relaxed);
-        let event = Arc::new(build_snapshot_event(state, session_id).await);
-        entries.insert(
-            session_id.to_string(),
-            CachedSnapshot {
-                built_at: Instant::now(),
-                event: Arc::clone(&event),
-            },
-        );
-        event
-    }
-
-    #[cfg(test)]
-    fn build_count(&self) -> u64 {
-        self.build_count.load(Ordering::Relaxed)
-    }
-}
 
 impl SnapshotEvent {
     fn to_sse_event(&self) -> sse::Event {
@@ -127,7 +67,9 @@ pub async fn event_stream(
                     );
                     let snapshot = state
                         .lagged_snapshot_cache
-                        .get_or_build(&state, &session_id)
+                        .get_or_build(&session_id, || {
+                            build_snapshot_event(&state, &session_id)
+                        })
                         .await;
                     yield Ok(snapshot.to_sse_event());
                 }

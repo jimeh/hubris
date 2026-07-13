@@ -12,6 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::api::errors::map_worktree_file_error;
 use crate::api::projects::Project;
 use crate::api::settings::{Settings, WorktreeLocationMode};
+pub use crate::domain::worktree::ResolvedWorktree;
 use crate::domain::worktree::{
     ManagedWorktree, ProjectMeta, load_meta, local_worktree_id, normalize_meta,
 };
@@ -132,13 +133,6 @@ pub struct DeleteWorktreeParams {
     // the `#[serde(default)]` would fall into the destructive branch.
     #[serde(default, alias = "untrack_only")]
     pub untrack_only: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct ResolvedWorktree {
-    pub project_id: String,
-    pub local_root: PathBuf,
-    pub worktree: Worktree,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]

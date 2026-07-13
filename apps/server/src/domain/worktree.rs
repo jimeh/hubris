@@ -28,6 +28,13 @@ pub struct Worktree {
     pub position: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct ResolvedWorktree {
+    pub project_id: String,
+    pub local_root: PathBuf,
+    pub worktree: Worktree,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, ToSchema, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum WorktreeUiMode {

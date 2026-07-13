@@ -3,20 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const API_DEPENDENCY_ALLOWLIST: &[&str] = &[
-    // SettingsPatch and its section patch types.
-    "src/settings_manager.rs",
-    // LaggedSnapshotCache.
-    "src/state.rs",
     // CreateTabRequest, ReorderTabsRequest, UpdateTabRequest,
     // UpdateWorktreeTabLayoutRequest, and resolve_worktree.
     "src/tabs/service.rs",
-    // SettingsPatch and VscodeSettingsPatch.
-    "src/vscode/tests.rs",
     // ListWorktreeFilesResponse, WorktreeFileEntry, WorktreeFileKind,
-    // ResolvedWorktree, GitFileChange, and GitFileChangeType.
+    // GitFileChange, and GitFileChangeType.
     "src/worktree_files.rs",
-    // ResolvedWorktree.
-    "src/worktree_path_policy.rs",
 ];
 
 const MODULE_SIZE_WARNING_LINES: usize = 2_000;

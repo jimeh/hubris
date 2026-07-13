@@ -1,9 +1,12 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio::time::{self, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
@@ -22,6 +25,70 @@ use crate::domain::vscode::VscodeStatus;
 use crate::domain::worktree::Worktree;
 use crate::tab::{TabInfo, WorktreeTabLayout, WorktreeTabLayoutState};
 use crate::worktree_state::WorktreeRestoreState;
+
+const LAGGED_SNAPSHOT_TTL: Duration = Duration::from_secs(1);
+
+pub(crate) struct LaggedSnapshotCache {
+    entries: Mutex<HashMap<String, CachedSnapshot>>,
+    #[cfg(test)]
+    build_count: AtomicU64,
+}
+
+struct CachedSnapshot {
+    built_at: Instant,
+    event: Arc<SnapshotEvent>,
+}
+
+pub(crate) struct SnapshotEvent {
+    pub(crate) event_name: &'static str,
+    pub(crate) data: String,
+}
+
+impl Default for LaggedSnapshotCache {
+    fn default() -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            build_count: AtomicU64::new(0),
+        }
+    }
+}
+
+impl LaggedSnapshotCache {
+    pub(crate) async fn get_or_build<F, Fut>(
+        &self,
+        session_id: &str,
+        build: F,
+    ) -> Arc<SnapshotEvent>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = SnapshotEvent>,
+    {
+        let mut entries = self.entries.lock().await;
+        let now = Instant::now();
+        entries.retain(|_, cached| now.duration_since(cached.built_at) < LAGGED_SNAPSHOT_TTL);
+        if let Some(cached) = entries.get(session_id) {
+            return Arc::clone(&cached.event);
+        }
+
+        #[cfg(test)]
+        self.build_count.fetch_add(1, Ordering::Relaxed);
+        let event = Arc::new(build().await);
+        entries.insert(
+            session_id.to_string(),
+            CachedSnapshot {
+                built_at: Instant::now(),
+                event: Arc::clone(&event),
+            },
+        );
+        event
+    }
+
+    #[cfg(test)]
+    pub(crate) fn build_count(&self) -> u64 {
+        self.build_count.load(Ordering::Relaxed)
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Event {

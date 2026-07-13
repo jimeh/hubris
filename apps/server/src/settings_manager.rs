@@ -11,15 +11,13 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
-use crate::api::settings::{
-    AppearanceSettingsPatch, ChatSettingsPatch, EditorSettingsPatch, ExperimentalSettingsPatch,
-    SettingsPatch, TerminalSettingsPatch, VscodeSettingsPatch, WorktreeSettingsPatch,
-};
 use crate::chat::clamp_chat_idle_timeout_minutes;
 use crate::domain::settings::{
-    AppearanceSettings, EditorSettings, ExperimentalSettings, Settings, SettingsState,
-    SettingsStatus, TerminalSettings, VscodeSettings, WorktreeSettings,
-    clamp_client_scrollback_rows, clamp_server_scrollback_bytes,
+    AppearanceSettings, AppearanceSettingsPatch, ChatSettingsPatch, EditorSettings,
+    EditorSettingsPatch, ExperimentalSettings, ExperimentalSettingsPatch, Settings, SettingsPatch,
+    SettingsState, SettingsStatus, TerminalSettings, TerminalSettingsPatch, VscodeSettings,
+    VscodeSettingsPatch, WorktreeSettings, WorktreeSettingsPatch, clamp_client_scrollback_rows,
+    clamp_server_scrollback_bytes,
 };
 use crate::events::{EventBus, EventKind};
 use crate::fs_sync::sync_parent_directory;

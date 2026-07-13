@@ -32,7 +32,7 @@ use super::proxy::{
 use super::runtime::RUNTIMES_DIR;
 use super::vscode_cli::{VscodeCliRuntimeState, detect_vscode_cli_platform};
 use super::*;
-use crate::api::settings::{SettingsPatch, VscodeSettingsPatch};
+use crate::domain::settings::{SettingsPatch, VscodeSettingsPatch};
 use crate::domain::task::TaskRemoved;
 use crate::domain::vscode::{VscodeInstallPhase, VscodeProcessStatus};
 use crate::process_manager::TestProcessProbe;
