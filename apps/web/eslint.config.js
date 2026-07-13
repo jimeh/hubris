@@ -1,22 +1,19 @@
 import js from "@eslint/js";
 import globals from "globals";
+import reactCompiler from "eslint-plugin-react-compiler";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 const featureNames = ["chat", "editor", "git-status", "keyboard-shortcuts"];
 
-// Non-feature code must consume features through their shims/barrels.
-// The one-line component shims and the lazy chat entry point are the
+// Non-feature code must consume features through public entry modules.
+// The remaining one-line component shims and the chat entry modules are
 // sanctioned crossings; everything else deep-importing a feature is a
 // boundary violation.
 const featureEntryPoints = [
-  "src/components/AgentChatTab.tsx",
-  "src/components/AgentChatTabSwitch.tsx",
-  "src/components/CopilotKitAgentChatTab.tsx",
   "src/components/FileEditorTab.tsx",
   "src/components/GitDiffTab.tsx",
-  "src/components/WorktreeChatsPanel.tsx",
   "src/components/WorktreeGitStatusPanel.tsx",
 ];
 
@@ -29,9 +26,9 @@ const nonFeatureBoundary = {
       {
         patterns: [
           {
-            regex: "^@/features/[^/]+/.",
-            message:
-              "Import features through their shim or index re-export only.",
+            regex:
+              "^@/features/(?!chat/(?:CopilotKitAgentChatTab|WorktreeChatsPanel)$|chat/classic/AgentChatTabClassicView$)[^/]+/.",
+            message: "Import features through public entry modules only.",
           },
         ],
       },
@@ -87,10 +84,12 @@ export default tseslint.config(
       },
     },
     plugins: {
+      "react-compiler": reactCompiler,
       "react-hooks": reactHooks,
       "react-refresh": reactRefresh,
     },
     rules: {
+      "react-compiler/react-compiler": "warn",
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": [
         "warn",

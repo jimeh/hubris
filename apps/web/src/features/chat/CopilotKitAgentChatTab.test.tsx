@@ -2,7 +2,7 @@
 import { act, render, screen } from "@testing-library/react";
 import type { ComponentType, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import CopilotKitAgentChatTabView from "@/components/CopilotKitAgentChatTab";
+import CopilotKitAgentChatTabView from "@/features/chat/CopilotKitAgentChatTab";
 import { resetChatStoreForTests, useChatStore } from "@/lib/stores/chats";
 import { resetSettingsStoreForTests } from "@/lib/stores/settings";
 import { resetTabStoreForTests } from "@/lib/stores/tabs";

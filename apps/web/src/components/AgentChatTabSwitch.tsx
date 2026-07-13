@@ -2,7 +2,7 @@ import { lazy } from "react";
 import { useChatSettings } from "@/lib/stores/chatSettings";
 // Type-only import: erased at compile time, so it does not undo the
 // code-splitting of the lazy() imports below.
-import type { AgentChatTabProps } from "@/components/AgentChatTab";
+import type { AgentChatTabProps } from "@/features/chat/classic/AgentChatTabClassicView";
 
 // Both chat stacks are code-split so neither ships in the entry
 // bundle: the classic (@assistant-ui) and CopilotKit (@copilotkit +
@@ -10,7 +10,9 @@ import type { AgentChatTabProps } from "@/components/AgentChatTab";
 // only the stack selected by chat.uiStyle is loaded. Rendering
 // suspends to the <Suspense> boundary at the mount point in
 // WorktreeView.
-const AgentChatTabClassicView = lazy(() => import("@/components/AgentChatTab"));
+const AgentChatTabClassicView = lazy(
+  () => import("@/features/chat/classic/AgentChatTabClassicView"),
+);
 const CopilotKitAgentChatTabView = lazy(
   () => import("@/features/chat/CopilotKitAgentChatTab"),
 );

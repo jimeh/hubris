@@ -4,6 +4,14 @@ import type { EventHandler, SseEventName } from "@/lib/events";
 import type { Worktree } from "@/lib/types";
 import { deleteProjectWorktree, updateProjectWorktree } from "@/lib/api";
 import {
+  resetHubrisWorkbenchStoreForTests,
+  useHubrisWorkbenchStore,
+} from "@/lib/stores/hubrisWorkbench";
+import {
+  resetVscodeWorkbenchStoreForTests,
+  useVscodeWorkbenchStore,
+} from "@/lib/stores/vscodeWorkbench";
+import {
   initializeWorktreeStore,
   resetWorktreeStoreForTests,
   useWorktreeStore,
@@ -88,6 +96,8 @@ describe("Worktree store", () => {
     vi.restoreAllMocks();
     localStorage.clear();
     mockEvents = new MockEventClient();
+    resetHubrisWorkbenchStoreForTests();
+    resetVscodeWorkbenchStoreForTests();
   });
 
   it("preserves missingOnDisk from snapshot payload", async () => {
@@ -324,6 +334,112 @@ describe("Worktree store", () => {
       navigationForwardIds: [],
       selectedWorktreeId: "release",
     });
+  });
+
+  it("retains workbenches at worktree selection actions", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({
+            id: "local",
+            projectId: "p1",
+            isLocal: true,
+            position: 1,
+          }),
+          makeWorktree({
+            id: "feature",
+            projectId: "p1",
+            uiMode: "vscode",
+            position: 2,
+          }),
+        ],
+      },
+      projectErrors: {},
+    });
+
+    expect(useHubrisWorkbenchStore.getState().loadedWorktreeIds).toEqual([
+      "local",
+    ]);
+
+    store.useWorktreeStore.getState().select("feature");
+
+    expect(useVscodeWorkbenchStore.getState().loadedWorktreeIds).toEqual([
+      "feature",
+    ]);
+  });
+
+  it("prunes workbench caches from authoritative worktree events", async () => {
+    const store = await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({ id: "local", projectId: "p1", position: 1 }),
+          makeWorktree({ id: "feature", projectId: "p1", position: 2 }),
+        ],
+      },
+      projectErrors: {},
+    });
+    useHubrisWorkbenchStore.getState().markLoaded("feature");
+    useVscodeWorkbenchStore.getState().markLoaded("local");
+    useVscodeWorkbenchStore.getState().markLoaded("feature");
+
+    mockEvents.emit("project_worktrees_updated", {
+      projectId: "p1",
+      worktrees: [
+        makeWorktree({ id: "feature", projectId: "p1", position: 1 }),
+      ],
+      gitError: null,
+    });
+
+    expect(useHubrisWorkbenchStore.getState().loadedWorktreeIds).toEqual([
+      "feature",
+    ]);
+    // "feature" is hubris-mode, so the vscode cache entry is evicted
+    // too: an id may only be cached in its current mode's store.
+    expect(useVscodeWorkbenchStore.getState().loadedWorktreeIds).toEqual([]);
+    expect(store.useWorktreeStore.getState().selectedWorktreeId).toBe(
+      "feature",
+    );
+  });
+
+  it("evicts the previous mode's cache when uiMode changes", async () => {
+    await getStore();
+    mockEvents.emit("snapshot", {
+      worktrees: {
+        p1: [
+          makeWorktree({ id: "local", projectId: "p1", position: 1 }),
+          makeWorktree({
+            id: "feature",
+            projectId: "p1",
+            position: 2,
+            uiMode: "vscode",
+          }),
+        ],
+      },
+      projectErrors: {},
+    });
+    useHubrisWorkbenchStore.getState().markLoaded("local");
+    useVscodeWorkbenchStore.getState().markLoaded("feature");
+
+    mockEvents.emit("project_worktrees_updated", {
+      projectId: "p1",
+      worktrees: [
+        makeWorktree({ id: "local", projectId: "p1", position: 1 }),
+        makeWorktree({
+          id: "feature",
+          projectId: "p1",
+          position: 2,
+          uiMode: "hubris",
+        }),
+      ],
+      gitError: null,
+    });
+
+    expect(useHubrisWorkbenchStore.getState().loadedWorktreeIds).toEqual([
+      "local",
+    ]);
+    expect(useVscodeWorkbenchStore.getState().loadedWorktreeIds).toEqual([]);
   });
 
   it("prunes stale worktree navigation entries after updates", async () => {

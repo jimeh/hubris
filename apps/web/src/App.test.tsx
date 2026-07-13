@@ -23,8 +23,14 @@ import {
   resetSettingsStoreForTests,
   useSettingsStore,
 } from "@/lib/stores/settings";
-import { resetHubrisWorkbenchStoreForTests } from "@/lib/stores/hubrisWorkbench";
-import { resetVscodeWorkbenchStoreForTests } from "@/lib/stores/vscodeWorkbench";
+import {
+  resetHubrisWorkbenchStoreForTests,
+  useHubrisWorkbenchStore,
+} from "@/lib/stores/hubrisWorkbench";
+import {
+  resetVscodeWorkbenchStoreForTests,
+  useVscodeWorkbenchStore,
+} from "@/lib/stores/vscodeWorkbench";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import { useTabStore } from "@/lib/stores/tabs";
 import { normalizedTabState } from "@/test/tabs";
@@ -34,6 +40,10 @@ const hubrisViewMountCounts: Record<string, number> = {};
 const hubrisViewUnmountCounts: Record<string, number> = {};
 const vscodePaneMountCounts: Record<string, number> = {};
 const vscodePaneUnmountCounts: Record<string, number> = {};
+
+function recordWorktreeViewRender(): void {
+  worktreeViewRenderCount += 1;
+}
 
 vi.mock("@/components/SidebarResizeHandle", () => ({
   default: () => null,
@@ -67,7 +77,8 @@ vi.mock("@/components/AppSidebar", () => {
 });
 
 vi.mock("@/components/WorktreeView", async () => {
-  const { useEffect } = await vi.importActual<typeof import("react")>("react");
+  const { Profiler, useEffect } =
+    await vi.importActual<typeof import("react")>("react");
 
   function MockWorktreeView({
     worktree,
@@ -76,9 +87,6 @@ vi.mock("@/components/WorktreeView", async () => {
     worktree: { id: string; name: string };
     active: boolean;
   }) {
-    // eslint-disable-next-line react-hooks/globals
-    worktreeViewRenderCount += 1;
-
     useEffect(() => {
       hubrisViewMountCounts[worktree.id] =
         (hubrisViewMountCounts[worktree.id] ?? 0) + 1;
@@ -90,12 +98,14 @@ vi.mock("@/components/WorktreeView", async () => {
     }, [worktree.id]);
 
     return (
-      <div
-        data-testid={`hubris-view-${worktree.id}`}
-        data-active={active ? "true" : "false"}
-      >
-        Active worktree: {worktree.name}
-      </div>
+      <Profiler id="mock-worktree-view" onRender={recordWorktreeViewRender}>
+        <div
+          data-testid={`hubris-view-${worktree.id}`}
+          data-active={active ? "true" : "false"}
+        >
+          Active worktree: {worktree.name}
+        </div>
+      </Profiler>
     );
   }
 
@@ -202,6 +212,7 @@ describe("App", () => {
       projectErrors: {},
       selectedWorktreeId: "w-local",
     });
+    useWorktreeStore.getState().select("w-local");
     initializeTabStore();
     useSidebarWidthStore.setState({
       width: 256,
@@ -345,6 +356,7 @@ describe("App", () => {
         ),
       },
     }));
+    useWorktreeStore.getState().select("w-local");
     render(<App />);
 
     expect(screen.getByRole("button", { name: "Hubris" })).toBeInTheDocument();
@@ -376,6 +388,7 @@ describe("App", () => {
         })),
       },
     }));
+    useWorktreeStore.getState().select("w-local");
     render(<App />);
 
     expect(screen.getByTestId("vscode-pane-w-local")).toHaveAttribute(
@@ -443,7 +456,7 @@ describe("App", () => {
     expect(vscodePaneUnmountCounts["w-local"] ?? 0).toBe(0);
   });
 
-  it("removes cached VS Code panes when the worktree disappears", async () => {
+  it("unmounts cached VS Code panes after the cache is pruned", async () => {
     useWorktreeStore.setState((state) => ({
       worktreesByProject: {
         ...state.worktreesByProject,
@@ -454,6 +467,7 @@ describe("App", () => {
         ),
       },
     }));
+    useWorktreeStore.getState().select("w-local");
     render(<App />);
     expect(screen.getByTestId("vscode-pane-w-local")).toBeInTheDocument();
 
@@ -467,6 +481,7 @@ describe("App", () => {
         },
         selectedWorktreeId: "w-feature",
       }));
+      useVscodeWorkbenchStore.getState().pruneMissing(["w-feature"]);
     });
 
     expect(screen.queryByTestId("vscode-pane-w-local")).not.toBeInTheDocument();
@@ -513,7 +528,7 @@ describe("App", () => {
     expect(hubrisViewUnmountCounts["w-local"] ?? 0).toBe(0);
   });
 
-  it("removes cached Hubris views when the worktree disappears", async () => {
+  it("unmounts cached Hubris views after the cache is pruned", async () => {
     render(<App />);
 
     expect(screen.getByTestId("hubris-view-w-local")).toBeInTheDocument();
@@ -528,6 +543,7 @@ describe("App", () => {
         },
         selectedWorktreeId: "w-feature",
       }));
+      useHubrisWorkbenchStore.getState().pruneMissing(["w-feature"]);
     });
 
     expect(screen.queryByTestId("hubris-view-w-local")).not.toBeInTheDocument();

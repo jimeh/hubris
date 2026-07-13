@@ -47,6 +47,10 @@ import { useWorktreeRightSidebarStore } from "@/lib/stores/worktreeRightSidebar"
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import type { Worktree } from "@/lib/types";
 
+function readSidebarWidth(): number {
+  return useSidebarWidthStore.getState().width;
+}
+
 function AppSidebarCommandController() {
   const sidebar = useSidebar();
 
@@ -253,23 +257,11 @@ export default function App() {
   const cachedHubrisWorktreeIds = useHubrisWorkbenchStore(
     (state) => state.loadedWorktreeIds,
   );
-  const markHubrisWorkbenchLoaded = useHubrisWorkbenchStore(
-    (state) => state.markLoaded,
-  );
-  const pruneMissingHubrisWorktrees = useHubrisWorkbenchStore(
-    (state) => state.pruneMissing,
-  );
   const cachedVscodeWorktreeIds = useVscodeWorkbenchStore(
     (state) => state.loadedWorktreeIds,
   );
-  const markVscodeWorkbenchLoaded = useVscodeWorkbenchStore(
-    (state) => state.markLoaded,
-  );
-  const pruneMissingVscodeWorktrees = useVscodeWorkbenchStore(
-    (state) => state.pruneMissing,
-  );
   const appRootRef = useRef<HTMLDivElement | null>(null);
-  const initialSidebarWidthRef = useRef(useSidebarWidthStore.getState().width);
+  const [initialSidebarWidth] = useState(readSidebarWidth);
   const allWorktrees = useMemo(
     () => Object.values(worktreesByProject).flat(),
     [worktreesByProject],
@@ -329,20 +321,6 @@ export default function App() {
     applyMonacoTheme(activeTheme, editorThemeData);
   }, [activeTheme, editorThemeData]);
 
-  useEffect(() => {
-    const ids = allWorktrees.map((worktree) => worktree.id);
-    pruneMissingHubrisWorktrees(ids);
-    pruneMissingVscodeWorktrees(ids);
-  }, [allWorktrees, pruneMissingHubrisWorktrees, pruneMissingVscodeWorktrees]);
-
-  useEffect(() => {
-    if (selectedWorktree?.uiMode === "hubris") {
-      markHubrisWorkbenchLoaded(selectedWorktree.id);
-    } else if (selectedWorktree?.uiMode === "vscode") {
-      markVscodeWorkbenchLoaded(selectedWorktree.id);
-    }
-  }, [markHubrisWorkbenchLoaded, markVscodeWorkbenchLoaded, selectedWorktree]);
-
   const activeHubrisWorktreeId =
     selectedWorktree?.uiMode === "hubris" ? selectedWorktree.id : null;
   const visibleHubrisWorktreeIds = useMemo(() => {
@@ -389,7 +367,7 @@ export default function App() {
         className={isResizing ? "sidebar-resizing" : undefined}
         style={
           {
-            "--sidebar-width": `${initialSidebarWidthRef.current}px`,
+            "--sidebar-width": `${initialSidebarWidth}px`,
           } as React.CSSProperties
         }
       >

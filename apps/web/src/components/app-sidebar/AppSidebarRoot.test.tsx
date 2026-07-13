@@ -234,6 +234,9 @@ describe("AppSidebarRoot", () => {
               projectId: "p1",
               name: "feature-a",
               position: 2,
+              // Retained VS Code workbenches only stay cached while the
+              // worktree is actually in vscode mode.
+              uiMode: "vscode",
             }),
           ],
         },

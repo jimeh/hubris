@@ -77,16 +77,7 @@ export default function FileBrowser({
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const [browsedPath, setBrowsedPath] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showHiddenRef = useRef(showHidden);
-  const browsedPathRef = useRef("");
-
-  useEffect(() => {
-    showHiddenRef.current = showHidden;
-  }, [showHidden]);
-
-  useEffect(() => {
-    browsedPathRef.current = browsedPath;
-  }, [browsedPath]);
+  const initialLoadStartedRef = useRef(false);
 
   const pathSegments = useMemo(() => {
     if (!browsedPath) {
@@ -112,7 +103,7 @@ export default function FileBrowser({
       try {
         const response = await listFiles(
           path,
-          options?.showHidden ?? showHiddenRef.current,
+          options?.showHidden ?? showHidden,
         );
         setEntries(response.entries);
         setBrowsedPath(response.path);
@@ -127,12 +118,20 @@ export default function FileBrowser({
         setLoading(false);
       }
     },
-    [onCurrentPathChange],
+    [onCurrentPathChange, showHidden],
   );
 
-  useEffect(() => {
-    void fetchEntries();
-  }, [fetchEntries]);
+  const loadOnMount = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (!element || initialLoadStartedRef.current) {
+        return;
+      }
+
+      initialLoadStartedRef.current = true;
+      void fetchEntries();
+    },
+    [fetchEntries],
+  );
 
   useEffect(() => {
     if (currentPath === browsedPath) {
@@ -156,13 +155,15 @@ export default function FileBrowser({
     };
   }, [browsedPath, currentPath, fetchEntries]);
 
-  useEffect(() => {
-    if (!browsedPathRef.current) {
+  const handleShowHiddenToggle = useCallback(() => {
+    const nextShowHidden = !showHidden;
+    setShowHidden(nextShowHidden);
+    if (!browsedPath) {
       return;
     }
 
-    void fetchEntries(browsedPathRef.current, { showHidden });
-  }, [fetchEntries, showHidden]);
+    void fetchEntries(browsedPath, { showHidden: nextShowHidden });
+  }, [browsedPath, fetchEntries, showHidden]);
 
   const navigateTo = useCallback(
     (path: string): void => {
@@ -212,7 +213,10 @@ export default function FileBrowser({
 
   return (
     <>
-      <div className="flex items-center gap-0 overflow-x-auto pb-2 text-[13px] font-mono text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        ref={loadOnMount}
+        className="flex items-center gap-0 overflow-x-auto pb-2 text-[13px] font-mono text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         <button
           className="shrink-0 px-1 transition-colors hover:text-foreground"
           onClick={() => navigateTo("/")}
@@ -278,7 +282,7 @@ export default function FileBrowser({
         <Button
           variant="ghost"
           size="icon-sm"
-          onClick={() => setShowHidden((value) => !value)}
+          onClick={handleShowHiddenToggle}
           className={showHidden ? "text-foreground" : undefined}
           title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
         >

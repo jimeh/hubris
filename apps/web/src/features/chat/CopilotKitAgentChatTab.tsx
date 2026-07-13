@@ -338,6 +338,10 @@ function buildInitialMessages(
   return messages;
 }
 
+function readInitialMessages(conversationId: string): Message[] {
+  return buildInitialMessages(useChatStore.getState(), conversationId);
+}
+
 function normalizeActivityContent(value: unknown): CodexActivityContent {
   if (!value || typeof value !== "object") {
     return {};
@@ -916,7 +920,7 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
 
   const initialMessages = useMemo(() => {
     void initialMessageVersion;
-    return buildInitialMessages(useChatStore.getState(), conversationId);
+    return readInitialMessages(conversationId);
   }, [conversationId, initialMessageVersion]);
   const agent = useMemo(
     () =>
