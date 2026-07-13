@@ -14,11 +14,12 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use crate::api::files::{ListWorktreeFilesResponse, WorktreeFileEntry, WorktreeFileKind};
-use crate::api::worktrees::ResolvedWorktree;
-use crate::api::worktrees::{GitFileChange, GitFileChangeType};
+use crate::domain::worktree::ResolvedWorktree;
+use crate::domain::worktree_files::{
+    ListWorktreeFilesResponse, WorktreeFileEntry, WorktreeFileKind,
+};
 use crate::events::{EventBus, EventKind};
-use crate::git;
+use crate::git::{self, GitFileChange, GitFileChangeType};
 use crate::util::now_ms;
 use crate::worktree_path_policy::{WorktreePathPolicy, WorktreePathPolicyError};
 

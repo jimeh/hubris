@@ -11,11 +11,8 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{self, MissedTickBehavior};
 
-use crate::api::tabs::{
-    CreateTabRequest, ReorderTabsRequest, UpdateTabRequest, UpdateWorktreeTabLayoutRequest,
-};
-use crate::api::worktrees::resolve_worktree;
 use crate::chat::{ChatCreateOptions, DEFAULT_CHAT_TITLE};
+use crate::domain::worktree::resolve_worktree;
 use crate::error::ApiError;
 use crate::events::EventKind;
 use crate::pty::live_tab::{
@@ -27,6 +24,9 @@ use crate::state::AppState;
 use crate::tab::{
     GitDiffScope, TabInfo, TerminalTabLabels, WorktreePaneNode, WorktreeTabLayout,
     WorktreeTabLayoutState,
+};
+use crate::tabs::{
+    CreateTabRequest, ReorderTabsRequest, UpdateTabRequest, UpdateWorktreeTabLayoutRequest,
 };
 use crate::util::now_ms;
 use crate::worktree_state::{

@@ -15,7 +15,9 @@ use crate::api::settings::{Settings, WorktreeLocationMode};
 use crate::domain::worktree::{
     ManagedWorktree, ProjectMeta, load_meta, local_worktree_id, normalize_meta,
 };
-pub use crate::domain::worktree::{Worktree, WorktreeUiMode, list_worktrees_for_project};
+pub use crate::domain::worktree::{
+    ResolvedWorktree, Worktree, WorktreeUiMode, list_worktrees_for_project, resolve_worktree,
+};
 use crate::error::ApiError;
 use crate::events::EventKind;
 use crate::git;
@@ -132,13 +134,6 @@ pub struct DeleteWorktreeParams {
     // the `#[serde(default)]` would fall into the destructive branch.
     #[serde(default, alias = "untrack_only")]
     pub untrack_only: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct ResolvedWorktree {
-    pub project_id: String,
-    pub local_root: PathBuf,
-    pub worktree: Worktree,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, TS)]
@@ -262,49 +257,6 @@ fn is_missing_worktree_error(message: &str) -> bool {
         || message.contains("worktree not found")
         || message.contains("does not exist")
         || message.contains("cannot find")
-}
-
-pub async fn resolve_worktree(
-    state: &AppState,
-    worktree_id: &str,
-) -> Result<Option<ResolvedWorktree>, ApiError> {
-    if let Some(project_id) = state.project_id_for_worktree(worktree_id) {
-        if let Some(project) = state.projects.get(&project_id).await {
-            let worktrees = list_worktrees_for_project(state, &project).await;
-
-            if let Some(worktree) = worktrees.into_iter().find(|w| w.id == worktree_id) {
-                return Ok(Some(ResolvedWorktree {
-                    project_id: project.id.clone(),
-                    local_root: PathBuf::from(&project.path),
-                    worktree,
-                }));
-            }
-        }
-
-        state
-            .project_id_by_worktree
-            .remove_if(worktree_id, |_, cached_project_id| {
-                cached_project_id == &project_id
-            });
-    }
-
-    let projects = state.projects.list().await;
-
-    for project in projects {
-        let worktrees = list_worktrees_for_project(state, &project).await;
-
-        if let Some(worktree) = worktrees.into_iter().find(|w| w.id == worktree_id) {
-            let local_root = PathBuf::from(&project.path);
-            state.remember_worktree_project(&worktree.id, &project.id);
-            return Ok(Some(ResolvedWorktree {
-                project_id: project.id.clone(),
-                local_root,
-                worktree,
-            }));
-        }
-    }
-
-    Ok(None)
 }
 
 pub async fn close_tabs_for_worktree(state: &AppState, worktree_id: &str) -> Result<(), ApiError> {

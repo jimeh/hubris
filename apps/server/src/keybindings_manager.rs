@@ -11,7 +11,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Value, value};
 
-use crate::api::keybindings::{KeybindingEntry, Keybindings, KeybindingsState, KeybindingsStatus};
+use crate::domain::keybindings::{
+    KeybindingEntry, Keybindings, KeybindingsState, KeybindingsStatus,
+};
 use crate::events::{EventBus, EventKind};
 use crate::fs_sync::sync_parent_directory;
 

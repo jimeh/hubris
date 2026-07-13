@@ -4,9 +4,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tokio_util::sync::CancellationToken;
 
-use crate::api::events::LaggedSnapshotCache;
 use crate::chat::ChatService;
-use crate::events::EventBus;
+use crate::events::{EventBus, LaggedSnapshotCache};
 use crate::keybindings_manager::KeybindingsManager;
 use crate::process_manager::ManagedProcessService;
 use crate::project_store::ProjectStore;

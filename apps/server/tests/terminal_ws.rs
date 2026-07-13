@@ -1,17 +1,19 @@
 use std::ffi::OsString;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use hubris_server::api::terminal::{ClientControlMessage, ServerControlMessage};
 use hubris_server::pty::live_tab::DEFAULT_SCROLLBACK;
-use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
 use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
+
+pub mod support;
+
+use support::{init_git_repo, start_test_server};
 
 async fn lock_terminal_test() -> tokio::sync::MutexGuard<'static, ()> {
     static LOCK: tokio::sync::OnceCell<tokio::sync::Mutex<()>> = tokio::sync::OnceCell::const_new();
@@ -19,20 +21,6 @@ async fn lock_terminal_test() -> tokio::sync::MutexGuard<'static, ()> {
         .await
         .lock()
         .await
-}
-
-async fn start_test_server() -> (String, tempfile::TempDir) {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let state = AppState::new(tmp.path().to_path_buf()).await;
-    let app = build_router(state);
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
-
-    (format!("http://{}", addr), tmp)
 }
 
 struct ShellEnvGuard {
@@ -81,29 +69,6 @@ done
         std::fs::set_permissions(&shell_wrapper, permissions).unwrap();
     }
     ShellEnvGuard::set(&shell_wrapper)
-}
-
-fn init_git_repo() -> tempfile::TempDir {
-    let repo = tempfile::TempDir::new().unwrap();
-    run_git(repo.path(), &["init", "-q"]);
-    run_git(repo.path(), &["config", "user.email", "test@example.com"]);
-    run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
-    std::fs::write(repo.path().join("README.md"), "hello\n").unwrap();
-    run_git(repo.path(), &["add", "README.md"]);
-    run_git(repo.path(), &["commit", "-q", "-m", "init"]);
-    run_git(repo.path(), &["branch", "-M", "main"]);
-    repo
-}
-
-fn run_git(repo_path: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .current_dir(repo_path)
-        .arg("-c")
-        .arg("commit.gpgsign=false")
-        .args(args)
-        .status()
-        .unwrap();
-    assert!(status.success(), "git failed: {:?}", args);
 }
 
 async fn create_project(client: &reqwest::Client, base: &str, path: &str) -> String {

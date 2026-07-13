@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use axum::body::Bytes;
@@ -10,23 +9,14 @@ use futures_util::{Stream, StreamExt};
 use hubris_server::api::events::{EventStreamParams, event_stream};
 use hubris_server::events::EventKind;
 use hubris_server::{
-    AppState, FrontendAssets, ServerAccess, ServerOptions, build_router, build_router_with_options,
+    AppState, FrontendAssets, ServerAccess, ServerOptions, build_router_with_options,
 };
 use reqwest::StatusCode;
 use serde_json::Value;
 
-async fn start_test_server() -> (String, tempfile::TempDir) {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let state = AppState::new(tmp.path().to_path_buf()).await;
-    let app = build_router(state);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
+pub mod support;
 
-    (format!("http://{addr}"), tmp)
-}
+use support::{init_git_repo, start_test_server};
 
 async fn first_snapshot(frontend: FrontendAssets, data_dir: &Path) -> Value {
     let state = AppState::new(data_dir.to_path_buf()).await;
@@ -50,30 +40,6 @@ async fn first_snapshot(frontend: FrontendAssets, data_dir: &Path) -> Value {
         .unwrap();
     let (_, snapshot) = next_http_sse_event(&mut response, &mut Vec::new()).await;
     snapshot
-}
-
-fn init_git_repo() -> tempfile::TempDir {
-    let repo = tempfile::TempDir::new().unwrap();
-    run_git(repo.path(), &["init", "-q"]);
-    run_git(repo.path(), &["config", "user.email", "test@example.com"]);
-    run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
-    std::fs::write(repo.path().join("README.md"), "hello\n").unwrap();
-    run_git(repo.path(), &["add", "README.md"]);
-    run_git(repo.path(), &["commit", "-q", "-m", "init"]);
-    run_git(repo.path(), &["branch", "-M", "main"]);
-    repo
-}
-
-fn run_git(repo_path: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("-c")
-        .arg("commit.gpgsign=false")
-        .args(args)
-        .status()
-        .unwrap();
-    assert!(status.success(), "git failed: {args:?}");
 }
 
 fn find_sse_separator(buffer: &[u8]) -> Option<usize> {

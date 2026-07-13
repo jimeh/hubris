@@ -11,13 +11,14 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
-use crate::api::settings::{
-    AppearanceSettingsPatch, ChatSettingsPatch, EditorSettingsPatch, ExperimentalSettingsPatch,
-    Settings, SettingsPatch, SettingsState, SettingsStatus, TerminalSettingsPatch,
-    VscodeSettingsPatch, WorktreeSettingsPatch, clamp_client_scrollback_rows,
+use crate::chat::clamp_chat_idle_timeout_minutes;
+use crate::domain::settings::{
+    AppearanceSettings, AppearanceSettingsPatch, ChatSettingsPatch, EditorSettings,
+    EditorSettingsPatch, ExperimentalSettings, ExperimentalSettingsPatch, Settings, SettingsPatch,
+    SettingsState, SettingsStatus, TerminalSettings, TerminalSettingsPatch, VscodeSettings,
+    VscodeSettingsPatch, WorktreeSettings, WorktreeSettingsPatch, clamp_client_scrollback_rows,
     clamp_server_scrollback_bytes,
 };
-use crate::chat::clamp_chat_idle_timeout_minutes;
 use crate::events::{EventBus, EventKind};
 use crate::fs_sync::sync_parent_directory;
 
@@ -369,10 +370,7 @@ fn apply_patch_to_settings(settings: &mut Settings, patch: &SettingsPatch) {
     }
 }
 
-fn apply_appearance_patch(
-    settings: &mut crate::api::settings::AppearanceSettings,
-    patch: &AppearanceSettingsPatch,
-) {
+fn apply_appearance_patch(settings: &mut AppearanceSettings, patch: &AppearanceSettingsPatch) {
     if let Some(color_scheme) = patch.color_scheme {
         settings.color_scheme = color_scheme;
     }
@@ -384,10 +382,7 @@ fn apply_appearance_patch(
     }
 }
 
-fn apply_terminal_patch(
-    settings: &mut crate::api::settings::TerminalSettings,
-    patch: &TerminalSettingsPatch,
-) {
+fn apply_terminal_patch(settings: &mut TerminalSettings, patch: &TerminalSettingsPatch) {
     if let Some(font_source) = patch.font_source {
         settings.font_source = font_source;
     }
@@ -417,10 +412,7 @@ fn apply_terminal_patch(
     }
 }
 
-fn apply_editor_patch(
-    settings: &mut crate::api::settings::EditorSettings,
-    patch: &EditorSettingsPatch,
-) {
+fn apply_editor_patch(settings: &mut EditorSettings, patch: &EditorSettingsPatch) {
     if let Some(light_editor_theme) = &patch.light_editor_theme {
         settings.light_editor_theme = light_editor_theme.clone();
     }
@@ -429,17 +421,14 @@ fn apply_editor_patch(
     }
 }
 
-fn apply_worktree_patch(
-    settings: &mut crate::api::settings::WorktreeSettings,
-    patch: &WorktreeSettingsPatch,
-) {
+fn apply_worktree_patch(settings: &mut WorktreeSettings, patch: &WorktreeSettingsPatch) {
     if let Some(location_mode) = patch.location_mode {
         settings.location_mode = location_mode;
     }
 }
 
 fn apply_experimental_patch(
-    settings: &mut crate::api::settings::ExperimentalSettings,
+    settings: &mut ExperimentalSettings,
     patch: &ExperimentalSettingsPatch,
 ) {
     if let Some(chat_enabled) = patch.chat_enabled {
@@ -447,10 +436,7 @@ fn apply_experimental_patch(
     }
 }
 
-fn apply_vscode_patch(
-    settings: &mut crate::api::settings::VscodeSettings,
-    patch: &VscodeSettingsPatch,
-) {
+fn apply_vscode_patch(settings: &mut VscodeSettings, patch: &VscodeSettingsPatch) {
     if let Some(runtime) = patch.runtime {
         settings.runtime = runtime;
     }
@@ -737,6 +723,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::domain::settings::ColorScheme;
 
     fn assert_no_temp_files(dir: &Path) {
         let entries = std::fs::read_dir(dir).unwrap();
@@ -766,7 +753,7 @@ mod tests {
         let updated = manager
             .patch(SettingsPatch {
                 appearance: Some(AppearanceSettingsPatch {
-                    color_scheme: Some(crate::api::settings::ColorScheme::Dark),
+                    color_scheme: Some(ColorScheme::Dark),
                     ..Default::default()
                 }),
                 ..Default::default()

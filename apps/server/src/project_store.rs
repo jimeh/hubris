@@ -5,7 +5,7 @@ use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 
-use crate::api::projects::Project;
+use crate::domain::project::Project;
 use crate::fs_sync::sync_parent_directory;
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);

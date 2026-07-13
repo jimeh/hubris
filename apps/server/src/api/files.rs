@@ -18,6 +18,9 @@ use crate::api::monaco_languages_generated::{
     MonacoFirstLineRule,
 };
 use crate::api::worktrees::{ResolvedWorktree, resolve_worktree};
+pub use crate::domain::worktree_files::{
+    ListWorktreeFilesResponse, WorktreeFileEntry, WorktreeFileKind,
+};
 use crate::error::ApiError;
 use crate::fs_sync::sync_parent_directory;
 use crate::git::{GitCommitDiffError, GitDiffBlobContent, GitDiffBlobSource};
@@ -59,31 +62,6 @@ pub struct ListFilesResponse {
     pub entries: Vec<DirEntry>,
     /// User's home directory (for quick-nav in UI).
     pub home_dir: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "snake_case")]
-pub enum WorktreeFileKind {
-    Directory,
-    File,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeFileEntry {
-    pub name: String,
-    pub path: String,
-    pub kind: WorktreeFileKind,
-    pub is_symlink: bool,
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ListWorktreeFilesResponse {
-    pub generation: u32,
-    /// Relative path from the worktree root.
-    pub path: String,
-    pub entries: Vec<WorktreeFileEntry>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]

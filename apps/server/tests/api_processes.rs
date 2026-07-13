@@ -7,21 +7,11 @@ use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
 
+pub mod support;
+
+use support::start_test_server;
+
 const RUNTIME_VERSION: &str = "1.2.3";
-
-async fn start_test_server() -> (String, tempfile::TempDir) {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let state = AppState::new(tmp.path().to_path_buf()).await;
-    let app = build_router(state);
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
-
-    (format!("http://{addr}"), tmp)
-}
 
 #[cfg(unix)]
 async fn start_test_server_with_runtime() -> (String, tempfile::TempDir, PathBuf) {

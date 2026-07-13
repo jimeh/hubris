@@ -7,7 +7,7 @@ edition.workspace = true
 libc = "0.2"
 portable-pty = "0.9"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 tracing = "0.1"
 ts-rs = { version = "12", features = ["serde-compat", "serde-json-impl"] }
 utoipa = { version = "5", features = ["axum_extras"] }
