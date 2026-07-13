@@ -16,7 +16,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import WorktreeAllFilesPanel from "@/components/WorktreeAllFilesPanel";
-import WorktreeChatsPanel from "@/components/WorktreeChatsPanel";
 import WorktreeGitStatusViewToggle from "@/components/WorktreeGitStatusViewToggle";
 import WorktreeGitStatusPanel from "@/components/WorktreeGitStatusPanel";
 import WorktreeRightSidebarResizeHandle from "@/components/WorktreeRightSidebarResizeHandle";
@@ -28,6 +27,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import WorktreeChatsPanel from "@/features/chat/WorktreeChatsPanel";
 import { useWorktreeGitStatusViewStore } from "@/lib/stores/worktreeGitStatusView";
 import {
   DEFAULT_WORKTREE_RIGHT_SIDEBAR_TAB,

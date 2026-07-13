@@ -4,6 +4,7 @@ import { LoaderCircle, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
+import { requestKindLabel } from "@/features/chat/classic/pendingRequestLabels";
 import {
   selectChatActivePendingRequestIds,
   selectChatPendingRequest,
@@ -14,23 +15,6 @@ import type {
   ChatPendingRequestDecision,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-export function requestKindLabel(request: ChatPendingRequest): string {
-  switch (request.kind) {
-    case "command_approval":
-      return "Command approval";
-    case "file_approval":
-      return "File approval";
-    case "permission_approval":
-      return "Permission request";
-    case "structured_input":
-      return "Codex question";
-    case "mcp_elicitation":
-      return "Tool input";
-    default:
-      return "Unsupported request";
-  }
-}
 
 function requestStatusLabel(request: ChatPendingRequest): string {
   switch (request.status) {

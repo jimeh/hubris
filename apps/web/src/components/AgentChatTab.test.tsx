@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps, ReactNode } from "react";
-import AgentChatTabView from "@/components/AgentChatTab";
+import AgentChatTabView from "@/features/chat/classic/AgentChatTabClassicView";
 import {
   resetChatStoreForTests,
   selectChatTimelineIds,
