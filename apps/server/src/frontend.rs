@@ -44,6 +44,12 @@ impl FrontendAssets {
         Ok(Self::Directory(path))
     }
 
+    // Read ONCE at router construction. The reported id must match the
+    // assets served for the lifetime of the process: rebuilding a
+    // Directory-mode dist in place under a running server would make the
+    // stale id mismatch the freshly served bundle and reload clients in a
+    // loop. If Directory mode ever gains a runtime caller, re-read (or
+    // watch) the manifest instead of caching a startup snapshot.
     pub(crate) fn build_id(&self) -> Option<String> {
         let bytes = match self {
             Self::Disabled => return None,
