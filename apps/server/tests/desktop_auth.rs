@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -15,6 +14,10 @@ use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+pub mod support;
+
+use support::init_git_repo;
 
 async fn start_test_server(options: ServerOptions) -> (String, TempDir) {
     let tmp = TempDir::new().unwrap();
@@ -55,29 +58,6 @@ fn api_only_options(root: &Path, session_token: &str) -> ServerOptions {
         frontend: FrontendAssets::from_dir(assets).unwrap(),
         access: ServerAccess::DesktopLocked(DesktopAccess::api_only(session_token)),
     }
-}
-
-fn init_git_repo() -> TempDir {
-    let repo = TempDir::new().unwrap();
-    run_git(repo.path(), &["init", "-q"]);
-    run_git(repo.path(), &["config", "user.email", "test@example.com"]);
-    run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
-    std::fs::write(repo.path().join("README.md"), "hello\n").unwrap();
-    run_git(repo.path(), &["add", "README.md"]);
-    run_git(repo.path(), &["commit", "-q", "-m", "init"]);
-    run_git(repo.path(), &["branch", "-M", "main"]);
-    repo
-}
-
-fn run_git(repo_path: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .current_dir(repo_path)
-        .arg("-c")
-        .arg("commit.gpgsign=false")
-        .args(args)
-        .status()
-        .unwrap();
-    assert!(status.success(), "git failed: {:?}", args);
 }
 
 fn cookie_pair(response: &reqwest::Response) -> String {

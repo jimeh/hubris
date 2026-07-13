@@ -1,9 +1,12 @@
 use std::path::Path;
-use std::process::Command;
 
 use hubris_server::{AppState, build_router};
 use reqwest::StatusCode;
 use serde_json::Value;
+
+pub mod support;
+
+use support::init_git_repo;
 
 struct ChatFixture {
     conversation_id: String,
@@ -27,30 +30,6 @@ async fn start_test_server() -> (String, tempfile::TempDir) {
     });
 
     (format!("http://{addr}"), tmp)
-}
-
-fn init_git_repo() -> tempfile::TempDir {
-    let repo = tempfile::TempDir::new().unwrap();
-    run_git(repo.path(), &["init", "-q"]);
-    run_git(repo.path(), &["config", "user.email", "test@example.com"]);
-    run_git(repo.path(), &["config", "user.name", "Hubris Test"]);
-    std::fs::write(repo.path().join("README.md"), "hello\n").unwrap();
-    run_git(repo.path(), &["add", "README.md"]);
-    run_git(repo.path(), &["commit", "-q", "-m", "init"]);
-    run_git(repo.path(), &["branch", "-M", "main"]);
-    repo
-}
-
-fn run_git(repo_path: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("-c")
-        .arg("commit.gpgsign=false")
-        .args(args)
-        .status()
-        .unwrap();
-    assert!(status.success(), "git failed: {args:?}");
 }
 
 async fn create_project(client: &reqwest::Client, base: &str, repo: &Path) -> Value {
