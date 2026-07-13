@@ -21,18 +21,54 @@ export const useConnectionStore = create<ConnectionState>(() => ({
 }));
 
 let initialized = false;
+let reloadedForBuildMismatch = false;
 let eventUnsubscribers: Array<() => void> = [];
 
-export function initializeConnectionStore(): void {
+type BuildIdHandshakeOptions = {
+  clientBuildId?: string;
+  reload?: () => void;
+};
+
+/** Return whether a snapshot should trigger the one-time upgrade reload. */
+export function shouldReloadForBuildMismatch(
+  clientBuildId: string | undefined,
+  serverBuildId: string | undefined,
+  hasReloaded: boolean,
+): boolean {
+  return Boolean(
+    clientBuildId &&
+    serverBuildId &&
+    clientBuildId !== serverBuildId &&
+    !hasReloaded,
+  );
+}
+
+export function initializeConnectionStore(
+  options: BuildIdHandshakeOptions = {},
+): void {
   if (initialized) return;
   initialized = true;
+
+  const clientBuildId =
+    options.clientBuildId ?? import.meta.env.HUBRIS_BUILD_ID;
+  const reload = options.reload ?? (() => window.location.reload());
 
   const events = getEventClient();
   eventUnsubscribers = [
     events.on("snapshot_unavailable", (data) => {
       useConnectionStore.setState({ snapshotError: data });
     }),
-    events.on("snapshot", () => {
+    events.on("snapshot", (data) => {
+      if (
+        shouldReloadForBuildMismatch(
+          clientBuildId,
+          data.buildId,
+          reloadedForBuildMismatch,
+        )
+      ) {
+        reloadedForBuildMismatch = true;
+        reload();
+      }
       useConnectionStore.setState({ snapshotError: null });
     }),
   ];
@@ -55,5 +91,6 @@ export function resetConnectionStoreForTests(): void {
   }
   eventUnsubscribers = [];
   initialized = false;
+  reloadedForBuildMismatch = false;
   useConnectionStore.setState({ snapshotError: null });
 }

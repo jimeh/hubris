@@ -9,7 +9,9 @@ use axum::response::IntoResponse;
 use futures_util::{Stream, StreamExt};
 use hubris_server::api::events::{EventStreamParams, event_stream};
 use hubris_server::events::EventKind;
-use hubris_server::{AppState, build_router};
+use hubris_server::{
+    AppState, FrontendAssets, ServerAccess, ServerOptions, build_router, build_router_with_options,
+};
 use reqwest::StatusCode;
 use serde_json::Value;
 
@@ -24,6 +26,30 @@ async fn start_test_server() -> (String, tempfile::TempDir) {
     });
 
     (format!("http://{addr}"), tmp)
+}
+
+async fn first_snapshot(frontend: FrontendAssets, data_dir: &Path) -> Value {
+    let state = AppState::new(data_dir.to_path_buf()).await;
+    let app = build_router_with_options(
+        state,
+        ServerOptions {
+            frontend,
+            access: ServerAccess::Open,
+        },
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let mut response = reqwest::Client::new()
+        .get(format!("http://{addr}/api/events?sessionId=default"))
+        .send()
+        .await
+        .unwrap();
+    let (_, snapshot) = next_http_sse_event(&mut response, &mut Vec::new()).await;
+    snapshot
 }
 
 fn init_git_repo() -> tempfile::TempDir {
@@ -165,6 +191,36 @@ async fn snapshot_incremental_event_and_reconnect_snapshot() {
     let projects = snapshot["data"]["projects"].as_array().unwrap();
     assert_eq!(projects.len(), 1);
     assert_eq!(projects[0]["id"], project_id);
+}
+
+#[tokio::test]
+async fn snapshot_includes_build_id_from_frontend_assets() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let assets = tmp.path().join("dist");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("index.html"), "<!doctype html>").unwrap();
+    std::fs::write(
+        assets.join("build-id.json"),
+        r#"{"buildId":"server-build"}"#,
+    )
+    .unwrap();
+
+    let snapshot = first_snapshot(
+        FrontendAssets::from_dir(assets).unwrap(),
+        &tmp.path().join("data"),
+    )
+    .await;
+
+    assert_eq!(snapshot["data"]["buildId"], "server-build");
+}
+
+#[tokio::test]
+async fn snapshot_omits_build_id_without_frontend_assets() {
+    let tmp = tempfile::TempDir::new().unwrap();
+
+    let snapshot = first_snapshot(FrontendAssets::disabled(), tmp.path()).await;
+
+    assert!(snapshot["data"].get("buildId").is_none());
 }
 
 #[tokio::test]

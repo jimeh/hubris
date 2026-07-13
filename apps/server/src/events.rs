@@ -34,6 +34,9 @@ pub struct Event {
 pub enum EventKind {
     #[serde(rename = "snapshot")]
     Snapshot {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        build_id: Option<String>,
         tabs: Vec<TabInfo>,
         tab_layouts: HashMap<String, WorktreeTabLayout>,
         worktree_restore_state: HashMap<String, WorktreeRestoreState>,
@@ -815,6 +818,7 @@ mod tests {
     fn test_event_kind_names() {
         assert_eq!(
             EventKind::Snapshot {
+                build_id: None,
                 tabs: vec![],
                 tab_layouts: HashMap::new(),
                 worktree_restore_state: HashMap::new(),

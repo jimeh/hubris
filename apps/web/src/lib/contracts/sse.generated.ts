@@ -1086,6 +1086,7 @@ export type EventKind =
   | {
       type: "snapshot";
       data: {
+        buildId?: string;
         tabs: Array<TabInfo>;
         tabLayouts: { [key in string]: WorktreeTabLayout };
         worktreeRestoreState: { [key in string]: WorktreeRestoreState };

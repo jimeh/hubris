@@ -7,6 +7,14 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get_service;
 use tower_http::services::{ServeDir, ServeFile};
 
+const BUILD_ID_ASSET: &str = "build-id.json";
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BuildIdAsset {
+    build_id: String,
+}
+
 /// Frontend asset source for SPA fallback routes.
 #[derive(Clone, Debug, Default)]
 pub enum FrontendAssets {
@@ -35,6 +43,22 @@ impl FrontendAssets {
         validate_frontend_dir(&path)?;
         Ok(Self::Directory(path))
     }
+
+    pub(crate) fn build_id(&self) -> Option<String> {
+        let bytes = match self {
+            Self::Disabled => return None,
+            #[cfg(feature = "embed-frontend")]
+            Self::Embedded => return embedded::build_id(),
+            Self::Directory(path) => std::fs::read(path.join(BUILD_ID_ASSET)).ok()?,
+        };
+
+        parse_build_id(&bytes)
+    }
+}
+
+fn parse_build_id(bytes: &[u8]) -> Option<String> {
+    let build_id = serde_json::from_slice::<BuildIdAsset>(bytes).ok()?.build_id;
+    (!build_id.trim().is_empty()).then_some(build_id)
 }
 
 /// Apply SPA fallback routing for the chosen frontend asset source.
@@ -106,6 +130,11 @@ mod embedded {
     #[derive(Embed)]
     #[folder = "../web/dist"]
     pub struct Assets;
+
+    pub fn build_id() -> Option<String> {
+        let file = Assets::get(BUILD_ID_ASSET)?;
+        parse_build_id(file.data.as_ref())
+    }
 
     /// Serve an embedded file by URI path, falling back to
     /// index.html for SPA client-side routing.
