@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -490,45 +491,20 @@ const CreatePanel = forwardRef<
 });
 
 function ImportPanel({
-  projectId,
+  worktrees,
+  loading,
+  error,
   submitting,
   selectedPath,
   onSelect,
 }: {
-  projectId: string;
+  worktrees: ImportableWorktree[];
+  loading: boolean;
+  error: string;
   submitting: boolean;
   selectedPath: string | null;
   onSelect: (path: string | null) => void;
 }) {
-  const [worktrees, setWorktrees] = useState<ImportableWorktree[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    void (async () => {
-      try {
-        const response = await listImportableWorktrees(projectId);
-        if (cancelled) return;
-        setWorktrees(response.importableWorktrees);
-        if (response.gitError) {
-          setError(response.gitError);
-        }
-      } catch (loadError) {
-        if (cancelled) return;
-        setError(`Failed to list worktrees (${(loadError as Error).message})`);
-        setWorktrees([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -615,6 +591,58 @@ export default function AddWorktreeDialog({
     null,
   );
   const [importError, setImportError] = useState("");
+  const [importableWorktrees, setImportableWorktrees] = useState<
+    ImportableWorktree[]
+  >([]);
+  const [importableWorktreesLoading, setImportableWorktreesLoading] =
+    useState(true);
+  const [importableWorktreesError, setImportableWorktreesError] = useState("");
+  const importLoadGenerationRef = useRef(0);
+
+  const loadImportableWorktrees = useCallback(async () => {
+    const generation = ++importLoadGenerationRef.current;
+    setImportableWorktreesLoading(true);
+    setImportableWorktreesError("");
+    try {
+      const response = await listImportableWorktrees(projectId);
+      if (importLoadGenerationRef.current === generation) {
+        setImportableWorktrees(response.importableWorktrees);
+        if (response.gitError) {
+          setImportableWorktreesError(response.gitError);
+        }
+      }
+    } catch (loadError) {
+      if (importLoadGenerationRef.current === generation) {
+        setImportableWorktreesError(
+          `Failed to list worktrees (${(loadError as Error).message})`,
+        );
+        setImportableWorktrees([]);
+      }
+    } finally {
+      if (importLoadGenerationRef.current === generation) {
+        setImportableWorktreesLoading(false);
+      }
+    }
+  }, [projectId]);
+
+  const cancelImportLoadOnUnmount = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (!element) {
+        importLoadGenerationRef.current += 1;
+      }
+    },
+    [],
+  );
+
+  function handleTabChange(nextTab: ActiveTab): void {
+    if (nextTab === activeTab) return;
+    if (nextTab === "import") {
+      void loadImportableWorktrees();
+    } else {
+      importLoadGenerationRef.current += 1;
+    }
+    setActiveTab(nextTab);
+  }
 
   async function handleCreate(
     branch: string,
@@ -659,13 +687,13 @@ export default function AddWorktreeDialog({
         <div className="flex gap-1 rounded-lg border bg-muted/40 p-1">
           <TabButton
             active={activeTab === "create"}
-            onClick={() => setActiveTab("create")}
+            onClick={() => handleTabChange("create")}
           >
             Create
           </TabButton>
           <TabButton
             active={activeTab === "import"}
-            onClick={() => setActiveTab("import")}
+            onClick={() => handleTabChange("import")}
           >
             Import
           </TabButton>
@@ -680,12 +708,16 @@ export default function AddWorktreeDialog({
           />
         ) : (
           <>
-            <ImportPanel
-              projectId={projectId}
-              submitting={submitting}
-              selectedPath={importSelectedPath}
-              onSelect={setImportSelectedPath}
-            />
+            <div ref={cancelImportLoadOnUnmount} className="contents">
+              <ImportPanel
+                worktrees={importableWorktrees}
+                loading={importableWorktreesLoading}
+                error={importableWorktreesError}
+                submitting={submitting}
+                selectedPath={importSelectedPath}
+                onSelect={setImportSelectedPath}
+              />
+            </div>
             {importError ? (
               <p className="text-sm text-destructive">{importError}</p>
             ) : null}
