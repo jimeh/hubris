@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import AddWorktreeDialog from "@/components/AddWorktreeDialog";
+import { listImportableWorktrees } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
   listProjectWorktreeStartPoints: vi.fn(async () => ({
@@ -16,6 +17,7 @@ vi.mock("@/lib/api", () => ({
     defaultStartPoint: "refs/heads/main",
     gitError: null,
   })),
+  listImportableWorktrees: vi.fn(),
 }));
 
 vi.mock("@/lib/stores/theme", () => ({
@@ -24,6 +26,20 @@ vi.mock("@/lib/stores/theme", () => ({
 }));
 
 describe("AddWorktreeDialog", () => {
+  beforeEach(() => {
+    vi.mocked(listImportableWorktrees).mockReset();
+    vi.mocked(listImportableWorktrees).mockResolvedValue({
+      importableWorktrees: [
+        {
+          id: "worktree-1",
+          path: "/repo/importable",
+          branch: "feature/importable",
+        },
+      ],
+      gitError: null,
+    });
+  });
+
   it("mounts the start-point popover inside the dialog-owned container", async () => {
     render(
       <AddWorktreeDialog
@@ -109,6 +125,33 @@ describe("AddWorktreeDialog", () => {
         "origin/release",
         undefined,
       );
+    });
+  });
+
+  it("loads importable worktrees when the import tab is selected", async () => {
+    render(
+      <AddWorktreeDialog
+        projectId="project-1"
+        projectName="Devbox"
+        onAdd={vi.fn(async () => {})}
+        onImport={vi.fn(async () => {})}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(listImportableWorktrees).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    expect(await screen.findByText("feature/importable")).toBeInTheDocument();
+    expect(listImportableWorktrees).toHaveBeenCalledTimes(1);
+    expect(listImportableWorktrees).toHaveBeenLastCalledWith("project-1");
+
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    await waitFor(() => {
+      expect(listImportableWorktrees).toHaveBeenCalledTimes(2);
     });
   });
 });

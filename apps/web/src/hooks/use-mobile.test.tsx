@@ -50,33 +50,33 @@ describe("useIsMobile", () => {
   });
 
   it("updates when the media query listener fires", () => {
-    let changeListener: ((event: MediaQueryListEvent) => void) | undefined;
+    let matches = false;
+    let changeListener: (() => void) | undefined;
     window.innerWidth = 1280;
 
     vi.stubGlobal(
       "matchMedia",
-      vi.fn().mockReturnValue({
-        matches: false,
+      vi.fn().mockImplementation(() => ({
+        matches,
         media: "(max-width: 767px)",
         onchange: null,
-        addEventListener: vi.fn(
-          (_event: string, listener: (event: MediaQueryListEvent) => void) => {
-            changeListener = listener;
-          },
-        ),
+        addEventListener: vi.fn((_event: string, listener: () => void) => {
+          changeListener = listener;
+        }),
         removeEventListener: vi.fn(),
         addListener: vi.fn(),
         removeListener: vi.fn(),
         dispatchEvent: vi.fn(),
-      }),
+      })),
     );
 
     render(<TestComponent />);
     expect(screen.getByText("desktop")).toBeInTheDocument();
 
     act(() => {
+      matches = true;
       window.innerWidth = 640;
-      changeListener?.({ matches: true } as MediaQueryListEvent);
+      changeListener?.();
     });
 
     expect(screen.getByText("mobile")).toBeInTheDocument();
