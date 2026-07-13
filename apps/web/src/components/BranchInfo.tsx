@@ -319,6 +319,10 @@ export default function BranchInfo({
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <SourceRefPicker
+              // Remount on identity change: a selection change while the
+              // popover is open (keyboard nav, SSE-driven) must not leave
+              // the previous project's start points selectable.
+              key={`${projectId}/${worktreeId}`}
               projectId={projectId}
               worktreeId={worktreeId}
               sourceRef={sourceRef}
