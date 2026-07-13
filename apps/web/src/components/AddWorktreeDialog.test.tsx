@@ -154,4 +154,67 @@ describe("AddWorktreeDialog", () => {
       expect(listImportableWorktrees).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("discards a stale importable-worktrees response after tab churn", async () => {
+    let resolveFirst!: (value: {
+      importableWorktrees: {
+        id: string;
+        path: string;
+        branch: string | null;
+      }[];
+      gitError: string | null;
+    }) => void;
+    vi.mocked(listImportableWorktrees)
+      .mockReset()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        importableWorktrees: [
+          {
+            id: "worktree-2",
+            path: "/repo/second",
+            branch: "feature/second",
+          },
+        ],
+        gitError: null,
+      });
+    render(
+      <AddWorktreeDialog
+        projectId="project-1"
+        projectName="Devbox"
+        onAdd={vi.fn(async () => {})}
+        onImport={vi.fn(async () => {})}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // First visit leaves a request in flight; leave and revisit so a
+    // second (fresh-generation) request resolves first.
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    expect(await screen.findByText("feature/second")).toBeInTheDocument();
+
+    // The stale first response resolves late and must be discarded.
+    resolveFirst({
+      importableWorktrees: [
+        {
+          id: "worktree-1",
+          path: "/repo/importable",
+          branch: "feature/importable",
+        },
+      ],
+      gitError: null,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("feature/second")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("feature/importable")).not.toBeInTheDocument();
+  });
 });
