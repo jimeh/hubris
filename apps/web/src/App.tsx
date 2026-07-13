@@ -257,20 +257,8 @@ export default function App() {
   const cachedHubrisWorktreeIds = useHubrisWorkbenchStore(
     (state) => state.loadedWorktreeIds,
   );
-  const markHubrisWorkbenchLoaded = useHubrisWorkbenchStore(
-    (state) => state.markLoaded,
-  );
-  const pruneMissingHubrisWorktrees = useHubrisWorkbenchStore(
-    (state) => state.pruneMissing,
-  );
   const cachedVscodeWorktreeIds = useVscodeWorkbenchStore(
     (state) => state.loadedWorktreeIds,
-  );
-  const markVscodeWorkbenchLoaded = useVscodeWorkbenchStore(
-    (state) => state.markLoaded,
-  );
-  const pruneMissingVscodeWorktrees = useVscodeWorkbenchStore(
-    (state) => state.pruneMissing,
   );
   const appRootRef = useRef<HTMLDivElement | null>(null);
   const [initialSidebarWidth] = useState(readSidebarWidth);
@@ -332,20 +320,6 @@ export default function App() {
   useEffect(() => {
     applyMonacoTheme(activeTheme, editorThemeData);
   }, [activeTheme, editorThemeData]);
-
-  useEffect(() => {
-    const ids = allWorktrees.map((worktree) => worktree.id);
-    pruneMissingHubrisWorktrees(ids);
-    pruneMissingVscodeWorktrees(ids);
-  }, [allWorktrees, pruneMissingHubrisWorktrees, pruneMissingVscodeWorktrees]);
-
-  useEffect(() => {
-    if (selectedWorktree?.uiMode === "hubris") {
-      markHubrisWorkbenchLoaded(selectedWorktree.id);
-    } else if (selectedWorktree?.uiMode === "vscode") {
-      markVscodeWorkbenchLoaded(selectedWorktree.id);
-    }
-  }, [markHubrisWorkbenchLoaded, markVscodeWorkbenchLoaded, selectedWorktree]);
 
   const activeHubrisWorktreeId =
     selectedWorktree?.uiMode === "hubris" ? selectedWorktree.id : null;

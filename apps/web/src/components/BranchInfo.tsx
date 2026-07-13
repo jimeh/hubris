@@ -66,28 +66,49 @@ function SourceRefPicker({
   const [open, setOpen] = useState(false);
   const [startPoints, setStartPoints] = useState<WorktreeStartPoint[]>([]);
   const [loading, setLoading] = useState(false);
+  const loadGenerationRef = useRef(0);
   const updateSourceRef = useWorktreeStore((state) => state.updateSourceRef);
 
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
+  const loadStartPoints = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
     setLoading(true);
-    void (async () => {
-      try {
-        const response = await listProjectWorktreeStartPoints(projectId);
-        if (cancelled) return;
+    try {
+      const response = await listProjectWorktreeStartPoints(projectId);
+      if (loadGenerationRef.current === generation) {
         setStartPoints(response.startPoints);
-      } catch {
-        if (cancelled) return;
-        setStartPoints([]);
-      } finally {
-        if (!cancelled) setLoading(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, projectId]);
+    } catch {
+      if (loadGenerationRef.current === generation) {
+        setStartPoints([]);
+      }
+    } finally {
+      if (loadGenerationRef.current === generation) {
+        setLoading(false);
+      }
+    }
+  }, [projectId]);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (nextOpen) {
+        void loadStartPoints();
+      } else {
+        loadGenerationRef.current += 1;
+        setLoading(false);
+      }
+    },
+    [loadStartPoints],
+  );
+
+  const cancelLoadOnUnmount = useCallback(
+    (element: HTMLButtonElement | null) => {
+      if (!element) {
+        loadGenerationRef.current += 1;
+      }
+    },
+    [],
+  );
 
   const handleSelect = useCallback(
     (ref: string | null) => {
@@ -100,9 +121,10 @@ function SourceRefPicker({
   const refItems = useMemo(() => uniqueRefs(startPoints), [startPoints]);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
+          ref={cancelLoadOnUnmount}
           type="button"
           className="flex max-w-48 cursor-pointer items-center gap-1.5 rounded-sm px-1 py-0.5 hover:bg-accent/50"
           aria-label="Change target branch"

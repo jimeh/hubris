@@ -8,6 +8,8 @@ import {
   updateProjectWorktree,
 } from "@/lib/api";
 import { getEventClient } from "@/lib/events";
+import { useHubrisWorkbenchStore } from "@/lib/stores/hubrisWorkbench";
+import { useVscodeWorkbenchStore } from "@/lib/stores/vscodeWorkbench";
 import type { Worktree } from "@/lib/types";
 
 const LS_SELECTED = "hubris-selected-worktree";
@@ -299,6 +301,33 @@ function upsertWorktree(
   };
 }
 
+function syncWorkbenchStores(
+  state: Pick<WorktreesState, "selectedWorktreeId" | "worktreesByProject">,
+  pruneMissing: boolean,
+): void {
+  if (pruneMissing) {
+    const worktreeIds = allWorktrees(state.worktreesByProject).map(
+      (worktree) => worktree.id,
+    );
+    useHubrisWorkbenchStore.getState().pruneMissing(worktreeIds);
+    useVscodeWorkbenchStore.getState().pruneMissing(worktreeIds);
+  }
+
+  const selectedWorktree = resolveSelected(
+    state.worktreesByProject,
+    state.selectedWorktreeId,
+  );
+  if (selectedWorktree?.uiMode === "hubris") {
+    useHubrisWorkbenchStore.getState().markLoaded(selectedWorktree.id);
+  } else if (selectedWorktree?.uiMode === "vscode") {
+    useVscodeWorkbenchStore.getState().markLoaded(selectedWorktree.id);
+  }
+}
+
+function syncAuthoritativeWorktrees(): void {
+  syncWorkbenchStores(useWorktreeStore.getState(), true);
+}
+
 export const useWorktreeStore = create<WorktreesState>((set, get) => ({
   worktreesByProject: {},
   projectErrors: {},
@@ -307,12 +336,15 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
   navigationForwardIds: [],
   select(worktreeId) {
     set((state) => selectWorktreePatch(state, worktreeId));
+    syncWorkbenchStores(get(), false);
   },
   navigateBack() {
     set((state) => navigateWorktreePatch(state, "back"));
+    syncWorkbenchStores(get(), false);
   },
   navigateForward() {
     set((state) => navigateWorktreePatch(state, "forward"));
+    syncWorkbenchStores(get(), false);
   },
   async create(projectId, branch, startPoint, sourceRef) {
     const worktree = await createProjectWorktree(
@@ -354,6 +386,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
         ),
       };
     });
+    syncWorkbenchStores(get(), false);
     return worktree;
   },
   async importWorktree(projectId, path) {
@@ -391,6 +424,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
         ),
       };
     });
+    syncWorkbenchStores(get(), false);
     return worktree;
   },
   async rename(projectId, worktreeId, name) {
@@ -424,6 +458,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
         }),
       };
     });
+    syncWorkbenchStores(get(), false);
 
     try {
       await deleteProjectWorktree(projectId, worktreeId, force, untrackOnly);
@@ -434,6 +469,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
         selectedWorktreeId: previousSelection,
         worktreesByProject: previousWorktreesByProject,
       });
+      syncWorkbenchStores(get(), false);
       throw error;
     }
   },
@@ -487,6 +523,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
         ),
       },
     }));
+    syncWorkbenchStores(get(), false);
 
     try {
       const updated = await updateProjectWorktree(projectId, worktreeId, {
@@ -495,6 +532,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
       set((state) => ({
         worktreesByProject: upsertWorktree(state.worktreesByProject, updated),
       }));
+      syncWorkbenchStores(get(), false);
     } catch (error) {
       set((state) => ({
         worktreesByProject: {
@@ -502,6 +540,7 @@ export const useWorktreeStore = create<WorktreesState>((set, get) => ({
           [projectId]: before,
         },
       }));
+      syncWorkbenchStores(get(), false);
       throw error;
     }
   },
@@ -578,6 +617,7 @@ export function initializeWorktreeStore(): void {
           selectedWorktreeId: state.selectedWorktreeId,
         }),
       }));
+      syncAuthoritativeWorktrees();
     }),
     events.on("project_removed", ({ projectId }) => {
       useWorktreeStore.setState((state) => {
@@ -595,11 +635,13 @@ export function initializeWorktreeStore(): void {
           }),
         };
       });
+      syncAuthoritativeWorktrees();
     }),
     events.on("worktree_created", (worktree) => {
       useWorktreeStore.setState((state) => ({
         worktreesByProject: upsertWorktree(state.worktreesByProject, worktree),
       }));
+      syncAuthoritativeWorktrees();
     }),
     events.on("worktree_deleted", ({ projectId, worktreeId }) => {
       useWorktreeStore.setState((state) => {
@@ -618,6 +660,7 @@ export function initializeWorktreeStore(): void {
           }),
         };
       });
+      syncAuthoritativeWorktrees();
     }),
     events.on("worktrees_reordered", ({ projectId, worktrees }) => {
       useWorktreeStore.setState((state) => ({
@@ -626,6 +669,7 @@ export function initializeWorktreeStore(): void {
           [projectId]: byPosition(worktrees),
         },
       }));
+      syncAuthoritativeWorktrees();
     }),
     events.on(
       "project_worktrees_updated",
@@ -651,6 +695,7 @@ export function initializeWorktreeStore(): void {
             }),
           };
         });
+        syncAuthoritativeWorktrees();
       },
     ),
   ];
