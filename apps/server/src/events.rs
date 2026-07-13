@@ -8,18 +8,18 @@ use tokio::time::{self, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
-use crate::api::keybindings::{KeybindingsState, KeybindingsStatus};
-use crate::api::processes::ManagedProcessStatus;
-use crate::api::projects::Project;
-use crate::api::settings::{Settings, SettingsState, SettingsStatus};
-use crate::api::tasks::{TaskInvocationStatus, TaskRemoved, TaskUpdated};
-use crate::api::vscode::VscodeStatus;
-use crate::api::worktrees::Worktree;
 use crate::chat::{
     ChatAppServerStatus, ChatContextUsage, ChatConversationSummary, ChatDiffSummary, ChatItem,
     ChatItemOutput, ChatMessage, ChatPendingRequest, ChatPendingRequestSummary, ChatPlan,
     ChatReconciliation, ChatRun, ChatRuntimeStatus, ChatThreadStreamStatus, ChatTurn,
 };
+use crate::domain::keybindings::{KeybindingEntry, KeybindingsState, KeybindingsStatus};
+use crate::domain::process::ManagedProcessStatus;
+use crate::domain::project::Project;
+use crate::domain::settings::{Settings, SettingsState, SettingsStatus};
+use crate::domain::task::{TaskInvocationStatus, TaskRemoved, TaskUpdated};
+use crate::domain::vscode::VscodeStatus;
+use crate::domain::worktree::Worktree;
 use crate::tab::{TabInfo, WorktreeTabLayout, WorktreeTabLayoutState};
 use crate::worktree_state::WorktreeRestoreState;
 
@@ -53,7 +53,7 @@ pub enum EventKind {
         settings: Box<Settings>,
         settings_generation: String,
         settings_status: SettingsStatus,
-        keybindings: Box<Vec<crate::api::keybindings::KeybindingEntry>>,
+        keybindings: Box<Vec<KeybindingEntry>>,
         keybindings_generation: String,
         keybindings_status: KeybindingsStatus,
         vscode: Box<VscodeStatus>,
@@ -547,6 +547,9 @@ fn send_event(tx: &broadcast::Sender<Arc<Event>>, kind: EventKind) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::process::ManagedProcessLifecycleStateValue;
+    use crate::domain::settings::VscodeRuntimeKind;
+    use crate::domain::vscode::{VscodeProcessStatus, VscodeRuntimeStatus};
     use crate::tab::TerminalTabLabels;
 
     fn message_delta(conversation_id: &str, message_id: &str, delta: &str) -> EventKind {
@@ -843,20 +846,20 @@ mod tests {
                 keybindings_generation: "0".to_string(),
                 keybindings_status: KeybindingsStatus::ok(),
                 vscode: Box::new(VscodeStatus {
-                    selected_runtime: crate::api::settings::VscodeRuntimeKind::VscodeCli,
-                    code_server: crate::api::vscode::VscodeRuntimeStatus {
+                    selected_runtime: VscodeRuntimeKind::VscodeCli,
+                    code_server: VscodeRuntimeStatus {
                         supported: true,
                         installed_version: None,
-                        process_status: crate::api::vscode::VscodeProcessStatus::Stopped,
+                        process_status: VscodeProcessStatus::Stopped,
                         latest: None,
                         install_progress: None,
                         message: None,
                         active_task_id: None,
                     },
-                    vscode_cli: crate::api::vscode::VscodeRuntimeStatus {
+                    vscode_cli: VscodeRuntimeStatus {
                         supported: true,
                         installed_version: None,
-                        process_status: crate::api::vscode::VscodeProcessStatus::Stopped,
+                        process_status: VscodeProcessStatus::Stopped,
                         latest: None,
                         install_progress: None,
                         message: None,
@@ -879,20 +882,20 @@ mod tests {
         );
         assert_eq!(
             EventKind::VscodeUpdated(Box::new(VscodeStatus {
-                selected_runtime: crate::api::settings::VscodeRuntimeKind::VscodeCli,
-                code_server: crate::api::vscode::VscodeRuntimeStatus {
+                selected_runtime: VscodeRuntimeKind::VscodeCli,
+                code_server: VscodeRuntimeStatus {
                     supported: true,
                     installed_version: None,
-                    process_status: crate::api::vscode::VscodeProcessStatus::Stopped,
+                    process_status: VscodeProcessStatus::Stopped,
                     latest: None,
                     install_progress: None,
                     message: None,
                     active_task_id: None,
                 },
-                vscode_cli: crate::api::vscode::VscodeRuntimeStatus {
+                vscode_cli: VscodeRuntimeStatus {
                     supported: true,
                     installed_version: None,
-                    process_status: crate::api::vscode::VscodeProcessStatus::Stopped,
+                    process_status: VscodeProcessStatus::Stopped,
                     latest: None,
                     install_progress: None,
                     message: None,
@@ -906,7 +909,7 @@ mod tests {
             EventKind::ManagedProcessUpdated(Box::new(ManagedProcessStatus {
                 id: "code_server".into(),
                 kind: "code-server".into(),
-                lifecycle_state: crate::api::processes::ManagedProcessLifecycleStateValue::Stopped,
+                lifecycle_state: ManagedProcessLifecycleStateValue::Stopped,
                 pid: None,
                 started_at: None,
                 last_exit: None,

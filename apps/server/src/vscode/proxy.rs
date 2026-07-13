@@ -21,7 +21,7 @@ use super::{
     VSCODE_CLI_PUBLIC_BASE_PATH, VSCODE_TOKEN_COOKIE_NAME, VSCODE_TOKEN_QUERY_PARAM,
     VscodeCliError, VscodeConnection, VscodeError, VscodeManager,
 };
-use crate::api::settings::VscodeRuntimeKind;
+use crate::domain::settings::VscodeRuntimeKind;
 use crate::state::AppState;
 use crate::task_manager::TaskActionErrorKind;
 

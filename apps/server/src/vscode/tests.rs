@@ -33,6 +33,8 @@ use super::runtime::RUNTIMES_DIR;
 use super::vscode_cli::{VscodeCliRuntimeState, detect_vscode_cli_platform};
 use super::*;
 use crate::api::settings::{SettingsPatch, VscodeSettingsPatch};
+use crate::domain::task::TaskRemoved;
+use crate::domain::vscode::{VscodeInstallPhase, VscodeProcessStatus};
 use crate::process_manager::TestProcessProbe;
 #[cfg(target_os = "linux")]
 use crate::process_manager::configure_parent_death_signal;
@@ -1358,8 +1360,7 @@ async fn install_emits_code_server_updated_events_with_progress() {
 
         let code_server_status = &status.code_server;
 
-        if code_server_status.process_status == crate::api::vscode::VscodeProcessStatus::Installing
-        {
+        if code_server_status.process_status == VscodeProcessStatus::Installing {
             if code_server_status.active_task_id.is_some() {
                 saw_task_backed_update = true;
             }
@@ -1367,9 +1368,7 @@ async fn install_emits_code_server_updated_events_with_progress() {
             if code_server_status
                 .install_progress
                 .as_ref()
-                .is_some_and(|progress| {
-                    progress.phase == crate::api::vscode::VscodeInstallPhase::Preparing
-                })
+                .is_some_and(|progress| progress.phase == VscodeInstallPhase::Preparing)
             {
                 saw_preparing = true;
             }
@@ -1378,7 +1377,7 @@ async fn install_emits_code_server_updated_events_with_progress() {
                 .install_progress
                 .as_ref()
                 .is_some_and(|progress| {
-                    progress.phase == crate::api::vscode::VscodeInstallPhase::Downloading
+                    progress.phase == VscodeInstallPhase::Downloading
                         && progress.percent == 42
                         && progress.downloaded_bytes == Some(42)
                         && progress.total_bytes == Some(100)
@@ -1388,7 +1387,7 @@ async fn install_emits_code_server_updated_events_with_progress() {
             }
         }
 
-        if code_server_status.process_status == crate::api::vscode::VscodeProcessStatus::Running {
+        if code_server_status.process_status == VscodeProcessStatus::Running {
             if code_server_status.active_task_id.is_some() {
                 saw_task_backed_update = true;
             }
@@ -1543,11 +1542,9 @@ async fn unrelated_task_removals_do_not_publish_vscode_updates() {
     manager.clone().register_status_callbacks().await;
 
     let mut rx = events.subscribe();
-    events.emit(EventKind::TaskRemoved(Box::new(
-        crate::api::tasks::TaskRemoved {
-            id: "other-task".to_string(),
-        },
-    )));
+    events.emit(EventKind::TaskRemoved(Box::new(TaskRemoved {
+        id: "other-task".to_string(),
+    })));
 
     let saw_vscode_update = tokio::time::timeout(Duration::from_millis(100), async {
         loop {

@@ -3,32 +3,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const API_DEPENDENCY_ALLOWLIST: &[&str] = &[
-    // KeybindingEntry, KeybindingsState, KeybindingsStatus,
-    // ManagedProcessStatus, ManagedProcessLifecycleStateValue, Project,
-    // Settings, SettingsState, SettingsStatus, TaskInvocationStatus,
-    // TaskRemoved, TaskUpdated, VscodeStatus, VscodeRuntimeKind,
-    // VscodeRuntimeStatus, VscodeProcessStatus, and Worktree.
-    "src/events.rs",
-    // KeybindingEntry, Keybindings, KeybindingsState, and KeybindingsStatus.
-    "src/keybindings_manager.rs",
-    // Project.
-    "src/project_store.rs",
-    // Settings, SettingsState, SettingsStatus, all settings patch/model types,
-    // ColorScheme, and the settings clamp helpers.
+    // SettingsPatch and its section patch types.
     "src/settings_manager.rs",
     // LaggedSnapshotCache.
     "src/state.rs",
     // CreateTabRequest, ReorderTabsRequest, UpdateTabRequest,
     // UpdateWorktreeTabLayoutRequest, and resolve_worktree.
     "src/tabs/service.rs",
-    // VscodeRuntimeKind.
-    "src/vscode/mod.rs",
-    // VscodeRuntimeKind.
-    "src/vscode/proxy.rs",
-    // VscodeRuntimeKind.
-    "src/vscode/tasks.rs",
-    // SettingsPatch, VscodeSettingsPatch, VscodeProcessStatus,
-    // VscodeInstallPhase, and TaskRemoved.
+    // SettingsPatch and VscodeSettingsPatch.
     "src/vscode/tests.rs",
     // ListWorktreeFilesResponse, WorktreeFileEntry, WorktreeFileKind,
     // ResolvedWorktree, GitFileChange, and GitFileChangeType.

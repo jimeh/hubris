@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use semver::Version;
 
-use crate::api::settings::VscodeRuntimeKind;
+use crate::domain::settings::VscodeRuntimeKind;
 use crate::task_manager::{
     TaskActionError, TaskDefinitionInputField, TaskExecutionError, TaskFinalizeFuture, TaskInput,
     TaskInputFieldKind, TaskMetadata, TaskService, TaskStateInitFuture, TaskStateValue,

@@ -12,7 +12,7 @@ pub use code_server::CodeServerManager;
 pub use proxy::proxy_code_request;
 pub use vscode_cli::VscodeCliManager;
 
-use crate::api::settings::VscodeRuntimeKind;
+use crate::domain::settings::VscodeRuntimeKind;
 use crate::events::EventBus;
 use crate::settings_manager::SettingsManager;
 use crate::task_manager::{TaskActionError, TaskService};
