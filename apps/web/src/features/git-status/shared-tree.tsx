@@ -54,7 +54,7 @@ function* walkDirectoryChangeTypes(
 ): Generator<GitChangeType> {
   for (const child of node.children) {
     if (child.kind === "file") {
-      yield child.change.change_type;
+      yield child.change.changeType;
     } else {
       yield* walkDirectoryChangeTypes(child);
     }

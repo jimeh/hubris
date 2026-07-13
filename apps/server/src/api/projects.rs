@@ -27,11 +27,13 @@ pub struct UpdateProjectRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ReorderProjectsRequest {
     pub project_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct DeleteProjectParams {
     #[serde(default)]

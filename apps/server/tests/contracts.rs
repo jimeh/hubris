@@ -4,6 +4,7 @@ use hubris_server::API_ROUTES;
 use hubris_server::api::terminal::ServerControlMessage;
 use hubris_server::events::EventKind;
 use hubris_server::openapi_spec;
+use hubris_server::tab::{TabInfo, TerminalTabLabels};
 
 #[test]
 fn sse_event_uses_type_and_data_envelope() {
@@ -14,8 +15,8 @@ fn sse_event_uses_type_and_data_envelope() {
     .unwrap();
 
     assert_eq!(json["type"], "tab_closed");
-    assert_eq!(json["data"]["session_id"], "default");
-    assert_eq!(json["data"]["tab_id"], "tab-1");
+    assert_eq!(json["data"]["sessionId"], "default");
+    assert_eq!(json["data"]["tabId"], "tab-1");
 }
 
 #[test]
@@ -30,9 +31,9 @@ fn ws_server_message_uses_stable_keys() {
     .unwrap();
 
     assert_eq!(attached["type"], "attached");
-    assert_eq!(attached["byte_offset"], 42);
+    assert_eq!(attached["byteOffset"], 42);
     assert_eq!(attached["snapshot"], true);
-    assert_eq!(attached["data_lost"], true);
+    assert_eq!(attached["dataLost"], true);
     assert_eq!(attached["cols"], 80);
     assert_eq!(attached["rows"], 24);
 
@@ -47,7 +48,40 @@ fn ws_server_message_uses_stable_keys() {
 
     let closed = serde_json::to_value(ServerControlMessage::TabClosed).unwrap();
     assert_eq!(closed["type"], "tab_closed");
-    assert!(closed.get("byte_offset").is_none());
+    assert!(closed.get("byteOffset").is_none());
+}
+
+#[test]
+fn tab_info_wire_format_uses_snake_tag_and_camel_fields() {
+    let tab = TabInfo::Terminal {
+        id: "tab-1".to_string(),
+        session_id: "default".to_string(),
+        worktree_id: "wt-1".to_string(),
+        pane_id: "pane-1".to_string(),
+        label: "zsh".to_string(),
+        position: 1.0,
+        created_at: 42,
+        preview: false,
+        has_notification: true,
+        labels: TerminalTabLabels {
+            custom_label: Some("build".to_string()),
+            smart_label: None,
+            title_label: None,
+        },
+    };
+    let json = serde_json::to_value(&tab).unwrap();
+
+    assert_eq!(json["type"], "terminal");
+    assert_eq!(json["sessionId"], "default");
+    assert_eq!(json["worktreeId"], "wt-1");
+    assert_eq!(json["paneId"], "pane-1");
+    assert_eq!(json["createdAt"], 42);
+    assert_eq!(json["hasNotification"], true);
+    // Flattened TerminalTabLabels keys come from that struct's own
+    // rename_all, not the enum's rename_all_fields, so pin them too.
+    assert_eq!(json["customLabel"], "build");
+    assert!(json.get("session_id").is_none());
+    assert!(json.get("custom_label").is_none());
 }
 
 #[test]

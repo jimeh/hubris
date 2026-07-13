@@ -61,7 +61,7 @@ function CommitDetailsHoverCard({ state }: { state: CommitDetailsState }) {
             </p>
           </div>
           <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
-            {state.details.short_id}
+            {state.details.shortId}
           </Badge>
         </div>
         <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
@@ -159,7 +159,7 @@ function CommitRow({
           onOpenDiff(
             node.path,
             "commit",
-            node.change.original_path ?? undefined,
+            node.change.originalPath ?? undefined,
             commit.id,
             true,
           )
@@ -173,12 +173,12 @@ function CommitRow({
             </span>
           </>
         }
-        badge={<ChangeStatusBadge changeType={node.change.change_type} />}
+        badge={<ChangeStatusBadge changeType={node.change.changeType} />}
         onClick={() =>
           onOpenDiff(
             node.path,
             "commit",
-            node.change.original_path ?? undefined,
+            node.change.originalPath ?? undefined,
             commit.id,
             true,
           )
@@ -187,7 +187,7 @@ function CommitRow({
           onOpenDiff(
             node.path,
             "commit",
-            node.change.original_path ?? undefined,
+            node.change.originalPath ?? undefined,
             commit.id,
             false,
           )
@@ -281,7 +281,7 @@ function CommitRow({
                     }
                     badge={
                       <span className="shrink-0 font-mono text-[11px] tracking-[0.16em] text-sidebar-foreground/60">
-                        {commit.short_id}
+                        {commit.shortId}
                       </span>
                     }
                   />

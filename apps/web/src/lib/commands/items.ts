@@ -140,13 +140,13 @@ export function getCommandPaletteItems(
     const project = projectForWorktree(context, context.selectedWorktree.id);
 
     for (const uiMode of ["hubris", "vscode"] as const) {
-      if (context.selectedWorktree.ui_mode === uiMode) {
+      if (context.selectedWorktree.uiMode === uiMode) {
         continue;
       }
 
       items.push({
         args: {
-          projectId: context.selectedWorktree.project_id,
+          projectId: context.selectedWorktree.projectId,
           uiMode,
           worktreeId: context.selectedWorktree.id,
         },
@@ -178,7 +178,7 @@ export function getCommandPaletteItems(
 
   const selectedWorktreeId = context.selectedWorktree?.id;
   const selectedBranch = context.selectedWorktree?.branch;
-  const selectedProjectId = context.selectedWorktree?.project_id;
+  const selectedProjectId = context.selectedWorktree?.projectId;
   const chatEnabled =
     useSettingsStore.getState().settings.experimental.chatEnabled;
   const conversations = Object.values(useChatStore.getState().conversationsById)
@@ -192,8 +192,7 @@ export function getCommandPaletteItems(
           : conversation.worktreeId === selectedWorktreeId) &&
         !context.tabs.some(
           (tab) =>
-            tab.type === "agent_chat" &&
-            tab.conversation_id === conversation.id,
+            tab.type === "agent_chat" && tab.conversationId === conversation.id,
         ),
     )
     .sort((left, right) => right.lastActivityAt - left.lastActivityAt);
@@ -219,7 +218,7 @@ export function getCommandPaletteItems(
   }
 
   for (const tab of context.tabs) {
-    if (selectedWorktreeId && tab.worktree_id !== selectedWorktreeId) {
+    if (selectedWorktreeId && tab.worktreeId !== selectedWorktreeId) {
       continue;
     }
     if (tab.id === context.activeTab?.id) {

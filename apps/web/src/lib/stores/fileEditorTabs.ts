@@ -130,10 +130,10 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
               path: tab.path,
               draft: response.content,
               savedContent: response.content,
-              versionToken: response.version_token,
+              versionToken: response.versionToken,
               language: response.language,
-              readOnly: response.read_only,
-              unsupportedReason: response.unsupported_reason ?? null,
+              readOnly: response.readOnly,
+              unsupportedReason: response.unsupportedReason ?? null,
               dirty: false,
               externalChange: false,
               loadStatus: "loaded",
@@ -231,7 +231,7 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
             [tabId]: {
               ...current,
               savedContent: saveDraft,
-              versionToken: response.version_token,
+              versionToken: response.versionToken,
               dirty: current.draft !== saveDraft,
               externalChange: false,
               saveStatus: "idle",
@@ -313,10 +313,10 @@ export const useFileEditorStore = create<FileEditorStoreState>((set, get) => ({
                   ? current.draft
                   : response.content,
               savedContent: response.content,
-              versionToken: response.version_token,
+              versionToken: response.versionToken,
               language: response.language,
-              readOnly: response.read_only,
-              unsupportedReason: response.unsupported_reason ?? null,
+              readOnly: response.readOnly,
+              unsupportedReason: response.unsupportedReason ?? null,
               dirty: preserveDirty ? current.dirty : false,
               externalChange: preserveDirty ? current.externalChange : false,
               loadStatus: "loaded",
@@ -425,18 +425,18 @@ export function initializeFileEditorStore(): void {
     }),
     events.on(
       "worktree_files_updated",
-      ({ project_id, worktree_id, changed_paths, listing_paths }) => {
+      ({ projectId, worktreeId, changedPaths, listingPaths }) => {
         const fileTabs = selectTabsForWorktree(
           useTabStore.getState(),
-          worktree_id,
+          worktreeId,
         ).filter(
           (tab): tab is FileTab =>
-            tab.type === "file" && tab.worktree_id === worktree_id,
+            tab.type === "file" && tab.worktreeId === worktreeId,
         );
         const store = useFileEditorStore.getState();
 
         for (const tab of fileTabs) {
-          if (!isFilePathAffected(tab.path, changed_paths, listing_paths)) {
+          if (!isFilePathAffected(tab.path, changedPaths, listingPaths)) {
             continue;
           }
 
@@ -448,13 +448,13 @@ export function initializeFileEditorStore(): void {
           if (session.dirty) {
             store.markExternalChange(tab.id);
           } else {
-            void store.reload(project_id, worktree_id, tab.id);
+            void store.reload(projectId, worktreeId, tab.id);
           }
         }
       },
     ),
-    events.on("tab_closed", ({ tab_id }) => {
-      useFileEditorStore.getState().discardSession(tab_id);
+    events.on("tab_closed", ({ tabId }) => {
+      useFileEditorStore.getState().discardSession(tabId);
     }),
   ];
 }

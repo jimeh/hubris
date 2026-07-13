@@ -98,7 +98,7 @@ async fn create_chat(client: &reqwest::Client, base: &str, worktree_id: &str) ->
         .post(format!("{base}/api/tabs"))
         .json(&serde_json::json!({
             "type": "agent_chat",
-            "worktree_id": worktree_id,
+            "worktreeId": worktree_id,
         }))
         .send()
         .await
@@ -108,7 +108,7 @@ async fn create_chat(client: &reqwest::Client, base: &str, worktree_id: &str) ->
     assert_eq!(body["type"], "agent_chat");
 
     ChatFixture {
-        conversation_id: body["conversation_id"].as_str().unwrap().to_string(),
+        conversation_id: body["conversationId"].as_str().unwrap().to_string(),
         tab_id: body["id"].as_str().unwrap().to_string(),
     }
 }
@@ -120,7 +120,7 @@ async fn get_chat(
 ) -> reqwest::Response {
     client
         .get(format!(
-            "{base}/api/chats/{conversation_id}?session_id=default"
+            "{base}/api/chats/{conversation_id}?sessionId=default"
         ))
         .send()
         .await
@@ -189,7 +189,7 @@ async fn list_chats_is_scoped_by_session_project_and_branch() {
         &base,
         project_id,
         local_worktree_id,
-        "session_id=default",
+        "sessionId=default",
     )
     .await;
     assert_eq!(local.len(), 1);
@@ -200,7 +200,7 @@ async fn list_chats_is_scoped_by_session_project_and_branch() {
         &base,
         project_id,
         feature_worktree_id,
-        "session_id=default",
+        "sessionId=default",
     )
     .await;
     assert_eq!(feature.len(), 1);
@@ -211,7 +211,7 @@ async fn list_chats_is_scoped_by_session_project_and_branch() {
         &base,
         project_id,
         local_worktree_id,
-        "session_id=default&scope=project",
+        "sessionId=default&scope=project",
     )
     .await;
     assert_eq!(project.len(), 2);
@@ -221,7 +221,7 @@ async fn list_chats_is_scoped_by_session_project_and_branch() {
         &base,
         project_id,
         local_worktree_id,
-        "session_id=other",
+        "sessionId=other",
     )
     .await;
     assert!(other_session.is_empty());
@@ -239,7 +239,7 @@ async fn update_chat_settings_persists_values() {
 
     let response = client
         .patch(format!(
-            "{base}/api/chats/{}/settings?session_id=default",
+            "{base}/api/chats/{}/settings?sessionId=default",
             chat.conversation_id
         ))
         .json(&serde_json::json!({
@@ -277,7 +277,7 @@ async fn archive_rejects_messages_and_unarchive_restores_settings_writes() {
 
     let response = client
         .post(format!(
-            "{base}/api/chats/{}/archive?session_id=default",
+            "{base}/api/chats/{}/archive?sessionId=default",
             chat.conversation_id
         ))
         .send()
@@ -289,7 +289,7 @@ async fn archive_rejects_messages_and_unarchive_restores_settings_writes() {
 
     let response = client
         .post(format!(
-            "{base}/api/chats/{}/messages?session_id=default",
+            "{base}/api/chats/{}/messages?sessionId=default",
             chat.conversation_id
         ))
         .json(&serde_json::json!({ "text": "must not run" }))
@@ -305,14 +305,14 @@ async fn archive_rejects_messages_and_unarchive_restores_settings_writes() {
         &base,
         project_id,
         worktrees[0]["id"].as_str().unwrap(),
-        "session_id=default",
+        "sessionId=default",
     )
     .await;
     assert!(hidden.is_empty());
 
     let response = client
         .post(format!(
-            "{base}/api/chats/{}/unarchive?session_id=default",
+            "{base}/api/chats/{}/unarchive?sessionId=default",
             chat.conversation_id
         ))
         .send()
@@ -324,7 +324,7 @@ async fn archive_rejects_messages_and_unarchive_restores_settings_writes() {
 
     let response = client
         .patch(format!(
-            "{base}/api/chats/{}/settings?session_id=default",
+            "{base}/api/chats/{}/settings?sessionId=default",
             chat.conversation_id
         ))
         .json(&serde_json::json!({
@@ -350,7 +350,7 @@ async fn delete_chat_removes_conversation_and_open_tab() {
 
     let response = client
         .delete(format!(
-            "{base}/api/chats/{}?session_id=default",
+            "{base}/api/chats/{}?sessionId=default",
             chat.conversation_id
         ))
         .send()
@@ -362,7 +362,7 @@ async fn delete_chat_removes_conversation_and_open_tab() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     let response = client
-        .get(format!("{base}/api/tabs?session_id=default"))
+        .get(format!("{base}/api/tabs?sessionId=default"))
         .send()
         .await
         .unwrap();
@@ -372,7 +372,7 @@ async fn delete_chat_removes_conversation_and_open_tab() {
 
     let response = client
         .delete(format!(
-            "{base}/api/chats/{}?session_id=default",
+            "{base}/api/chats/{}?sessionId=default",
             chat.conversation_id
         ))
         .send()

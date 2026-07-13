@@ -74,11 +74,11 @@ describe("EventClient", () => {
     }
   });
 
-  it("connect() creates EventSource with session_id", () => {
+  it("connect() creates EventSource with sessionId", () => {
     const client = new EventClient();
     client.connect("default");
 
-    expect(constructorCalls).toEqual(["/api/events?session_id=default"]);
+    expect(constructorCalls).toEqual(["/api/events?sessionId=default"]);
   });
 
   it("connect() is idempotent", () => {
@@ -134,7 +134,7 @@ describe("EventClient", () => {
 
     mockEs.simulateEvent("tab_closed", {
       type: "tab_closed",
-      data: { tab_id: "t1" },
+      data: { tabId: "t1" },
     });
 
     expect(handler).not.toHaveBeenCalled();
@@ -202,7 +202,7 @@ describe("EventClient", () => {
     client.connect("other");
 
     expect(constructorCalls).toHaveLength(2);
-    expect(mockEs.url).toBe("/api/events?session_id=other");
+    expect(mockEs.url).toBe("/api/events?sessionId=other");
   });
 });
 
@@ -253,7 +253,7 @@ describe("EventClient store integration", () => {
 
     mockEs.simulateEvent("chat_reconciliation_started", {
       type: "chat_reconciliation_started",
-      data: { session_id: "default", reconciliation },
+      data: { sessionId: "default", reconciliation },
     });
 
     expect(

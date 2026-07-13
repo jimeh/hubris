@@ -336,7 +336,7 @@ function viewportRectsEqual(
 }
 
 function byStableSceneOrder(left: Tab, right: Tab): number {
-  const createdAtDiff = Number(left.created_at) - Number(right.created_at);
+  const createdAtDiff = Number(left.createdAt) - Number(right.createdAt);
   if (Number.isFinite(createdAtDiff) && createdAtDiff !== 0) {
     return createdAtDiff;
   }
@@ -585,18 +585,18 @@ export default function WorktreeView({ worktree, active }: Props) {
   const layout = useMemo(
     () =>
       layoutsByWorktree[worktree.id] ??
-      createSinglePaneLayout(worktreeTabs[0]?.pane_id),
+      createSinglePaneLayout(worktreeTabs[0]?.paneId),
     [layoutsByWorktree, worktree.id, worktreeTabs],
   );
   const paneTree = useMemo(() => buildPaneTree(layout), [layout]);
   const paneTabsById = useMemo(
     () =>
       Object.fromEntries(
-        Array.from(new Set(worktreeTabs.map((tab) => tab.pane_id))).map(
+        Array.from(new Set(worktreeTabs.map((tab) => tab.paneId))).map(
           (paneId) => [
             paneId,
             worktreeTabs
-              .filter((tab) => tab.pane_id === paneId)
+              .filter((tab) => tab.paneId === paneId)
               .sort((left, right) => left.position - right.position),
           ],
         ),
@@ -618,14 +618,14 @@ export default function WorktreeView({ worktree, active }: Props) {
           new Set([
             ...Object.keys(paneTabsById),
             ...Object.keys(activeTabByPane),
-            activeWorktreeTab?.pane_id ?? "",
+            activeWorktreeTab?.paneId ?? "",
           ]),
         )
           .filter(Boolean)
           .map((paneId) => [
             paneId,
             activeTabByPane[paneId] ??
-              (activeWorktreeTab?.pane_id === paneId
+              (activeWorktreeTab?.paneId === paneId
                 ? activeWorktreeTab.id
                 : null),
           ]),
@@ -634,7 +634,7 @@ export default function WorktreeView({ worktree, active }: Props) {
   );
   const focusedPaneId =
     focusedPaneByWorktree[worktree.id] ??
-    (paneTree?.type === "leaf" ? paneTree.paneId : worktreeTabs[0]?.pane_id);
+    (paneTree?.type === "leaf" ? paneTree.paneId : worktreeTabs[0]?.paneId);
   const emptyState = useMemo(
     () => (
       <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -858,11 +858,11 @@ export default function WorktreeView({ worktree, active }: Props) {
 
       const timer = setTimeout(() => {
         layoutPersistTimersRef.current.delete(nodeId);
-        void persistLayout(worktree.project_id, worktree.id);
+        void persistLayout(worktree.projectId, worktree.id);
       }, 150);
       layoutPersistTimersRef.current.set(nodeId, timer);
     },
-    [persistLayout, setSplitRatio, worktree.id, worktree.project_id],
+    [persistLayout, setSplitRatio, worktree.id, worktree.projectId],
   );
   const setTabBarActionsForTab = useCallback(
     (tabId: string, actions: TabBarAction[] | null) => {
@@ -922,7 +922,7 @@ export default function WorktreeView({ worktree, active }: Props) {
     const dropTarget = parsePaneDropTargetId(overId);
     if (dropTarget) {
       void moveTab(
-        worktree.project_id,
+        worktree.projectId,
         worktree.id,
         draggedTabId,
         dropTarget.paneId,
@@ -936,8 +936,8 @@ export default function WorktreeView({ worktree, active }: Props) {
       return;
     }
 
-    if (overTab.pane_id === activeTab.pane_id) {
-      const paneTabs = paneTabsById[activeTab.pane_id] ?? [];
+    if (overTab.paneId === activeTab.paneId) {
+      const paneTabs = paneTabsById[activeTab.paneId] ?? [];
       const oldIndex = paneTabs.findIndex((tab) => tab.id === draggedTabId);
       const newIndex = paneTabs.findIndex((tab) => tab.id === overTab.id);
       if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) {
@@ -946,17 +946,17 @@ export default function WorktreeView({ worktree, active }: Props) {
       const nextTabs = arrayMove(paneTabs, oldIndex, newIndex);
       void reorder(
         worktree.id,
-        activeTab.pane_id,
+        activeTab.paneId,
         nextTabs.map((tab) => tab.id),
       );
       return;
     }
 
     void moveTab(
-      worktree.project_id,
+      worktree.projectId,
       worktree.id,
       draggedTabId,
-      overTab.pane_id,
+      overTab.paneId,
       "center",
       overTab.id,
     );
@@ -1020,7 +1020,7 @@ export default function WorktreeView({ worktree, active }: Props) {
             void executeCommand({
               args: {
                 paneId,
-                projectId: worktree.project_id,
+                projectId: worktree.projectId,
                 worktreeId: worktree.id,
               },
               id: "pane.splitRight",
@@ -1031,7 +1031,7 @@ export default function WorktreeView({ worktree, active }: Props) {
             void executeCommand({
               args: {
                 paneId,
-                projectId: worktree.project_id,
+                projectId: worktree.projectId,
                 worktreeId: worktree.id,
               },
               id: "pane.splitDown",
@@ -1071,13 +1071,13 @@ export default function WorktreeView({ worktree, active }: Props) {
     const rectsByTabId: Record<string, ViewportRect | null> = {};
 
     for (const tab of sceneTabs) {
-      const isVisible = active && activePaneTabIds[tab.pane_id] === tab.id;
+      const isVisible = active && activePaneTabIds[tab.paneId] === tab.id;
       if (!isVisible) {
         rectsByTabId[tab.id] = null;
         continue;
       }
 
-      const measuredRect = paneViewportRects[tab.pane_id];
+      const measuredRect = paneViewportRects[tab.paneId];
       if (measuredRect) {
         nextKnownRects[tab.id] = measuredRect;
       }
@@ -1124,7 +1124,7 @@ export default function WorktreeView({ worktree, active }: Props) {
                 onResizeSplit={handleResizeSplit}
               />
             ) : (
-              renderLeaf(worktreeTabs[0]?.pane_id ?? "root")
+              renderLeaf(worktreeTabs[0]?.paneId ?? "root")
             )}
             <div className="pointer-events-none absolute inset-0 z-10">
               {sceneTabs.map((tab) => {
@@ -1133,7 +1133,7 @@ export default function WorktreeView({ worktree, active }: Props) {
                   rect !== null &&
                   rect.width > 0 &&
                   rect.height > 0 &&
-                  activePaneTabIds[tab.pane_id] === tab.id &&
+                  activePaneTabIds[tab.paneId] === tab.id &&
                   active;
 
                 return (
@@ -1144,7 +1144,7 @@ export default function WorktreeView({ worktree, active }: Props) {
                       "absolute overflow-hidden bg-background",
                       visible ? "pointer-events-auto" : "pointer-events-none",
                     )}
-                    onMouseDown={() => focusPane(worktree.id, tab.pane_id)}
+                    onMouseDown={() => focusPane(worktree.id, tab.paneId)}
                     style={
                       visible && rect
                         ? {
@@ -1160,13 +1160,13 @@ export default function WorktreeView({ worktree, active }: Props) {
                       <TerminalTab
                         tabId={tab.id}
                         visible={visible}
-                        focused={focusedPaneId === tab.pane_id}
+                        focused={focusedPaneId === tab.paneId}
                         onClosed={handleTabClosed}
                       />
                     ) : tab.type === "file" ? (
                       <Suspense fallback={<EditorTabFallback />}>
                         <FileEditorTab
-                          projectId={worktree.project_id}
+                          projectId={worktree.projectId}
                           worktreeId={worktree.id}
                           tab={tab}
                           visible={visible}
@@ -1175,7 +1175,7 @@ export default function WorktreeView({ worktree, active }: Props) {
                     ) : tab.type === "git_diff" ? (
                       <Suspense fallback={<EditorTabFallback />}>
                         <GitDiffTab
-                          projectId={worktree.project_id}
+                          projectId={worktree.projectId}
                           worktreeId={worktree.id}
                           tab={tab}
                           visible={visible}
@@ -1210,9 +1210,9 @@ export default function WorktreeView({ worktree, active }: Props) {
                       tab={draggedTab}
                       width={draggingTabWidth}
                       isActive={
-                        activePaneTabIds[draggedTab.pane_id] === draggedTab.id
+                        activePaneTabIds[draggedTab.paneId] === draggedTab.id
                       }
-                      paneFocused={focusedPaneId === draggedTab.pane_id}
+                      paneFocused={focusedPaneId === draggedTab.paneId}
                     />
                   ) : null;
                 })()

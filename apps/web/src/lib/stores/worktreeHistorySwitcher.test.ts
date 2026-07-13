@@ -9,15 +9,15 @@ function makeWorktree(id: string): Worktree {
   return {
     branch: id,
     id,
-    is_imported: false,
-    is_local: false,
-    missing_on_disk: false,
+    isImported: false,
+    isLocal: false,
+    missingOnDisk: false,
     name: id,
     path: `/tmp/${id}`,
     position: 1,
-    project_id: "p1",
-    source_ref: null,
-    ui_mode: "hubris",
+    projectId: "p1",
+    sourceRef: null,
+    uiMode: "hubris",
   };
 }
 

@@ -21,7 +21,7 @@ export function buildCommandContextSnapshot(input: {
   const selectedProject =
     (selectedWorktree
       ? input.projects.find(
-          (project) => project.id === selectedWorktree.project_id,
+          (project) => project.id === selectedWorktree.projectId,
         )
       : null) ?? null;
   const activeTab =
@@ -31,8 +31,8 @@ export function buildCommandContextSnapshot(input: {
   const focusedPaneId =
     (selectedWorktree
       ? (input.focusedPaneByWorktree[selectedWorktree.id] ??
-        (activeTab?.worktree_id === selectedWorktree.id
-          ? activeTab.pane_id
+        (activeTab?.worktreeId === selectedWorktree.id
+          ? activeTab.paneId
           : null))
       : null) ?? null;
 
@@ -103,5 +103,5 @@ export function projectForWorktree(
   worktreeId: string | undefined,
 ) {
   const worktree = findWorktreeById(context, worktreeId);
-  return worktree ? findProjectById(context, worktree.project_id) : null;
+  return worktree ? findProjectById(context, worktree.projectId) : null;
 }

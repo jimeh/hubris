@@ -59,7 +59,7 @@ function createSession(tab: GitDiffTab): GitDiffSession {
   return {
     tabId: tab.id,
     path: tab.path,
-    originalPath: tab.original_path ?? null,
+    originalPath: tab.originalPath ?? null,
     scope: tab.scope,
     originalContent: "",
     draft: "",
@@ -124,7 +124,7 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
         [tab.id]: {
           ...(state.sessions[tab.id] ?? createSession(tab)),
           path: tab.path,
-          originalPath: tab.original_path ?? null,
+          originalPath: tab.originalPath ?? null,
           scope: tab.scope,
           loadStatus: "loading",
           error: null,
@@ -138,8 +138,8 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
         worktreeId,
         tab.path,
         tab.scope,
-        tab.original_path ?? undefined,
-        tab.commit_id ?? undefined,
+        tab.originalPath ?? undefined,
+        tab.commitId ?? undefined,
       );
       set((state) => {
         const current = state.sessions[tab.id];
@@ -153,15 +153,15 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
             [tab.id]: {
               ...current,
               path: tab.path,
-              originalPath: tab.original_path ?? null,
+              originalPath: tab.originalPath ?? null,
               scope: tab.scope,
-              originalContent: response.left_content,
-              draft: response.right_content,
-              savedContent: response.right_content,
-              modifiedVersionToken: response.modified_version_token ?? null,
+              originalContent: response.leftContent,
+              draft: response.rightContent,
+              savedContent: response.rightContent,
+              modifiedVersionToken: response.modifiedVersionToken ?? null,
               language: response.language,
-              readOnly: response.read_only,
-              unsupportedReason: response.unsupported_reason ?? null,
+              readOnly: response.readOnly,
+              unsupportedReason: response.unsupportedReason ?? null,
               dirty: false,
               externalChange: false,
               loadStatus: "loaded",
@@ -260,7 +260,7 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
             [tabId]: {
               ...current,
               savedContent: saveDraft,
-              modifiedVersionToken: response.version_token,
+              modifiedVersionToken: response.versionToken,
               dirty: current.draft !== saveDraft,
               externalChange: false,
               saveStatus: "idle",
@@ -324,8 +324,8 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
         worktreeId,
         tab.path,
         tab.scope,
-        tab.original_path ?? undefined,
-        tab.commit_id ?? undefined,
+        tab.originalPath ?? undefined,
+        tab.commitId ?? undefined,
       );
       set((state) => {
         const current = state.sessions[tabId];
@@ -340,18 +340,18 @@ export const useGitDiffStore = create<GitDiffStoreState>((set, get) => ({
             [tabId]: {
               ...current,
               path: tab.path,
-              originalPath: tab.original_path ?? null,
+              originalPath: tab.originalPath ?? null,
               scope: tab.scope,
-              originalContent: response.left_content,
+              originalContent: response.leftContent,
               draft:
                 preserveDirty && current.dirty
                   ? current.draft
-                  : response.right_content,
-              savedContent: response.right_content,
-              modifiedVersionToken: response.modified_version_token ?? null,
+                  : response.rightContent,
+              savedContent: response.rightContent,
+              modifiedVersionToken: response.modifiedVersionToken ?? null,
               language: response.language,
-              readOnly: response.read_only,
-              unsupportedReason: response.unsupported_reason ?? null,
+              readOnly: response.readOnly,
+              unsupportedReason: response.unsupportedReason ?? null,
               dirty: preserveDirty ? current.dirty : false,
               externalChange: preserveDirty ? current.externalChange : false,
               loadStatus: "loaded",
@@ -462,14 +462,14 @@ export function initializeGitDiffStore(): void {
     }),
     events.on(
       "worktree_files_updated",
-      ({ project_id, worktree_id, changed_paths, listing_paths }) => {
+      ({ projectId, worktreeId, changedPaths, listingPaths }) => {
         const gitDiffTabs = selectTabsForWorktree(
           useTabStore.getState(),
-          worktree_id,
+          worktreeId,
         ).filter(
           (tab): tab is GitDiffTab =>
             tab.type === "git_diff" &&
-            tab.worktree_id === worktree_id &&
+            tab.worktreeId === worktreeId &&
             tab.scope === "unstaged",
         );
         const store = useGitDiffStore.getState();
@@ -478,9 +478,9 @@ export function initializeGitDiffStore(): void {
           if (
             !isDiffPathAffected(
               tab.path,
-              tab.original_path ?? null,
-              changed_paths,
-              listing_paths,
+              tab.originalPath ?? null,
+              changedPaths,
+              listingPaths,
             )
           ) {
             continue;
@@ -494,13 +494,13 @@ export function initializeGitDiffStore(): void {
           if (session.dirty) {
             store.markExternalChange(tab.id);
           } else {
-            void store.reload(project_id, worktree_id, tab.id);
+            void store.reload(projectId, worktreeId, tab.id);
           }
         }
       },
     ),
-    events.on("tab_closed", ({ tab_id }) => {
-      useGitDiffStore.getState().discardSession(tab_id);
+    events.on("tab_closed", ({ tabId }) => {
+      useGitDiffStore.getState().discardSession(tabId);
     }),
   ];
 }

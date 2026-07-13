@@ -21,6 +21,7 @@ const WS_STALE_AFTER: Duration = Duration::from_secs(45);
 const WS_PING_PAYLOAD: &[u8] = b"hubris";
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct TerminalParams {
     pub tab_id: String,
@@ -31,16 +32,18 @@ pub struct TerminalParams {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema, TS, PartialEq, Eq)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all_fields = "camelCase")]
 pub enum ClientControlMessage {
     #[serde(rename = "resize")]
+    #[serde(rename_all = "camelCase")]
     Resize { cols: u16, rows: u16, visible: bool },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema, TS, PartialEq, Eq)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all_fields = "camelCase")]
 pub enum ServerControlMessage {
     #[serde(rename = "attached")]
+    #[serde(rename_all = "camelCase")]
     Attached {
         #[ts(type = "number")]
         byte_offset: u64,
@@ -50,6 +53,7 @@ pub enum ServerControlMessage {
         rows: u16,
     },
     #[serde(rename = "pty_resized")]
+    #[serde(rename_all = "camelCase")]
     PtyResized { cols: u16, rows: u16 },
     #[serde(rename = "tab_closed")]
     TabClosed,

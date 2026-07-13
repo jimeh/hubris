@@ -129,7 +129,7 @@ describe("API client", () => {
   });
 
   describe("reorderProjects", () => {
-    it("sends PUT with project_ids", async () => {
+    it("sends PUT with projectIds", async () => {
       const mockProjects = [
         { id: "p2", name: "var", path: "/var", position: 1.0 },
         { id: "p1", name: "tmp", path: "/tmp", position: 2.0 },
@@ -146,7 +146,7 @@ describe("API client", () => {
       expect(fetch).toHaveBeenCalledWith("/api/projects/reorder", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_ids: ["p2", "p1"] }),
+        body: JSON.stringify({ projectIds: ["p2", "p1"] }),
       });
       expect(result).toEqual(mockProjects);
     });
@@ -162,20 +162,20 @@ describe("API client", () => {
       });
     });
 
-    it("sends delete_managed_worktrees for managed deletion", async () => {
+    it("sends deleteManagedWorktrees for managed deletion", async () => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
 
       await deleteProject("abc-123", { deleteManagedWorktrees: true });
 
       expect(fetch).toHaveBeenCalledWith(
-        "/api/projects/abc-123?delete_managed_worktrees=true",
+        "/api/projects/abc-123?deleteManagedWorktrees=true",
         {
           method: "DELETE",
         },
       );
     });
 
-    it("sends both delete_managed_worktrees and force when forcing deletion", async () => {
+    it("sends both deleteManagedWorktrees and force when forcing deletion", async () => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
 
       await deleteProject("abc-123", {
@@ -184,7 +184,7 @@ describe("API client", () => {
       });
 
       expect(fetch).toHaveBeenCalledWith(
-        "/api/projects/abc-123?delete_managed_worktrees=true&force=true",
+        "/api/projects/abc-123?deleteManagedWorktrees=true&force=true",
         {
           method: "DELETE",
         },
@@ -265,15 +265,15 @@ describe("API client", () => {
   describe("listProjectWorktreeStartPoints", () => {
     it("fetches start points for a project", async () => {
       const mockResponse = {
-        start_points: [
+        startPoints: [
           {
             value: "main",
             sha: "abc123",
-            local_ref: "main",
-            remote_refs: ["origin/main"],
+            localRef: "main",
+            remoteRefs: ["origin/main"],
           },
         ],
-        default_start_point: "main",
+        defaultStartPoint: "main",
       };
       vi.stubGlobal(
         "fetch",
@@ -307,13 +307,13 @@ describe("API client", () => {
     it("sends POST with branch, start point, and source ref", async () => {
       const mockWorktree = {
         id: "w1",
-        project_id: "p1",
+        projectId: "p1",
         name: "feature-test",
         path: "/tmp/w1",
         branch: "feature-test",
-        source_ref: "origin/main",
-        is_local: false,
-        missing_on_disk: false,
+        sourceRef: "origin/main",
+        isLocal: false,
+        missingOnDisk: false,
         position: 2,
       };
       vi.stubGlobal(
@@ -335,14 +335,14 @@ describe("API client", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           branch: "feature-test",
-          start_point: "origin/main",
-          source_ref: "origin/main",
+          startPoint: "origin/main",
+          sourceRef: "origin/main",
         }),
       });
       expect(result).toEqual(mockWorktree);
     });
 
-    it("omits start_point when not provided", async () => {
+    it("omits startPoint when not provided", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({
@@ -363,13 +363,13 @@ describe("API client", () => {
   describe("getProjectWorktreeGitStatus", () => {
     it("fetches git status for a worktree", async () => {
       const mockStatus = {
-        source_ref: "origin/main",
-        unstaged_files: [],
-        staged_files: [],
-        ahead_count: 0,
-        ahead_commits: [],
-        comparison_available: true,
-        comparison_error: null,
+        sourceRef: "origin/main",
+        unstagedFiles: [],
+        stagedFiles: [],
+        aheadCount: 0,
+        aheadCommits: [],
+        comparisonAvailable: true,
+        comparisonError: null,
       };
       vi.stubGlobal(
         "fetch",
@@ -392,7 +392,7 @@ describe("API client", () => {
     it("fetches commit details for a worktree commit", async () => {
       const mockDetails = {
         id: "abcdef123456",
-        short_id: "abcdef1",
+        shortId: "abcdef1",
         summary: "feat: commit details",
         message: "feat: commit details\n\nmore",
         author: {
@@ -405,7 +405,7 @@ describe("API client", () => {
           email: "committer@example.com",
           date: "2026-03-19T12:30:00+00:00",
         },
-        files: [{ path: "src/main.ts", change_type: "modified" }],
+        files: [{ path: "src/main.ts", changeType: "modified" }],
       };
       vi.stubGlobal(
         "fetch",
@@ -444,7 +444,7 @@ describe("API client", () => {
   });
 
   describe("worktree git path actions", () => {
-    it("sends original_path when staging a renamed or copied path", async () => {
+    it("sends originalPath when staging a renamed or copied path", async () => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
 
       await stageProjectWorktreePath(
@@ -461,13 +461,13 @@ describe("API client", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             path: "new/target.txt",
-            original_path: "old/source.txt",
+            originalPath: "old/source.txt",
           }),
         },
       );
     });
 
-    it("omits original_path for normal unstage actions", async () => {
+    it("omits originalPath for normal unstage actions", async () => {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
 
       await unstageProjectWorktreePath("p1", "w1", "README.md");
@@ -486,20 +486,20 @@ describe("API client", () => {
   });
 
   describe("getProjectWorktreeGitDiff", () => {
-    it("includes original_path and commit_id when provided", async () => {
+    it("includes originalPath and commitId when provided", async () => {
       const mockDiff = {
         path: "renamed.md",
         scope: "commit",
-        original_path: "README.md",
-        commit_id: "abcdef123456",
-        left_label: "Parent",
-        right_label: "Commit",
-        left_content: "hello\n",
-        right_content: "updated\n",
+        originalPath: "README.md",
+        commitId: "abcdef123456",
+        leftLabel: "Parent",
+        rightLabel: "Commit",
+        leftContent: "hello\n",
+        rightContent: "updated\n",
         language: "markdown",
-        read_only: true,
-        modified_version_token: null,
-        unsupported_reason: null,
+        readOnly: true,
+        modifiedVersionToken: null,
+        unsupportedReason: null,
       };
       vi.stubGlobal(
         "fetch",
@@ -519,7 +519,7 @@ describe("API client", () => {
       );
 
       expect(fetch).toHaveBeenCalledWith(
-        "/api/projects/p1/worktrees/w1/git/diff?path=renamed.md&scope=commit&original_path=README.md&commit_id=abcdef123456",
+        "/api/projects/p1/worktrees/w1/git/diff?path=renamed.md&scope=commit&originalPath=README.md&commitId=abcdef123456",
       );
       expect(result).toEqual(mockDiff);
     });
@@ -529,8 +529,8 @@ describe("API client", () => {
     it("fetches from /api/files with default params", async () => {
       const mockResponse = {
         path: "/home/user",
-        entries: [{ name: "projects", is_git_repo: false }],
-        home_dir: "/home/user",
+        entries: [{ name: "projects", isGitRepo: false }],
+        homeDir: "/home/user",
       };
       vi.stubGlobal(
         "fetch",
@@ -545,7 +545,7 @@ describe("API client", () => {
       expect(result).toEqual(mockResponse);
     });
 
-    it("passes path and show_hidden params", async () => {
+    it("passes path and showHidden params", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({
@@ -554,14 +554,14 @@ describe("API client", () => {
             Promise.resolve({
               path: "/tmp",
               entries: [],
-              home_dir: "/home/user",
+              homeDir: "/home/user",
             }),
         }),
       );
 
       await listFiles("/tmp", true);
       expect(fetch).toHaveBeenCalledWith(
-        "/api/files?path=%2Ftmp&show_hidden=true",
+        "/api/files?path=%2Ftmp&showHidden=true",
       );
     });
 
@@ -662,7 +662,7 @@ describe("API client", () => {
             name: "README.md",
             path: "README.md",
             kind: "file",
-            is_symlink: false,
+            isSymlink: false,
           },
         ],
       };
@@ -681,9 +681,9 @@ describe("API client", () => {
   });
 
   describe("terminalWsUrl", () => {
-    it("constructs ws:// URL with tab_id param", () => {
+    it("constructs ws:// URL with tabId param", () => {
       const url = terminalWsUrl("tab-1");
-      expect(url).toBe("ws://localhost:5173/api/terminal/ws?tab_id=tab-1");
+      expect(url).toBe("ws://localhost:5173/api/terminal/ws?tabId=tab-1");
     });
 
     it("constructs wss:// URL for https: protocol", () => {
@@ -693,7 +693,7 @@ describe("API client", () => {
       });
 
       const url = terminalWsUrl("tab-2");
-      expect(url).toBe("wss://example.com/api/terminal/ws?tab_id=tab-2");
+      expect(url).toBe("wss://example.com/api/terminal/ws?tabId=tab-2");
     });
   });
 
@@ -702,12 +702,12 @@ describe("API client", () => {
       const mockTabs = [
         {
           id: "t1",
-          session_id: "default",
-          worktree_id: "w1",
+          sessionId: "default",
+          worktreeId: "w1",
           label: "Terminal 1",
           type: "terminal",
           position: 1.0,
-          created_at: 1000,
+          createdAt: 1000,
           preview: false,
         },
       ];
@@ -726,15 +726,15 @@ describe("API client", () => {
   });
 
   describe("createTab", () => {
-    it("sends POST with type and worktree_id in body", async () => {
+    it("sends POST with type and worktreeId in body", async () => {
       const mockTab = {
         id: "t1",
-        session_id: "default",
-        worktree_id: "w1",
+        sessionId: "default",
+        worktreeId: "w1",
         label: "Terminal 1",
         type: "terminal",
         position: 1.0,
-        created_at: 1000,
+        createdAt: 1000,
         preview: false,
       };
       vi.stubGlobal(
@@ -747,12 +747,12 @@ describe("API client", () => {
 
       const result = await createTab({
         type: "terminal",
-        worktree_id: "w1",
+        worktreeId: "w1",
       });
       expect(fetch).toHaveBeenCalledWith("/api/tabs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "terminal", worktree_id: "w1" }),
+        body: JSON.stringify({ type: "terminal", worktreeId: "w1" }),
       });
       expect(result).toEqual(mockTab);
     });
@@ -765,7 +765,7 @@ describe("API client", () => {
           status: 400,
           json: () =>
             Promise.resolve({
-              message: "commit_id is required for commit diffs.",
+              message: "commitId is required for commit diffs.",
             }),
         }),
       );
@@ -773,7 +773,7 @@ describe("API client", () => {
       await expect(
         createTab({
           type: "git_diff",
-          worktree_id: "w1",
+          worktreeId: "w1",
           path: "README.md",
           scope: "commit",
           preview: true,
@@ -781,8 +781,8 @@ describe("API client", () => {
       ).rejects.toMatchObject({
         name: "ApiStatusError",
         status: 400,
-        message: "commit_id is required for commit diffs.",
-        serverMessage: "commit_id is required for commit diffs.",
+        message: "commitId is required for commit diffs.",
+        serverMessage: "commitId is required for commit diffs.",
         method: "POST",
         path: "/api/tabs",
       });
@@ -822,12 +822,12 @@ describe("API client", () => {
     it("sends PATCH with body", async () => {
       const mockTab = {
         id: "t1",
-        session_id: "default",
-        worktree_id: "w1",
+        sessionId: "default",
+        worktreeId: "w1",
         label: "My Shell",
         type: "terminal",
         position: 1.0,
-        created_at: 1000,
+        createdAt: 1000,
         preview: false,
       };
       vi.stubGlobal(
@@ -839,12 +839,12 @@ describe("API client", () => {
       );
 
       const result = await updateTab("t1", {
-        custom_label: "My Shell",
+        customLabel: "My Shell",
       });
       expect(fetch).toHaveBeenCalledWith("/api/tabs/t1", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ custom_label: "My Shell" }),
+        body: JSON.stringify({ customLabel: "My Shell" }),
       });
       expect(result).toEqual(mockTab);
     });

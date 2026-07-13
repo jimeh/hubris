@@ -400,8 +400,8 @@ darkTheme = "hubris-dark"
         snapshot["data"]["settings"]["appearance"]["colorScheme"],
         "auto"
     );
-    assert_eq!(snapshot["data"]["settings_status"]["kind"], "ok");
-    let initial_generation = snapshot["data"]["settings_generation"]
+    assert_eq!(snapshot["data"]["settingsStatus"]["kind"], "ok");
+    let initial_generation = snapshot["data"]["settingsGeneration"]
         .as_str()
         .unwrap()
         .to_string();
@@ -553,12 +553,12 @@ async fn startup_invalid_toml_recovers_after_valid_file_is_written() {
     let mut buffer = Vec::new();
     let (event_name, snapshot) = next_sse_event(&mut res, &mut buffer).await;
     assert_eq!(event_name, "snapshot");
-    let initial_generation = snapshot["data"]["settings_generation"]
+    let initial_generation = snapshot["data"]["settingsGeneration"]
         .as_str()
         .unwrap()
         .to_string();
     assert_default_settings(&snapshot["data"]);
-    assert_eq!(snapshot["data"]["settings_status"]["kind"], "invalidFile");
+    assert_eq!(snapshot["data"]["settingsStatus"]["kind"], "invalidFile");
 
     std::fs::write(
         tmp.path().join("settings.toml"),

@@ -29,11 +29,11 @@ function makeTab(id: string, position: number): TerminalTab {
     id,
     label: `Tab ${id.toUpperCase()}`,
     position,
-    worktree_id: "w1",
-    pane_id: "pane-1",
-    session_id: "default",
+    worktreeId: "w1",
+    paneId: "pane-1",
+    sessionId: "default",
     type: "terminal",
-    created_at: 0,
+    createdAt: 0,
     preview: false,
   };
 }

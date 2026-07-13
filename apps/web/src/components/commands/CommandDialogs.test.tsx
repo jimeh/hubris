@@ -138,14 +138,14 @@ function makeProject() {
 function makeWorktree() {
   return {
     id: "w1",
-    project_id: "p1",
+    projectId: "p1",
     name: "local",
     path: "/tmp/devbox",
     branch: "main",
-    source_ref: null,
-    ui_mode: "hubris" as const,
-    is_local: true,
-    missing_on_disk: false,
+    sourceRef: null,
+    uiMode: "hubris" as const,
+    isLocal: true,
+    missingOnDisk: false,
     position: 1,
   };
 }
@@ -155,11 +155,11 @@ function makeFileTab(id: string) {
     id,
     label: "file.ts",
     position: 1,
-    worktree_id: "w1",
-    pane_id: "pane-1",
-    session_id: "default",
+    worktreeId: "w1",
+    paneId: "pane-1",
+    sessionId: "default",
     type: "file" as const,
-    created_at: 0,
+    createdAt: 0,
     preview: false,
     path: "src/file.ts",
   };
@@ -170,16 +170,16 @@ function makeGitDiffTab(id: string) {
     id,
     label: "README.md",
     position: 1,
-    worktree_id: "w1",
-    pane_id: "pane-1",
-    session_id: "default",
+    worktreeId: "w1",
+    paneId: "pane-1",
+    sessionId: "default",
     type: "git_diff" as const,
-    created_at: 0,
+    createdAt: 0,
     preview: false,
     path: "README.md",
     scope: "unstaged" as const,
-    original_path: null,
-    commit_id: null,
+    originalPath: null,
+    commitId: null,
   };
 }
 
@@ -351,11 +351,11 @@ describe("CommandDialogs", () => {
     const feature = {
       ...makeWorktree(),
       id: "w2",
-      project_id: beta.id,
+      projectId: beta.id,
       name: "feature-a",
       path: "/tmp/beta-feature-a",
       branch: "feature-a",
-      is_local: false,
+      isLocal: false,
       position: 1,
     };
 
@@ -570,7 +570,7 @@ describe("CommandDialogs", () => {
     const importedWorktree = {
       ...makeWorktree(),
       id: "w-imported",
-      is_local: false,
+      isLocal: false,
       path: "/tmp/imported",
     };
     const importSpy = vi

@@ -39,7 +39,7 @@ describe("SnapshotUnavailableNotice", () => {
   it("shows the failure and retries via reconnect", async () => {
     useConnectionStore.setState({
       snapshotError: {
-        scope: "chat_conversations",
+        scope: "chatConversations",
         message: "database is locked",
       },
     });
@@ -49,7 +49,7 @@ describe("SnapshotUnavailableNotice", () => {
     expect(
       screen.getByText("Server state could not be loaded"),
     ).toBeInTheDocument();
-    expect(screen.getByText("chat_conversations")).toBeInTheDocument();
+    expect(screen.getByText("chatConversations")).toBeInTheDocument();
     expect(screen.getByText("database is locked")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /retry/i }));

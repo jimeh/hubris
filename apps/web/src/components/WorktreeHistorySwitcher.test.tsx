@@ -53,15 +53,15 @@ function makeWorktree(id: string, projectId: string, name: string) {
   return {
     branch: name,
     id,
-    is_imported: false,
-    is_local: false,
-    missing_on_disk: false,
+    isImported: false,
+    isLocal: false,
+    missingOnDisk: false,
     name,
     path: `/tmp/${name}`,
     position: 1,
-    project_id: projectId,
-    source_ref: null,
-    ui_mode: "hubris" as const,
+    projectId: projectId,
+    sourceRef: null,
+    uiMode: "hubris" as const,
   };
 }
 

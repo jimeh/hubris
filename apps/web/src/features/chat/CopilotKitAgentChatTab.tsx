@@ -873,7 +873,7 @@ function CopilotChatHeader({
 }
 
 export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
-  const conversationId = tab.conversation_id;
+  const conversationId = tab.conversationId;
   const rootRef = useRef<HTMLDivElement>(null);
   const detailState = useChatStore((state) =>
     selectChatDetailState(state, conversationId),

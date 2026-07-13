@@ -260,7 +260,7 @@ async fn test_reorder_projects() {
     let res = client
         .put(format!("{}/api/projects/reorder", base))
         .json(&serde_json::json!({
-            "project_ids": [p2_id, p1_id]
+            "projectIds": [p2_id, p1_id]
         }))
         .send()
         .await
@@ -283,7 +283,7 @@ async fn test_worktree_ui_mode_defaults_to_hubris_and_persists_patch() {
 
     let listed = list_worktrees(&client, &base, project_id).await;
     let local = &listed["worktrees"][0];
-    assert_eq!(local["ui_mode"], "hubris");
+    assert_eq!(local["uiMode"], "hubris");
 
     let res = client
         .patch(format!(
@@ -292,16 +292,16 @@ async fn test_worktree_ui_mode_defaults_to_hubris_and_persists_patch() {
             project_id,
             local["id"].as_str().unwrap()
         ))
-        .json(&serde_json::json!({ "ui_mode": "vscode" }))
+        .json(&serde_json::json!({ "uiMode": "vscode" }))
         .send()
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let updated: Value = res.json().await.unwrap();
-    assert_eq!(updated["ui_mode"], "vscode");
+    assert_eq!(updated["uiMode"], "vscode");
 
     let listed = list_worktrees(&client, &base, project_id).await;
-    assert_eq!(listed["worktrees"][0]["ui_mode"], "vscode");
+    assert_eq!(listed["worktrees"][0]["uiMode"], "vscode");
 }
 
 #[tokio::test]
@@ -324,7 +324,7 @@ async fn test_worktree_ui_mode_normalization_prunes_stale_entries() {
             "{}/api/projects/{}/worktrees/{}",
             base, project_id, managed_id
         ))
-        .json(&serde_json::json!({ "ui_mode": "vscode" }))
+        .json(&serde_json::json!({ "uiMode": "vscode" }))
         .send()
         .await
         .unwrap();
@@ -342,7 +342,7 @@ async fn test_worktree_ui_mode_normalization_prunes_stale_entries() {
                 "path": managed["path"],
                 "branch": managed["branch"],
                 "name": managed["name"],
-                "source_ref": managed["source_ref"],
+                "sourceRef": managed["sourceRef"],
             }],
             "worktree_order": [managed_id],
             "worktree_ui_modes": {
@@ -360,7 +360,7 @@ async fn test_worktree_ui_mode_normalization_prunes_stale_entries() {
             "{}/api/projects/{}/worktrees/{}",
             base, project_id, local_id
         ))
-        .json(&serde_json::json!({ "ui_mode": "hubris" }))
+        .json(&serde_json::json!({ "uiMode": "hubris" }))
         .send()
         .await
         .unwrap();
@@ -388,8 +388,8 @@ async fn test_worktree_ui_mode_normalization_prunes_stale_entries() {
         .iter()
         .find(|worktree| worktree["id"] == managed_id)
         .unwrap();
-    assert_eq!(local["ui_mode"], "hubris");
-    assert_eq!(managed["ui_mode"], "vscode");
+    assert_eq!(local["uiMode"], "hubris");
+    assert_eq!(managed["uiMode"], "vscode");
 }
 
 #[tokio::test]
@@ -533,15 +533,15 @@ async fn test_add_project_emits_initial_worktrees_update() {
     let (event_name, worktrees_updated) = next_sse_event(&mut res, &mut buffer).await;
     assert_eq!(event_name, "project_worktrees_updated");
     assert_eq!(worktrees_updated["type"], "project_worktrees_updated");
-    assert_eq!(worktrees_updated["data"]["project_id"], project_id);
-    assert!(worktrees_updated["data"]["git_error"].is_null());
+    assert_eq!(worktrees_updated["data"]["projectId"], project_id);
+    assert!(worktrees_updated["data"]["gitError"].is_null());
 
     let worktrees = worktrees_updated["data"]["worktrees"].as_array().unwrap();
     assert_eq!(worktrees.len(), 1);
-    assert_eq!(worktrees[0]["project_id"], project_id);
-    assert_eq!(worktrees[0]["is_local"], true);
+    assert_eq!(worktrees[0]["projectId"], project_id);
+    assert_eq!(worktrees[0]["isLocal"], true);
     assert_eq!(worktrees[0]["name"], "local");
-    assert_eq!(worktrees[0]["missing_on_disk"], false);
+    assert_eq!(worktrees[0]["missingOnDisk"], false);
     assert_eq!(worktrees[0]["position"].as_f64(), Some(1.0));
 }
 
@@ -604,7 +604,7 @@ async fn test_reorder_projects_invalid_ids() {
     let res = client
         .put(format!("{}/api/projects/reorder", base))
         .json(&serde_json::json!({
-            "project_ids": [p1_id, "not-a-real-id"]
+            "projectIds": [p1_id, "not-a-real-id"]
         }))
         .send()
         .await
@@ -629,7 +629,7 @@ async fn test_reorder_projects_rejects_duplicate_ids() {
     let res = client
         .put(format!("{}/api/projects/reorder", base))
         .json(&serde_json::json!({
-            "project_ids": [p1_id, p1_id]
+            "projectIds": [p1_id, p1_id]
         }))
         .send()
         .await
@@ -684,7 +684,7 @@ async fn test_delete_project_delete_managed_removes_only_managed_worktrees() {
 
     let res = client
         .delete(format!(
-            "{}/api/projects/{}?delete_managed_worktrees=true",
+            "{}/api/projects/{}?deleteManagedWorktrees=true",
             base, id
         ))
         .send()
@@ -710,7 +710,7 @@ async fn test_delete_project_succeeds_when_managed_worktree_missing_on_disk() {
 
     let res = client
         .delete(format!(
-            "{}/api/projects/{}?delete_managed_worktrees=true",
+            "{}/api/projects/{}?deleteManagedWorktrees=true",
             base, id
         ))
         .send()
@@ -773,7 +773,7 @@ async fn test_delete_project_respects_force_for_existing_dirty_managed_worktree(
 
     let res = client
         .delete(format!(
-            "{}/api/projects/{}?delete_managed_worktrees=true",
+            "{}/api/projects/{}?deleteManagedWorktrees=true",
             base, id
         ))
         .send()
@@ -783,7 +783,7 @@ async fn test_delete_project_respects_force_for_existing_dirty_managed_worktree(
 
     let res = client
         .delete(format!(
-            "{}/api/projects/{}?delete_managed_worktrees=true&force=true",
+            "{}/api/projects/{}?deleteManagedWorktrees=true&force=true",
             base, id
         ))
         .send()

@@ -117,15 +117,15 @@ describe("WorktreeRowContent", () => {
         <WorktreeRow
           worktree={{
             id: "long-name",
-            project_id: "project-1",
+            projectId: "project-1",
             path: "/tmp/long-name",
             branch: "feature/some-very-long-branch-name",
-            source_ref: null,
-            ui_mode: "hubris",
+            sourceRef: null,
+            uiMode: "hubris",
             name: "some-very-long-worktree-name",
             position: 2,
-            is_local: false,
-            missing_on_disk: false,
+            isLocal: false,
+            missingOnDisk: false,
           }}
           isSelected={false}
           isSorting={false}
@@ -152,15 +152,15 @@ describe("WorktreeRowContent", () => {
         <WorktreeRow
           worktree={{
             id: "missing",
-            project_id: "project-1",
+            projectId: "project-1",
             path: "/tmp/missing",
             branch: "feature-a",
-            source_ref: null,
-            ui_mode: "hubris",
+            sourceRef: null,
+            uiMode: "hubris",
             name: "feature-a",
             position: 2,
-            is_local: false,
-            missing_on_disk: true,
+            isLocal: false,
+            missingOnDisk: true,
           }}
           isSelected={false}
           isSorting={false}

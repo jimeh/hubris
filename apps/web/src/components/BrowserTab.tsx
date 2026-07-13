@@ -51,21 +51,21 @@ const URL_INPUT_PROPS = {
 function nextBrowserHistory(
   tab: BrowserTabInfo,
   url: string,
-): Pick<BrowserTabInfo, "history" | "history_index"> {
-  const { history, history_index: historyIndex } = tab;
+): Pick<BrowserTabInfo, "history" | "historyIndex"> {
+  const { history, historyIndex: historyIndex } = tab;
   if (history[historyIndex] === url) {
-    return { history, history_index: historyIndex };
+    return { history, historyIndex: historyIndex };
   }
   if (historyIndex > 0 && history[historyIndex - 1] === url) {
-    return { history, history_index: historyIndex - 1 };
+    return { history, historyIndex: historyIndex - 1 };
   }
   if (historyIndex + 1 < history.length && history[historyIndex + 1] === url) {
-    return { history, history_index: historyIndex + 1 };
+    return { history, historyIndex: historyIndex + 1 };
   }
 
   return {
     history: [...history.slice(0, historyIndex + 1), url],
-    history_index: historyIndex + 1,
+    historyIndex: historyIndex + 1,
   };
 }
 
@@ -173,10 +173,10 @@ export default function BrowserTab({ tab, visible }: Props) {
 
   const canGoBack = isDesktop
     ? (session?.canGoBack ?? false)
-    : tab.history_index > 0;
+    : tab.historyIndex > 0;
   const canGoForward = isDesktop
     ? (session?.canGoForward ?? false)
-    : tab.history_index < tab.history.length - 1;
+    : tab.historyIndex < tab.history.length - 1;
 
   const iframeKey = `${tab.id}:${tab.url}:${session?.reloadKey ?? 0}`;
   const errorMessageId = `${tab.id}-browser-error`;
@@ -376,7 +376,7 @@ export default function BrowserTab({ tab, visible }: Props) {
       label: browserLabelFromUrl(url),
       url,
       history: nextHistory.history,
-      historyIndex: nextHistory.history_index,
+      historyIndex: nextHistory.historyIndex,
     });
 
     if (isDesktop) {
@@ -395,7 +395,7 @@ export default function BrowserTab({ tab, visible }: Props) {
       return;
     }
 
-    const nextIndex = tab.history_index - 1;
+    const nextIndex = tab.historyIndex - 1;
     const url = tab.history[nextIndex];
     setLoading(tab.id, true);
     await setBrowserState(tab.id, {
@@ -417,7 +417,7 @@ export default function BrowserTab({ tab, visible }: Props) {
       return;
     }
 
-    const nextIndex = tab.history_index + 1;
+    const nextIndex = tab.historyIndex + 1;
     const url = tab.history[nextIndex];
     setLoading(tab.id, true);
     await setBrowserState(tab.id, {

@@ -17,7 +17,7 @@ export function initializeSystemStore(): void {
 
   fetchSystemInfo().then(
     (info) => {
-      useSystemStore.setState({ homeDir: info.home_dir ?? null });
+      useSystemStore.setState({ homeDir: info.homeDir ?? null });
     },
     () => {
       console.warn("Failed to fetch system info");

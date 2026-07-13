@@ -25,7 +25,7 @@ export default function WorktreeDragOverlay({
         contentSlot={
           <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
             <span className="min-w-0 flex-1 truncate">{worktree.name}</span>
-            {worktree.missing_on_disk ? (
+            {worktree.missingOnDisk ? (
               <span className="inline-flex items-center text-destructive">
                 <AlertTriangle className="h-3.5 w-3.5" />
               </span>

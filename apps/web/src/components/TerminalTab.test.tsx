@@ -177,9 +177,9 @@ describe("TerminalTab", () => {
       ws.receive(
         JSON.stringify({
           type: "attached",
-          byte_offset: 12,
+          byteOffset: 12,
           snapshot: true,
-          data_lost: true,
+          dataLost: true,
           cols: 90,
           rows: 25,
         }),

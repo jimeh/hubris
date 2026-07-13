@@ -58,7 +58,7 @@ describe("classifyHubrisWebSocket", () => {
   it("routes terminal sockets to the backend websocket target", () => {
     expect(
       classifyHubrisWebSocket(
-        "wss://desktop.internal.hubris.build/api/terminal/ws?tab_id=1",
+        "wss://desktop.internal.hubris.build/api/terminal/ws?tabId=1",
         false,
       ),
     ).toBe("backend");

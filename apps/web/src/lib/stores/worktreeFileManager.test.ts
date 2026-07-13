@@ -82,13 +82,13 @@ describe("worktree file manager store", () => {
     mockRenameProjectWorktreeFile.mockReset();
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
       generation: 1,
-      source_ref: "main",
-      unstaged_files: [],
-      staged_files: [],
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      comparison_error: null,
+      sourceRef: "main",
+      unstagedFiles: [],
+      stagedFiles: [],
+      aheadCount: 0,
+      aheadCommits: [],
+      comparisonAvailable: true,
+      comparisonError: null,
     });
   });
 
@@ -447,11 +447,11 @@ describe("worktree file manager store", () => {
     await store.getState().preloadVisibleDirectories("p1", "w1");
     store.getState().setExpanded("w1", "src", true);
     emitEvent("worktree_files_updated", {
-      project_id: "p1",
-      worktree_id: "w1",
+      projectId: "p1",
+      worktreeId: "w1",
       generation: 2,
-      changed_paths: ["src/nested"],
-      listing_paths: ["", "src"],
+      changedPaths: ["src/nested"],
+      listingPaths: ["", "src"],
     });
 
     await store.getState().refreshPendingPaths("p1", "w1");
@@ -509,11 +509,11 @@ describe("worktree file manager store", () => {
     await store.getState().loadDirectory("p1", "w1", "src/nested");
 
     emitEvent("worktree_files_updated", {
-      project_id: "p1",
-      worktree_id: "w1",
+      projectId: "p1",
+      worktreeId: "w1",
       generation: 2,
-      changed_paths: ["src/nested", "src/nested/watch-me.txt"],
-      listing_paths: ["src/nested"],
+      changedPaths: ["src/nested", "src/nested/watch-me.txt"],
+      listingPaths: ["src/nested"],
     });
 
     const afterEvent = store.getState().worktrees["w1"];
@@ -582,11 +582,11 @@ describe("worktree file manager store", () => {
     store.getState().setExpanded("w1", "docs", true);
 
     emitEvent("worktree_files_updated", {
-      project_id: "p1",
-      worktree_id: "w1",
+      projectId: "p1",
+      worktreeId: "w1",
       generation: 2,
-      changed_paths: ["src/lib.rs"],
-      listing_paths: ["src"],
+      changedPaths: ["src/lib.rs"],
+      listingPaths: ["src"],
     });
 
     expect(store.getState().worktrees["w1"]?.directories["src"]?.stale).toBe(
@@ -659,11 +659,11 @@ describe("worktree file manager store", () => {
     store.getState().setExpanded("w1", "tmp2/nested", true);
 
     emitEvent("worktree_files_updated", {
-      project_id: "p1",
-      worktree_id: "w1",
+      projectId: "p1",
+      worktreeId: "w1",
       generation: 2,
-      changed_paths: ["tmp2/bar.txt", "tmp2/bar2.txt"],
-      listing_paths: ["tmp2"],
+      changedPaths: ["tmp2/bar.txt", "tmp2/bar2.txt"],
+      listingPaths: ["tmp2"],
     });
 
     expect(store.getState().worktrees["w1"]?.directories["tmp2"]?.stale).toBe(
@@ -759,11 +759,11 @@ describe("worktree file manager store", () => {
     store.getState().setSelectedPath("w1", "tmp2/stuff/gone.txt");
 
     emitEvent("worktree_files_updated", {
-      project_id: "p1",
-      worktree_id: "w1",
+      projectId: "p1",
+      worktreeId: "w1",
       generation: 2,
-      changed_paths: ["tmp2/stuff", "tmp2/stuff-old"],
-      listing_paths: ["tmp2"],
+      changedPaths: ["tmp2/stuff", "tmp2/stuff-old"],
+      listingPaths: ["tmp2"],
     });
 
     mockListProjectWorktreeFiles.mockReset();
@@ -832,8 +832,8 @@ describe("worktree file manager store", () => {
     await store.getState().loadDirectory("p1", "w1", "");
 
     emitEvent("worktree_git_status_updated", {
-      project_id: "p1",
-      worktree_id: "w1",
+      projectId: "p1",
+      worktreeId: "w1",
       generation: 3,
     });
 
@@ -847,18 +847,18 @@ describe("worktree file manager store", () => {
     const store = await getStore();
     mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
       generation: 3,
-      source_ref: "main",
-      unstaged_files: [],
-      staged_files: [],
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      comparison_error: null,
+      sourceRef: "main",
+      unstagedFiles: [],
+      stagedFiles: [],
+      aheadCount: 0,
+      aheadCommits: [],
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     emitEvent("worktree_git_status_updated", {
-      project_id: "p1",
-      worktree_id: "w1",
+      projectId: "p1",
+      worktreeId: "w1",
       generation: 3,
     });
 

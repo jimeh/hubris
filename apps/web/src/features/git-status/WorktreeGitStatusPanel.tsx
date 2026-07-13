@@ -113,14 +113,14 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
       }
       void runAction({
         action,
-        projectId: worktree.project_id,
+        projectId: worktree.projectId,
         worktreeId: worktree.id,
         path,
         originalPath,
         label,
       });
     },
-    [runAction, worktree.id, worktree.project_id],
+    [runAction, worktree.id, worktree.projectId],
   );
 
   const handleOpenDiff = useCallback(
@@ -152,12 +152,12 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
     setPendingDiscard(null);
     await runAction({
       action: "discard",
-      projectId: worktree.project_id,
+      projectId: worktree.projectId,
       worktreeId: worktree.id,
       path: current.path,
       label: current.label,
     });
-  }, [pendingDiscard, runAction, worktree.id, worktree.project_id]);
+  }, [pendingDiscard, runAction, worktree.id, worktree.projectId]);
 
   const handleSectionOpenChange = useCallback(
     (section: SectionKey, nextOpen: boolean) => {
@@ -236,7 +236,7 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
                 title="Staged"
                 section="staged"
                 open={sectionOpenState.staged}
-                changes={status.staged_files}
+                changes={status.stagedFiles}
                 viewMode={viewMode}
                 theme={theme}
                 disabled={pendingActionKey !== null}
@@ -249,7 +249,7 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
                 title="Unstaged"
                 section="unstaged"
                 open={sectionOpenState.unstaged}
-                changes={status.unstaged_files}
+                changes={status.unstagedFiles}
                 viewMode={viewMode}
                 theme={theme}
                 disabled={pendingActionKey !== null}
@@ -259,14 +259,14 @@ export default function WorktreeGitStatusPanel({ worktree }: Props) {
               />
               <Separator />
               <CommitsSection
-                projectId={worktree.project_id}
+                projectId={worktree.projectId}
                 worktreeId={worktree.id}
                 open={sectionOpenState.commits}
-                aheadCount={status.ahead_count}
-                aheadCommits={status.ahead_commits}
-                comparisonAvailable={status.comparison_available}
-                comparisonError={status.comparison_error}
-                sourceRef={status.source_ref}
+                aheadCount={status.aheadCount}
+                aheadCommits={status.aheadCommits}
+                comparisonAvailable={status.comparisonAvailable}
+                comparisonError={status.comparisonError}
+                sourceRef={status.sourceRef}
                 theme={theme}
                 commitOpenState={commitOpenState}
                 commitTreeOpenState={commitTreeOpenState}

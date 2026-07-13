@@ -70,27 +70,27 @@ function makeProject(
     name: overrides.name,
     path: overrides.path ?? `/tmp/${overrides.id}`,
     position: overrides.position ?? 1,
-    git_error: overrides.git_error,
+    gitError: overrides.gitError,
   };
 }
 
 function makeWorktree(
   overrides: Partial<Worktree> & {
     id: string;
-    project_id: string;
+    projectId: string;
     name: string;
   },
 ): Worktree {
   return {
     id: overrides.id,
-    project_id: overrides.project_id,
+    projectId: overrides.projectId,
     name: overrides.name,
     path: overrides.path ?? `/tmp/${overrides.name}`,
     branch: overrides.branch ?? overrides.name,
-    source_ref: overrides.source_ref ?? null,
-    ui_mode: overrides.ui_mode ?? "hubris",
-    is_local: overrides.is_local ?? false,
-    missing_on_disk: overrides.missing_on_disk ?? false,
+    sourceRef: overrides.sourceRef ?? null,
+    uiMode: overrides.uiMode ?? "hubris",
+    isLocal: overrides.isLocal ?? false,
+    missingOnDisk: overrides.missingOnDisk ?? false,
     position: overrides.position ?? 1,
   };
 }
@@ -120,9 +120,9 @@ describe("AppSidebarRoot", () => {
   it("renders project worktrees from snapshot state", () => {
     const local = makeWorktree({
       id: "w-local",
-      project_id: "p1",
+      projectId: "p1",
       name: "local",
-      is_local: true,
+      isLocal: true,
       position: 1,
     });
 
@@ -136,13 +136,13 @@ describe("AppSidebarRoot", () => {
             local,
             makeWorktree({
               id: "w-feature",
-              project_id: "p1",
+              projectId: "p1",
               name: "feature-a",
               position: 2,
             }),
           ],
         },
-        project_errors: {},
+        projectErrors: {},
       });
     });
 
@@ -154,9 +154,9 @@ describe("AppSidebarRoot", () => {
   it("rerenders removals from worktree_deleted and project_removed", () => {
     const local = makeWorktree({
       id: "w-local",
-      project_id: "p1",
+      projectId: "p1",
       name: "local",
-      is_local: true,
+      isLocal: true,
       position: 1,
     });
 
@@ -170,13 +170,13 @@ describe("AppSidebarRoot", () => {
             local,
             makeWorktree({
               id: "w-feature",
-              project_id: "p1",
+              projectId: "p1",
               name: "feature-a",
               position: 2,
             }),
           ],
         },
-        project_errors: {},
+        projectErrors: {},
       });
     });
 
@@ -184,8 +184,8 @@ describe("AppSidebarRoot", () => {
 
     act(() => {
       mockEvents.emit("worktree_deleted", {
-        project_id: "p1",
-        worktree_id: "w-feature",
+        projectId: "p1",
+        worktreeId: "w-feature",
       });
     });
 
@@ -193,7 +193,7 @@ describe("AppSidebarRoot", () => {
 
     act(() => {
       mockEvents.emit("project_removed", {
-        project_id: "p1",
+        projectId: "p1",
       });
     });
 
@@ -214,9 +214,9 @@ describe("AppSidebarRoot", () => {
   it("shows a blue-dot indicator for retained VS Code workbenches", () => {
     const local = makeWorktree({
       id: "w-local",
-      project_id: "p1",
+      projectId: "p1",
       name: "local",
-      is_local: true,
+      isLocal: true,
       position: 1,
     });
 
@@ -231,13 +231,13 @@ describe("AppSidebarRoot", () => {
             local,
             makeWorktree({
               id: "w-feature",
-              project_id: "p1",
+              projectId: "p1",
               name: "feature-a",
               position: 2,
             }),
           ],
         },
-        project_errors: {},
+        projectErrors: {},
       });
     });
 
@@ -258,14 +258,14 @@ describe("AppSidebarRoot", () => {
           p1: [
             makeWorktree({
               id: "w-local",
-              project_id: "p1",
+              projectId: "p1",
               name: "local",
-              is_local: true,
+              isLocal: true,
               position: 1,
             }),
           ],
         },
-        project_errors: {},
+        projectErrors: {},
       });
     });
 

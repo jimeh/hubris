@@ -175,26 +175,26 @@ describe("App", () => {
         p1: [
           {
             id: "w-local",
-            project_id: "p1",
+            projectId: "p1",
             name: "local",
             path: "/tmp/devbox",
             branch: "main",
-            source_ref: null,
-            ui_mode: "hubris",
-            is_local: true,
-            missing_on_disk: false,
+            sourceRef: null,
+            uiMode: "hubris",
+            isLocal: true,
+            missingOnDisk: false,
             position: 1,
           },
           {
             id: "w-feature",
-            project_id: "p1",
+            projectId: "p1",
             name: "feature-a",
             path: "/tmp/devbox-feature",
             branch: "feature-a",
-            source_ref: null,
-            ui_mode: "hubris",
-            is_local: false,
-            missing_on_disk: false,
+            sourceRef: null,
+            uiMode: "hubris",
+            isLocal: false,
+            missingOnDisk: false,
             position: 2,
           },
         ],
@@ -340,7 +340,7 @@ describe("App", () => {
         ...state.worktreesByProject,
         p1: (state.worktreesByProject.p1 ?? []).map((worktree) =>
           worktree.id === "w-local"
-            ? { ...worktree, ui_mode: "vscode" }
+            ? { ...worktree, uiMode: "vscode" }
             : worktree,
         ),
       },
@@ -372,7 +372,7 @@ describe("App", () => {
         ...state.worktreesByProject,
         p1: (state.worktreesByProject.p1 ?? []).map((worktree) => ({
           ...worktree,
-          ui_mode: "vscode" as const,
+          uiMode: "vscode" as const,
         })),
       },
     }));
@@ -405,7 +405,7 @@ describe("App", () => {
           ...state.worktreesByProject,
           p1: (state.worktreesByProject.p1 ?? []).map((worktree) =>
             worktree.id === "w-local"
-              ? { ...worktree, ui_mode: "hubris" as const }
+              ? { ...worktree, uiMode: "hubris" as const }
               : worktree,
           ),
         },
@@ -428,7 +428,7 @@ describe("App", () => {
           ...state.worktreesByProject,
           p1: (state.worktreesByProject.p1 ?? []).map((worktree) =>
             worktree.id === "w-local"
-              ? { ...worktree, ui_mode: "vscode" as const }
+              ? { ...worktree, uiMode: "vscode" as const }
               : worktree,
           ),
         },
@@ -449,7 +449,7 @@ describe("App", () => {
         ...state.worktreesByProject,
         p1: (state.worktreesByProject.p1 ?? []).map((worktree) =>
           worktree.id === "w-local"
-            ? { ...worktree, ui_mode: "vscode" as const }
+            ? { ...worktree, uiMode: "vscode" as const }
             : worktree,
         ),
       },
@@ -541,22 +541,22 @@ describe("App", () => {
           id: "tab-local",
           label: "local",
           position: 1,
-          worktree_id: "w-local",
-          pane_id: "pane-local",
-          session_id: "default",
+          worktreeId: "w-local",
+          paneId: "pane-local",
+          sessionId: "default",
           type: "terminal",
-          created_at: 0,
+          createdAt: 0,
           preview: false,
         },
         {
           id: "tab-feature",
           label: "feature",
           position: 2,
-          worktree_id: "w-feature",
-          pane_id: "pane-feature",
-          session_id: "default",
+          worktreeId: "w-feature",
+          paneId: "pane-feature",
+          sessionId: "default",
           type: "terminal",
-          created_at: 1,
+          createdAt: 1,
           preview: false,
         },
       ]),
@@ -598,11 +598,11 @@ describe("App", () => {
             id: "tab-feature",
             label: "feature",
             position: 1,
-            worktree_id: "w-feature",
-            pane_id: "pane-feature",
-            session_id: "default",
+            worktreeId: "w-feature",
+            paneId: "pane-feature",
+            sessionId: "default",
             type: "terminal",
-            created_at: 0,
+            createdAt: 0,
             preview: false,
           },
         ]),

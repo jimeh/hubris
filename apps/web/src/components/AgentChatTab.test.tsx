@@ -115,12 +115,12 @@ function makeTab(): AgentChatTab {
     type: "agent_chat",
     label: "Codex Chat",
     position: 1,
-    worktree_id: "worktree-1",
-    pane_id: "pane-1",
-    session_id: "default",
-    created_at: 10,
+    worktreeId: "worktree-1",
+    paneId: "pane-1",
+    sessionId: "default",
+    createdAt: 10,
     preview: false,
-    conversation_id: "chat-1",
+    conversationId: "chat-1",
   };
 }
 

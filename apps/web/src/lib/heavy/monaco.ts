@@ -193,16 +193,16 @@ export function scheduleDisposeTabModels(tab: Tab): void {
   const action =
     tab.type === "file"
       ? () => {
-          disposeModel(getFileModelPath(tab.worktree_id, tab));
+          disposeModel(getFileModelPath(tab.worktreeId, tab));
         }
       : () => {
           const modelPaths = getGitDiffModelPaths(
-            tab.worktree_id,
+            tab.worktreeId,
             tab.id,
             tab.path,
             tab.scope,
-            tab.original_path,
-            tab.commit_id,
+            tab.originalPath,
+            tab.commitId,
           );
           disposeModel(modelPaths.original);
           disposeModel(modelPaths.modified);

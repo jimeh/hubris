@@ -4,11 +4,11 @@ import { buildWorktreeGitStatusTree } from "./worktreeGitStatusTree";
 describe("buildWorktreeGitStatusTree", () => {
   it("groups nested directories and keeps a stable sorted order", () => {
     const tree = buildWorktreeGitStatusTree([
-      { path: "zeta.txt", change_type: "modified" },
-      { path: "src/z-last.ts", change_type: "modified" },
-      { path: "src/a-first.ts", change_type: "added" },
-      { path: "src/nested/deep.ts", change_type: "deleted" },
-      { path: "docs/guide.md", change_type: "untracked" },
+      { path: "zeta.txt", changeType: "modified" },
+      { path: "src/z-last.ts", changeType: "modified" },
+      { path: "src/a-first.ts", changeType: "added" },
+      { path: "src/nested/deep.ts", changeType: "deleted" },
+      { path: "docs/guide.md", changeType: "untracked" },
     ]);
 
     expect(tree.map((node) => node.path)).toEqual(["docs", "src", "zeta.txt"]);
@@ -26,8 +26,8 @@ describe("buildWorktreeGitStatusTree", () => {
 
   it("collapses single-child directory chains into one display node", () => {
     const tree = buildWorktreeGitStatusTree([
-      { path: "src/nested/deeper/deep.ts", change_type: "modified" },
-      { path: "src/peer.ts", change_type: "added" },
+      { path: "src/nested/deeper/deep.ts", changeType: "modified" },
+      { path: "src/peer.ts", changeType: "added" },
     ]);
 
     expect(tree).toMatchObject([
@@ -48,8 +48,8 @@ describe("buildWorktreeGitStatusTree", () => {
 
   it("does not collapse directories with mixed files and subdirectories", () => {
     const tree = buildWorktreeGitStatusTree([
-      { path: "src/nested/deeper/deep.ts", change_type: "modified" },
-      { path: "src/nested/local.ts", change_type: "deleted" },
+      { path: "src/nested/deeper/deep.ts", changeType: "modified" },
+      { path: "src/nested/local.ts", changeType: "deleted" },
     ]);
 
     expect(tree).toMatchObject([

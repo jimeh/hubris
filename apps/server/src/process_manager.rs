@@ -1491,7 +1491,7 @@ mod tests {
         let mut stream = response.bytes_stream();
         let first_chunk = stream.next().await.unwrap().unwrap();
         let body = String::from_utf8_lossy(&first_chunk);
-        assert!(body.contains("\"managed_processes\""));
+        assert!(body.contains("\"managedProcesses\""));
 
         let handle = state.processes.register_process("other", "kind");
         handle.finish_running(ManagedProcessRuntime::External).await;

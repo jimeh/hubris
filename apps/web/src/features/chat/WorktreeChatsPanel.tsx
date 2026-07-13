@@ -74,7 +74,7 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
         .filter(
           (conversation) =>
             conversation.sessionId === "default" &&
-            conversation.projectId === worktree.project_id &&
+            conversation.projectId === worktree.projectId &&
             (scope === "project" ||
               conversation.branchName === worktree.branch ||
               (!conversation.branchName &&
@@ -86,7 +86,7 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
       scope,
       worktree.branch,
       worktree.id,
-      worktree.project_id,
+      worktree.projectId,
     ],
   );
   const activeConversations = conversations.filter(
@@ -114,7 +114,7 @@ export default function WorktreeChatsPanel({ worktree }: Props) {
       (tab) =>
         tab.id === activeTabId &&
         tab.type === "agent_chat" &&
-        tab.conversation_id === conversation.id,
+        tab.conversationId === conversation.id,
     );
   }
 

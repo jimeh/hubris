@@ -62,8 +62,8 @@ export default function ProjectRow({
     isDragging,
   } = useSortable({ id: project.id });
 
-  const localWorktree = worktrees.find((worktree) => worktree.is_local) ?? null;
-  const nonLocalWorktrees = worktrees.filter((worktree) => !worktree.is_local);
+  const localWorktree = worktrees.find((worktree) => worktree.isLocal) ?? null;
+  const nonLocalWorktrees = worktrees.filter((worktree) => !worktree.isLocal);
 
   const style = {
     transform: isDragging ? undefined : CSS.Translate.toString(transform),

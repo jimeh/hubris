@@ -34,19 +34,19 @@ describe("computeAggregateStats", () => {
     const changes: WorktreeGitFileChange[] = [
       {
         path: "a.ts",
-        change_type: "modified",
+        changeType: "modified",
         insertions: 10,
         deletions: 5,
       },
       {
         path: "b.ts",
-        change_type: "added",
+        changeType: "added",
         insertions: 20,
         deletions: 0,
       },
       {
         path: "c.ts",
-        change_type: "modified",
+        changeType: "modified",
         insertions: null,
         deletions: 3,
       },
@@ -59,10 +59,10 @@ describe("computeAggregateStats", () => {
 
   it("treats undefined stats as zero", () => {
     const changes: WorktreeGitFileChange[] = [
-      { path: "d.ts", change_type: "renamed" },
+      { path: "d.ts", changeType: "renamed" },
       {
         path: "e.ts",
-        change_type: "modified",
+        changeType: "modified",
         insertions: 7,
       },
     ];
@@ -76,13 +76,13 @@ describe("computeAggregateStats", () => {
     const changes: WorktreeGitFileChange[] = [
       {
         path: "f.ts",
-        change_type: "typechange",
+        changeType: "typechange",
         insertions: null,
         deletions: null,
       },
       {
         path: "g.bin",
-        change_type: "modified",
+        changeType: "modified",
         insertions: null,
         deletions: null,
       },

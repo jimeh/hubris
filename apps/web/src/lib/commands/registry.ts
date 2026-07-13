@@ -102,7 +102,7 @@ function projectIdForWorktreeId(worktreeId: string): string | null {
     .flat()
     .find((candidate) => candidate.id === worktreeId);
 
-  return worktree?.project_id ?? null;
+  return worktree?.projectId ?? null;
 }
 
 function byPosition<T extends { id: string; position?: number }>(
@@ -147,8 +147,7 @@ function selectProjectWorktree(
     ...(context.worktreesByProject[nextProject.id] ?? []),
   ].sort(byPosition);
   return (
-    (worktrees.find((worktree) => worktree.is_local) ?? worktrees[0])?.id ??
-    null
+    (worktrees.find((worktree) => worktree.isLocal) ?? worktrees[0])?.id ?? null
   );
 }
 
@@ -186,7 +185,7 @@ async function saveDirtyTab(tabId: string): Promise<boolean> {
   }
 
   if (tab.type === "file" || tab.type === "git_diff") {
-    const projectId = projectIdForWorktreeId(tab.worktree_id);
+    const projectId = projectIdForWorktreeId(tab.worktreeId);
     if (!projectId) {
       return false;
     }
@@ -194,9 +193,9 @@ async function saveDirtyTab(tabId: string): Promise<boolean> {
     if (tab.type === "file") {
       await useFileEditorStore
         .getState()
-        .save(projectId, tab.worktree_id, tab.id);
+        .save(projectId, tab.worktreeId, tab.id);
     } else {
-      await useGitDiffStore.getState().save(projectId, tab.worktree_id, tab.id);
+      await useGitDiffStore.getState().save(projectId, tab.worktreeId, tab.id);
     }
   }
 
@@ -281,7 +280,7 @@ export const commandRegistry = {
 
       await useTabStore
         .getState()
-        .splitPane(worktree.project_id, worktree.id, paneId, "down");
+        .splitPane(worktree.projectId, worktree.id, paneId, "down");
       return success();
     },
     group: "Panes",
@@ -314,7 +313,7 @@ export const commandRegistry = {
 
       await useTabStore
         .getState()
-        .splitPane(worktree.project_id, worktree.id, paneId, "right");
+        .splitPane(worktree.projectId, worktree.id, paneId, "right");
       return success();
     },
     group: "Panes",
@@ -676,7 +675,7 @@ export const commandRegistry = {
       const sameProject =
         !!conversation &&
         !!worktree &&
-        conversation.projectId === worktree.project_id;
+        conversation.projectId === worktree.projectId;
       const sameBranch =
         conversation?.branchName && worktree
           ? conversation.branchName === worktree.branch
@@ -724,7 +723,7 @@ export const commandRegistry = {
         effectiveWorktreeId ?? undefined,
       );
       const sameProject =
-        !!worktree && conversation.projectId === worktree.project_id;
+        !!worktree && conversation.projectId === worktree.projectId;
       const sameBranch =
         conversation.branchName && worktree
           ? conversation.branchName === worktree.branch
@@ -953,7 +952,7 @@ export const commandRegistry = {
       const worktree = findWorktreeById(context, worktreeId ?? undefined);
       const projectId = resolveProjectId(
         args?.projectId,
-        worktree?.project_id ?? context.selectedProject?.id ?? null,
+        worktree?.projectId ?? context.selectedProject?.id ?? null,
       );
       if (!projectId || !worktreeId) {
         return { reason: "No worktree selected", status: "unavailable" };
@@ -1013,7 +1012,7 @@ export const commandRegistry = {
       const worktree = findWorktreeById(context, worktreeId ?? undefined);
       const projectId = resolveProjectId(
         args?.projectId,
-        worktree?.project_id ?? context.selectedProject?.id ?? null,
+        worktree?.projectId ?? context.selectedProject?.id ?? null,
       );
       if (!projectId || !worktreeId) {
         return { reason: "No worktree selected", status: "unavailable" };
@@ -1134,7 +1133,7 @@ export const commandRegistry = {
       const worktree = findWorktreeById(context, worktreeId ?? undefined);
       const projectId = resolveProjectId(
         args?.projectId,
-        worktree?.project_id ?? context.selectedProject?.id ?? null,
+        worktree?.projectId ?? context.selectedProject?.id ?? null,
       );
       const uiMode = args?.uiMode;
       if (!projectId || !worktreeId || !uiMode) {
@@ -1143,7 +1142,7 @@ export const commandRegistry = {
 
       const nextUiMode =
         uiMode === "cycle"
-          ? worktree?.ui_mode === "hubris"
+          ? worktree?.uiMode === "hubris"
             ? "vscode"
             : "hubris"
           : uiMode;
@@ -1170,7 +1169,7 @@ export const commandRegistry = {
         return enabled();
       }
 
-      return worktree.ui_mode === args.uiMode
+      return worktree.uiMode === args.uiMode
         ? disabled("Worktree is already in that mode")
         : enabled();
     },

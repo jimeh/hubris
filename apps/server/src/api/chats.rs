@@ -16,6 +16,7 @@ use crate::state::AppState;
 use crate::util::default_session_id;
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct ListChatsParams {
     pub session_id: String,
@@ -26,6 +27,7 @@ pub struct ListChatsParams {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct ChatSessionParams {
     #[serde(default = "default_session_id")]
@@ -36,7 +38,7 @@ pub struct ChatSessionParams {
 #[serde(rename_all = "camelCase")]
 pub struct SendChatMessageRequest {
     pub text: String,
-    #[serde(default, rename = "worktree_id", alias = "worktreeId")]
+    #[serde(default)]
     pub worktree_id: Option<String>,
 }
 
@@ -97,10 +99,10 @@ async fn conversation_for_session(
 
 #[utoipa::path(
     get,
-    path = "/api/projects/{project_id}/worktrees/{worktree_id}/chats",
+    path = "/api/projects/{projectId}/worktrees/{worktreeId}/chats",
     params(
-        ("project_id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("projectId" = String, Path, description = "Project ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
         ListChatsParams,
     ),
     responses(
@@ -161,9 +163,9 @@ pub async fn list_chat_models(
 
 #[utoipa::path(
     get,
-    path = "/api/chats/{conversation_id}",
+    path = "/api/chats/{conversationId}",
     params(
-        ("conversation_id" = String, Path, description = "Conversation ID"),
+        ("conversationId" = String, Path, description = "Conversation ID"),
         ChatSessionParams,
     ),
     responses(
@@ -189,9 +191,9 @@ pub async fn get_chat(
 
 #[utoipa::path(
     post,
-    path = "/api/chats/{conversation_id}/archive",
+    path = "/api/chats/{conversationId}/archive",
     params(
-        ("conversation_id" = String, Path, description = "Conversation ID"),
+        ("conversationId" = String, Path, description = "Conversation ID"),
         ChatSessionParams,
     ),
     responses(
@@ -217,9 +219,9 @@ pub async fn archive_chat(
 
 #[utoipa::path(
     post,
-    path = "/api/chats/{conversation_id}/unarchive",
+    path = "/api/chats/{conversationId}/unarchive",
     params(
-        ("conversation_id" = String, Path, description = "Conversation ID"),
+        ("conversationId" = String, Path, description = "Conversation ID"),
         ChatSessionParams,
     ),
     responses(
@@ -244,9 +246,9 @@ pub async fn unarchive_chat(
 
 #[utoipa::path(
     delete,
-    path = "/api/chats/{conversation_id}",
+    path = "/api/chats/{conversationId}",
     params(
-        ("conversation_id" = String, Path, description = "Conversation ID"),
+        ("conversationId" = String, Path, description = "Conversation ID"),
         ChatSessionParams,
     ),
     responses(
@@ -277,10 +279,10 @@ pub async fn delete_chat(
 
 #[utoipa::path(
     get,
-    path = "/api/chats/{conversation_id}/activity/{item_id}",
+    path = "/api/chats/{conversationId}/activity/{itemId}",
     params(
-        ("conversation_id" = String, Path, description = "Conversation ID"),
-        ("item_id" = String, Path, description = "Activity item ID"),
+        ("conversationId" = String, Path, description = "Conversation ID"),
+        ("itemId" = String, Path, description = "Activity item ID"),
         ChatSessionParams,
     ),
     responses(
@@ -306,10 +308,10 @@ pub async fn get_chat_activity(
 
 #[utoipa::path(
     patch,
-    path = "/api/chats/{conversation_id}/settings",
+    path = "/api/chats/{conversationId}/settings",
     request_body = ChatConversationSettingsPatch,
     params(
-        ("conversation_id" = String, Path, description = "Conversation ID"),
+        ("conversationId" = String, Path, description = "Conversation ID"),
         ChatSessionParams,
     ),
     responses(
@@ -335,10 +337,10 @@ pub async fn patch_chat_settings(
 
 #[utoipa::path(
     post,
-    path = "/api/chats/{conversation_id}/messages",
+    path = "/api/chats/{conversationId}/messages",
     request_body = SendChatMessageRequest,
     params(
-        ("conversation_id" = String, Path, description = "Conversation ID"),
+        ("conversationId" = String, Path, description = "Conversation ID"),
         ChatSessionParams,
     ),
     responses(
@@ -417,9 +419,9 @@ async fn validate_conversation_worktree_branch(
 
 #[utoipa::path(
     post,
-    path = "/api/chats/{conversation_id}/interrupt",
+    path = "/api/chats/{conversationId}/interrupt",
     params(
-        ("conversation_id" = String, Path, description = "Conversation ID"),
+        ("conversationId" = String, Path, description = "Conversation ID"),
         ChatSessionParams,
     ),
     responses(
@@ -445,11 +447,11 @@ pub async fn interrupt_chat(
 
 #[utoipa::path(
     post,
-    path = "/api/chats/{conversation_id}/requests/{request_id}/resolve",
+    path = "/api/chats/{conversationId}/requests/{requestId}/resolve",
     request_body = ResolveChatPendingRequestRequest,
     params(
-        ("conversation_id" = String, Path, description = "Conversation ID"),
-        ("request_id" = String, Path, description = "Pending request ID"),
+        ("conversationId" = String, Path, description = "Conversation ID"),
+        ("requestId" = String, Path, description = "Pending request ID"),
         ChatSessionParams,
     ),
     responses(

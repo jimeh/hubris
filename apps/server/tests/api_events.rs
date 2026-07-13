@@ -125,7 +125,7 @@ async fn snapshot_incremental_event_and_reconnect_snapshot() {
     let client = reqwest::Client::new();
     let repo = init_git_repo();
     let mut events = client
-        .get(format!("{base}/api/events?session_id=default"))
+        .get(format!("{base}/api/events?sessionId=default"))
         .send()
         .await
         .unwrap();
@@ -155,7 +155,7 @@ async fn snapshot_incremental_event_and_reconnect_snapshot() {
     assert_eq!(project_added["data"]["id"], project_id);
 
     let mut reconnected = client
-        .get(format!("{base}/api/events?session_id=default"))
+        .get(format!("{base}/api/events?sessionId=default"))
         .send()
         .await
         .unwrap();

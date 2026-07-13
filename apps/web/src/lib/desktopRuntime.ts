@@ -11,11 +11,11 @@ export function apiBase(): string {
 export function eventsUrl(sessionId = "default"): string {
   const base = runtimeConfig()?.eventsUrl;
   if (!base) {
-    return `/api/events?session_id=${encodeURIComponent(sessionId)}`;
+    return `/api/events?sessionId=${encodeURIComponent(sessionId)}`;
   }
 
   const url = new URL(base);
-  url.searchParams.set("session_id", sessionId);
+  url.searchParams.set("sessionId", sessionId);
   return url.toString();
 }
 

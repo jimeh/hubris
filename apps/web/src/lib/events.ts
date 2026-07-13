@@ -12,7 +12,7 @@ export type EventHandler<T> = (data: T) => void;
 
 /**
  * SSE client for server state sync. Connects to
- * /api/events?session_id=..., dispatches typed events to
+ * /api/events?sessionId=..., dispatches typed events to
  * registered handlers. EventSource handles auto-
  * reconnection; server sends fresh snapshot on each
  * connect.

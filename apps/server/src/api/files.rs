@@ -33,6 +33,7 @@ const MAX_TEXT_FILE_BYTES: u64 = 1024 * 1024;
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct ListFilesParams {
     /// Directory to list. Defaults to home dir.
@@ -43,12 +44,14 @@ pub struct ListFilesParams {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct DirEntry {
     pub name: String,
     pub is_git_repo: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ListFilesResponse {
     /// Canonical absolute path of the listed directory.
     pub path: String,
@@ -66,6 +69,7 @@ pub enum WorktreeFileKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct WorktreeFileEntry {
     pub name: String,
     pub path: String,
@@ -74,6 +78,7 @@ pub struct WorktreeFileEntry {
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ListWorktreeFilesResponse {
     pub generation: u32,
     /// Relative path from the worktree root.
@@ -82,6 +87,7 @@ pub struct ListWorktreeFilesResponse {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct ListWorktreeFilesParams {
     /// Relative path from the worktree root. Empty means root.
@@ -90,6 +96,7 @@ pub struct ListWorktreeFilesParams {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct RenameWorktreeFileRequest {
     /// Relative path from the worktree root.
     pub path: String,
@@ -98,12 +105,14 @@ pub struct RenameWorktreeFileRequest {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct RenameWorktreeFileResponse {
     /// Updated relative path from the worktree root.
     pub path: String,
 }
 
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct WorktreeFileContentParams {
     /// Relative path from the worktree root.
@@ -111,6 +120,7 @@ pub struct WorktreeFileContentParams {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct WorktreeFileContentResponse {
     pub path: String,
     pub content: String,
@@ -122,6 +132,7 @@ pub struct WorktreeFileContentResponse {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct WriteWorktreeFileContentRequest {
     pub path: String,
     pub content: String,
@@ -129,12 +140,14 @@ pub struct WriteWorktreeFileContentRequest {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct WriteWorktreeFileContentResponse {
     pub path: String,
     pub version_token: String,
 }
 
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
+#[serde(rename_all = "camelCase")]
 #[into_params(parameter_in = Query)]
 pub struct WorktreeGitDiffParams {
     /// Relative path from the worktree root.
@@ -148,6 +161,7 @@ pub struct WorktreeGitDiffParams {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct WorktreeGitDiffResponse {
     pub path: String,
     pub scope: GitDiffScope,
@@ -273,10 +287,10 @@ pub async fn list_files(
 
 #[utoipa::path(
     get,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/files",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/files",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
         ListWorktreeFilesParams,
     ),
     responses(
@@ -308,10 +322,10 @@ pub async fn list_project_worktree_files(
 
 #[utoipa::path(
     get,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/files/content",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/files/content",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
         WorktreeFileContentParams,
     ),
     responses(
@@ -350,10 +364,10 @@ pub async fn get_project_worktree_file_content(
 
 #[utoipa::path(
     put,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/files/content",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/files/content",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
     ),
     request_body = WriteWorktreeFileContentRequest,
     responses(
@@ -442,10 +456,10 @@ pub async fn put_project_worktree_file_content(
 
 #[utoipa::path(
     get,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/git/diff",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/git/diff",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
         WorktreeGitDiffParams,
     ),
     responses(
@@ -588,10 +602,10 @@ pub async fn get_project_worktree_git_diff(
 
 #[utoipa::path(
     post,
-    path = "/api/projects/{id}/worktrees/{worktree_id}/files/rename",
+    path = "/api/projects/{id}/worktrees/{worktreeId}/files/rename",
     params(
         ("id" = String, Path, description = "Project ID"),
-        ("worktree_id" = String, Path, description = "Worktree ID"),
+        ("worktreeId" = String, Path, description = "Worktree ID"),
     ),
     request_body = RenameWorktreeFileRequest,
     responses(

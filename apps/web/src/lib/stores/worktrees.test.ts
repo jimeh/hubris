@@ -57,18 +57,18 @@ vi.mock("@/lib/events", async () => {
 });
 
 function makeWorktree(
-  overrides: Partial<Worktree> & { id: string; project_id: string },
+  overrides: Partial<Worktree> & { id: string; projectId: string },
 ): Worktree {
   return {
     id: overrides.id,
-    project_id: overrides.project_id,
+    projectId: overrides.projectId,
     name: overrides.name ?? "worktree",
     path: overrides.path ?? "/tmp/worktree",
     branch: overrides.branch ?? "main",
-    source_ref: overrides.source_ref ?? null,
-    ui_mode: overrides.ui_mode ?? "hubris",
-    is_local: overrides.is_local ?? false,
-    missing_on_disk: overrides.missing_on_disk ?? false,
+    sourceRef: overrides.sourceRef ?? null,
+    uiMode: overrides.uiMode ?? "hubris",
+    isLocal: overrides.isLocal ?? false,
+    missingOnDisk: overrides.missingOnDisk ?? false,
     position: overrides.position ?? 1,
   };
 }
@@ -90,34 +90,34 @@ describe("Worktree store", () => {
     mockEvents = new MockEventClient();
   });
 
-  it("preserves missing_on_disk from snapshot payload", async () => {
+  it("preserves missingOnDisk from snapshot payload", async () => {
     const store = await getStore();
     mockEvents.emit("snapshot", {
       worktrees: {
         p1: [
           makeWorktree({
             id: "local",
-            project_id: "p1",
+            projectId: "p1",
             name: "local",
-            is_local: true,
+            isLocal: true,
             branch: "local",
             position: 1,
           }),
           makeWorktree({
             id: "missing",
-            project_id: "p1",
+            projectId: "p1",
             name: "feature-a",
-            missing_on_disk: true,
+            missingOnDisk: true,
             position: 2,
           }),
         ],
       },
-      project_errors: {},
+      projectErrors: {},
     });
 
     const list = store.useWorktreeStore.getState().worktreesByProject.p1 ?? [];
     expect(
-      list.find((worktree) => worktree.id === "missing")?.missing_on_disk,
+      list.find((worktree) => worktree.id === "missing")?.missingOnDisk,
     ).toBe(true);
   });
 
@@ -128,42 +128,42 @@ describe("Worktree store", () => {
         p1: [
           makeWorktree({
             id: "local",
-            project_id: "p1",
+            projectId: "p1",
             name: "local",
-            is_local: true,
+            isLocal: true,
             branch: "local",
             position: 1,
           }),
         ],
       },
-      project_errors: {},
+      projectErrors: {},
     });
 
     mockEvents.emit("project_worktrees_updated", {
-      project_id: "p1",
+      projectId: "p1",
       worktrees: [
         makeWorktree({
           id: "feature-b",
-          project_id: "p1",
+          projectId: "p1",
           name: "feature-b",
           position: 3,
         }),
         makeWorktree({
           id: "local",
-          project_id: "p1",
+          projectId: "p1",
           name: "local",
-          is_local: true,
+          isLocal: true,
           branch: "local",
           position: 1,
         }),
         makeWorktree({
           id: "feature-a",
-          project_id: "p1",
+          projectId: "p1",
           name: "feature-a",
           position: 2,
         }),
       ],
-      git_error: null,
+      gitError: null,
     });
 
     expect(
@@ -180,30 +180,30 @@ describe("Worktree store", () => {
         p1: [
           makeWorktree({
             id: "local",
-            project_id: "p1",
+            projectId: "p1",
             name: "local",
-            is_local: true,
+            isLocal: true,
             branch: "local",
             position: 1,
           }),
         ],
       },
-      project_errors: {},
+      projectErrors: {},
     });
 
     mockEvents.emit("project_worktrees_updated", {
-      project_id: "p1",
+      projectId: "p1",
       worktrees: [
         makeWorktree({
           id: "local",
-          project_id: "p1",
+          projectId: "p1",
           name: "local",
-          is_local: true,
+          isLocal: true,
           branch: "local",
           position: 1,
         }),
       ],
-      git_error: "repo unavailable",
+      gitError: "repo unavailable",
     });
 
     expect(store.useWorktreeStore.getState().projectErrors).toEqual({
@@ -211,18 +211,18 @@ describe("Worktree store", () => {
     });
 
     mockEvents.emit("project_worktrees_updated", {
-      project_id: "p1",
+      projectId: "p1",
       worktrees: [
         makeWorktree({
           id: "local",
-          project_id: "p1",
+          projectId: "p1",
           name: "local",
-          is_local: true,
+          isLocal: true,
           branch: "local",
           position: 1,
         }),
       ],
-      git_error: null,
+      gitError: null,
     });
 
     expect(store.useWorktreeStore.getState().projectErrors).toEqual({});
@@ -235,33 +235,33 @@ describe("Worktree store", () => {
         p1: [
           makeWorktree({
             id: "local",
-            project_id: "p1",
+            projectId: "p1",
             name: "local",
-            is_local: true,
+            isLocal: true,
             branch: "local",
             position: 1,
           }),
           makeWorktree({
             id: "a",
-            project_id: "p1",
+            projectId: "p1",
             name: "feature-a",
             position: 2,
           }),
           makeWorktree({
             id: "b",
-            project_id: "p1",
+            projectId: "p1",
             name: "feature-b",
             position: 3,
           }),
           makeWorktree({
             id: "c",
-            project_id: "p1",
+            projectId: "p1",
             name: "feature-c",
             position: 4,
           }),
         ],
       },
-      project_errors: {},
+      projectErrors: {},
     });
 
     await store.useWorktreeStore.getState().reorder("p1", ["c", "a"]);
@@ -280,26 +280,26 @@ describe("Worktree store", () => {
         p1: [
           makeWorktree({
             id: "local",
-            project_id: "p1",
+            projectId: "p1",
             name: "local",
-            is_local: true,
+            isLocal: true,
             position: 1,
           }),
           makeWorktree({
             id: "feature",
-            project_id: "p1",
+            projectId: "p1",
             name: "feature",
             position: 2,
           }),
           makeWorktree({
             id: "release",
-            project_id: "p1",
+            projectId: "p1",
             name: "release",
             position: 3,
           }),
         ],
       },
-      project_errors: {},
+      projectErrors: {},
     });
 
     store.useWorktreeStore.getState().select("feature");
@@ -333,26 +333,26 @@ describe("Worktree store", () => {
         p1: [
           makeWorktree({
             id: "local",
-            project_id: "p1",
+            projectId: "p1",
             name: "local",
-            is_local: true,
+            isLocal: true,
             position: 1,
           }),
           makeWorktree({
             id: "feature",
-            project_id: "p1",
+            projectId: "p1",
             name: "feature",
             position: 2,
           }),
         ],
       },
-      project_errors: {},
+      projectErrors: {},
     });
     store.useWorktreeStore.getState().select("feature");
 
     mockEvents.emit("worktree_deleted", {
-      project_id: "p1",
-      worktree_id: "local",
+      projectId: "p1",
+      worktreeId: "local",
     });
 
     expect(store.useWorktreeStore.getState()).toMatchObject({
@@ -371,26 +371,26 @@ describe("Worktree store", () => {
         p1: [
           makeWorktree({
             id: "local",
-            project_id: "p1",
+            projectId: "p1",
             name: "local",
-            is_local: true,
+            isLocal: true,
             position: 1,
           }),
           makeWorktree({
             id: "feature",
-            project_id: "p1",
+            projectId: "p1",
             name: "feature",
             position: 2,
           }),
           makeWorktree({
             id: "release",
-            project_id: "p1",
+            projectId: "p1",
             name: "release",
             position: 3,
           }),
         ],
       },
-      project_errors: {},
+      projectErrors: {},
     });
     store.useWorktreeStore.getState().select("feature");
     store.useWorktreeStore.getState().select("release");
@@ -426,8 +426,8 @@ describe("Worktree store", () => {
     vi.mocked(updateProjectWorktree).mockResolvedValue(
       makeWorktree({
         id: "w1",
-        project_id: "p1",
-        ui_mode: "vscode",
+        projectId: "p1",
+        uiMode: "vscode",
       }),
     );
     const store = await getStore();
@@ -436,20 +436,20 @@ describe("Worktree store", () => {
         p1: [
           makeWorktree({
             id: "w1",
-            project_id: "p1",
+            projectId: "p1",
           }),
         ],
       },
-      project_errors: {},
+      projectErrors: {},
     });
 
     await store.useWorktreeStore.getState().updateUiMode("p1", "w1", "vscode");
 
     expect(vi.mocked(updateProjectWorktree)).toHaveBeenCalledWith("p1", "w1", {
-      ui_mode: "vscode",
+      uiMode: "vscode",
     });
     expect(
-      store.useWorktreeStore.getState().worktreesByProject.p1?.[0]?.ui_mode,
+      store.useWorktreeStore.getState().worktreesByProject.p1?.[0]?.uiMode,
     ).toBe("vscode");
   });
 });

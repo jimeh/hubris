@@ -36,16 +36,16 @@ type RefItem = { ref: string; kind: "local" | "remote" };
 function uniqueRefs(startPoints: WorktreeStartPoint[]): RefItem[] {
   const seen = new Map<string, RefItem>();
   for (const sp of startPoints) {
-    if (sp.local_ref && !seen.has(sp.local_ref)) {
-      seen.set(sp.local_ref, { ref: sp.local_ref, kind: "local" });
+    if (sp.localRef && !seen.has(sp.localRef)) {
+      seen.set(sp.localRef, { ref: sp.localRef, kind: "local" });
     }
-    for (const remote of sp.remote_refs) {
+    for (const remote of sp.remoteRefs) {
       if (!seen.has(remote)) {
         seen.set(remote, { ref: remote, kind: "remote" });
       }
     }
     // Fallback for start points with neither local nor remote refs.
-    if (!sp.local_ref && sp.remote_refs.length === 0) {
+    if (!sp.localRef && sp.remoteRefs.length === 0) {
       if (!seen.has(sp.value)) {
         seen.set(sp.value, { ref: sp.value, kind: "local" });
       }
@@ -76,7 +76,7 @@ function SourceRefPicker({
       try {
         const response = await listProjectWorktreeStartPoints(projectId);
         if (cancelled) return;
-        setStartPoints(response.start_points);
+        setStartPoints(response.startPoints);
       } catch {
         if (cancelled) return;
         setStartPoints([]);

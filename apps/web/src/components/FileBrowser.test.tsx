@@ -13,13 +13,13 @@ describe("FileBrowser", () => {
     mockListFiles.mockReset();
     mockListFiles.mockResolvedValue({
       path: "/tmp",
-      home_dir: "/Users/test",
+      homeDir: "/Users/test",
       entries: [
         {
           name: "repo",
           path: "/tmp/repo",
           is_dir: true,
-          is_git_repo: true,
+          isGitRepo: true,
         },
       ],
     });

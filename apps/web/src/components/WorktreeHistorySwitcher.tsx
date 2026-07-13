@@ -54,9 +54,7 @@ export default function WorktreeHistorySwitcher() {
       itemIds
         .map((worktreeId) => {
           const worktree = worktreeById.get(worktreeId);
-          const project = worktree
-            ? projectById.get(worktree.project_id)
-            : null;
+          const project = worktree ? projectById.get(worktree.projectId) : null;
           return worktree && project ? { project, worktree } : null;
         })
         .filter(

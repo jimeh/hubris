@@ -1198,8 +1198,8 @@ export function initializeSettingsStore(): void {
       applyServerState(
         {
           settings: data.settings,
-          generation: data.settings_generation,
-          status: data.settings_status,
+          generation: data.settingsGeneration,
+          status: data.settingsStatus,
         },
         "canonical",
       );

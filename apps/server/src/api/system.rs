@@ -5,6 +5,7 @@ use utoipa::ToSchema;
 
 /// Static system information that does not change at runtime.
 #[derive(Debug, Clone, Serialize, TS, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemInfo {
     /// The current user's home directory, if available.
     #[serde(skip_serializing_if = "Option::is_none")]

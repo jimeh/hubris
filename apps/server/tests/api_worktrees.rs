@@ -249,7 +249,7 @@ async fn post_worktree_git_action_with_original_path(
 ) -> StatusCode {
     let mut payload = serde_json::json!({ "path": path });
     if let Some(original_path) = original_path {
-        payload["original_path"] = Value::String(original_path.to_string());
+        payload["originalPath"] = Value::String(original_path.to_string());
     }
 
     client
@@ -275,8 +275,8 @@ async fn test_list_worktrees_contains_only_local_by_default() {
     let worktrees = body["worktrees"].as_array().unwrap();
     assert_eq!(worktrees.len(), 1);
     assert_eq!(worktrees[0]["name"], "local");
-    assert_eq!(worktrees[0]["is_local"], true);
-    assert_eq!(worktrees[0]["missing_on_disk"], false);
+    assert_eq!(worktrees[0]["isLocal"], true);
+    assert_eq!(worktrees[0]["missingOnDisk"], false);
 }
 
 #[tokio::test]
@@ -303,7 +303,7 @@ async fn test_list_worktrees_ignores_non_hubris_external_worktrees() {
     let body = list_worktrees(&client, &base, &project_id).await;
     let worktrees = body["worktrees"].as_array().unwrap();
     assert_eq!(worktrees.len(), 1);
-    assert_eq!(worktrees[0]["is_local"], true);
+    assert_eq!(worktrees[0]["isLocal"], true);
 }
 
 #[tokio::test]
@@ -320,8 +320,8 @@ async fn test_list_worktrees_marks_missing_managed_worktree() {
     let body = list_worktrees(&client, &base, &project_id).await;
     let worktrees = body["worktrees"].as_array().unwrap();
     assert_eq!(worktrees.len(), 2);
-    let managed = worktrees.iter().find(|wt| wt["is_local"] == false).unwrap();
-    assert_eq!(managed["missing_on_disk"], true);
+    let managed = worktrees.iter().find(|wt| wt["isLocal"] == false).unwrap();
+    assert_eq!(managed["missingOnDisk"], true);
 }
 
 #[tokio::test]
@@ -349,7 +349,7 @@ async fn test_delete_missing_managed_worktree_removes_metadata() {
     let body = list_worktrees(&client, &base, &project_id).await;
     let worktrees = body["worktrees"].as_array().unwrap();
     assert_eq!(worktrees.len(), 1);
-    assert_eq!(worktrees[0]["is_local"], true);
+    assert_eq!(worktrees[0]["isLocal"], true);
 }
 
 #[tokio::test]
@@ -379,7 +379,7 @@ async fn test_delete_existing_managed_worktree_removes_from_git_and_api() {
     let body = list_worktrees(&client, &base, &project_id).await;
     let worktrees = body["worktrees"].as_array().unwrap();
     assert_eq!(worktrees.len(), 1);
-    assert_eq!(worktrees[0]["is_local"], true);
+    assert_eq!(worktrees[0]["isLocal"], true);
 }
 
 #[tokio::test]
@@ -414,17 +414,17 @@ async fn test_list_start_points_returns_local_and_remote() {
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.unwrap();
 
-    assert_eq!(body["default_start_point"], "main");
-    assert!(body["git_error"].is_null());
+    assert_eq!(body["defaultStartPoint"], "main");
+    assert!(body["gitError"].is_null());
 
-    let start_points = body["start_points"].as_array().unwrap();
+    let start_points = body["startPoints"].as_array().unwrap();
     assert_eq!(start_points.len(), 1);
     let grouped = &start_points[0];
     assert_eq!(grouped["value"], "main");
-    assert_eq!(grouped["local_ref"], "main");
+    assert_eq!(grouped["localRef"], "main");
     assert!(grouped["sha"].as_str().is_some_and(|sha| !sha.is_empty()));
 
-    let remote_refs = grouped["remote_refs"].as_array().unwrap();
+    let remote_refs = grouped["remoteRefs"].as_array().unwrap();
     assert_eq!(remote_refs.len(), 2);
     assert_eq!(remote_refs[0], "origin/main");
     assert_eq!(remote_refs[1], "upstream/main");
@@ -469,11 +469,11 @@ async fn test_list_start_points_preserves_lossy_non_utf8_ref_names() {
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.unwrap();
 
-    assert_eq!(body["default_start_point"], "weird-\u{fffd}-branch");
-    let start_points = body["start_points"].as_array().unwrap();
+    assert_eq!(body["defaultStartPoint"], "weird-\u{fffd}-branch");
+    let start_points = body["startPoints"].as_array().unwrap();
     assert!(start_points.iter().any(|start_point| {
         start_point["value"] == "weird-\u{fffd}-branch"
-            && start_point["local_ref"] == "weird-\u{fffd}-branch"
+            && start_point["localRef"] == "weird-\u{fffd}-branch"
     }));
 }
 
@@ -507,7 +507,7 @@ async fn test_list_start_points_sorted_by_recent_commit() {
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.unwrap();
 
-    let start_points = body["start_points"].as_array().unwrap();
+    let start_points = body["startPoints"].as_array().unwrap();
     assert_eq!(start_points.len(), 2);
     assert_eq!(start_points[0]["value"], "main");
     assert_eq!(start_points[1]["value"], "stale");
@@ -525,7 +525,7 @@ async fn test_create_worktree_with_start_point_succeeds() {
         .post(format!("{}/api/projects/{}/worktrees", base, project_id))
         .json(&serde_json::json!({
             "branch": "feature-from-release",
-            "start_point": "release"
+            "startPoint": "release"
         }))
         .send()
         .await
@@ -562,13 +562,13 @@ async fn test_create_worktree_persists_source_ref() {
         &project_id,
         serde_json::json!({
             "branch": "feature-source-ref",
-            "start_point": "main",
-            "source_ref": "origin/main"
+            "startPoint": "main",
+            "sourceRef": "origin/main"
         }),
     )
     .await;
 
-    assert_eq!(body["source_ref"], "origin/main");
+    assert_eq!(body["sourceRef"], "origin/main");
 
     let listed = list_worktrees(&client, &base, &project_id).await;
     let worktrees = listed["worktrees"].as_array().unwrap();
@@ -576,7 +576,7 @@ async fn test_create_worktree_persists_source_ref() {
         .iter()
         .find(|worktree| worktree["branch"] == "feature-source-ref")
         .unwrap();
-    assert_eq!(created["source_ref"], "origin/main");
+    assert_eq!(created["sourceRef"], "origin/main");
 }
 
 #[tokio::test]
@@ -590,7 +590,7 @@ async fn test_create_worktree_with_invalid_start_point_conflicts() {
         .post(format!("{}/api/projects/{}/worktrees", base, project_id))
         .json(&serde_json::json!({
             "branch": "feature-invalid-start",
-            "start_point": "does/not/exist"
+            "startPoint": "does/not/exist"
         }))
         .send()
         .await
@@ -632,7 +632,7 @@ async fn test_list_worktrees_reads_legacy_meta_without_source_ref() {
         .find(|worktree| worktree["id"] == "legacy-id");
 
     assert!(legacy.is_some());
-    assert!(legacy.unwrap()["source_ref"].is_null());
+    assert!(legacy.unwrap()["sourceRef"].is_null());
 }
 
 #[tokio::test]
@@ -648,8 +648,8 @@ async fn test_worktree_git_status_reports_staged_unstaged_and_ahead() {
         &project_id,
         serde_json::json!({
             "branch": "feature-status",
-            "start_point": "main",
-            "source_ref": "main"
+            "startPoint": "main",
+            "sourceRef": "main"
         }),
     )
     .await;
@@ -690,16 +690,16 @@ async fn test_worktree_git_status_reports_staged_unstaged_and_ahead() {
     let expected_short_id =
         run_git_output(Path::new(worktree_path), &["rev-parse", "--short", "HEAD"]);
 
-    assert_eq!(body["source_ref"], "main");
-    assert_eq!(body["ahead_count"], 1);
-    assert_eq!(body["comparison_available"], true);
-    assert!(body["comparison_error"].is_null());
-    assert_eq!(body["ahead_commits"][0]["summary"], "feat: ahead");
-    assert_eq!(body["ahead_commits"][0]["short_id"], expected_short_id);
-    assert_eq!(body["staged_files"][0]["path"], "staged.txt");
-    assert_eq!(body["staged_files"][0]["change_type"], "added");
-    assert_eq!(body["unstaged_files"][0]["path"], "README.md");
-    assert_eq!(body["unstaged_files"][0]["change_type"], "modified");
+    assert_eq!(body["sourceRef"], "main");
+    assert_eq!(body["aheadCount"], 1);
+    assert_eq!(body["comparisonAvailable"], true);
+    assert!(body["comparisonError"].is_null());
+    assert_eq!(body["aheadCommits"][0]["summary"], "feat: ahead");
+    assert_eq!(body["aheadCommits"][0]["shortId"], expected_short_id);
+    assert_eq!(body["stagedFiles"][0]["path"], "staged.txt");
+    assert_eq!(body["stagedFiles"][0]["changeType"], "added");
+    assert_eq!(body["unstagedFiles"][0]["path"], "README.md");
+    assert_eq!(body["unstagedFiles"][0]["changeType"], "modified");
 }
 
 #[tokio::test]
@@ -751,8 +751,8 @@ async fn test_worktree_git_status_reports_staged_files_in_mixed_nested_tree() {
     std::fs::write(repo.path().join("README.md"), "hello\nunstaged\n").unwrap();
 
     let status = get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    let staged_files = status["staged_files"].as_array().unwrap();
-    let unstaged_files = status["unstaged_files"].as_array().unwrap();
+    let staged_files = status["stagedFiles"].as_array().unwrap();
+    let unstaged_files = status["unstagedFiles"].as_array().unwrap();
 
     assert!(
         !staged_files.is_empty(),
@@ -764,7 +764,7 @@ async fn test_worktree_git_status_reports_staged_files_in_mixed_nested_tree() {
     );
     assert!(staged_files.iter().any(|file| {
         file["path"] == "tmp2/bar/baz/baz copy/baz/baz copy/baz.txt"
-            && file["change_type"] == "added"
+            && file["changeType"] == "added"
     }));
     assert!(
         unstaged_files
@@ -826,8 +826,8 @@ async fn test_worktree_git_status_reports_staged_files_with_tmp_ignore_prefix() 
     std::fs::write(repo.path().join("README.md"), "hello\nunstaged\n").unwrap();
 
     let status = get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    let staged_files = status["staged_files"].as_array().unwrap();
-    let unstaged_files = status["unstaged_files"].as_array().unwrap();
+    let staged_files = status["stagedFiles"].as_array().unwrap();
+    let unstaged_files = status["unstagedFiles"].as_array().unwrap();
 
     assert!(
         !staged_files.is_empty(),
@@ -839,7 +839,7 @@ async fn test_worktree_git_status_reports_staged_files_with_tmp_ignore_prefix() 
     );
     assert!(staged_files.iter().any(|file| {
         file["path"] == "tmp2/bar/baz/baz copy/baz/baz copy/baz.txt"
-            && file["change_type"] == "added"
+            && file["changeType"] == "added"
     }));
 }
 
@@ -888,7 +888,7 @@ async fn test_worktree_commit_details_returns_metadata_and_changed_files() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|worktree| worktree["is_local"] == true)
+        .find(|worktree| worktree["isLocal"] == true)
         .unwrap();
 
     let res = get_worktree_commit_details(
@@ -904,7 +904,7 @@ async fn test_worktree_commit_details_returns_metadata_and_changed_files() {
     let body: Value = res.json().await.unwrap();
     let expected_short_id = run_git_output(repo.path(), &["rev-parse", "--short", &commit_id]);
     assert_eq!(body["id"], commit_id);
-    assert_eq!(body["short_id"], expected_short_id);
+    assert_eq!(body["shortId"], expected_short_id);
     assert_eq!(body["summary"], "feat: details");
     assert!(body["message"].as_str().unwrap().contains("body line one"));
     assert_eq!(body["author"]["name"], "Author Example");
@@ -912,7 +912,7 @@ async fn test_worktree_commit_details_returns_metadata_and_changed_files() {
     assert_eq!(body["committer"]["name"], "Committer Example");
     assert_eq!(body["committer"]["email"], "committer@example.com");
     assert_eq!(body["files"][0]["path"], "details.txt");
-    assert_eq!(body["files"][0]["change_type"], "added");
+    assert_eq!(body["files"][0]["changeType"], "added");
 }
 
 #[tokio::test]
@@ -940,7 +940,7 @@ async fn test_worktree_commit_details_handles_root_commit_diff() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|worktree| worktree["is_local"] == true)
+        .find(|worktree| worktree["isLocal"] == true)
         .unwrap();
 
     let res = get_worktree_commit_details(
@@ -958,7 +958,7 @@ async fn test_worktree_commit_details_handles_root_commit_diff() {
     assert!(
         files
             .iter()
-            .any(|file| file["path"] == "README.md" && file["change_type"] == "added")
+            .any(|file| file["path"] == "README.md" && file["changeType"] == "added")
     );
 }
 
@@ -1001,7 +1001,7 @@ async fn test_worktree_commit_details_uses_first_parent_for_merge_commits() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|worktree| worktree["is_local"] == true)
+        .find(|worktree| worktree["isLocal"] == true)
         .unwrap();
 
     let res = get_worktree_commit_details(
@@ -1019,7 +1019,7 @@ async fn test_worktree_commit_details_uses_first_parent_for_merge_commits() {
     assert!(
         files
             .iter()
-            .any(|file| file["path"] == "feature.txt" && file["change_type"] == "added")
+            .any(|file| file["path"] == "feature.txt" && file["changeType"] == "added")
     );
     assert!(!files.iter().any(|file| file["path"] == "main.txt"));
 }
@@ -1036,7 +1036,7 @@ async fn test_worktree_commit_details_returns_404_for_unknown_commit() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|worktree| worktree["is_local"] == true)
+        .find(|worktree| worktree["isLocal"] == true)
         .unwrap();
 
     let res = get_worktree_commit_details(
@@ -1072,9 +1072,9 @@ async fn test_worktree_git_status_marks_missing_source_ref_as_unavailable() {
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.unwrap();
 
-    assert_eq!(body["comparison_available"], false);
-    assert!(body["comparison_error"].is_null());
-    assert!(body["ahead_commits"].as_array().unwrap().is_empty());
+    assert_eq!(body["comparisonAvailable"], false);
+    assert!(body["comparisonError"].is_null());
+    assert!(body["aheadCommits"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1090,7 +1090,7 @@ async fn test_worktree_git_status_returns_comparison_error_for_bad_source_ref() 
         &project_id,
         serde_json::json!({
             "branch": "feature-bad-source",
-            "source_ref": "does/not/exist"
+            "sourceRef": "does/not/exist"
         }),
     )
     .await;
@@ -1115,9 +1115,9 @@ async fn test_worktree_git_status_returns_comparison_error_for_bad_source_ref() 
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.unwrap();
 
-    assert_eq!(body["comparison_available"], true);
-    assert!(body["comparison_error"].is_string());
-    assert_eq!(body["unstaged_files"][0]["path"], "README.md");
+    assert_eq!(body["comparisonAvailable"], true);
+    assert!(body["comparisonError"].is_string());
+    assert_eq!(body["unstagedFiles"][0]["path"], "README.md");
 }
 
 #[tokio::test]
@@ -1141,8 +1141,8 @@ async fn test_worktree_git_status_reports_renamed_and_copied_files() {
         &project_id,
         serde_json::json!({
             "branch": "feature-rewrites",
-            "start_point": "main",
-            "source_ref": "main"
+            "startPoint": "main",
+            "sourceRef": "main"
         }),
     )
     .await;
@@ -1171,16 +1171,16 @@ async fn test_worktree_git_status_reports_renamed_and_copied_files() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.unwrap();
-    let staged_files = body["staged_files"].as_array().unwrap();
+    let staged_files = body["stagedFiles"].as_array().unwrap();
     assert!(staged_files.iter().any(|file| {
         file["path"] == "copied-target.txt"
-            && file["change_type"] == "copied"
-            && file["original_path"] == "copy-source.txt"
+            && file["changeType"] == "copied"
+            && file["originalPath"] == "copy-source.txt"
     }));
     assert!(staged_files.iter().any(|file| {
         file["path"] == "rename-target.txt"
-            && file["change_type"] == "renamed"
-            && file["original_path"] == "rename-source.txt"
+            && file["changeType"] == "renamed"
+            && file["originalPath"] == "rename-source.txt"
     }));
 }
 
@@ -1197,7 +1197,7 @@ async fn test_worktree_git_status_returns_500_for_missing_worktree_path() {
         &project_id,
         serde_json::json!({
             "branch": "feature-status-missing",
-            "source_ref": "main"
+            "sourceRef": "main"
         }),
     )
     .await;
@@ -1230,8 +1230,8 @@ async fn test_worktree_git_status_reports_conflicts() {
         &project_id,
         serde_json::json!({
             "branch": "feature-conflict",
-            "start_point": "main",
-            "source_ref": "main"
+            "startPoint": "main",
+            "sourceRef": "main"
         }),
     )
     .await;
@@ -1261,11 +1261,11 @@ async fn test_worktree_git_status_reports_conflicts() {
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.unwrap();
 
-    let unstaged_files = body["unstaged_files"].as_array().unwrap();
+    let unstaged_files = body["unstagedFiles"].as_array().unwrap();
     assert!(
         unstaged_files
             .iter()
-            .any(|file| { file["path"] == "README.md" && file["change_type"] == "conflict" })
+            .any(|file| { file["path"] == "README.md" && file["changeType"] == "conflict" })
     );
 }
 
@@ -1285,8 +1285,8 @@ async fn test_worktree_git_stage_and_unstage_actions_refresh_cached_git_status()
 
     let initial_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    assert_eq!(initial_status["unstaged_files"][0]["path"], "README.md");
-    assert_eq!(initial_status["staged_files"], serde_json::json!([]));
+    assert_eq!(initial_status["unstagedFiles"][0]["path"], "README.md");
+    assert_eq!(initial_status["stagedFiles"], serde_json::json!([]));
 
     let stage_status = post_worktree_git_action(
         &client,
@@ -1301,9 +1301,9 @@ async fn test_worktree_git_stage_and_unstage_actions_refresh_cached_git_status()
 
     let staged_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    assert_eq!(staged_status["unstaged_files"], serde_json::json!([]));
-    assert_eq!(staged_status["staged_files"][0]["path"], "README.md");
-    assert_eq!(staged_status["staged_files"][0]["change_type"], "modified");
+    assert_eq!(staged_status["unstagedFiles"], serde_json::json!([]));
+    assert_eq!(staged_status["stagedFiles"][0]["path"], "README.md");
+    assert_eq!(staged_status["stagedFiles"][0]["changeType"], "modified");
 
     let unstage_status = post_worktree_git_action(
         &client,
@@ -1318,10 +1318,10 @@ async fn test_worktree_git_stage_and_unstage_actions_refresh_cached_git_status()
 
     let unstaged_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    assert_eq!(unstaged_status["staged_files"], serde_json::json!([]));
-    assert_eq!(unstaged_status["unstaged_files"][0]["path"], "README.md");
+    assert_eq!(unstaged_status["stagedFiles"], serde_json::json!([]));
+    assert_eq!(unstaged_status["unstagedFiles"][0]["path"], "README.md");
     assert_eq!(
-        unstaged_status["unstaged_files"][0]["change_type"],
+        unstaged_status["unstagedFiles"][0]["changeType"],
         "modified"
     );
 }
@@ -1354,10 +1354,10 @@ async fn test_worktree_git_actions_treat_metachar_paths_literally() {
 
     let staged_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    let staged_files = staged_status["staged_files"].as_array().unwrap();
+    let staged_files = staged_status["stagedFiles"].as_array().unwrap();
     assert_eq!(staged_files.len(), 1);
     assert_eq!(staged_files[0]["path"], "foo[1].txt");
-    let unstaged_files = staged_status["unstaged_files"].as_array().unwrap();
+    let unstaged_files = staged_status["unstagedFiles"].as_array().unwrap();
     assert_eq!(unstaged_files.len(), 1);
     assert_eq!(unstaged_files[0]["path"], "foo1.txt");
 
@@ -1374,8 +1374,8 @@ async fn test_worktree_git_actions_treat_metachar_paths_literally() {
 
     let unstaged_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    assert_eq!(unstaged_status["staged_files"], serde_json::json!([]));
-    let unstaged_files = unstaged_status["unstaged_files"].as_array().unwrap();
+    assert_eq!(unstaged_status["stagedFiles"], serde_json::json!([]));
+    let unstaged_files = unstaged_status["unstagedFiles"].as_array().unwrap();
     assert!(
         unstaged_files
             .iter()
@@ -1399,8 +1399,8 @@ async fn test_worktree_git_actions_treat_metachar_paths_literally() {
 
     let final_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    assert_eq!(final_status["staged_files"], serde_json::json!([]));
-    let final_unstaged = final_status["unstaged_files"].as_array().unwrap();
+    assert_eq!(final_status["stagedFiles"], serde_json::json!([]));
+    let final_unstaged = final_status["unstagedFiles"].as_array().unwrap();
     assert_eq!(final_unstaged.len(), 1);
     assert_eq!(final_unstaged[0]["path"], "foo1.txt");
 }
@@ -1447,7 +1447,7 @@ async fn test_worktree_git_actions_accept_directory_paths() {
 
     let staged_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    let staged_files = staged_status["staged_files"].as_array().unwrap();
+    let staged_files = staged_status["stagedFiles"].as_array().unwrap();
     assert!(staged_files.iter().any(|file| file["path"] == "src/lib.rs"));
     assert!(
         staged_files
@@ -1468,7 +1468,7 @@ async fn test_worktree_git_actions_accept_directory_paths() {
 
     let unstaged_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    let unstaged_files = unstaged_status["unstaged_files"].as_array().unwrap();
+    let unstaged_files = unstaged_status["unstagedFiles"].as_array().unwrap();
     assert!(
         unstaged_files
             .iter()
@@ -1549,11 +1549,11 @@ async fn test_worktree_git_stage_and_unstage_actions_accept_original_path_for_re
 
     let staged_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    let staged_files = staged_status["staged_files"].as_array().unwrap();
+    let staged_files = staged_status["stagedFiles"].as_array().unwrap();
     assert!(staged_files.iter().any(|file| {
         file["path"] == "new/target.txt"
-            && file["change_type"] == "renamed"
-            && file["original_path"] == "old/source.txt"
+            && file["changeType"] == "renamed"
+            && file["originalPath"] == "old/source.txt"
     }));
 
     let unstage_status = post_worktree_git_action_with_original_path(
@@ -1570,11 +1570,11 @@ async fn test_worktree_git_stage_and_unstage_actions_accept_original_path_for_re
 
     let unstaged_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    let unstaged_files = unstaged_status["unstaged_files"].as_array().unwrap();
+    let unstaged_files = unstaged_status["unstagedFiles"].as_array().unwrap();
     assert!(unstaged_files.iter().any(|file| {
         file["path"] == "new/target.txt"
-            && file["change_type"] == "renamed"
-            && file["original_path"] == "old/source.txt"
+            && file["changeType"] == "renamed"
+            && file["originalPath"] == "old/source.txt"
     }));
 }
 
@@ -1641,11 +1641,11 @@ async fn test_worktree_git_stage_and_unstage_actions_accept_original_path_for_co
 
     let staged_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    let staged_files = staged_status["staged_files"].as_array().unwrap();
+    let staged_files = staged_status["stagedFiles"].as_array().unwrap();
     assert!(staged_files.iter().any(|file| {
         file["path"] == "new/copied.txt"
-            && file["change_type"] == "copied"
-            && file["original_path"] == "old/source.txt"
+            && file["changeType"] == "copied"
+            && file["originalPath"] == "old/source.txt"
     }));
 
     let unstage_status = post_worktree_git_action_with_original_path(
@@ -1662,11 +1662,11 @@ async fn test_worktree_git_stage_and_unstage_actions_accept_original_path_for_co
 
     let unstaged_status =
         get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    let unstaged_files = unstaged_status["unstaged_files"].as_array().unwrap();
+    let unstaged_files = unstaged_status["unstagedFiles"].as_array().unwrap();
     assert!(unstaged_files.iter().any(|file| {
         file["path"] == "new/copied.txt"
-            && file["change_type"] == "copied"
-            && file["original_path"] == "old/source.txt"
+            && file["changeType"] == "copied"
+            && file["originalPath"] == "old/source.txt"
     }));
 }
 
@@ -1711,8 +1711,8 @@ async fn test_worktree_git_discard_action_restores_tracked_and_removes_untracked
     assert!(!repo.path().join("docs/drafts").exists());
 
     let status = get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    assert_eq!(status["unstaged_files"], serde_json::json!([]));
-    assert_eq!(status["staged_files"], serde_json::json!([]));
+    assert_eq!(status["unstagedFiles"], serde_json::json!([]));
+    assert_eq!(status["stagedFiles"], serde_json::json!([]));
 }
 
 #[tokio::test]
@@ -1807,11 +1807,11 @@ async fn test_worktree_git_discard_action_preserves_staged_tracked_content() {
     );
 
     let status = get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    assert_eq!(status["unstaged_files"], serde_json::json!([]));
-    let staged_files = status["staged_files"].as_array().unwrap();
+    assert_eq!(status["unstagedFiles"], serde_json::json!([]));
+    let staged_files = status["stagedFiles"].as_array().unwrap();
     assert_eq!(staged_files.len(), 1);
     assert_eq!(staged_files[0]["path"], "README.md");
-    assert_eq!(staged_files[0]["change_type"], "modified");
+    assert_eq!(staged_files[0]["changeType"], "modified");
 }
 
 #[tokio::test]
@@ -1847,11 +1847,11 @@ async fn test_worktree_git_discard_action_preserves_staged_added_content() {
     );
 
     let status = get_worktree_git_status(&client, &base, &project_id, &local_worktree_id).await;
-    assert_eq!(status["unstaged_files"], serde_json::json!([]));
-    let staged_files = status["staged_files"].as_array().unwrap();
+    assert_eq!(status["unstagedFiles"], serde_json::json!([]));
+    let staged_files = status["stagedFiles"].as_array().unwrap();
     assert_eq!(staged_files.len(), 1);
     assert_eq!(staged_files[0]["path"], "added.txt");
-    assert_eq!(staged_files[0]["change_type"], "added");
+    assert_eq!(staged_files[0]["changeType"], "added");
 }
 
 #[tokio::test]
@@ -1964,6 +1964,6 @@ async fn test_list_start_points_returns_git_error_on_failure() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let body: Value = res.json().await.unwrap();
-    assert_eq!(body["start_points"], serde_json::json!([]));
-    assert!(body["git_error"].is_string());
+    assert_eq!(body["startPoints"], serde_json::json!([]));
+    assert!(body["gitError"].is_string());
 }

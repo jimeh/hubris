@@ -144,7 +144,7 @@ export default function SortableTabStrip({
                 paneFocused={paneFocused}
                 preview={tab.preview}
                 dirty={dirtyTabIdSet.has(tab.id)}
-                notification={tab.type === "terminal" && !!tab.has_notification}
+                notification={tab.type === "terminal" && !!tab.hasNotification}
                 locked={lockedTabIdSet.has(tab.id)}
                 dragging={dragging}
                 canRenameTerminal={tab.type === "terminal"}

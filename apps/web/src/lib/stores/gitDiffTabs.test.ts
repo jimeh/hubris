@@ -80,38 +80,38 @@ const diffTab = {
   id: "diff-1",
   label: "README.md",
   position: 1,
-  worktree_id: "w1",
-  pane_id: "pane-1",
-  session_id: "default",
+  worktreeId: "w1",
+  paneId: "pane-1",
+  sessionId: "default",
   type: "git_diff" as const,
-  created_at: 0,
+  createdAt: 0,
   preview: false,
   path: "README.md",
   scope: "unstaged" as const,
-  original_path: null,
-  commit_id: null,
+  originalPath: null,
+  commitId: null,
 };
 
 const commitDiffTab = {
   ...diffTab,
   id: "diff-commit-1",
   scope: "commit" as const,
-  commit_id: "abcdef123456",
+  commitId: "abcdef123456",
 };
 
 const editableDiffResponse = {
   path: "README.md",
   scope: "unstaged" as const,
-  original_path: null,
-  commit_id: null,
-  left_label: "Index",
-  right_label: "Working Tree",
-  left_content: "hello\n",
-  right_content: "hello world\n",
+  originalPath: null,
+  commitId: null,
+  leftLabel: "Index",
+  rightLabel: "Working Tree",
+  leftContent: "hello\n",
+  rightContent: "hello world\n",
   language: "markdown",
-  read_only: false,
-  modified_version_token: "v1",
-  unsupported_reason: null,
+  readOnly: false,
+  modifiedVersionToken: "v1",
+  unsupportedReason: null,
 };
 
 describe("gitDiffTabs store", () => {
@@ -127,7 +127,7 @@ describe("gitDiffTabs store", () => {
     const { useGitDiffStore } = getStore();
     mockSaveProjectWorktreeFileContent.mockImplementation(async () => {
       useGitDiffStore.getState().updateDraft("diff-1", "hello again\n");
-      return { version_token: "v2" };
+      return { versionToken: "v2" };
     });
 
     useGitDiffStore.setState({
@@ -246,16 +246,16 @@ describe("gitDiffTabs store", () => {
     });
 
     mockEvents.emit("worktree_files_updated", {
-      project_id: "p1",
-      worktree_id: "w1",
-      changed_paths: ["README.md"],
-      listing_paths: [],
+      projectId: "p1",
+      worktreeId: "w1",
+      changedPaths: ["README.md"],
+      listingPaths: [],
     });
 
     reloadRequest.resolve({
       ...editableDiffResponse,
-      right_content: "hello changed\n",
-      modified_version_token: "v2",
+      rightContent: "hello changed\n",
+      modifiedVersionToken: "v2",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -298,10 +298,10 @@ describe("gitDiffTabs store", () => {
     });
 
     mockEvents.emit("worktree_files_updated", {
-      project_id: "p1",
-      worktree_id: "w1",
-      changed_paths: ["README.md"],
-      listing_paths: [],
+      projectId: "p1",
+      worktreeId: "w1",
+      changedPaths: ["README.md"],
+      listingPaths: [],
     });
 
     expect(useGitDiffStore.getState().sessions["diff-1"]?.externalChange).toBe(
@@ -310,14 +310,14 @@ describe("gitDiffTabs store", () => {
     expect(mockGetProjectWorktreeGitDiff).not.toHaveBeenCalled();
   });
 
-  it("loads commit diffs with commit_id and keeps them read-only", async () => {
+  it("loads commit diffs with commitId and keeps them read-only", async () => {
     const { useGitDiffStore } = getStore();
     mockGetProjectWorktreeGitDiff.mockResolvedValue({
       ...editableDiffResponse,
       scope: "commit",
-      commit_id: "abcdef123456",
-      read_only: true,
-      modified_version_token: null,
+      commitId: "abcdef123456",
+      readOnly: true,
+      modifiedVersionToken: null,
     });
 
     await useGitDiffStore.getState().ensureLoaded("p1", "w1", commitDiffTab);
@@ -367,10 +367,10 @@ describe("gitDiffTabs store", () => {
     });
 
     mockEvents.emit("worktree_files_updated", {
-      project_id: "p1",
-      worktree_id: "w1",
-      changed_paths: ["README.md"],
-      listing_paths: [],
+      projectId: "p1",
+      worktreeId: "w1",
+      changedPaths: ["README.md"],
+      listingPaths: [],
     });
 
     expect(mockGetProjectWorktreeGitDiff).not.toHaveBeenCalled();

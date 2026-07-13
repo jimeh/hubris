@@ -7,13 +7,13 @@ describe("EventClient typing", () => {
     const client = new EventClient();
 
     client.on("tab_created", (payload) => {
-      expectTypeOf(payload.session_id).toEqualTypeOf<string>();
+      expectTypeOf(payload.sessionId).toEqualTypeOf<string>();
       expectTypeOf(payload.tab.id).toEqualTypeOf<string>();
       expectTypeOf(payload.tab.label).toEqualTypeOf<string>();
     });
 
     client.on("project_removed", (payload) => {
-      expectTypeOf(payload.project_id).toEqualTypeOf<string>();
+      expectTypeOf(payload.projectId).toEqualTypeOf<string>();
     });
 
     client.on("vscode_updated", (payload) => {

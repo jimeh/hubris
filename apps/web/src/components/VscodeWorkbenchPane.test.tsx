@@ -34,14 +34,14 @@ vi.mock("@/lib/desktopVscode", () => ({
 function makeWorktree(): Worktree {
   return {
     id: "w-feature",
-    project_id: "p1",
+    projectId: "p1",
     name: "feature-a",
     path: "/tmp/feature-a",
     branch: "feature-a",
-    source_ref: null,
-    ui_mode: "vscode",
-    is_local: false,
-    missing_on_disk: false,
+    sourceRef: null,
+    uiMode: "vscode",
+    isLocal: false,
+    missingOnDisk: false,
     position: 2,
   };
 }

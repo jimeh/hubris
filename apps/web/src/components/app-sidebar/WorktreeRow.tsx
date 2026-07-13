@@ -92,7 +92,7 @@ export default function WorktreeRow({
                 type="button"
               >
                 <span className="min-w-0 flex-1 truncate">{worktree.name}</span>
-                {worktree.missing_on_disk ? (
+                {worktree.missingOnDisk ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span

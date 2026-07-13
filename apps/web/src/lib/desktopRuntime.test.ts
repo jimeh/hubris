@@ -16,7 +16,7 @@ describe("desktopRuntime", () => {
 
   it("uses standalone defaults without desktop config", () => {
     expect(apiBase()).toBe("/api");
-    expect(eventsUrl()).toBe("/api/events?session_id=default");
+    expect(eventsUrl()).toBe("/api/events?sessionId=default");
     expect(terminalWsUrlBase()).toBe("");
     expect(vscodeBase("vscodeCli")).toBe("/code/vscode-cli/");
     expect(vscodeBase("codeServer")).toBe("/code/code-server/");
@@ -35,7 +35,7 @@ describe("desktopRuntime", () => {
 
     expect(apiBase()).toBe("https://desktop.internal.hubris.build/api");
     expect(eventsUrl("alt")).toBe(
-      "https://desktop.internal.hubris.build/api/events?session_id=alt",
+      "https://desktop.internal.hubris.build/api/events?sessionId=alt",
     );
     expect(terminalWsUrlBase()).toBe(
       "wss://desktop.internal.hubris.build/api/terminal/ws",

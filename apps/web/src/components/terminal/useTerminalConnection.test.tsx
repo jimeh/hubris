@@ -232,9 +232,9 @@ describe("useTerminalConnection", () => {
       ws.receive(
         JSON.stringify({
           type: "attached",
-          byte_offset: 12,
+          byteOffset: 12,
           snapshot: true,
-          data_lost: true,
+          dataLost: true,
           cols: 90,
           rows: 25,
         }),
@@ -406,9 +406,9 @@ describe("useTerminalConnection", () => {
       ws.receive(
         JSON.stringify({
           type: "attached",
-          byte_offset: 12,
+          byteOffset: 12,
           snapshot: true,
-          data_lost: false,
+          dataLost: false,
           cols: 90,
           rows: 25,
         }),
@@ -579,9 +579,9 @@ describe("useTerminalConnection", () => {
       firstSocket.receive(
         JSON.stringify({
           type: "attached",
-          byte_offset: 999,
+          byteOffset: 999,
           snapshot: true,
-          data_lost: true,
+          dataLost: true,
           cols: 77,
           rows: 21,
         }),
@@ -681,9 +681,9 @@ describe("useTerminalConnection", () => {
       ws.receive(
         JSON.stringify({
           type: "attached",
-          byte_offset: 12,
+          byteOffset: 12,
           snapshot: false,
-          data_lost: false,
+          dataLost: false,
           cols: 90,
           rows: 25,
         }),

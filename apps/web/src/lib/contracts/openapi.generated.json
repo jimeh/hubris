@@ -40,13 +40,13 @@
         }
       }
     },
-    "/api/chats/{conversation_id}": {
+    "/api/chats/{conversationId}": {
       "get": {
         "tags": ["crate::api::chats"],
         "operationId": "get_chat",
         "parameters": [
           {
-            "name": "conversation_id",
+            "name": "conversationId",
             "in": "path",
             "description": "Conversation ID",
             "required": true,
@@ -55,7 +55,7 @@
             }
           },
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -91,7 +91,7 @@
         "operationId": "delete_chat",
         "parameters": [
           {
-            "name": "conversation_id",
+            "name": "conversationId",
             "in": "path",
             "description": "Conversation ID",
             "required": true,
@@ -100,7 +100,7 @@
             }
           },
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -135,13 +135,13 @@
         }
       }
     },
-    "/api/chats/{conversation_id}/activity/{item_id}": {
+    "/api/chats/{conversationId}/activity/{itemId}": {
       "get": {
         "tags": ["crate::api::chats"],
         "operationId": "get_chat_activity",
         "parameters": [
           {
-            "name": "conversation_id",
+            "name": "conversationId",
             "in": "path",
             "description": "Conversation ID",
             "required": true,
@@ -150,7 +150,7 @@
             }
           },
           {
-            "name": "item_id",
+            "name": "itemId",
             "in": "path",
             "description": "Activity item ID",
             "required": true,
@@ -159,7 +159,7 @@
             }
           },
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -191,14 +191,14 @@
         }
       }
     },
-    "/api/chats/{conversation_id}/ag-ui": {
+    "/api/chats/{conversationId}/ag-ui": {
       "post": {
         "tags": ["crate::api::ag_ui"],
         "summary": "Runs a Codex chat turn through the AG-UI HTTP event protocol.",
         "operationId": "run_codex_ag_ui_chat",
         "parameters": [
           {
-            "name": "conversation_id",
+            "name": "conversationId",
             "in": "path",
             "description": "Conversation ID",
             "required": true,
@@ -273,13 +273,13 @@
         }
       }
     },
-    "/api/chats/{conversation_id}/archive": {
+    "/api/chats/{conversationId}/archive": {
       "post": {
         "tags": ["crate::api::chats"],
         "operationId": "archive_chat",
         "parameters": [
           {
-            "name": "conversation_id",
+            "name": "conversationId",
             "in": "path",
             "description": "Conversation ID",
             "required": true,
@@ -288,7 +288,7 @@
             }
           },
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -330,13 +330,13 @@
         }
       }
     },
-    "/api/chats/{conversation_id}/interrupt": {
+    "/api/chats/{conversationId}/interrupt": {
       "post": {
         "tags": ["crate::api::chats"],
         "operationId": "interrupt_chat",
         "parameters": [
           {
-            "name": "conversation_id",
+            "name": "conversationId",
             "in": "path",
             "description": "Conversation ID",
             "required": true,
@@ -345,7 +345,7 @@
             }
           },
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -380,13 +380,13 @@
         }
       }
     },
-    "/api/chats/{conversation_id}/messages": {
+    "/api/chats/{conversationId}/messages": {
       "post": {
         "tags": ["crate::api::chats"],
         "operationId": "send_chat_message",
         "parameters": [
           {
-            "name": "conversation_id",
+            "name": "conversationId",
             "in": "path",
             "description": "Conversation ID",
             "required": true,
@@ -395,7 +395,7 @@
             }
           },
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -460,13 +460,13 @@
         }
       }
     },
-    "/api/chats/{conversation_id}/requests/{request_id}/resolve": {
+    "/api/chats/{conversationId}/requests/{requestId}/resolve": {
       "post": {
         "tags": ["crate::api::chats"],
         "operationId": "resolve_chat_pending_request",
         "parameters": [
           {
-            "name": "conversation_id",
+            "name": "conversationId",
             "in": "path",
             "description": "Conversation ID",
             "required": true,
@@ -475,7 +475,7 @@
             }
           },
           {
-            "name": "request_id",
+            "name": "requestId",
             "in": "path",
             "description": "Pending request ID",
             "required": true,
@@ -484,7 +484,7 @@
             }
           },
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -536,13 +536,13 @@
         }
       }
     },
-    "/api/chats/{conversation_id}/settings": {
+    "/api/chats/{conversationId}/settings": {
       "patch": {
         "tags": ["crate::api::chats"],
         "operationId": "patch_chat_settings",
         "parameters": [
           {
-            "name": "conversation_id",
+            "name": "conversationId",
             "in": "path",
             "description": "Conversation ID",
             "required": true,
@@ -551,7 +551,7 @@
             }
           },
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -593,13 +593,13 @@
         }
       }
     },
-    "/api/chats/{conversation_id}/unarchive": {
+    "/api/chats/{conversationId}/unarchive": {
       "post": {
         "tags": ["crate::api::chats"],
         "operationId": "unarchive_chat",
         "parameters": [
           {
-            "name": "conversation_id",
+            "name": "conversationId",
             "in": "path",
             "description": "Conversation ID",
             "required": true,
@@ -608,7 +608,7 @@
             }
           },
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -815,7 +815,7 @@
         "operationId": "event_stream",
         "parameters": [
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -845,7 +845,7 @@
             }
           },
           {
-            "name": "show_hidden",
+            "name": "showHidden",
             "in": "query",
             "description": "Whether to include dotfiles. Defaults to false.",
             "required": false,
@@ -1250,7 +1250,7 @@
             }
           },
           {
-            "name": "delete_managed_worktrees",
+            "name": "deleteManagedWorktrees",
             "in": "query",
             "required": false,
             "schema": {
@@ -1576,7 +1576,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}": {
+    "/api/projects/{id}/worktrees/{worktreeId}": {
       "delete": {
         "tags": ["crate::api::worktrees"],
         "operationId": "delete_project_worktree",
@@ -1591,7 +1591,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -1608,7 +1608,7 @@
             }
           },
           {
-            "name": "untrack_only",
+            "name": "untrackOnly",
             "in": "query",
             "required": false,
             "schema": {
@@ -1648,7 +1648,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -1687,7 +1687,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/files": {
+    "/api/projects/{id}/worktrees/{worktreeId}/files": {
       "get": {
         "tags": ["crate::api::files"],
         "operationId": "list_project_worktree_files",
@@ -1702,7 +1702,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -1746,7 +1746,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/files/content": {
+    "/api/projects/{id}/worktrees/{worktreeId}/files/content": {
       "get": {
         "tags": ["crate::api::files"],
         "operationId": "get_project_worktree_file_content",
@@ -1761,7 +1761,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -1846,7 +1846,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -1929,7 +1929,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/files/rename": {
+    "/api/projects/{id}/worktrees/{worktreeId}/files/rename": {
       "post": {
         "tags": ["crate::api::files"],
         "operationId": "rename_project_worktree_file",
@@ -1944,7 +1944,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -1992,7 +1992,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/git-status": {
+    "/api/projects/{id}/worktrees/{worktreeId}/git-status": {
       "get": {
         "tags": ["crate::api::worktrees"],
         "operationId": "get_project_worktree_git_status",
@@ -2007,7 +2007,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -2036,7 +2036,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/git/commits/{commit_id}": {
+    "/api/projects/{id}/worktrees/{worktreeId}/git/commits/{commitId}": {
       "get": {
         "tags": ["crate::api::worktrees"],
         "operationId": "get_project_worktree_commit_details",
@@ -2051,7 +2051,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -2060,7 +2060,7 @@
             }
           },
           {
-            "name": "commit_id",
+            "name": "commitId",
             "in": "path",
             "description": "Commit SHA",
             "required": true,
@@ -2089,7 +2089,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/git/diff": {
+    "/api/projects/{id}/worktrees/{worktreeId}/git/diff": {
       "get": {
         "tags": ["crate::api::files"],
         "operationId": "get_project_worktree_git_diff",
@@ -2104,7 +2104,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -2130,7 +2130,7 @@
             }
           },
           {
-            "name": "original_path",
+            "name": "originalPath",
             "in": "query",
             "description": "Original relative path for rename/copy actions.",
             "required": false,
@@ -2139,7 +2139,7 @@
             }
           },
           {
-            "name": "commit_id",
+            "name": "commitId",
             "in": "query",
             "required": false,
             "schema": {
@@ -2201,7 +2201,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/git/discard": {
+    "/api/projects/{id}/worktrees/{worktreeId}/git/discard": {
       "post": {
         "tags": ["crate::api::worktrees"],
         "operationId": "discard_project_worktree_path",
@@ -2216,7 +2216,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -2254,7 +2254,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/git/rename-branch": {
+    "/api/projects/{id}/worktrees/{worktreeId}/git/rename-branch": {
       "post": {
         "tags": ["crate::api::worktrees"],
         "operationId": "rename_worktree_branch",
@@ -2269,7 +2269,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -2311,7 +2311,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/git/stage": {
+    "/api/projects/{id}/worktrees/{worktreeId}/git/stage": {
       "post": {
         "tags": ["crate::api::worktrees"],
         "operationId": "stage_project_worktree_path",
@@ -2326,7 +2326,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -2364,7 +2364,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/git/unstage": {
+    "/api/projects/{id}/worktrees/{worktreeId}/git/unstage": {
       "post": {
         "tags": ["crate::api::worktrees"],
         "operationId": "unstage_project_worktree_path",
@@ -2379,7 +2379,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -2417,7 +2417,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/restore-state": {
+    "/api/projects/{id}/worktrees/{worktreeId}/restore-state": {
       "put": {
         "tags": ["crate::api::worktrees"],
         "operationId": "put_worktree_restore_state",
@@ -2432,7 +2432,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -2461,7 +2461,7 @@
         }
       }
     },
-    "/api/projects/{id}/worktrees/{worktree_id}/tab-layout": {
+    "/api/projects/{id}/worktrees/{worktreeId}/tab-layout": {
       "put": {
         "tags": ["crate::api::tabs"],
         "operationId": "update_worktree_tab_layout",
@@ -2476,7 +2476,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -2529,13 +2529,13 @@
         }
       }
     },
-    "/api/projects/{project_id}/worktrees/{worktree_id}/chats": {
+    "/api/projects/{projectId}/worktrees/{worktreeId}/chats": {
       "get": {
         "tags": ["crate::api::chats"],
         "operationId": "list_project_worktree_chats",
         "parameters": [
           {
-            "name": "project_id",
+            "name": "projectId",
             "in": "path",
             "description": "Project ID",
             "required": true,
@@ -2544,7 +2544,7 @@
             }
           },
           {
-            "name": "worktree_id",
+            "name": "worktreeId",
             "in": "path",
             "description": "Worktree ID",
             "required": true,
@@ -2553,7 +2553,7 @@
             }
           },
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": true,
             "schema": {
@@ -2569,7 +2569,7 @@
             }
           },
           {
-            "name": "include_archived",
+            "name": "includeArchived",
             "in": "query",
             "required": false,
             "schema": {
@@ -2717,7 +2717,7 @@
         "operationId": "list_tabs",
         "parameters": [
           {
-            "name": "session_id",
+            "name": "sessionId",
             "in": "query",
             "required": false,
             "schema": {
@@ -3050,7 +3050,7 @@
         "operationId": "ws_handler",
         "parameters": [
           {
-            "name": "tab_id",
+            "name": "tabId",
             "in": "query",
             "required": true,
             "schema": {
@@ -3058,7 +3058,7 @@
             }
           },
           {
-            "name": "resume_from",
+            "name": "resumeFrom",
             "in": "query",
             "description": "Byte offset for resumable reconnection. When\npresent, the server only replays scrollback bytes\nthe client missed.",
             "required": false,
@@ -4757,25 +4757,25 @@
         "oneOf": [
           {
             "type": "object",
-            "required": ["worktree_id", "type"],
+            "required": ["worktreeId", "type"],
             "properties": {
-              "pane_id": {
+              "paneId": {
                 "type": ["string", "null"]
               },
               "type": {
                 "type": "string",
                 "enum": ["terminal"]
               },
-              "worktree_id": {
+              "worktreeId": {
                 "type": "string"
               }
             }
           },
           {
             "type": "object",
-            "required": ["worktree_id", "path", "type"],
+            "required": ["worktreeId", "path", "type"],
             "properties": {
-              "pane_id": {
+              "paneId": {
                 "type": ["string", "null"]
               },
               "path": {
@@ -4788,22 +4788,22 @@
                 "type": "string",
                 "enum": ["file"]
               },
-              "worktree_id": {
+              "worktreeId": {
                 "type": "string"
               }
             }
           },
           {
             "type": "object",
-            "required": ["worktree_id", "path", "scope", "type"],
+            "required": ["worktreeId", "path", "scope", "type"],
             "properties": {
-              "commit_id": {
+              "commitId": {
                 "type": ["string", "null"]
               },
-              "original_path": {
+              "originalPath": {
                 "type": ["string", "null"]
               },
-              "pane_id": {
+              "paneId": {
                 "type": ["string", "null"]
               },
               "path": {
@@ -4819,16 +4819,16 @@
                 "type": "string",
                 "enum": ["git_diff"]
               },
-              "worktree_id": {
+              "worktreeId": {
                 "type": "string"
               }
             }
           },
           {
             "type": "object",
-            "required": ["worktree_id", "url", "type"],
+            "required": ["worktreeId", "url", "type"],
             "properties": {
-              "pane_id": {
+              "paneId": {
                 "type": ["string", "null"]
               },
               "type": {
@@ -4838,26 +4838,26 @@
               "url": {
                 "type": "string"
               },
-              "worktree_id": {
+              "worktreeId": {
                 "type": "string"
               }
             }
           },
           {
             "type": "object",
-            "required": ["worktree_id", "type"],
+            "required": ["worktreeId", "type"],
             "properties": {
-              "conversation_id": {
+              "conversationId": {
                 "type": ["string", "null"]
               },
-              "pane_id": {
+              "paneId": {
                 "type": ["string", "null"]
               },
               "type": {
                 "type": "string",
                 "enum": ["agent_chat"]
               },
-              "worktree_id": {
+              "worktreeId": {
                 "type": "string"
               }
             }
@@ -4871,19 +4871,19 @@
           "branch": {
             "type": "string"
           },
-          "source_ref": {
+          "sourceRef": {
             "type": ["string", "null"]
           },
-          "start_point": {
+          "startPoint": {
             "type": ["string", "null"]
           }
         }
       },
       "DirEntry": {
         "type": "object",
-        "required": ["name", "is_git_repo"],
+        "required": ["name", "isGitRepo"],
         "properties": {
-          "is_git_repo": {
+          "isGitRepo": {
             "type": "boolean"
           },
           "name": {
@@ -5003,7 +5003,7 @@
         "type": "object",
         "required": [
           "id",
-          "short_id",
+          "shortId",
           "summary",
           "message",
           "author",
@@ -5029,7 +5029,7 @@
           "message": {
             "type": "string"
           },
-          "short_id": {
+          "shortId": {
             "type": "string"
           },
           "summary": {
@@ -5054,12 +5054,12 @@
       },
       "GitCommitSummary": {
         "type": "object",
-        "required": ["id", "short_id", "summary"],
+        "required": ["id", "shortId", "summary"],
         "properties": {
           "id": {
             "type": "string"
           },
-          "short_id": {
+          "shortId": {
             "type": "string"
           },
           "summary": {
@@ -5073,9 +5073,9 @@
       },
       "GitFileChange": {
         "type": "object",
-        "required": ["path", "change_type"],
+        "required": ["path", "changeType"],
         "properties": {
-          "change_type": {
+          "changeType": {
             "$ref": "#/components/schemas/GitFileChangeType"
           },
           "deletions": {
@@ -5086,7 +5086,7 @@
             "type": ["integer", "null"],
             "minimum": 0
           },
-          "original_path": {
+          "originalPath": {
             "type": ["string", "null"]
           },
           "path": {
@@ -5233,7 +5233,7 @@
             },
             "description": "Subdirectories within `path`."
           },
-          "home_dir": {
+          "homeDir": {
             "type": ["string", "null"],
             "description": "User's home directory (for quick-nav in UI)."
           },
@@ -5245,12 +5245,12 @@
       },
       "ListImportableWorktreesResponse": {
         "type": "object",
-        "required": ["importable_worktrees"],
+        "required": ["importableWorktrees"],
         "properties": {
-          "git_error": {
+          "gitError": {
             "type": ["string", "null"]
           },
-          "importable_worktrees": {
+          "importableWorktrees": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ImportableWorktree"
@@ -5281,15 +5281,15 @@
       },
       "ListWorktreeStartPointsResponse": {
         "type": "object",
-        "required": ["start_points"],
+        "required": ["startPoints"],
         "properties": {
-          "default_start_point": {
+          "defaultStartPoint": {
             "type": ["string", "null"]
           },
-          "git_error": {
+          "gitError": {
             "type": ["string", "null"]
           },
-          "start_points": {
+          "startPoints": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/StartPoint"
@@ -5301,7 +5301,7 @@
         "type": "object",
         "required": ["worktrees"],
         "properties": {
-          "git_error": {
+          "gitError": {
             "type": ["string", "null"]
           },
           "worktrees": {
@@ -5380,7 +5380,7 @@
         "type": "object",
         "required": ["id", "name", "path"],
         "properties": {
-          "git_error": {
+          "gitError": {
             "type": ["string", "null"]
           },
           "id": {
@@ -5400,18 +5400,18 @@
       },
       "RenameWorktreeBranchRequest": {
         "type": "object",
-        "required": ["new_branch"],
+        "required": ["newBranch"],
         "properties": {
-          "new_branch": {
+          "newBranch": {
             "type": "string"
           }
         }
       },
       "RenameWorktreeFileRequest": {
         "type": "object",
-        "required": ["path", "new_name"],
+        "required": ["path", "newName"],
         "properties": {
-          "new_name": {
+          "newName": {
             "type": "string",
             "description": "New basename for the file or directory."
           },
@@ -5433,9 +5433,9 @@
       },
       "ReorderProjectsRequest": {
         "type": "object",
-        "required": ["project_ids"],
+        "required": ["projectIds"],
         "properties": {
-          "project_ids": {
+          "projectIds": {
             "type": "array",
             "items": {
               "type": "string"
@@ -5445,27 +5445,27 @@
       },
       "ReorderTabsRequest": {
         "type": "object",
-        "required": ["worktree_id", "pane_id", "tab_ids"],
+        "required": ["worktreeId", "paneId", "tabIds"],
         "properties": {
-          "pane_id": {
+          "paneId": {
             "type": "string"
           },
-          "tab_ids": {
+          "tabIds": {
             "type": "array",
             "items": {
               "type": "string"
             }
           },
-          "worktree_id": {
+          "worktreeId": {
             "type": "string"
           }
         }
       },
       "ReorderWorktreesRequest": {
         "type": "object",
-        "required": ["worktree_ids"],
+        "required": ["worktreeIds"],
         "properties": {
-          "worktree_ids": {
+          "worktreeIds": {
             "type": "array",
             "items": {
               "type": "string"
@@ -5491,7 +5491,7 @@
           "text": {
             "type": "string"
           },
-          "worktree_id": {
+          "worktreeId": {
             "type": ["string", "null"]
           }
         }
@@ -5501,15 +5501,15 @@
           {
             "type": "object",
             "required": [
-              "byte_offset",
+              "byteOffset",
               "snapshot",
-              "data_lost",
+              "dataLost",
               "cols",
               "rows",
               "type"
             ],
             "properties": {
-              "byte_offset": {
+              "byteOffset": {
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
@@ -5519,7 +5519,7 @@
                 "format": "int32",
                 "minimum": 0
               },
-              "data_lost": {
+              "dataLost": {
                 "type": "boolean"
               },
               "rows": {
@@ -5705,12 +5705,12 @@
       },
       "StartPoint": {
         "type": "object",
-        "required": ["value", "sha", "remote_refs"],
+        "required": ["value", "sha", "remoteRefs"],
         "properties": {
-          "local_ref": {
+          "localRef": {
             "type": ["string", "null"]
           },
-          "remote_refs": {
+          "remoteRefs": {
             "type": "array",
             "items": {
               "type": "string"
@@ -5747,7 +5747,7 @@
         "type": "object",
         "description": "Static system information that does not change at runtime.",
         "properties": {
-          "home_dir": {
+          "homeDir": {
             "type": ["string", "null"],
             "description": "The current user's home directory, if available."
           }
@@ -5764,21 +5764,21 @@
                 "type": "object",
                 "required": [
                   "id",
-                  "session_id",
-                  "worktree_id",
-                  "pane_id",
+                  "sessionId",
+                  "worktreeId",
+                  "paneId",
                   "label",
                   "position",
-                  "created_at",
+                  "createdAt",
                   "preview"
                 ],
                 "properties": {
-                  "created_at": {
+                  "createdAt": {
                     "type": "integer",
                     "format": "int64",
                     "minimum": 0
                   },
-                  "has_notification": {
+                  "hasNotification": {
                     "type": "boolean"
                   },
                   "id": {
@@ -5787,7 +5787,7 @@
                   "label": {
                     "type": "string"
                   },
-                  "pane_id": {
+                  "paneId": {
                     "type": "string"
                   },
                   "position": {
@@ -5797,10 +5797,10 @@
                   "preview": {
                     "type": "boolean"
                   },
-                  "session_id": {
+                  "sessionId": {
                     "type": "string"
                   },
-                  "worktree_id": {
+                  "worktreeId": {
                     "type": "string"
                   }
                 }
@@ -5821,18 +5821,18 @@
             "type": "object",
             "required": [
               "id",
-              "session_id",
-              "worktree_id",
-              "pane_id",
+              "sessionId",
+              "worktreeId",
+              "paneId",
               "label",
               "position",
-              "created_at",
+              "createdAt",
               "preview",
               "path",
               "type"
             ],
             "properties": {
-              "created_at": {
+              "createdAt": {
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
@@ -5843,7 +5843,7 @@
               "label": {
                 "type": "string"
               },
-              "pane_id": {
+              "paneId": {
                 "type": "string"
               },
               "path": {
@@ -5856,14 +5856,14 @@
               "preview": {
                 "type": "boolean"
               },
-              "session_id": {
+              "sessionId": {
                 "type": "string"
               },
               "type": {
                 "type": "string",
                 "enum": ["file"]
               },
-              "worktree_id": {
+              "worktreeId": {
                 "type": "string"
               }
             }
@@ -5872,22 +5872,22 @@
             "type": "object",
             "required": [
               "id",
-              "session_id",
-              "worktree_id",
-              "pane_id",
+              "sessionId",
+              "worktreeId",
+              "paneId",
               "label",
               "position",
-              "created_at",
+              "createdAt",
               "preview",
               "path",
               "scope",
               "type"
             ],
             "properties": {
-              "commit_id": {
+              "commitId": {
                 "type": ["string", "null"]
               },
-              "created_at": {
+              "createdAt": {
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
@@ -5898,10 +5898,10 @@
               "label": {
                 "type": "string"
               },
-              "original_path": {
+              "originalPath": {
                 "type": ["string", "null"]
               },
-              "pane_id": {
+              "paneId": {
                 "type": "string"
               },
               "path": {
@@ -5917,14 +5917,14 @@
               "scope": {
                 "$ref": "#/components/schemas/GitDiffScope"
               },
-              "session_id": {
+              "sessionId": {
                 "type": "string"
               },
               "type": {
                 "type": "string",
                 "enum": ["git_diff"]
               },
-              "worktree_id": {
+              "worktreeId": {
                 "type": "string"
               }
             }
@@ -5933,20 +5933,20 @@
             "type": "object",
             "required": [
               "id",
-              "session_id",
-              "worktree_id",
-              "pane_id",
+              "sessionId",
+              "worktreeId",
+              "paneId",
               "label",
               "position",
-              "created_at",
+              "createdAt",
               "preview",
               "url",
               "history",
-              "history_index",
+              "historyIndex",
               "type"
             ],
             "properties": {
-              "created_at": {
+              "createdAt": {
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
@@ -5957,7 +5957,7 @@
                   "type": "string"
                 }
               },
-              "history_index": {
+              "historyIndex": {
                 "type": "integer",
                 "minimum": 0
               },
@@ -5967,7 +5967,7 @@
               "label": {
                 "type": "string"
               },
-              "pane_id": {
+              "paneId": {
                 "type": "string"
               },
               "position": {
@@ -5977,7 +5977,7 @@
               "preview": {
                 "type": "boolean"
               },
-              "session_id": {
+              "sessionId": {
                 "type": "string"
               },
               "type": {
@@ -5987,7 +5987,7 @@
               "url": {
                 "type": "string"
               },
-              "worktree_id": {
+              "worktreeId": {
                 "type": "string"
               }
             }
@@ -5996,21 +5996,21 @@
             "type": "object",
             "required": [
               "id",
-              "session_id",
-              "worktree_id",
-              "pane_id",
+              "sessionId",
+              "worktreeId",
+              "paneId",
               "label",
               "position",
-              "created_at",
+              "createdAt",
               "preview",
-              "conversation_id",
+              "conversationId",
               "type"
             ],
             "properties": {
-              "conversation_id": {
+              "conversationId": {
                 "type": "string"
               },
-              "created_at": {
+              "createdAt": {
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
@@ -6021,7 +6021,7 @@
               "label": {
                 "type": "string"
               },
-              "pane_id": {
+              "paneId": {
                 "type": "string"
               },
               "position": {
@@ -6031,14 +6031,14 @@
               "preview": {
                 "type": "boolean"
               },
-              "session_id": {
+              "sessionId": {
                 "type": "string"
               },
               "type": {
                 "type": "string",
                 "enum": ["agent_chat"]
               },
-              "worktree_id": {
+              "worktreeId": {
                 "type": "string"
               }
             }
@@ -6378,10 +6378,10 @@
       "UpdateTabRequest": {
         "type": "object",
         "properties": {
-          "custom_label": {
+          "customLabel": {
             "type": ["string", "null"]
           },
-          "has_notification": {
+          "hasNotification": {
             "type": ["boolean", "null"]
           },
           "history": {
@@ -6390,7 +6390,7 @@
               "type": "string"
             }
           },
-          "history_index": {
+          "historyIndex": {
             "type": ["integer", "null"],
             "minimum": 0
           },
@@ -6415,10 +6415,10 @@
           "name": {
             "type": ["string", "null"]
           },
-          "source_ref": {
+          "sourceRef": {
             "type": ["string", "null"]
           },
-          "ui_mode": {
+          "uiMode": {
             "oneOf": [
               {
                 "type": "null"
@@ -6725,12 +6725,12 @@
         "type": "object",
         "required": [
           "id",
-          "project_id",
+          "projectId",
           "name",
           "path",
           "branch",
-          "ui_mode",
-          "is_local",
+          "uiMode",
+          "isLocal",
           "position"
         ],
         "properties": {
@@ -6740,13 +6740,13 @@
           "id": {
             "type": "string"
           },
-          "is_imported": {
+          "isImported": {
             "type": "boolean"
           },
-          "is_local": {
+          "isLocal": {
             "type": "boolean"
           },
-          "missing_on_disk": {
+          "missingOnDisk": {
             "type": "boolean"
           },
           "name": {
@@ -6759,13 +6759,13 @@
             "type": "number",
             "format": "double"
           },
-          "project_id": {
+          "projectId": {
             "type": "string"
           },
-          "source_ref": {
+          "sourceRef": {
             "type": ["string", "null"]
           },
-          "ui_mode": {
+          "uiMode": {
             "$ref": "#/components/schemas/WorktreeUiMode"
           }
         }
@@ -6782,13 +6782,7 @@
       },
       "WorktreeFileContentResponse": {
         "type": "object",
-        "required": [
-          "path",
-          "content",
-          "version_token",
-          "language",
-          "read_only"
-        ],
+        "required": ["path", "content", "versionToken", "language", "readOnly"],
         "properties": {
           "content": {
             "type": "string"
@@ -6799,22 +6793,22 @@
           "path": {
             "type": "string"
           },
-          "read_only": {
+          "readOnly": {
             "type": "boolean"
           },
-          "unsupported_reason": {
+          "unsupportedReason": {
             "type": ["string", "null"]
           },
-          "version_token": {
+          "versionToken": {
             "type": "string"
           }
         }
       },
       "WorktreeFileEntry": {
         "type": "object",
-        "required": ["name", "path", "kind", "is_symlink"],
+        "required": ["name", "path", "kind", "isSymlink"],
         "properties": {
-          "is_symlink": {
+          "isSymlink": {
             "type": "boolean"
           },
           "kind": {
@@ -6836,10 +6830,10 @@
         "type": "object",
         "required": ["path", "scope"],
         "properties": {
-          "commit_id": {
+          "commitId": {
             "type": ["string", "null"]
           },
-          "original_path": {
+          "originalPath": {
             "type": ["string", "null"],
             "description": "Original relative path for rename/copy actions."
           },
@@ -6857,48 +6851,48 @@
         "required": [
           "path",
           "scope",
-          "left_label",
-          "right_label",
-          "left_content",
-          "right_content",
+          "leftLabel",
+          "rightLabel",
+          "leftContent",
+          "rightContent",
           "language",
-          "read_only"
+          "readOnly"
         ],
         "properties": {
-          "commit_id": {
+          "commitId": {
             "type": ["string", "null"]
           },
           "language": {
             "type": "string"
           },
-          "left_content": {
+          "leftContent": {
             "type": "string"
           },
-          "left_label": {
+          "leftLabel": {
             "type": "string"
           },
-          "modified_version_token": {
+          "modifiedVersionToken": {
             "type": ["string", "null"]
           },
-          "original_path": {
+          "originalPath": {
             "type": ["string", "null"]
           },
           "path": {
             "type": "string"
           },
-          "read_only": {
+          "readOnly": {
             "type": "boolean"
           },
-          "right_content": {
+          "rightContent": {
             "type": "string"
           },
-          "right_label": {
+          "rightLabel": {
             "type": "string"
           },
           "scope": {
             "$ref": "#/components/schemas/GitDiffScope"
           },
-          "unsupported_reason": {
+          "unsupportedReason": {
             "type": ["string", "null"]
           }
         }
@@ -6907,7 +6901,7 @@
         "type": "object",
         "required": ["path"],
         "properties": {
-          "original_path": {
+          "originalPath": {
             "type": ["string", "null"],
             "description": "Original relative path for rename/copy actions."
           },
@@ -6921,27 +6915,27 @@
         "type": "object",
         "required": [
           "generation",
-          "unstaged_files",
-          "staged_files",
-          "ahead_count",
-          "ahead_commits",
-          "comparison_available"
+          "unstagedFiles",
+          "stagedFiles",
+          "aheadCount",
+          "aheadCommits",
+          "comparisonAvailable"
         ],
         "properties": {
-          "ahead_commits": {
+          "aheadCommits": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/GitCommitSummary"
             }
           },
-          "ahead_count": {
+          "aheadCount": {
             "type": "integer",
             "minimum": 0
           },
-          "comparison_available": {
+          "comparisonAvailable": {
             "type": "boolean"
           },
-          "comparison_error": {
+          "comparisonError": {
             "type": ["string", "null"]
           },
           "generation": {
@@ -6949,16 +6943,16 @@
             "format": "int32",
             "minimum": 0
           },
-          "source_ref": {
+          "sourceRef": {
             "type": ["string", "null"]
           },
-          "staged_files": {
+          "stagedFiles": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/GitFileChange"
             }
           },
-          "unstaged_files": {
+          "unstagedFiles": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/GitFileChange"
@@ -6974,12 +6968,12 @@
         "oneOf": [
           {
             "type": "object",
-            "required": ["id", "pane_id", "type"],
+            "required": ["id", "paneId", "type"],
             "properties": {
               "id": {
                 "type": "string"
               },
-              "pane_id": {
+              "paneId": {
                 "type": "string"
               },
               "type": {
@@ -6990,19 +6984,12 @@
           },
           {
             "type": "object",
-            "required": [
-              "id",
-              "axis",
-              "ratio",
-              "first_id",
-              "second_id",
-              "type"
-            ],
+            "required": ["id", "axis", "ratio", "firstId", "secondId", "type"],
             "properties": {
               "axis": {
                 "$ref": "#/components/schemas/TabPaneSplitAxis"
               },
-              "first_id": {
+              "firstId": {
                 "type": "string"
               },
               "id": {
@@ -7012,7 +6999,7 @@
                 "type": "number",
                 "format": "double"
               },
-              "second_id": {
+              "secondId": {
                 "type": "string"
               },
               "type": {
@@ -7097,12 +7084,12 @@
       },
       "WriteWorktreeFileContentRequest": {
         "type": "object",
-        "required": ["path", "content", "expected_version_token"],
+        "required": ["path", "content", "expectedVersionToken"],
         "properties": {
           "content": {
             "type": "string"
           },
-          "expected_version_token": {
+          "expectedVersionToken": {
             "type": "string"
           },
           "path": {
@@ -7112,12 +7099,12 @@
       },
       "WriteWorktreeFileContentResponse": {
         "type": "object",
-        "required": ["path", "version_token"],
+        "required": ["path", "versionToken"],
         "properties": {
           "path": {
             "type": "string"
           },
-          "version_token": {
+          "versionToken": {
             "type": "string"
           }
         }

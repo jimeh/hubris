@@ -16,10 +16,10 @@ export function terminalWsUrl(tabId: string): string {
   const base = terminalWsUrlBase();
   if (base) {
     const url = new URL(base);
-    url.searchParams.set("tab_id", tabId);
+    url.searchParams.set("tabId", tabId);
     return url.toString();
   }
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}/api/terminal/ws?tab_id=${encodeURIComponent(tabId)}`;
+  return `${proto}//${location.host}/api/terminal/ws?tabId=${encodeURIComponent(tabId)}`;
 }

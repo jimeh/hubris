@@ -32,14 +32,14 @@ use crate::state::AppState;
 /// Runs a Codex chat turn through the AG-UI HTTP event protocol.
 #[utoipa::path(
     post,
-    path = "/api/chats/{conversation_id}/ag-ui",
+    path = "/api/chats/{conversationId}/ag-ui",
     tag = "crate::api::ag_ui",
     request_body(
         content = serde_json::Value,
         description = "AG-UI `RunAgentInput` run payload",
     ),
     params(
-        ("conversation_id" = String, Path, description = "Conversation ID"),
+        ("conversationId" = String, Path, description = "Conversation ID"),
     ),
     responses(
         (status = 200, description = "AG-UI server-sent event stream"),

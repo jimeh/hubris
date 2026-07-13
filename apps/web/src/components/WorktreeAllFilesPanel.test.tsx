@@ -333,14 +333,14 @@ vi.mock("@/lib/api", async () => {
 function makeWorktree(): Worktree {
   return {
     id: "w1",
-    project_id: "p1",
+    projectId: "p1",
     name: "feature-a",
     path: "/tmp/feature-a",
     branch: "feature-a",
-    source_ref: "main",
-    ui_mode: "hubris",
-    is_local: false,
-    missing_on_disk: false,
+    sourceRef: "main",
+    uiMode: "hubris",
+    isLocal: false,
+    missingOnDisk: false,
     position: 2,
   };
 }
@@ -370,7 +370,7 @@ async function renderPanel() {
 
   useWorktreeStore.setState({
     worktreesByProject: {
-      [worktree.project_id]: [worktree],
+      [worktree.projectId]: [worktree],
     },
     projectErrors: {},
     selectedWorktreeId: worktree.id,
@@ -415,12 +415,12 @@ describe("WorktreeAllFilesPanel", () => {
     useTabStore.setState({
       openFile: vi.fn().mockResolvedValue({
         id: "file-tab-1",
-        session_id: "default",
-        worktree_id: "w1",
+        sessionId: "default",
+        worktreeId: "w1",
         label: "README.md",
         type: "file",
         position: 1,
-        created_at: 0,
+        createdAt: 0,
         preview: true,
         path: "README.md",
       }),
@@ -437,7 +437,7 @@ describe("WorktreeAllFilesPanel", () => {
                 name: "lib.rs",
                 path: "src/lib.rs",
                 kind: "file",
-                is_symlink: false,
+                isSymlink: false,
               },
             ],
           };
@@ -450,22 +450,22 @@ describe("WorktreeAllFilesPanel", () => {
               name: "README.md",
               path: "README.md",
               kind: "file",
-              is_symlink: false,
+              isSymlink: false,
             },
-            { name: "src", path: "src", kind: "directory", is_symlink: false },
+            { name: "src", path: "src", kind: "directory", isSymlink: false },
           ],
         };
       },
     );
     mockGetProjectWorktreeGitStatus.mockResolvedValue({
       generation: 1,
-      source_ref: "main",
-      unstaged_files: [{ path: "README.md", change_type: "modified" }],
-      staged_files: [{ path: "src/lib.rs", change_type: "added" }],
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      comparison_error: null,
+      sourceRef: "main",
+      unstagedFiles: [{ path: "README.md", changeType: "modified" }],
+      stagedFiles: [{ path: "src/lib.rs", changeType: "added" }],
+      aheadCount: 0,
+      aheadCommits: [],
+      comparisonAvailable: true,
+      comparisonError: null,
     });
     mockRenameProjectWorktreeFile.mockResolvedValue({
       path: "README-renamed.md",
@@ -543,7 +543,7 @@ describe("WorktreeAllFilesPanel", () => {
           name: "README.md",
           path: "README.md",
           kind: "file",
-          is_symlink: true,
+          isSymlink: true,
         },
       ],
     });
@@ -598,16 +598,16 @@ describe("WorktreeAllFilesPanel", () => {
   it("uses the most significant descendant change for directory styling", async () => {
     mockGetProjectWorktreeGitStatus.mockResolvedValueOnce({
       generation: 1,
-      source_ref: "main",
-      unstaged_files: [
-        { path: "src/added.txt", change_type: "added" },
-        { path: "src/deleted.txt", change_type: "deleted" },
+      sourceRef: "main",
+      unstagedFiles: [
+        { path: "src/added.txt", changeType: "added" },
+        { path: "src/deleted.txt", changeType: "deleted" },
       ],
-      staged_files: [],
-      ahead_count: 0,
-      ahead_commits: [],
-      comparison_available: true,
-      comparison_error: null,
+      stagedFiles: [],
+      aheadCount: 0,
+      aheadCommits: [],
+      comparisonAvailable: true,
+      comparisonError: null,
     });
 
     await renderPanel();

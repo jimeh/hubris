@@ -420,7 +420,7 @@ export default function CommandDialogs() {
             />
           ) : (
             <WorktreeRemoveDialog
-              isImported={activeWorktree.is_imported}
+              isImported={activeWorktree.isImported}
               onClose={closeDialog}
               onDeleteFromDisk={async () => {
                 const result = await executeCommand({
