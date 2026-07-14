@@ -1142,6 +1142,340 @@ async fn process_loss_preserves_partial_turn_and_marks_reconciliation_pending() 
 }
 
 #[tokio::test]
+async fn replay_failure_marks_reconciliation_failed_and_restores_routing() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let connection: CodexAppServerConnectionRef =
+        Arc::new(FakeCodexConnection::new(requests).with_response(json!({
+            "thread": {
+                "turns": [{
+                    "id": "provider-turn-1",
+                    "status": "completed",
+                    "items": [{
+                        "id": "provider-item-1",
+                        "type": "agentMessage",
+                        "status": "completed",
+                        "text": "Final answer"
+                    }]
+                }]
+            }
+        })));
+    let factory: CodexAppServerFactory = Arc::new(move || {
+        let connection = connection.clone();
+        Box::pin(async move { Ok(connection) })
+    });
+    let service = test_service_with_app_server(factory).await;
+    let conversation = create_persisted_conversation(&service).await;
+    let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+    start_test_run(&service, &conversation, &runtime).await;
+    {
+        let mut state = runtime.state.lock().await;
+        state.active_turn_id = Some("previous-turn".to_string());
+        state.active_message_id = Some("previous-message".to_string());
+        state.active_run_id = Some("previous-run".to_string());
+    }
+    sqlx::query(
+        "
+        CREATE TRIGGER reject_replay_item
+        BEFORE INSERT ON chat_items
+        BEGIN
+            SELECT RAISE(ABORT, 'reject replay item');
+        END
+        ",
+    )
+    .execute(&service.pool)
+    .await
+    .unwrap();
+
+    let error = service
+        .reconcile_inflight_run_if_needed(&conversation.id, &runtime, "/tmp/worktree")
+        .await
+        .unwrap_err();
+
+    assert!(error.message.contains("reject replay item"));
+    let detail = service
+        .get_conversation_detail(&conversation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let reconciliation = detail.latest_reconciliation.unwrap();
+    assert_eq!(reconciliation.status, ChatReconciliationStatus::Failed);
+    assert_eq!(
+        reconciliation.error_message.as_deref(),
+        Some(error.message.as_str())
+    );
+    assert_eq!(
+        detail.conversation.last_reconciliation_state,
+        ChatReconciliationStatus::Failed
+    );
+    let state = runtime.state.lock().await;
+    assert_eq!(state.active_turn_id.as_deref(), Some("previous-turn"));
+    assert_eq!(state.active_message_id.as_deref(), Some("previous-message"));
+    assert_eq!(state.active_run_id.as_deref(), Some("previous-run"));
+}
+
+#[tokio::test]
+async fn successful_reconciliation_finalizes_turn_reconciliation_state() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let connection: CodexAppServerConnectionRef =
+        Arc::new(FakeCodexConnection::new(requests).with_response(json!({
+            "thread": {
+                "turns": [{
+                    "id": "provider-turn-1",
+                    "status": "completed",
+                    "items": [{
+                        "id": "provider-item-1",
+                        "type": "agentMessage",
+                        "status": "completed",
+                        "text": "Final answer"
+                    }]
+                }]
+            }
+        })));
+    let factory: CodexAppServerFactory = Arc::new(move || {
+        let connection = connection.clone();
+        Box::pin(async move { Ok(connection) })
+    });
+    let service = test_service_with_app_server(factory).await;
+    let conversation = create_persisted_conversation(&service).await;
+    let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+    start_test_run(&service, &conversation, &runtime).await;
+
+    service
+        .reconcile_inflight_run_if_needed(&conversation.id, &runtime, "/tmp/worktree")
+        .await
+        .unwrap();
+
+    let detail = service
+        .get_conversation_detail(&conversation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        detail.latest_reconciliation.unwrap().status,
+        ChatReconciliationStatus::Completed
+    );
+    assert_eq!(
+        detail.turns[0].reconciliation_status,
+        ChatReconciliationStatus::Completed
+    );
+    assert!(detail.turns[0].reconciled_at.is_some());
+}
+
+#[tokio::test]
+async fn stale_owner_cannot_mark_newer_reconciliation_pending() {
+    let service = test_service().await;
+    let conversation = create_persisted_conversation(&service).await;
+    let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 2).await;
+    start_test_run(&service, &conversation, &runtime).await;
+    let pending = service
+        .mark_reconciliation_pending(
+            &conversation.id,
+            Some("thread-1".to_string()),
+            "new owner",
+            2,
+        )
+        .await
+        .unwrap();
+    service
+        .start_reconciliation_for_owner(&conversation.id, &pending.id, 2)
+        .await
+        .unwrap();
+
+    let error = service
+        .mark_reconciliation_pending(
+            &conversation.id,
+            Some("thread-1".to_string()),
+            "stale owner",
+            1,
+        )
+        .await
+        .unwrap_err();
+
+    assert!(error.message.contains("newer runtime"));
+    let detail = service
+        .get_conversation_detail(&conversation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let latest = detail.latest_reconciliation.unwrap();
+    assert_eq!(latest.id, pending.id);
+    assert_eq!(latest.owner_generation, 2);
+    assert_eq!(latest.status, ChatReconciliationStatus::Running);
+    assert_eq!(
+        detail.conversation.last_reconciliation_state,
+        ChatReconciliationStatus::Running
+    );
+    assert_eq!(
+        detail.turns[0].reconciliation_status,
+        ChatReconciliationStatus::Running
+    );
+}
+
+#[tokio::test]
+async fn stale_owner_cannot_follow_newer_terminal_reconciliation() {
+    let service = test_service().await;
+    let conversation = create_persisted_conversation(&service).await;
+    let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 2).await;
+    start_test_run(&service, &conversation, &runtime).await;
+    let pending = service
+        .mark_reconciliation_pending(
+            &conversation.id,
+            Some("thread-1".to_string()),
+            "new owner",
+            2,
+        )
+        .await
+        .unwrap();
+    service
+        .start_reconciliation_for_owner(&conversation.id, &pending.id, 2)
+        .await
+        .unwrap();
+    assert!(
+        service
+            .finish_reconciliation(
+                &conversation.id,
+                &pending.id,
+                2,
+                ChatReconciliationStatus::Completed,
+                None,
+            )
+            .await
+            .unwrap()
+    );
+
+    let error = service
+        .mark_reconciliation_pending(
+            &conversation.id,
+            Some("thread-1".to_string()),
+            "stale owner",
+            1,
+        )
+        .await
+        .unwrap_err();
+
+    assert!(error.message.contains("newer runtime"));
+    let detail = service
+        .get_conversation_detail(&conversation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let latest = detail.latest_reconciliation.unwrap();
+    assert_eq!(latest.id, pending.id);
+    assert_eq!(latest.owner_generation, 2);
+    assert_eq!(latest.status, ChatReconciliationStatus::Completed);
+    assert_eq!(
+        detail.conversation.last_reconciliation_state,
+        ChatReconciliationStatus::Completed
+    );
+}
+
+#[tokio::test]
+async fn stale_reconciliation_owner_cannot_start_reused_row() {
+    let service = test_service().await;
+    let conversation = create_persisted_conversation(&service).await;
+    let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+    start_test_run(&service, &conversation, &runtime).await;
+    let pending = service
+        .mark_reconciliation_pending(
+            &conversation.id,
+            Some("thread-1".to_string()),
+            "original owner",
+            1,
+        )
+        .await
+        .unwrap();
+    service
+        .mark_reconciliation_pending(
+            &conversation.id,
+            Some("thread-1".to_string()),
+            "new owner",
+            2,
+        )
+        .await
+        .unwrap();
+
+    let error = service
+        .start_reconciliation_for_owner(&conversation.id, &pending.id, 1)
+        .await
+        .unwrap_err();
+
+    assert!(error.message.contains("ownership changed"));
+    let detail = service
+        .get_conversation_detail(&conversation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let latest = detail.latest_reconciliation.unwrap();
+    assert_eq!(latest.id, pending.id);
+    assert_eq!(latest.owner_generation, 2);
+    assert_eq!(latest.status, ChatReconciliationStatus::Pending);
+    assert_eq!(
+        detail.conversation.last_reconciliation_state,
+        ChatReconciliationStatus::Pending
+    );
+    assert_eq!(
+        detail.turns[0].reconciliation_status,
+        ChatReconciliationStatus::NotNeeded
+    );
+}
+
+#[tokio::test]
+async fn stale_reconciliation_owner_cannot_finish_reused_row() {
+    let service = test_service().await;
+    let conversation = create_persisted_conversation(&service).await;
+    let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+    start_test_run(&service, &conversation, &runtime).await;
+    let reconciliation = service
+        .start_reconciliation(
+            &conversation.id,
+            Some("thread-1".to_string()),
+            "original owner",
+            &runtime,
+        )
+        .await
+        .unwrap();
+    service
+        .mark_reconciliation_pending(
+            &conversation.id,
+            Some("thread-1".to_string()),
+            "new owner",
+            2,
+        )
+        .await
+        .unwrap();
+
+    let finished = service
+        .finish_reconciliation(
+            &conversation.id,
+            &reconciliation.id,
+            reconciliation.owner_generation,
+            ChatReconciliationStatus::Completed,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert!(!finished);
+    let detail = service
+        .get_conversation_detail(&conversation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let latest = detail.latest_reconciliation.unwrap();
+    assert_eq!(latest.id, reconciliation.id);
+    assert_eq!(latest.owner_generation, 2);
+    assert_eq!(latest.status, ChatReconciliationStatus::Pending);
+    assert_eq!(
+        detail.conversation.last_reconciliation_state,
+        ChatReconciliationStatus::Pending
+    );
+    assert_eq!(
+        detail.turns[0].reconciliation_status,
+        ChatReconciliationStatus::Running
+    );
+}
+
+#[tokio::test]
 async fn thread_read_replay_finalizes_transcript_idempotently() {
     let service = test_service().await;
     let conversation = create_persisted_conversation(&service).await;
@@ -1155,6 +1489,19 @@ async fn thread_read_replay_finalizes_transcript_idempotently() {
                     "id": "provider-turn-1",
                     "status": "completed",
                     "items": [
+                        {
+                            "id": "provider-commentary-1",
+                            "type": "agentMessage",
+                            "phase": "commentary",
+                            "status": "completed",
+                            "text": "Inspecting first."
+                        },
+                        {
+                            "id": "provider-reasoning-1",
+                            "type": "reasoning",
+                            "status": "completed",
+                            "summary": "Checking config next."
+                        },
                         {
                             "id": "provider-item-1",
                             "type": "agentMessage",
@@ -1187,14 +1534,64 @@ async fn thread_read_replay_finalizes_transcript_idempotently() {
         .unwrap();
     assert_eq!(message.status, ChatMessageStatus::Completed);
     assert_eq!(message.content_text, "Final answer");
+    assert_eq!(
+        message.reasoning_text,
+        "Inspecting first.\n\nChecking config next."
+    );
     assert_eq!(detail.latest_run.unwrap().status, ChatRunStatus::Completed);
     assert_eq!(
         detail.turns[0].provider_turn_id.as_deref(),
         Some("provider-turn-1")
     );
-    assert_eq!(detail.items.len(), 1);
+    assert_eq!(detail.items.len(), 3);
     assert_eq!(
-        detail.items[0].provider_item_id.as_deref(),
+        detail.items[2].provider_item_id.as_deref(),
         Some("provider-item-1")
     );
+}
+
+#[tokio::test]
+async fn thread_read_text_fallback_finalizes_inflight_lifecycle() {
+    let service = test_service().await;
+    let conversation = create_persisted_conversation(&service).await;
+    let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+    let (_, assistant_message_id, run_id, turn_id) =
+        start_test_run(&service, &conversation, &runtime).await;
+    let replay = json!({
+        "thread": {
+            "turns": [{
+                "id": "provider-turn-without-local-match",
+                "status": "completed",
+                "items": [{
+                    "id": "provider-item-1",
+                    "type": "agentMessage",
+                    "status": "completed",
+                    "text": "Recovered answer"
+                }]
+            }]
+        }
+    });
+
+    service
+        .apply_thread_read_replay(&conversation.id, &runtime, &replay)
+        .await
+        .unwrap();
+
+    let detail = service
+        .get_conversation_detail(&conversation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let message = detail
+        .messages
+        .iter()
+        .find(|message| message.id == assistant_message_id)
+        .unwrap();
+    assert_eq!(message.status, ChatMessageStatus::Completed);
+    assert_eq!(message.content_text, "Recovered answer");
+    let run = detail.latest_run.unwrap();
+    assert_eq!(run.id, run_id);
+    assert_eq!(run.status, ChatRunStatus::Completed);
+    assert_eq!(detail.turns[0].id, turn_id);
+    assert_eq!(detail.turns[0].status, ChatTurnStatus::Completed);
 }
