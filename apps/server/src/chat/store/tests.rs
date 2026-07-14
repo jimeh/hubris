@@ -1557,11 +1557,6 @@ async fn thread_read_text_fallback_finalizes_inflight_lifecycle() {
     let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
     let (_, assistant_message_id, run_id, turn_id) =
         start_test_run(&service, &conversation, &runtime).await;
-    sqlx::query("UPDATE chat_turns SET status = 'completed' WHERE id = ?")
-        .bind(&turn_id)
-        .execute(&service.pool)
-        .await
-        .unwrap();
     let replay = json!({
         "thread": {
             "turns": [{
