@@ -1,6 +1,7 @@
 import type { SseEventData } from "@/lib/events";
 import { useTabStore } from "@/lib/stores/tabs";
 import type { ChatConversationSummary } from "@/lib/types";
+import { invalidateConversationLoads } from "./load-ownership";
 import type { ChatStoreApi } from "./state";
 
 export function mergeConversationIntoOpenTabs(
@@ -30,6 +31,7 @@ export function removeConversationFromStore(
   store: ChatStoreApi,
   conversationId: string,
 ): void {
+  invalidateConversationLoads(conversationId);
   store.setState((state) => {
     const messageIds = state.messageIdsByConversationId[conversationId] ?? [];
     const turnIds = state.turnIdsByConversationId[conversationId] ?? [];
