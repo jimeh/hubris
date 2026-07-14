@@ -808,6 +808,37 @@ impl ChatService {
         }))
     }
 
+    /// Fetch persisted output for activity items in a conversation.
+    pub async fn list_activity_outputs(
+        &self,
+        conversation_id: &str,
+        item_ids: &[String],
+    ) -> Result<Vec<ChatItemOutput>, ChatServiceError> {
+        if item_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut query = sqlx::QueryBuilder::<Sqlite>::new(
+            "
+            SELECT
+                id, conversation_id, item_id, stream_kind, sequence,
+                content_text, byte_count, created_at_ms, updated_at_ms
+            FROM chat_item_outputs
+            WHERE conversation_id = ",
+        );
+        query.push_bind(conversation_id).push(" AND item_id IN (");
+        let mut separated = query.separated(", ");
+        for item_id in item_ids {
+            separated.push_bind(item_id);
+        }
+        separated
+            .push_unseparated(") ORDER BY item_id ASC, sequence ASC, created_at_ms ASC, id ASC");
+        let rows = query
+            .build_query_as::<ItemOutputRow>()
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(item_output_from_row).collect())
+    }
+
     /// Fetch one activity item with its persisted output stream.
     pub async fn get_activity_detail(
         &self,

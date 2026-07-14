@@ -10,7 +10,7 @@ import {
 import { SendHorizontal, Square } from "lucide-react";
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { PendingRequestPanel } from "@/features/chat/classic/PendingRequestUi";
+import { PendingRequestPanel } from "@/features/chat/PendingRequestUi";
 import { isRuntimeRunning } from "@/lib/chat/";
 import {
   selectChatActivePendingRequestIds,

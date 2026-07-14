@@ -24,11 +24,38 @@ pub(super) struct RuntimeState {
     commentary_delta_seen_item_ids: HashSet<String>,
     commentary_completed_item_ids: HashSet<String>,
     streaming_snapshot_emitted_at: HashMap<String, tokio::time::Instant>,
+    reasoning_message_snapshot_emitted_at: HashMap<String, tokio::time::Instant>,
     pub(super) stream_lifecycle: ThreadStreamLifecycle,
     pub(super) owner_generation: u64,
     idle_generation: u64,
     inactive_deadline_at: Option<u64>,
     last_error: Option<String>,
+}
+
+fn should_emit_streaming_snapshot(
+    tracker: &mut HashMap<String, tokio::time::Instant>,
+    key: &str,
+    is_streaming: bool,
+) -> bool {
+    if !is_streaming {
+        tracker.remove(key);
+        return true;
+    }
+
+    let now = tokio::time::Instant::now();
+    match tracker.get_mut(key) {
+        Some(last_emitted) if now.duration_since(*last_emitted) < STREAMING_SNAPSHOT_INTERVAL => {
+            false
+        }
+        Some(last_emitted) => {
+            *last_emitted = now;
+            true
+        }
+        None => {
+            tracker.insert(key.to_string(), now);
+            true
+        }
+    }
 }
 
 impl RuntimeState {
@@ -56,6 +83,7 @@ impl RuntimeState {
             commentary_delta_seen_item_ids: HashSet::new(),
             commentary_completed_item_ids: HashSet::new(),
             streaming_snapshot_emitted_at: HashMap::new(),
+            reasoning_message_snapshot_emitted_at: HashMap::new(),
             stream_lifecycle,
             owner_generation: 0,
             idle_generation: 0,
@@ -71,31 +99,23 @@ impl RuntimeState {
         self.agent_message_projection_by_item_id.clear();
         self.commentary_delta_seen_item_ids.clear();
         self.commentary_completed_item_ids.clear();
+        self.reasoning_message_snapshot_emitted_at.clear();
     }
 
     pub(super) fn should_emit_item_snapshot(&mut self, item: &ChatItem) -> bool {
-        if item.status != ChatItemStatus::Streaming {
-            self.streaming_snapshot_emitted_at.remove(&item.id);
-            return true;
-        }
+        should_emit_streaming_snapshot(
+            &mut self.streaming_snapshot_emitted_at,
+            &item.id,
+            item.status == ChatItemStatus::Streaming,
+        )
+    }
 
-        let now = tokio::time::Instant::now();
-        match self.streaming_snapshot_emitted_at.get_mut(&item.id) {
-            Some(last_emitted)
-                if now.duration_since(*last_emitted) < STREAMING_SNAPSHOT_INTERVAL =>
-            {
-                false
-            }
-            Some(last_emitted) => {
-                *last_emitted = now;
-                true
-            }
-            None => {
-                self.streaming_snapshot_emitted_at
-                    .insert(item.id.clone(), now);
-                true
-            }
-        }
+    fn should_emit_reasoning_message_snapshot(&mut self, message: &ChatMessage) -> bool {
+        should_emit_streaming_snapshot(
+            &mut self.reasoning_message_snapshot_emitted_at,
+            &message.id,
+            message.status == ChatMessageStatus::Streaming,
+        )
     }
 }
 
@@ -1322,11 +1342,18 @@ impl ChatService {
                 else {
                     return Ok(());
                 };
-                self.events.emit(EventKind::ChatMessageUpdated {
-                    session_id,
-                    conversation_id: conversation_id.to_string(),
-                    message,
-                });
+                if runtime
+                    .state
+                    .lock()
+                    .await
+                    .should_emit_reasoning_message_snapshot(&message)
+                {
+                    self.events.emit(EventKind::ChatMessageUpdated {
+                        session_id,
+                        conversation_id: conversation_id.to_string(),
+                        message,
+                    });
+                }
             }
             "item/agentMessage/delta" => {
                 trace_codex_text_event("item/agentMessage/delta", conversation_id, &params);
@@ -1398,11 +1425,18 @@ impl ChatService {
                     else {
                         return Ok(());
                     };
-                    self.events.emit(EventKind::ChatMessageUpdated {
-                        session_id,
-                        conversation_id: conversation_id.to_string(),
-                        message,
-                    });
+                    if runtime
+                        .state
+                        .lock()
+                        .await
+                        .should_emit_reasoning_message_snapshot(&message)
+                    {
+                        self.events.emit(EventKind::ChatMessageUpdated {
+                            session_id,
+                            conversation_id: conversation_id.to_string(),
+                            message,
+                        });
+                    }
                     return Ok(());
                 }
                 let _ = self
@@ -1520,8 +1554,14 @@ impl ChatService {
                             else {
                                 return Ok(());
                             };
-                            if let Some(summary) =
-                                self.get_conversation_summary(conversation_id).await?
+                            let should_emit = runtime
+                                .state
+                                .lock()
+                                .await
+                                .should_emit_reasoning_message_snapshot(&message);
+                            if should_emit
+                                && let Some(summary) =
+                                    self.get_conversation_summary(conversation_id).await?
                             {
                                 self.events.emit(EventKind::ChatMessageUpdated {
                                     session_id: summary.session_id,
@@ -1628,6 +1668,12 @@ impl ChatService {
                         });
                     }
                     if let Some(message) = finalized_message {
+                        let should_emit = runtime
+                            .state
+                            .lock()
+                            .await
+                            .should_emit_reasoning_message_snapshot(&message);
+                        debug_assert!(should_emit);
                         self.events.emit(EventKind::ChatMessageUpdated {
                             session_id: session_id.clone(),
                             conversation_id: conversation_id.to_string(),

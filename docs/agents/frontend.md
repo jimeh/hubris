@@ -100,6 +100,13 @@
 - **Favor calm streaming updates**: batch or debounce high-volume deltas,
   collapse noisy lifecycle rows, preserve partial content on failure, and avoid
   layout shifts while Codex is working.
+- **Contain settled long-chat rows, never the live tail**: use CSS containment
+  and `content-visibility` for completed response, reasoning, activity, and
+  request rows. Keep live rows fully visible so streamed height changes remain
+  measurable, and follow output only while the reader is near the bottom.
+- **Share pending-request controls across chat renderers**: classic and
+  CopilotKit chat must reuse the same labels and action components so approval,
+  input, stale-request, and resolved-request behavior cannot drift.
 
 ## Explorer
 

@@ -23,9 +23,12 @@ import {
   createContext,
   useEffect,
   useContext,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type ComponentProps,
   type KeyboardEvent,
   type ReactElement,
 } from "react";
@@ -33,9 +36,11 @@ import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { codexAgUiChatUrl } from "@/lib/api";
 import { isRuntimeRunning } from "@/lib/chat/";
+import { PendingRequestCard } from "@/features/chat/PendingRequestUi";
 import { useChatSettings } from "@/lib/stores/chatSettings";
 import {
   selectChatDiffSummary,
+  selectChatActivePendingRequestIds,
   selectChatConversation,
   selectChatDetailState,
   selectChatHeaderSlice,
@@ -43,6 +48,7 @@ import {
   selectChatMessage,
   selectChatPendingRequest,
   selectChatPlan,
+  selectChatReconciliation,
   selectChatTimelineIds,
   selectChatWorkGroupSlice,
   useChatStore,
@@ -76,6 +82,7 @@ type WorkMessageBlock = {
 };
 
 const HubrisRunningContext = createContext(false);
+const HubrisSendBlockedReasonContext = createContext<string | null>(null);
 
 type CodexActivityContent = {
   id?: string;
@@ -90,6 +97,16 @@ type CodexActivityContent = {
   payload?: unknown;
   metadata?: unknown;
   sequence?: number;
+  outputs?: CodexActivityOutput[];
+};
+
+type CodexActivityOutput = {
+  id?: string;
+  streamKind?: string;
+  sequence?: number;
+  content?: string;
+  byteCount?: number;
+  updatedAt?: number;
 };
 
 const codexActivityContentSchema = {
@@ -430,7 +447,64 @@ function detailLines(content: CodexActivityContent): string[] {
   return [...new Set(lines)].slice(0, 4);
 }
 
+function activityOutputText(outputs: readonly CodexActivityOutput[]): string {
+  let result = "";
+  let previousStream: string | null = null;
+  for (const chunk of outputs) {
+    const content = stringValue(chunk.content);
+    if (!content) {
+      continue;
+    }
+    const stream = chunk.streamKind ?? "stdout";
+    if (
+      previousStream !== null &&
+      stream !== previousStream &&
+      !result.endsWith("\n")
+    ) {
+      result += "\n";
+    }
+    if (stream !== "stdout" && stream !== previousStream) {
+      result += `[${stream}] `;
+    }
+    result += content;
+    previousStream = stream;
+  }
+  return result;
+}
+
 function CodexActivityMessage({
+  activityType,
+  content,
+}: {
+  activityType: string;
+  content: CodexActivityContent;
+}) {
+  const requestId = content.id;
+  if (activityType.startsWith("codex.pending_request.") && requestId) {
+    return <CodexPendingRequestActivity requestId={requestId} />;
+  }
+
+  return (
+    <CodexWorkActivityMessage activityType={activityType} content={content} />
+  );
+}
+
+function CodexPendingRequestActivity({ requestId }: { requestId: string }) {
+  const request = useChatStore((state) =>
+    selectChatPendingRequest(state, requestId),
+  );
+  if (!request) {
+    return null;
+  }
+
+  return (
+    <div data-chat-pending-request-panel="true">
+      <PendingRequestCard request={request} compact />
+    </div>
+  );
+}
+
+function CodexWorkActivityMessage({
   activityType,
   content,
 }: {
@@ -441,26 +515,36 @@ function CodexActivityMessage({
   const title = titleFromActivity(activityType, content);
   const summary = content.summary ?? content.content ?? null;
   const lines = detailLines(content);
+  const output = open ? activityOutputText(content.outputs ?? []) : "";
 
   return (
-    <div className="w-full rounded-md border bg-muted/35 text-xs text-muted-foreground">
+    <div
+      role="group"
+      aria-label={title}
+      className="w-full rounded-md border bg-muted/30 text-xs text-muted-foreground"
+    >
       <button
         type="button"
-        className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left"
+        className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
         <ChevronRight
-          className={`h-3.5 w-3.5 shrink-0 transition-transform ${
+          className={`h-3.5 w-3.5 shrink-0 transition-transform motion-reduce:transition-none ${
             open ? "rotate-90" : ""
           }`}
+          aria-hidden="true"
         />
-        <Wrench className="h-3.5 w-3.5 shrink-0" />
+        <Wrench className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">
           {title}
         </span>
         {content.status ? (
-          <span className="shrink-0 text-[10px] uppercase">
+          <span
+            className="shrink-0 text-[10px] uppercase"
+            role={content.status === "streaming" ? "status" : undefined}
+            aria-label={`${title} status: ${content.status}`}
+          >
             {content.status}
           </span>
         ) : null}
@@ -478,6 +562,14 @@ function CodexActivityMessage({
                 </div>
               ))}
             </dl>
+          ) : null}
+          {output ? (
+            <pre
+              className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/70 p-2 text-xs text-foreground"
+              aria-label={`${title} output`}
+            >
+              {output}
+            </pre>
           ) : null}
         </div>
       ) : summary ? (
@@ -689,9 +781,62 @@ function CodexReasoningMessage({
   );
 }
 
-function CodexTimelineLane({ children }: { children: React.ReactNode }) {
+const SETTLED_TIMELINE_STYLE: CSSProperties = {
+  contain: "layout paint style",
+  contentVisibility: "auto",
+  containIntrinsicSize: "auto 8rem",
+};
+
+function isNearChatBottom(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= 80;
+}
+
+function scrollChatToBottom(element: HTMLElement): void {
+  element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+}
+
+function findChatScrollContainer(element: HTMLElement): HTMLElement | null {
+  let candidate = element.parentElement;
+  while (candidate) {
+    const overflowY =
+      candidate.ownerDocument.defaultView?.getComputedStyle(candidate)
+        .overflowY ?? "";
+    if (
+      candidate.scrollHeight > candidate.clientHeight ||
+      overflowY === "auto" ||
+      overflowY === "scroll"
+    ) {
+      return candidate;
+    }
+    candidate = candidate.parentElement;
+  }
+  return null;
+}
+
+function CodexTimelineLane({
+  children,
+  live = false,
+  variant = "prose",
+}: {
+  children: React.ReactNode;
+  live?: boolean;
+  variant?: "prose" | "work" | "request";
+}) {
+  const variantClass = {
+    prose: "cpk:py-2",
+    work: "cpk:my-1 cpk:border-l cpk:border-border/60 cpk:py-1 cpk:pl-4",
+    request:
+      "cpk:my-2 cpk:rounded-lg cpk:border-l-2 cpk:border-primary/60 cpk:bg-muted/20 cpk:py-1 cpk:pl-4",
+  }[variant];
+
   return (
-    <div className="cpk:mx-auto cpk:w-full cpk:max-w-3xl cpk:px-4">
+    <div
+      aria-busy={live || undefined}
+      data-chat-row-kind={variant}
+      data-chat-row-state={live ? "live" : "settled"}
+      className={`cpk:mx-auto cpk:w-full cpk:max-w-3xl cpk:px-4 ${variantClass}`}
+      style={live ? undefined : SETTLED_TIMELINE_STYLE}
+    >
       {children}
     </div>
   );
@@ -704,6 +849,42 @@ function CodexMessageView({
   ...props
 }: CopilotChatMessageViewProps & { hubrisIsRunning?: boolean }) {
   const running = isRunning || hubrisIsRunning;
+  const messageListRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const followBottomRef = useRef(true);
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList) {
+      return;
+    }
+    const scrollContainer = findChatScrollContainer(messageList);
+    if (!scrollContainer) {
+      return;
+    }
+    scrollContainerRef.current = scrollContainer;
+    const updateFollowState = () => {
+      followBottomRef.current = isNearChatBottom(scrollContainer);
+    };
+    scrollContainer.addEventListener("scroll", updateFollowState, {
+      passive: true,
+    });
+    return () => {
+      scrollContainer.removeEventListener("scroll", updateFollowState);
+      scrollContainerRef.current = null;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const scrollContainer =
+      scrollContainerRef.current ??
+      (messageListRef.current
+        ? findChatScrollContainer(messageListRef.current)
+        : null);
+    if (scrollContainer && followBottomRef.current) {
+      scrollChatToBottom(scrollContainer);
+    }
+  }, [messages, running]);
 
   return (
     <CopilotChatMessageView messages={messages} isRunning={running} {...props}>
@@ -727,9 +908,19 @@ function CodexMessageView({
               nextIndex,
             } = codexWorkBlock(messages, index);
             const isStreaming = running && nextIndex >= messages.length;
+            const hasPendingRequest = activities.some((activity) =>
+              activity.activityType.startsWith("codex.pending_request."),
+            );
+            const hasActivePendingRequest = activities.some((activity) => {
+              if (!activity.activityType.startsWith("codex.pending_request.")) {
+                return false;
+              }
+              const status = normalizeActivityContent(activity.content).status;
+              return status === "pending" || status === "resolving";
+            });
             const displayWorkMessage =
               isStreaming && workMessage.content.trim().length === 0
-                ? { ...workMessage, content: "Thinking..." }
+                ? { ...workMessage, content: "Thinking…" }
                 : workMessage;
             if (
               displayWorkMessage.content.trim().length === 0 &&
@@ -739,7 +930,11 @@ function CodexMessageView({
               continue;
             }
             rendered.push(
-              <CodexTimelineLane key={displayWorkMessage.id}>
+              <CodexTimelineLane
+                key={displayWorkMessage.id}
+                live={isStreaming || hasActivePendingRequest}
+                variant={hasPendingRequest ? "request" : "work"}
+              >
                 <CodexReasoningMessage
                   message={displayWorkMessage}
                   messages={messages}
@@ -755,8 +950,14 @@ function CodexMessageView({
 
           const element = elementForMessage(elementsByMessageId, message);
           if (element) {
+            const isLiveAssistant =
+              running &&
+              index === messages.length - 1 &&
+              message.role === "assistant";
             rendered.push(
-              <CodexTimelineLane key={message.id}>{element}</CodexTimelineLane>,
+              <CodexTimelineLane key={message.id} live={isLiveAssistant}>
+                {element}
+              </CodexTimelineLane>,
             );
           }
         }
@@ -766,10 +967,10 @@ function CodexMessageView({
           const message = {
             id: `work-reasoning-pending-${latestMessage.id}`,
             role: "reasoning",
-            content: "Thinking...",
+            content: "Thinking…",
           } as ReasoningMessage;
           rendered.push(
-            <CodexTimelineLane key={message.id}>
+            <CodexTimelineLane key={message.id} live variant="work">
               <CodexReasoningMessage
                 message={message}
                 messages={messages}
@@ -782,9 +983,13 @@ function CodexMessageView({
 
         return (
           <div
+            ref={messageListRef}
             data-copilotkit
             data-testid="copilot-message-list"
-            className="copilotKitMessages cpk:flex cpk:flex-col"
+            className="copilotKitMessages cpk:flex cpk:flex-col cpk:gap-1 cpk:pb-6"
+            role="log"
+            aria-label="Codex conversation"
+            aria-relevant="additions"
           >
             {rendered}
             {interruptElement}
@@ -803,6 +1008,54 @@ function CodexMessageViewWithState(props: CopilotChatMessageViewProps) {
 const codexMessageViewSlot = Object.assign(CodexMessageViewWithState, {
   Cursor: CopilotChatMessageView.Cursor,
 }) as typeof CopilotChatMessageView;
+
+function HubrisCopilotChatSendButton(
+  props: ComponentProps<typeof CopilotChatInput.SendButton>,
+) {
+  const sendBlockedReason = useContext(HubrisSendBlockedReasonContext);
+  const hubrisIsRunning = useContext(HubrisRunningContext);
+  const label = hubrisIsRunning ? "Interrupt run" : "Send message";
+
+  return (
+    <CopilotChatInput.SendButton
+      {...props}
+      aria-label={label}
+      title={sendBlockedReason ?? label}
+    />
+  );
+}
+
+function HubrisCopilotChatInput(props: CopilotChatInputProps) {
+  const hubrisIsRunning = useContext(HubrisRunningContext);
+  const sendBlockedReason = useContext(HubrisSendBlockedReasonContext);
+  const isRunning = hubrisIsRunning || props.isRunning === true;
+
+  return (
+    <div className="flex flex-col">
+      <CopilotChatInput
+        {...props}
+        isRunning={isRunning}
+        sendButton={props.sendButton ?? HubrisCopilotChatSendButton}
+        onSubmitMessage={
+          isRunning || sendBlockedReason ? undefined : props.onSubmitMessage
+        }
+      />
+      {sendBlockedReason ? (
+        <div
+          role="status"
+          className="mx-auto w-full max-w-3xl px-4 pb-2 text-xs text-muted-foreground"
+        >
+          {sendBlockedReason}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const hubrisCopilotChatInputSlot = Object.assign(
+  HubrisCopilotChatInput,
+  CopilotChatInput,
+) as typeof CopilotChatInput;
 
 function ArchivedCopilotChatInput(_props: CopilotChatInputProps) {
   return (
@@ -839,12 +1092,20 @@ function CopilotChatHeader({
   return (
     <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
-        <MessageSquareText className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <MessageSquareText
+          className="h-4 w-4 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{label}</div>
           <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
             {running ? (
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              <span role="status" aria-label="Codex is running">
+                <LoaderCircle
+                  className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
+                  aria-hidden="true"
+                />
+              </span>
             ) : null}
             <span>CopilotKit AG-UI</span>
           </div>
@@ -856,6 +1117,7 @@ function CopilotChatHeader({
           variant={copilotKitThemeMode === "hubris" ? "secondary" : "ghost"}
           size="sm"
           disabled={writesBlocked}
+          aria-pressed={copilotKitThemeMode === "hubris"}
           onClick={() => updateChatSettings({ copilotkitThemeMode: "hubris" })}
         >
           Hubris colors
@@ -865,6 +1127,7 @@ function CopilotChatHeader({
           variant={copilotKitThemeMode === "stock" ? "secondary" : "ghost"}
           size="sm"
           disabled={writesBlocked}
+          aria-pressed={copilotKitThemeMode === "stock"}
           onClick={() => updateChatSettings({ copilotkitThemeMode: "stock" })}
         >
           Stock
@@ -883,6 +1146,17 @@ function CopilotChatHeader({
   );
 }
 
+function isInteractiveShortcutTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(
+      target.closest(
+        'button, input, textarea, select, [contenteditable="true"], [role="textbox"], [data-chat-ignore-shortcuts="true"]',
+      ),
+    )
+  );
+}
+
 export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
   const conversationId = tab.conversationId;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -891,6 +1165,9 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
   );
   const conversation = useChatStore((state) =>
     selectChatConversation(state, conversationId),
+  );
+  const reconciliation = useChatStore((state) =>
+    selectChatReconciliation(state, conversationId),
   );
   const initialMessageVersion = useChatStore((state) =>
     initialMessagesSignature(state, conversationId),
@@ -905,11 +1182,20 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
   const copilotKitThemeMode = useChatSettings(
     (state) => state.settings.copilotkitThemeMode,
   );
-  const { hasStreamingMessage, runtime } = useChatStore(
-    useShallow((state) => selectChatHeaderSlice(state, conversationId)),
+  const { hasBlockingRequest, hasStreamingMessage, runtime } = useChatStore(
+    useShallow((state) => ({
+      ...selectChatHeaderSlice(state, conversationId),
+      hasBlockingRequest:
+        selectChatActivePendingRequestIds(state, conversationId).length > 0,
+    })),
   );
   const running = isRuntimeRunning(runtime?.lifecycle) || hasStreamingMessage;
   const isArchived = conversation?.archivedAt != null;
+  const sendBlockedReason = hasBlockingRequest
+    ? "Sending is paused until the pending request is answered."
+    : reconciliation?.status === "running"
+      ? "Sending is paused while Hubris reconciles Codex thread state."
+      : null;
 
   useEffect(() => {
     if (!visible) {
@@ -948,9 +1234,27 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
     if (event.defaultPrevented) {
       return;
     }
+    if (event.key === "/" && !isInteractiveShortcutTarget(event.target)) {
+      event.preventDefault();
+      rootRef.current
+        ?.querySelector<HTMLElement>(
+          'textarea:not([disabled]), [role="textbox"]:not([aria-disabled="true"])',
+        )
+        ?.focus();
+      return;
+    }
     if (event.key === "Escape" && running) {
       event.preventDefault();
       void interruptRun(conversationId);
+      return;
+    }
+    if (event.altKey && event.code === "KeyA" && hasBlockingRequest) {
+      event.preventDefault();
+      rootRef.current
+        ?.querySelector<HTMLElement>(
+          '[data-chat-pending-request-panel="true"] [data-chat-pending-action="primary"]',
+        )
+        ?.focus();
     }
   };
 
@@ -962,35 +1266,46 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
       data-chat-ui-style="copilotkit"
       data-copilotkit-theme={copilotKitThemeMode}
       aria-label="Codex chat tab"
+      tabIndex={-1}
       onKeyDown={handleKeyDown}
     >
       <CopilotChatHeader conversationId={conversationId} label={tab.label} />
       {detailState.status === "loaded" ? (
         <HubrisRunningContext.Provider value={running}>
-          <CopilotKitProvider
-            selfManagedAgents={agents}
-            renderActivityMessages={codexActivityRenderers}
-          >
-            <div className="min-h-0 flex-1 [&_.copilotKitChat]:h-full">
-              <CopilotChat
-                agentId="codex"
-                className="h-full"
-                input={isArchived ? archivedCopilotChatInputSlot : undefined}
-                messageView={codexMessageViewSlot}
-                labels={{
-                  chatInputPlaceholder: "Ask Codex",
-                  modalHeaderTitle: "Codex",
-                  welcomeMessageText: "Ask Codex about this worktree.",
-                }}
-                onStop={() => void interruptRun(conversationId)}
-              />
-            </div>
-          </CopilotKitProvider>
+          <HubrisSendBlockedReasonContext.Provider value={sendBlockedReason}>
+            <CopilotKitProvider
+              selfManagedAgents={agents}
+              renderActivityMessages={codexActivityRenderers}
+            >
+              <div className="min-h-0 flex-1 [&_.copilotKitChat]:h-full">
+                <CopilotChat
+                  agentId="codex"
+                  autoScroll="none"
+                  className="h-full"
+                  input={
+                    isArchived
+                      ? archivedCopilotChatInputSlot
+                      : hubrisCopilotChatInputSlot
+                  }
+                  messageView={codexMessageViewSlot}
+                  labels={{
+                    chatInputPlaceholder: "Ask Codex",
+                    modalHeaderTitle: "Codex",
+                    welcomeMessageText: "Ask Codex about this worktree.",
+                  }}
+                  onStop={() => void interruptRun(conversationId)}
+                />
+              </div>
+            </CopilotKitProvider>
+          </HubrisSendBlockedReasonContext.Provider>
         </HubrisRunningContext.Provider>
       ) : detailState.status === "error" ? (
         <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
           <div className="flex max-w-md items-start gap-3 rounded-md border bg-muted/35 p-4">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <AlertCircle
+              className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+              aria-hidden="true"
+            />
             <div className="min-w-0 space-y-3">
               <div>
                 <div className="font-medium text-foreground">
@@ -1013,7 +1328,7 @@ export default function CopilotKitAgentChatTabView({ tab, visible }: Props) {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-          Loading chat history...
+          Loading chat history…
         </div>
       )}
     </div>

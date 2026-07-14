@@ -688,6 +688,17 @@ Best practices:
 - Correlate `serverRequest/resolved` back to pending request records, not just
   timeline items.
 - Correlate output deltas only to tool/work items, never to assistant messages.
+- Preserve the activity type while translating output deltas. A patch that
+  supplies a generic type can overwrite the command/file/tool identity already
+  held by the client reducer.
+- Use JSON Patch `add` when a state field may not exist yet. In particular, live
+  context-usage updates cannot `replace` `/contextUsage` before a snapshot has
+  created that path.
+- Seed AG-UI activity output from persisted item outputs on every fresh stream,
+  and deduplicate replayed live chunks by output id before appending them.
+- Reasoning projection emits both reasoning-item output and assistant-message
+  snapshots. Throttle the message snapshots at the projection source; a
+  single-slot event coalescer cannot merge snapshots separated by output events.
 
 ## Rendering Principles
 

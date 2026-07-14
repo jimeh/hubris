@@ -1,10 +1,8 @@
-// Frozen classic renderer: no new investment; CopilotKit is the promoted default.
-
 import { LoaderCircle, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
-import { requestKindLabel } from "@/features/chat/classic/pendingRequestLabels";
+import { requestKindLabel } from "@/features/chat/pendingRequestLabels";
 import {
   selectChatActivePendingRequestIds,
   selectChatPendingRequest,

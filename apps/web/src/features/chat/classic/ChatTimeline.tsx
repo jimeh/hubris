@@ -27,8 +27,8 @@ import {
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { PendingRequestCard } from "@/features/chat/classic/PendingRequestUi";
-import { requestKindLabel } from "@/features/chat/classic/pendingRequestLabels";
+import { PendingRequestCard } from "@/features/chat/PendingRequestUi";
+import { requestKindLabel } from "@/features/chat/pendingRequestLabels";
 import { activityLabel, activityStatusLabel, itemMetadata } from "@/lib/chat/";
 import {
   selectChatActivityDetailState,
