@@ -547,7 +547,9 @@ fn process_event(
 fn is_coalescable(kind: &EventKind) -> bool {
     matches!(
         kind,
-        EventKind::ChatMessageDelta { .. } | EventKind::ChatActivityDelta { .. }
+        EventKind::ChatMessageDelta { .. }
+            | EventKind::ChatMessageUpdated { .. }
+            | EventKind::ChatActivityDelta { .. }
     )
 }
 
@@ -573,6 +575,21 @@ fn merge_delta(current: &mut EventKind, incoming: Option<&mut EventKind>) -> boo
         {
             delta.push_str(incoming_delta);
             *revision = *incoming_revision;
+            true
+        }
+        (
+            EventKind::ChatMessageUpdated {
+                conversation_id,
+                message,
+                ..
+            },
+            Some(EventKind::ChatMessageUpdated {
+                conversation_id: incoming_conversation_id,
+                message: incoming_message,
+                ..
+            }),
+        ) if *conversation_id == *incoming_conversation_id && message.id == incoming_message.id => {
+            message.clone_from(incoming_message);
             true
         }
         (
@@ -614,6 +631,7 @@ fn send_event(tx: &broadcast::Sender<Arc<Event>>, kind: EventKind) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::{ChatMessageRole, ChatMessageStatus};
     use crate::domain::process::ManagedProcessLifecycleStateValue;
     use crate::domain::settings::VscodeRuntimeKind;
     use crate::domain::vscode::{VscodeProcessStatus, VscodeRuntimeStatus};
@@ -650,6 +668,33 @@ mod tests {
                 byte_count: delta.len() as u32,
                 created_at: sequence as u64,
                 updated_at: sequence as u64,
+            },
+        }
+    }
+
+    fn message_update(
+        conversation_id: &str,
+        message_id: &str,
+        content: &str,
+        status: ChatMessageStatus,
+    ) -> EventKind {
+        EventKind::ChatMessageUpdated {
+            session_id: "default".into(),
+            conversation_id: conversation_id.into(),
+            message: ChatMessage {
+                id: message_id.into(),
+                conversation_id: conversation_id.into(),
+                turn_id: Some("turn-1".into()),
+                item_id: Some("item-1".into()),
+                provider_turn_id: Some("provider-turn-1".into()),
+                provider_item_id: Some("provider-item-1".into()),
+                role: ChatMessageRole::Assistant,
+                status,
+                content_text: content.into(),
+                reasoning_text: format!("reasoning: {content}"),
+                sequence: 1,
+                created_at: 1,
+                updated_at: content.len() as u64,
             },
         }
     }
@@ -782,6 +827,124 @@ mod tests {
                 && second_id == "message-2"
                 && second_delta == "second"
         ));
+    }
+
+    #[tokio::test]
+    async fn same_key_message_updates_replace_with_newest_snapshot() {
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe();
+
+        bus.emit(message_update(
+            "chat-1",
+            "message-1",
+            "partial",
+            ChatMessageStatus::Streaming,
+        ));
+        bus.emit(message_update(
+            "chat-1",
+            "message-1",
+            "complete",
+            ChatMessageStatus::Completed,
+        ));
+        bus.emit(separator_event("separator"));
+
+        let event = recv_event(&mut rx).await;
+        assert!(matches!(
+            &event.kind,
+            EventKind::ChatMessageUpdated { message, .. }
+                if message.content_text == "complete"
+                    && message.reasoning_text == "reasoning: complete"
+                    && message.status == ChatMessageStatus::Completed
+        ));
+    }
+
+    #[tokio::test]
+    async fn different_message_or_conversation_updates_do_not_merge() {
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe();
+
+        bus.emit(message_update(
+            "chat-1",
+            "message-1",
+            "first",
+            ChatMessageStatus::Streaming,
+        ));
+        bus.emit(message_update(
+            "chat-1",
+            "message-2",
+            "second",
+            ChatMessageStatus::Streaming,
+        ));
+        bus.emit(message_update(
+            "chat-2",
+            "message-2",
+            "third",
+            ChatMessageStatus::Completed,
+        ));
+        bus.emit(separator_event("separator"));
+
+        let mut observed = Vec::new();
+        for _ in 0..3 {
+            let event = recv_event(&mut rx).await;
+            let EventKind::ChatMessageUpdated {
+                conversation_id,
+                message,
+                ..
+            } = &event.kind
+            else {
+                panic!("unexpected event: {:?}", event.kind);
+            };
+            observed.push((
+                conversation_id.clone(),
+                message.id.clone(),
+                message.content_text.clone(),
+            ));
+        }
+        assert_eq!(
+            observed,
+            [
+                ("chat-1".into(), "message-1".into(), "first".into()),
+                ("chat-1".into(), "message-2".into(), "second".into()),
+                ("chat-2".into(), "message-2".into(), "third".into()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn lifecycle_event_separates_message_update_batches() {
+        let bus = EventBus::new();
+        let mut rx = bus.subscribe();
+
+        bus.emit(message_update(
+            "chat-1",
+            "message-1",
+            "streaming",
+            ChatMessageStatus::Streaming,
+        ));
+        bus.emit(separator_event("lifecycle"));
+        bus.emit(message_update(
+            "chat-1",
+            "message-1",
+            "failed",
+            ChatMessageStatus::Failed,
+        ));
+        bus.emit(separator_event("after"));
+
+        let mut observed = Vec::new();
+        for _ in 0..4 {
+            let event = recv_event(&mut rx).await;
+            observed.push(match &event.kind {
+                EventKind::ChatMessageUpdated { message, .. } => {
+                    format!("message:{:?}", message.status)
+                }
+                EventKind::ProjectRemoved { project_id } => project_id.clone(),
+                other => panic!("unexpected event: {other:?}"),
+            });
+        }
+        assert_eq!(
+            observed,
+            ["message:Streaming", "lifecycle", "message:Failed", "after"]
+        );
     }
 
     #[tokio::test]

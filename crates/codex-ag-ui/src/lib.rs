@@ -92,6 +92,24 @@ pub struct CodexAgUiActivity {
     pub sequence: u32,
 }
 
+/// One incremental output chunk associated with a Codex activity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexAgUiActivityOutput {
+    /// Stable output identifier.
+    pub id: String,
+    /// Output channel such as stdout or stderr.
+    pub stream_kind: String,
+    /// Stable ordering value within the activity output.
+    pub sequence: u32,
+    /// Text appended by this output chunk.
+    pub content: String,
+    /// UTF-8 byte count represented by the chunk.
+    pub byte_count: u32,
+    /// Last server update timestamp.
+    pub updated_at: u64,
+}
+
 /// Current Codex run terminal state.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CodexAgUiRunStatus {
@@ -131,6 +149,13 @@ pub enum CodexAgUiUpdate {
     MessageUpdated(CodexAgUiMessage),
     /// A full activity update.
     ActivityUpdated(CodexAgUiActivity),
+    /// An incremental output chunk for an existing activity.
+    ActivityOutput {
+        activity_id: String,
+        output: CodexAgUiActivityOutput,
+    },
+    /// A replacement for the conversation's context-window usage state.
+    ContextUsageUpdated(Value),
     /// A run status update.
     RunUpdated(CodexAgUiRunStatus),
     /// A terminal stream error.
@@ -145,6 +170,9 @@ pub struct CodexAgUiTranslator {
     started_reasoning_messages: HashSet<String>,
     ended_reasoning_messages: HashSet<String>,
     reasoning_text_lengths: HashMap<String, usize>,
+    activity_outputs: HashMap<String, Vec<CodexAgUiActivityOutput>>,
+    activity_output_indexes: HashMap<String, HashMap<String, usize>>,
+    activity_types: HashMap<String, String>,
 }
 
 impl CodexAgUiTranslator {
@@ -195,6 +223,28 @@ impl CodexAgUiTranslator {
     }
 
     fn seed_from_snapshot(&mut self, snapshot: &CodexAgUiSnapshot) {
+        for activity in &snapshot.activities {
+            self.activity_types
+                .insert(activity.id.clone(), activity.activity_type.clone());
+            if let Some(outputs) = activity
+                .content
+                .get("outputs")
+                .and_then(|value| {
+                    serde_json::from_value::<Vec<CodexAgUiActivityOutput>>(value.clone()).ok()
+                })
+                .filter(|outputs| !outputs.is_empty())
+            {
+                self.activity_output_indexes.insert(
+                    activity.id.clone(),
+                    outputs
+                        .iter()
+                        .enumerate()
+                        .map(|(index, output)| (output.id.clone(), index))
+                        .collect(),
+                );
+                self.activity_outputs.insert(activity.id.clone(), outputs);
+            }
+        }
         for message in &snapshot.messages {
             if message.role != CodexAgUiMessageRole::Assistant {
                 continue;
@@ -247,8 +297,66 @@ impl CodexAgUiTranslator {
                 events
             }
             CodexAgUiUpdate::MessageUpdated(message) => self.message_updated_events(message),
-            CodexAgUiUpdate::ActivityUpdated(activity) => {
+            CodexAgUiUpdate::ActivityUpdated(mut activity) => {
+                self.activity_types
+                    .insert(activity.id.clone(), activity.activity_type.clone());
+                if let Some(outputs) = self.activity_outputs.get(&activity.id) {
+                    if activity.status == CodexAgUiActivityStatus::Streaming {
+                        return Vec::new();
+                    }
+                    activity
+                        .content
+                        .insert("outputs".to_string(), json!(outputs));
+                }
                 vec![activity_snapshot(&activity)]
+            }
+            CodexAgUiUpdate::ActivityOutput {
+                activity_id,
+                mut output,
+            } => {
+                let Some(activity_type) = self.activity_types.get(&activity_id).cloned() else {
+                    return Vec::new();
+                };
+                let outputs = self
+                    .activity_outputs
+                    .entry(activity_id.clone())
+                    .or_default();
+                let indexes = self
+                    .activity_output_indexes
+                    .entry(activity_id.clone())
+                    .or_default();
+                if let Some(index) = indexes.get(&output.id).copied() {
+                    let Some(suffix) = unseen_coalesced_output_suffix(outputs, index, &output)
+                    else {
+                        return Vec::new();
+                    };
+                    output = suffix;
+                }
+                let (path, value) = if outputs.is_empty() {
+                    ("/outputs", json!([output.clone()]))
+                } else {
+                    ("/outputs/-", json!(output.clone()))
+                };
+                indexes.insert(output.id.clone(), outputs.len());
+                outputs.push(output);
+                vec![factory::create_activity_delta_event(
+                    activity_id,
+                    activity_type,
+                    vec![json!({ "op": "add", "path": path, "value": value })],
+                    None,
+                    None,
+                )]
+            }
+            CodexAgUiUpdate::ContextUsageUpdated(usage) => {
+                vec![factory::create_state_delta_event(
+                    vec![json!({
+                        "op": "add",
+                        "path": "/contextUsage",
+                        "value": usage,
+                    })],
+                    None,
+                    None,
+                )]
             }
             CodexAgUiUpdate::RunUpdated(status) => run_status_events(thread_id, run_id, &status),
             CodexAgUiUpdate::Error { message } => {
@@ -331,6 +439,41 @@ impl CodexAgUiTranslator {
             }
         }
     }
+}
+
+fn unseen_coalesced_output_suffix(
+    outputs: &[CodexAgUiActivityOutput],
+    first_index: usize,
+    incoming: &CodexAgUiActivityOutput,
+) -> Option<CodexAgUiActivityOutput> {
+    let mut covered = String::new();
+    for current in outputs.iter().skip(first_index) {
+        if current.stream_kind != incoming.stream_kind {
+            break;
+        }
+        covered.push_str(&current.content);
+        if covered.len() >= incoming.content.len() {
+            break;
+        }
+    }
+    if covered.starts_with(&incoming.content) || !incoming.content.starts_with(&covered) {
+        return None;
+    }
+    let content = incoming.content[covered.len()..].to_string();
+    if content.is_empty() {
+        return None;
+    }
+    Some(CodexAgUiActivityOutput {
+        id: format!("{}:coalesced:{}", incoming.id, incoming.updated_at),
+        stream_kind: incoming.stream_kind.clone(),
+        sequence: outputs
+            .last()
+            .map(|output| output.sequence.saturating_add(1))
+            .unwrap_or(incoming.sequence),
+        byte_count: content.len() as u32,
+        content,
+        updated_at: incoming.updated_at,
+    })
 }
 
 /// Returns the final user text message from an AG-UI run input.
@@ -606,5 +749,433 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, Event::ReasoningMessageEnd(_)))
         );
+    }
+
+    #[test]
+    fn activity_output_updates_append_standard_activity_deltas() {
+        let mut translator = CodexAgUiTranslator::new();
+        translator.snapshot_events(&CodexAgUiSnapshot {
+            thread_id: "thread-1".to_string(),
+            run_id: "run-1".to_string(),
+            messages: vec![],
+            activities: vec![CodexAgUiActivity {
+                id: "activity-1".to_string(),
+                activity_type: "codex.command_execution".to_string(),
+                status: CodexAgUiActivityStatus::Streaming,
+                title: Some("Command".to_string()),
+                summary: None,
+                content: Map::new(),
+                sequence: 1,
+            }],
+            run_status: None,
+            state: json!({}),
+        });
+        let first_output = CodexAgUiActivityOutput {
+            id: "output-1".to_string(),
+            stream_kind: "stdout".to_string(),
+            sequence: 1,
+            content: "one".to_string(),
+            byte_count: 3,
+            updated_at: 1,
+        };
+        let second_output = CodexAgUiActivityOutput {
+            id: "output-2".to_string(),
+            stream_kind: "stderr".to_string(),
+            sequence: 2,
+            content: "two".to_string(),
+            byte_count: 3,
+            updated_at: 2,
+        };
+
+        let first = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityOutput {
+                activity_id: "activity-1".to_string(),
+                output: first_output.clone(),
+            },
+        );
+        let second = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityOutput {
+                activity_id: "activity-1".to_string(),
+                output: second_output.clone(),
+            },
+        );
+
+        assert!(matches!(
+            &first[0],
+            Event::ActivityDelta(event)
+                if event.message_id == "activity-1"
+                    && event.activity_type == "codex.command_execution"
+                    && event.patch == vec![json!({
+                        "op": "add",
+                        "path": "/outputs",
+                        "value": [first_output],
+                    })]
+        ));
+        assert!(matches!(
+            &second[0],
+            Event::ActivityDelta(event)
+                if event.patch == vec![json!({
+                    "op": "add",
+                    "path": "/outputs/-",
+                    "value": second_output,
+                })]
+        ));
+    }
+
+    #[test]
+    fn full_activity_update_preserves_accumulated_live_output() {
+        let mut translator = CodexAgUiTranslator::new();
+        let output = CodexAgUiActivityOutput {
+            id: "output-1".to_string(),
+            stream_kind: "stdout".to_string(),
+            sequence: 1,
+            content: "done".to_string(),
+            byte_count: 4,
+            updated_at: 2,
+        };
+        translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityUpdated(CodexAgUiActivity {
+                id: "activity-1".to_string(),
+                activity_type: "codex.command_execution".to_string(),
+                status: CodexAgUiActivityStatus::Streaming,
+                title: Some("Command".to_string()),
+                summary: None,
+                content: Map::new(),
+                sequence: 1,
+            }),
+        );
+        translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityOutput {
+                activity_id: "activity-1".to_string(),
+                output: output.clone(),
+            },
+        );
+
+        let streaming = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityUpdated(CodexAgUiActivity {
+                id: "activity-1".to_string(),
+                activity_type: "codex.command_execution".to_string(),
+                status: CodexAgUiActivityStatus::Streaming,
+                title: Some("Command".to_string()),
+                summary: Some("still running".to_string()),
+                content: Map::new(),
+                sequence: 1,
+            }),
+        );
+        assert!(streaming.is_empty());
+
+        let events = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityUpdated(CodexAgUiActivity {
+                id: "activity-1".to_string(),
+                activity_type: "codex.command_execution".to_string(),
+                status: CodexAgUiActivityStatus::Completed,
+                title: Some("Command".to_string()),
+                summary: None,
+                content: Map::new(),
+                sequence: 1,
+            }),
+        );
+
+        assert!(matches!(
+            &events[0],
+            Event::ActivitySnapshot(event)
+                if event.activity_type == "codex.command_execution"
+                    && event.content.get("outputs") == Some(&json!([output]))
+        ));
+
+        let delta = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityOutput {
+                activity_id: "activity-1".to_string(),
+                output: CodexAgUiActivityOutput {
+                    id: "output-2".to_string(),
+                    stream_kind: "stdout".to_string(),
+                    sequence: 2,
+                    content: " again".to_string(),
+                    byte_count: 6,
+                    updated_at: 3,
+                },
+            },
+        );
+        assert!(matches!(
+            &delta[0],
+            Event::ActivityDelta(event)
+                if event.activity_type == "codex.command_execution"
+        ));
+    }
+
+    #[test]
+    fn unknown_activity_output_is_ignored() {
+        let mut translator = CodexAgUiTranslator::new();
+
+        let events = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityOutput {
+                activity_id: "missing".to_string(),
+                output: CodexAgUiActivityOutput {
+                    id: "output-1".to_string(),
+                    stream_kind: "stdout".to_string(),
+                    sequence: 1,
+                    content: "orphan".to_string(),
+                    byte_count: 6,
+                    updated_at: 1,
+                },
+            },
+        );
+
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn snapshot_output_is_seeded_before_live_output_appends() {
+        let persisted = CodexAgUiActivityOutput {
+            id: "output-1".to_string(),
+            stream_kind: "stdout".to_string(),
+            sequence: 1,
+            content: "persisted".to_string(),
+            byte_count: 9,
+            updated_at: 1,
+        };
+        let mut translator = CodexAgUiTranslator::new();
+        translator.snapshot_events(&CodexAgUiSnapshot {
+            thread_id: "thread-1".to_string(),
+            run_id: "run-1".to_string(),
+            messages: Vec::new(),
+            activities: vec![CodexAgUiActivity {
+                id: "activity-1".to_string(),
+                activity_type: "codex.command_execution".to_string(),
+                status: CodexAgUiActivityStatus::Streaming,
+                title: Some("Command".to_string()),
+                summary: None,
+                content: json!({ "outputs": [persisted] })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                sequence: 1,
+            }],
+            run_status: None,
+            state: json!({}),
+        });
+        let live = CodexAgUiActivityOutput {
+            id: "output-2".to_string(),
+            stream_kind: "stdout".to_string(),
+            sequence: 2,
+            content: " live".to_string(),
+            byte_count: 5,
+            updated_at: 2,
+        };
+
+        let events = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityOutput {
+                activity_id: "activity-1".to_string(),
+                output: live.clone(),
+            },
+        );
+
+        assert!(matches!(
+            &events[0],
+            Event::ActivityDelta(event)
+                if event.patch == vec![json!({
+                    "op": "add",
+                    "path": "/outputs/-",
+                    "value": live,
+                })]
+        ));
+    }
+
+    #[test]
+    fn snapshot_output_ignores_a_replayed_live_chunk() {
+        let persisted = CodexAgUiActivityOutput {
+            id: "output-1".to_string(),
+            stream_kind: "stdout".to_string(),
+            sequence: 1,
+            content: "persisted".to_string(),
+            byte_count: 9,
+            updated_at: 1,
+        };
+        let mut translator = CodexAgUiTranslator::new();
+        translator.snapshot_events(&CodexAgUiSnapshot {
+            thread_id: "thread-1".to_string(),
+            run_id: "run-1".to_string(),
+            messages: Vec::new(),
+            activities: vec![CodexAgUiActivity {
+                id: "activity-1".to_string(),
+                activity_type: "codex.command_execution".to_string(),
+                status: CodexAgUiActivityStatus::Streaming,
+                title: None,
+                summary: None,
+                content: json!({ "outputs": [persisted.clone()] })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                sequence: 1,
+            }],
+            run_status: None,
+            state: json!({}),
+        });
+
+        let events = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityOutput {
+                activity_id: "activity-1".to_string(),
+                output: persisted,
+            },
+        );
+
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn snapshot_output_appends_only_the_unseen_part_of_a_coalesced_chunk() {
+        let persisted = CodexAgUiActivityOutput {
+            id: "output-1".to_string(),
+            stream_kind: "stdout".to_string(),
+            sequence: 1,
+            content: "one".to_string(),
+            byte_count: 3,
+            updated_at: 1,
+        };
+        let mut translator = CodexAgUiTranslator::new();
+        translator.snapshot_events(&CodexAgUiSnapshot {
+            thread_id: "thread-1".to_string(),
+            run_id: "run-1".to_string(),
+            messages: Vec::new(),
+            activities: vec![CodexAgUiActivity {
+                id: "activity-1".to_string(),
+                activity_type: "codex.command_execution".to_string(),
+                status: CodexAgUiActivityStatus::Streaming,
+                title: None,
+                summary: None,
+                content: json!({ "outputs": [persisted] })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                sequence: 1,
+            }],
+            run_status: None,
+            state: json!({}),
+        });
+
+        let events = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityOutput {
+                activity_id: "activity-1".to_string(),
+                output: CodexAgUiActivityOutput {
+                    id: "output-1".to_string(),
+                    stream_kind: "stdout".to_string(),
+                    sequence: 1,
+                    content: "onetwo".to_string(),
+                    byte_count: 6,
+                    updated_at: 2,
+                },
+            },
+        );
+
+        assert!(matches!(
+            &events[0],
+            Event::ActivityDelta(event)
+                if event.patch.len() == 1
+                    && event.patch[0]["op"] == "add"
+                    && event.patch[0]["path"] == "/outputs/-"
+                    && event.patch[0]["value"]["content"] == "two"
+        ));
+    }
+
+    #[test]
+    fn snapshot_output_ignores_a_coalesced_chunk_already_fully_persisted() {
+        let first = CodexAgUiActivityOutput {
+            id: "output-1".to_string(),
+            stream_kind: "stdout".to_string(),
+            sequence: 1,
+            content: "one".to_string(),
+            byte_count: 3,
+            updated_at: 1,
+        };
+        let second = CodexAgUiActivityOutput {
+            id: "output-2".to_string(),
+            stream_kind: "stdout".to_string(),
+            sequence: 2,
+            content: "two".to_string(),
+            byte_count: 3,
+            updated_at: 2,
+        };
+        let mut translator = CodexAgUiTranslator::new();
+        translator.snapshot_events(&CodexAgUiSnapshot {
+            thread_id: "thread-1".to_string(),
+            run_id: "run-1".to_string(),
+            messages: Vec::new(),
+            activities: vec![CodexAgUiActivity {
+                id: "activity-1".to_string(),
+                activity_type: "codex.command_execution".to_string(),
+                status: CodexAgUiActivityStatus::Streaming,
+                title: None,
+                summary: None,
+                content: json!({ "outputs": [first, second] })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                sequence: 1,
+            }],
+            run_status: None,
+            state: json!({}),
+        });
+
+        let events = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ActivityOutput {
+                activity_id: "activity-1".to_string(),
+                output: CodexAgUiActivityOutput {
+                    id: "output-1".to_string(),
+                    stream_kind: "stdout".to_string(),
+                    sequence: 1,
+                    content: "onetwo".to_string(),
+                    byte_count: 6,
+                    updated_at: 2,
+                },
+            },
+        );
+
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn context_usage_update_emits_standard_state_delta() {
+        let mut translator = CodexAgUiTranslator::new();
+        let usage = json!({ "usedTokens": 10, "maxTokens": 100 });
+
+        let events = translator.update_events(
+            "thread-1",
+            "run-1",
+            CodexAgUiUpdate::ContextUsageUpdated(usage.clone()),
+        );
+
+        assert!(matches!(
+            &events[0],
+            Event::StateDelta(event)
+                if event.delta == vec![json!({
+                    "op": "add",
+                    "path": "/contextUsage",
+                    "value": usage,
+                })]
+        ));
     }
 }

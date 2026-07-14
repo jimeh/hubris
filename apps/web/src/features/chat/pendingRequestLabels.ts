@@ -1,6 +1,6 @@
 import type { ChatPendingRequest } from "@/lib/types";
 
-/** Returns the user-facing label for a pending request kind. */
+/** Returns the shared user-facing label for a pending request kind. */
 export function requestKindLabel(request: ChatPendingRequest): string {
   switch (request.kind) {
     case "command_approval":

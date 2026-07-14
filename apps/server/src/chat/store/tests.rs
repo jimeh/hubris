@@ -768,6 +768,73 @@ async fn reasoning_delta_creates_reasoning_item_without_response_text() {
     assert_eq!(message.provider_item_id, None);
     assert_eq!(detail.items[0].kind, ChatItemKind::Reasoning);
     assert_eq!(detail.items[0].summary.as_deref(), Some("Thinking"));
+    let outputs = service
+        .list_activity_outputs(&conversation.id, &[detail.items[0].id.clone()])
+        .await
+        .unwrap();
+    assert_eq!(outputs.len(), 1);
+    assert_eq!(outputs[0].stream_kind, "reasoning");
+    assert_eq!(outputs[0].content_text, "Thinking");
+}
+
+#[tokio::test]
+async fn reasoning_notifications_throttle_message_snapshots_without_losing_output() {
+    let service = test_service().await;
+    let conversation = create_persisted_conversation(&service).await;
+    let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+    let (_, assistant_message_id, _, _) = start_test_run(&service, &conversation, &runtime).await;
+    let mut events = service.events.subscribe();
+    service.events.emit(EventKind::ProjectRemoved {
+        project_id: "test-barrier".to_string(),
+    });
+    loop {
+        let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if matches!(
+            &event.kind,
+            EventKind::ProjectRemoved { project_id } if project_id == "test-barrier"
+        ) {
+            break;
+        }
+    }
+
+    for delta in ["one ", "two ", "three"] {
+        service
+            .handle_provider_notification(
+                &conversation.id,
+                &runtime,
+                "item/reasoning/summaryTextDelta",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "provider-turn-1",
+                    "itemId": "reasoning-1",
+                    "summaryIndex": 0,
+                    "delta": delta,
+                }),
+            )
+            .await
+            .unwrap();
+    }
+
+    let mut message_snapshots = 0;
+    let mut activity_output = String::new();
+    while let Ok(Ok(event)) = tokio::time::timeout(Duration::from_millis(100), events.recv()).await
+    {
+        match &event.kind {
+            EventKind::ChatMessageUpdated { message, .. } if message.id == assistant_message_id => {
+                message_snapshots += 1;
+            }
+            EventKind::ChatActivityDelta { output, .. } => {
+                activity_output.push_str(&output.content_text);
+            }
+            _ => {}
+        }
+    }
+
+    assert_eq!(message_snapshots, 1);
+    assert_eq!(activity_output, "one two three");
 }
 
 #[tokio::test]
@@ -825,6 +892,13 @@ async fn command_output_delta_creates_activity_item_and_output() {
     assert_eq!(activity.outputs.len(), 1);
     assert_eq!(activity.outputs[0].stream_kind, "stdout");
     assert_eq!(activity.outputs[0].content_text, "running 1 test\n");
+    assert_eq!(
+        service
+            .list_activity_outputs(&conversation.id, &[detail.items[0].id.clone()])
+            .await
+            .unwrap(),
+        activity.outputs
+    );
 }
 
 #[tokio::test]

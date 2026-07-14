@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,9 +12,9 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
 use bytes::Bytes;
 use codex_ag_ui::{
-    CodexAgUiActivity, CodexAgUiActivityStatus, CodexAgUiMessage, CodexAgUiMessageRole,
-    CodexAgUiMessageStatus, CodexAgUiRunStatus, CodexAgUiSnapshot, CodexAgUiTranslator,
-    CodexAgUiUpdate, input_last_user_text,
+    CodexAgUiActivity, CodexAgUiActivityOutput, CodexAgUiActivityStatus, CodexAgUiMessage,
+    CodexAgUiMessageRole, CodexAgUiMessageStatus, CodexAgUiRunStatus, CodexAgUiSnapshot,
+    CodexAgUiTranslator, CodexAgUiUpdate, input_last_user_text,
 };
 use serde_json::{Map, Value, json};
 use tokio::sync::broadcast;
@@ -22,7 +23,7 @@ use crate::api::chats::SendChatMessageRequest;
 use crate::api::files::ApiErrorResponse;
 use crate::api::worktrees::resolve_worktree;
 use crate::chat::{
-    ChatConversationDetail, ChatItemStatus, ChatMessageRole, ChatMessageStatus,
+    ChatConversationDetail, ChatItemOutput, ChatItemStatus, ChatMessageRole, ChatMessageStatus,
     ChatPendingRequestKind, ChatPendingRequestStatus, ChatRunStatus,
 };
 use crate::error::ApiError;
@@ -61,8 +62,8 @@ pub async fn run_codex_ag_ui_chat(
             .get(header::ACCEPT)
             .and_then(|value| value.to_str().ok()),
     );
-    let (detail, rx) = prepare_run(&state, &conversation_id, &input).await?;
-    let initial = detail_to_snapshot(&detail, &input);
+    let (detail, activity_outputs, rx) = prepare_run(&state, &conversation_id, &input).await?;
+    let initial = detail_to_snapshot(&detail, &activity_outputs, &input);
     let stream = ag_ui_body_stream(initial, rx, conversation_id, encoder);
     let mut response = Response::new(Body::from_stream(stream));
     *response.status_mut() = StatusCode::OK;
@@ -85,7 +86,14 @@ async fn prepare_run(
     state: &AppState,
     conversation_id: &str,
     input: &RunAgentInput,
-) -> Result<(ChatConversationDetail, broadcast::Receiver<Arc<Event>>), ApiError> {
+) -> Result<
+    (
+        ChatConversationDetail,
+        Vec<ChatItemOutput>,
+        broadcast::Receiver<Arc<Event>>,
+    ),
+    ApiError,
+> {
     if !state
         .settings
         .get()
@@ -133,7 +141,18 @@ async fn prepare_run(
         .await
         .map_err(ApiError::from)?
         .ok_or_else(chat_not_found)?;
-    Ok((detail, rx))
+    let activity_item_ids = detail
+        .items
+        .iter()
+        .filter(|item| item.kind.is_activity())
+        .map(|item| item.id.clone())
+        .collect::<Vec<_>>();
+    let activity_outputs = state
+        .chats
+        .list_activity_outputs(conversation_id, &activity_item_ids)
+        .await
+        .map_err(ApiError::from)?;
+    Ok((detail, activity_outputs, rx))
 }
 
 async fn send_chat_message_for_ag_ui(
@@ -252,8 +271,17 @@ fn event_to_ag_ui_update(event: &Event, conversation_id: &str) -> Option<CodexAg
             item,
             ..
         } if event_conversation_id == conversation_id && item.kind.is_activity() => Some(
-            CodexAgUiUpdate::ActivityUpdated(chat_item_to_activity(item)),
+            CodexAgUiUpdate::ActivityUpdated(chat_item_to_activity(item, &[])),
         ),
+        EventKind::ChatActivityDelta {
+            conversation_id: event_conversation_id,
+            item_id,
+            output,
+            ..
+        } if event_conversation_id == conversation_id => Some(CodexAgUiUpdate::ActivityOutput {
+            activity_id: item_id.clone(),
+            output: chat_item_output_to_ag_ui(output),
+        }),
         EventKind::ChatPendingRequestCreated { request, .. }
         | EventKind::ChatPendingRequestUpdated { request, .. }
         | EventKind::ChatPendingRequestResolved { request, .. }
@@ -284,6 +312,11 @@ fn event_to_ag_ui_update(event: &Event, conversation_id: &str) -> Option<CodexAg
         } if event_conversation_id == conversation_id => Some(CodexAgUiUpdate::ActivityUpdated(
             diff_summary_to_activity(diff),
         )),
+        EventKind::ChatContextUsageUpdated { usage, .. }
+            if usage.conversation_id == conversation_id =>
+        {
+            Some(CodexAgUiUpdate::ContextUsageUpdated(json!(usage)))
+        }
         _ => None,
     }
 }
@@ -296,12 +329,31 @@ fn update_is_terminal(update: &CodexAgUiUpdate) -> bool {
     )
 }
 
-fn detail_to_snapshot(detail: &ChatConversationDetail, input: &RunAgentInput) -> CodexAgUiSnapshot {
+fn detail_to_snapshot(
+    detail: &ChatConversationDetail,
+    outputs: &[ChatItemOutput],
+    input: &RunAgentInput,
+) -> CodexAgUiSnapshot {
+    let mut outputs_by_item = HashMap::<&str, Vec<CodexAgUiActivityOutput>>::new();
+    for output in outputs {
+        outputs_by_item
+            .entry(output.item_id.as_str())
+            .or_default()
+            .push(chat_item_output_to_ag_ui(output));
+    }
     let mut activities: Vec<_> = detail
         .items
         .iter()
         .filter(|item| item.kind.is_activity())
-        .map(chat_item_to_activity)
+        .map(|item| {
+            chat_item_to_activity(
+                item,
+                outputs_by_item
+                    .get(item.id.as_str())
+                    .map(Vec::as_slice)
+                    .unwrap_or_default(),
+            )
+        })
         .chain(
             detail
                 .pending_requests
@@ -351,13 +403,19 @@ fn chat_message_to_ag_ui(message: &crate::chat::ChatMessage) -> CodexAgUiMessage
     }
 }
 
-fn chat_item_to_activity(item: &crate::chat::ChatItem) -> CodexAgUiActivity {
+fn chat_item_to_activity(
+    item: &crate::chat::ChatItem,
+    outputs: &[CodexAgUiActivityOutput],
+) -> CodexAgUiActivity {
     let mut content = Map::new();
     content.insert("kind".to_string(), json!(item.kind));
     content.insert(
         "metadata".to_string(),
         parse_json_object(&item.metadata_json),
     );
+    if !outputs.is_empty() {
+        content.insert("outputs".to_string(), json!(outputs));
+    }
     CodexAgUiActivity {
         id: item.id.clone(),
         activity_type: format!("codex.{}", item.kind.as_str()),
@@ -371,6 +429,17 @@ fn chat_item_to_activity(item: &crate::chat::ChatItem) -> CodexAgUiActivity {
         summary: item.summary.clone(),
         content,
         sequence: item.sequence,
+    }
+}
+
+fn chat_item_output_to_ag_ui(output: &ChatItemOutput) -> CodexAgUiActivityOutput {
+    CodexAgUiActivityOutput {
+        id: output.id.clone(),
+        stream_kind: output.stream_kind.clone(),
+        sequence: output.sequence,
+        content: output.content_text.clone(),
+        byte_count: output.byte_count,
+        updated_at: output.updated_at,
     }
 }
 
@@ -533,6 +602,20 @@ mod tests {
         }
     }
 
+    fn output(item_id: &str, sequence: u32, content: &str) -> ChatItemOutput {
+        ChatItemOutput {
+            id: format!("output-{sequence}"),
+            conversation_id: "chat-1".to_string(),
+            item_id: item_id.to_string(),
+            stream_kind: "stdout".to_string(),
+            sequence,
+            content_text: content.to_string(),
+            byte_count: content.len() as u32,
+            created_at: sequence as u64,
+            updated_at: sequence as u64,
+        }
+    }
+
     fn pending_request(status: ChatPendingRequestStatus, sequence: u32) -> ChatPendingRequest {
         ChatPendingRequest {
             id: format!("request-{sequence}"),
@@ -664,7 +747,8 @@ mod tests {
                 (
                     kind.as_str(),
                     kind.is_activity(),
-                    chat_item_to_activity(&item(kind, ChatItemStatus::Started, 1)).activity_type,
+                    chat_item_to_activity(&item(kind, ChatItemStatus::Started, 1), &[])
+                        .activity_type,
                 ),
                 (name, is_activity, format!("codex.{name}")),
             );
@@ -724,7 +808,8 @@ mod tests {
 
         for (status, expected) in cases {
             assert_eq!(
-                chat_item_to_activity(&item(ChatItemKind::CommandExecution, status, 1)).status,
+                chat_item_to_activity(&item(ChatItemKind::CommandExecution, status, 1), &[],)
+                    .status,
                 expected,
             );
         }
@@ -921,6 +1006,7 @@ mod tests {
             updates,
             vec![CodexAgUiUpdate::ActivityUpdated(chat_item_to_activity(
                 &activity,
+                &[],
             ))],
         );
     }
@@ -958,7 +1044,7 @@ mod tests {
             latest_run: None,
         };
 
-        let snapshot = detail_to_snapshot(&detail, &RunAgentInput::new("thread-1", "run-1"));
+        let snapshot = detail_to_snapshot(&detail, &[], &RunAgentInput::new("thread-1", "run-1"));
         let activity_ids: Vec<_> = snapshot
             .activities
             .iter()
@@ -969,8 +1055,53 @@ mod tests {
     }
 
     #[test]
-    fn activity_delta_is_a_documented_polish_phase_gap() {
-        // Polish-phase gap: AG-UI does not yet emit live activity-output events.
+    fn snapshot_includes_persisted_outputs_for_each_activity() {
+        let detail = ChatConversationDetail {
+            conversation: conversation(),
+            messages: Vec::new(),
+            turns: Vec::new(),
+            items: vec![item(
+                ChatItemKind::CommandExecution,
+                ChatItemStatus::Completed,
+                1,
+            )],
+            plans: Vec::new(),
+            diff_summaries: Vec::new(),
+            context_usage: None,
+            pending_requests: Vec::new(),
+            latest_reconciliation: None,
+            latest_run: None,
+        };
+        let outputs = [output("item-1", 1, "one"), output("item-1", 2, "two")];
+
+        let snapshot =
+            detail_to_snapshot(&detail, &outputs, &RunAgentInput::new("thread-1", "run-1"));
+
+        assert_eq!(
+            snapshot.activities[0].content.get("outputs"),
+            Some(&json!([
+                {
+                    "id": "output-1",
+                    "streamKind": "stdout",
+                    "sequence": 1,
+                    "content": "one",
+                    "byteCount": 3,
+                    "updatedAt": 1,
+                },
+                {
+                    "id": "output-2",
+                    "streamKind": "stdout",
+                    "sequence": 2,
+                    "content": "two",
+                    "byteCount": 3,
+                    "updatedAt": 2,
+                }
+            ])),
+        );
+    }
+
+    #[test]
+    fn activity_delta_emits_normalized_ag_ui_output_update() {
         let event = Event {
             kind: EventKind::ChatActivityDelta {
                 session_id: "default".to_string(),
@@ -990,12 +1121,25 @@ mod tests {
             },
         };
 
-        assert_eq!(event_to_ag_ui_update(&event, "chat-1"), None);
+        assert_eq!(
+            event_to_ag_ui_update(&event, "chat-1"),
+            Some(CodexAgUiUpdate::ActivityOutput {
+                activity_id: "item-1".to_string(),
+                output: CodexAgUiActivityOutput {
+                    id: "output-1".to_string(),
+                    stream_kind: "stdout".to_string(),
+                    sequence: 1,
+                    content: "output".to_string(),
+                    byte_count: 6,
+                    updated_at: 2,
+                },
+            }),
+        );
+        assert_eq!(event_to_ag_ui_update(&event, "chat-2"), None);
     }
 
     #[test]
-    fn context_usage_update_is_a_documented_polish_phase_gap() {
-        // Polish-phase gap: AG-UI does not yet emit live token-usage events.
+    fn context_usage_update_emits_matching_ag_ui_state_update() {
         let event = Event {
             kind: EventKind::ChatContextUsageUpdated {
                 session_id: "default".to_string(),
@@ -1013,6 +1157,20 @@ mod tests {
             },
         };
 
-        assert_eq!(event_to_ag_ui_update(&event, "chat-1"), None);
+        assert_eq!(
+            event_to_ag_ui_update(&event, "chat-1"),
+            Some(CodexAgUiUpdate::ContextUsageUpdated(json!({
+                "id": "usage-1",
+                "conversationId": "chat-1",
+                "providerThreadId": "provider-thread-1",
+                "usedTokens": 10,
+                "maxTokens": 100,
+                "percentUsed": 10.0,
+                "totalProcessedTokens": 20,
+                "metadataJson": "{}",
+                "updatedAt": 2,
+            }))),
+        );
+        assert_eq!(event_to_ag_ui_update(&event, "chat-2"), None);
     }
 }
