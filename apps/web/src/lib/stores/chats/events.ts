@@ -9,6 +9,10 @@ import {
   removeConversationFromStore,
 } from "./conversation";
 import {
+  invalidateLoadsOutsideSnapshot,
+  resetLoadOwnershipForTests,
+} from "./load-ownership";
+import {
   indexConversations,
   indexPendingRequestSummaries,
   indexReconciliations,
@@ -25,6 +29,7 @@ let queuedChatFrame: number | null = null;
 function handleConversationDeletedEvent(
   data: SseEventData<"chat_conversation_deleted">,
 ): void {
+  flushQueuedChatEvents();
   removeConversationFromStore(useChatStore, data.conversationId);
 }
 
@@ -162,8 +167,9 @@ export function initializeChatStore(): void {
       const nextPendingRequestSummaries = indexPendingRequestSummaries(
         data.chatPendingRequests,
       );
+      const conversationIds = new Set(Object.keys(nextConversations));
+      invalidateLoadsOutsideSnapshot(conversationIds);
       useChatStore.setState((state) => {
-        const conversationIds = new Set(Object.keys(nextConversations));
         const messageIdsByConversationId = Object.fromEntries(
           Object.entries(state.messageIdsByConversationId).filter(
             ([conversationId]) => conversationIds.has(conversationId),
@@ -351,6 +357,7 @@ export function resetChatStoreForTests(): void {
     window.cancelAnimationFrame(queuedChatFrame);
   }
   queuedChatFrame = null;
+  resetLoadOwnershipForTests();
   useChatStore.setState({
     appServerStatus: null,
     conversationsById: {},

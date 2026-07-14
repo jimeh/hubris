@@ -14,6 +14,7 @@ import {
   removeConversationFromStore,
 } from "./conversation";
 import { loadActivity, loadConversation } from "./details";
+import { invalidateConversationLoads } from "./load-ownership";
 import {
   type ChatStoreApi,
   type ChatStoreState,
@@ -147,6 +148,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => {
       });
     },
     clearConversationDetail(conversationId) {
+      invalidateConversationLoads(conversationId);
       set((state) => {
         if (!(conversationId in state.detailsByConversationId)) {
           return state;

@@ -50,6 +50,16 @@ class MockEventClient {
 
 let mockEvents: MockEventClient;
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
@@ -463,6 +473,105 @@ describe("chat store", () => {
     );
   });
 
+  it("keeps the newest conversation refresh when an older load finishes last", async () => {
+    const olderRequest = deferred<typeof detail>();
+    const newerRequest = deferred<typeof detail>();
+    const newerDetail = {
+      ...detail,
+      conversation: {
+        ...conversation,
+        title: "Newest title",
+        revision: 2,
+      },
+      messages: [
+        {
+          ...detail.messages[0],
+          contentText: "Newest response",
+          updatedAt: 20,
+        },
+      ],
+    };
+    mockGetChat
+      .mockReturnValueOnce(olderRequest.promise)
+      .mockReturnValueOnce(newerRequest.promise);
+
+    const olderLoad = useChatStore.getState().refreshConversation("chat-1");
+    const newerLoad = useChatStore.getState().refreshConversation("chat-1");
+
+    newerRequest.resolve(newerDetail);
+    expect(await newerLoad).toEqual(newerDetail);
+    olderRequest.resolve(detail);
+    expect(await olderLoad).toBeNull();
+
+    expect(useChatStore.getState().conversationsById["chat-1"]?.title).toBe(
+      "Newest title",
+    );
+    expect(useChatStore.getState().messagesById["message-1"]?.contentText).toBe(
+      "Newest response",
+    );
+  });
+
+  it("ignores an older conversation error after a newer refresh succeeds", async () => {
+    const olderRequest = deferred<typeof detail>();
+    const newerRequest = deferred<typeof detail>();
+    mockGetChat
+      .mockReturnValueOnce(olderRequest.promise)
+      .mockReturnValueOnce(newerRequest.promise);
+
+    const olderLoad = useChatStore.getState().refreshConversation("chat-1");
+    const newerLoad = useChatStore.getState().refreshConversation("chat-1");
+
+    newerRequest.resolve(detail);
+    expect(await newerLoad).toEqual(detail);
+    olderRequest.reject(new Error("stale failure"));
+    expect(await olderLoad).toBeNull();
+
+    expect(useChatStore.getState().detailsByConversationId["chat-1"]).toEqual({
+      status: "loaded",
+      error: null,
+      needsRefresh: false,
+    });
+  });
+
+  it("does not restore detail after it is cleared during a load", async () => {
+    const request = deferred<typeof detail>();
+    mockGetChat.mockReturnValue(request.promise);
+
+    const load = useChatStore.getState().refreshConversation("chat-1");
+    useChatStore.getState().clearConversationDetail("chat-1");
+    request.resolve(detail);
+
+    expect(await load).toBeNull();
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"],
+    ).toBeUndefined();
+    expect(selectChatMessageIds(useChatStore.getState(), "chat-1")).toEqual([]);
+  });
+
+  it("does not restore detail excluded by an authoritative snapshot", async () => {
+    initializeChatStore();
+    const request = deferred<typeof detail>();
+    mockGetChat.mockReturnValue(request.promise);
+
+    const load = useChatStore.getState().refreshConversation("chat-1");
+    mockEvents.emit("snapshot", {
+      chatAppServer: null,
+      chatConversations: [],
+      chatContextUsage: [],
+      chatPendingRequests: [],
+      chatReconciliations: [],
+      chatRuntimes: [],
+      chatThreadStreams: [],
+    });
+    request.resolve(detail);
+
+    expect(await load).toBeNull();
+    expect(
+      useChatStore.getState().detailsByConversationId["chat-1"],
+    ).toBeUndefined();
+    expect(useChatStore.getState().conversationsById["chat-1"]).toBeUndefined();
+  });
+
   it("hydrates turn/item detail and applies turn/item SSE updates", async () => {
     initializeChatStore();
     mockGetChat.mockResolvedValue(detail);
@@ -706,6 +815,74 @@ describe("chat store", () => {
     expect(
       useChatStore.getState().pendingRequestSummariesById["request-1"],
     ).toBeUndefined();
+  });
+
+  it("flushes queued chat events before deleting their conversation", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue(detail);
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    mockEvents.emit("chat_message_updated", {
+      sessionId: "default",
+      conversationId: "chat-1",
+      message: {
+        ...detail.messages[0],
+        contentText: "queued update",
+      },
+    });
+    mockEvents.emit("chat_item_updated", {
+      sessionId: "default",
+      conversationId: "chat-1",
+      item: commandItem,
+    });
+    mockEvents.emit("chat_conversation_deleted", {
+      sessionId: "default",
+      conversationId: "chat-1",
+      projectId: "project-1",
+      branchName: null,
+    });
+
+    expect(useChatStore.getState().conversationsById["chat-1"]).toBeUndefined();
+    expect(useChatStore.getState().messagesById["message-1"]).toBeUndefined();
+    expect(useChatStore.getState().itemsById["item-command-1"]).toBeUndefined();
+
+    flushChatStoreSseBatchForTests();
+
+    expect(useChatStore.getState().conversationsById["chat-1"]).toBeUndefined();
+    expect(useChatStore.getState().messagesById["message-1"]).toBeUndefined();
+    expect(useChatStore.getState().itemsById["item-command-1"]).toBeUndefined();
+  });
+
+  it("does not restore activity after its conversation is deleted", async () => {
+    initializeChatStore();
+    mockGetChat.mockResolvedValue({
+      ...detail,
+      items: [...detail.items, commandItem],
+    });
+    const request = deferred<{
+      item: typeof commandItem;
+      outputs: Array<typeof commandOutput>;
+    }>();
+    mockGetChatActivity.mockReturnValue(request.promise);
+    await useChatStore.getState().ensureConversationLoaded("chat-1");
+
+    const load = useChatStore
+      .getState()
+      .ensureActivityLoaded("chat-1", "item-command-1");
+    mockEvents.emit("chat_conversation_deleted", {
+      sessionId: "default",
+      conversationId: "chat-1",
+      projectId: "project-1",
+      branchName: null,
+    });
+    request.resolve({ item: commandItem, outputs: [commandOutput] });
+
+    expect(await load).toBeNull();
+    expect(
+      useChatStore.getState().activityDetailsByItemId["item-command-1"],
+    ).toBeUndefined();
+    expect(useChatStore.getState().itemsById["item-command-1"]).toBeUndefined();
+    expect(useChatStore.getState().outputsById["output-1"]).toBeUndefined();
   });
 
   it("orders turn-owned rows as user, work group, then assistant", async () => {

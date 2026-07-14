@@ -13,6 +13,14 @@ import { getChat, getChatActivity } from "@/lib/api";
 import type { ChatActivityDetail, ChatConversationDetail } from "@/lib/types";
 import { mergeConversationIntoOpenTabs } from "./conversation";
 import {
+  beginActivityLoad,
+  beginConversationLoad,
+  ownsActivityLoad,
+  ownsConversationLoad,
+  releaseActivityLoad,
+  releaseConversationLoad,
+} from "./load-ownership";
+import {
   DEFAULT_ACTIVITY_DETAIL_STATE,
   DEFAULT_DETAIL_STATE,
   type ChatStoreApi,
@@ -136,6 +144,7 @@ export async function loadConversation(
   store: ChatStoreApi,
   conversationId: string,
 ): Promise<ChatConversationDetail | null> {
+  const owner = beginConversationLoad(conversationId);
   store.setState((state) => ({
     detailsByConversationId: {
       ...state.detailsByConversationId,
@@ -150,9 +159,15 @@ export async function loadConversation(
 
   try {
     const detail = await getChat(conversationId);
+    if (!ownsConversationLoad(conversationId, owner)) {
+      return null;
+    }
     setDetail(store, conversationId, detail);
     return detail;
   } catch (error) {
+    if (!ownsConversationLoad(conversationId, owner)) {
+      return null;
+    }
     store.setState((state) => ({
       detailsByConversationId: {
         ...state.detailsByConversationId,
@@ -165,6 +180,8 @@ export async function loadConversation(
       },
     }));
     return null;
+  } finally {
+    releaseConversationLoad(conversationId, owner);
   }
 }
 
@@ -173,6 +190,7 @@ export async function loadActivity(
   conversationId: string,
   itemId: string,
 ): Promise<ChatActivityDetail | null> {
+  const owner = beginActivityLoad(conversationId, itemId);
   store.setState((state) => ({
     activityDetailsByItemId: {
       ...state.activityDetailsByItemId,
@@ -187,6 +205,9 @@ export async function loadActivity(
 
   try {
     const detail = await getChatActivity(conversationId, itemId);
+    if (!ownsActivityLoad(itemId, owner)) {
+      return null;
+    }
     store.setState((state) => {
       const outputsById = {
         ...state.outputsById,
@@ -239,6 +260,9 @@ export async function loadActivity(
     });
     return detail;
   } catch (error) {
+    if (!ownsActivityLoad(itemId, owner)) {
+      return null;
+    }
     store.setState((state) => ({
       activityDetailsByItemId: {
         ...state.activityDetailsByItemId,
@@ -250,5 +274,7 @@ export async function loadActivity(
       },
     }));
     return null;
+  } finally {
+    releaseActivityLoad(itemId, owner);
   }
 }
