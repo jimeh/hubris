@@ -365,8 +365,14 @@ async fn finalize_run_returns_the_targeted_run() {
         .await
         .unwrap();
 
-    let finalized = service
-        .finalize_run(&conversation.id, "run-a", ChatRunStatus::Completed, None)
+    let (finalized, _) = service
+        .finalize_run(
+            &conversation.id,
+            "run-a",
+            ChatRunStatus::Completed,
+            None,
+            None,
+        )
         .await
         .unwrap();
 
@@ -402,7 +408,13 @@ async fn finalize_run_rolls_back_when_a_related_update_fails() {
     .unwrap();
 
     let result = service
-        .finalize_run(&conversation.id, "run-1", ChatRunStatus::Completed, None)
+        .finalize_run(
+            &conversation.id,
+            "run-1",
+            ChatRunStatus::Completed,
+            None,
+            Some(("assistant-1", "Done", ChatMessageStatus::Completed)),
+        )
         .await;
     assert!(result.is_err());
 
@@ -414,6 +426,13 @@ async fn finalize_run_rolls_back_when_a_related_update_fails() {
     assert_eq!(detail.latest_run.unwrap().status, ChatRunStatus::Starting);
     assert_eq!(detail.turns[0].status, ChatTurnStatus::Starting);
     assert_eq!(detail.conversation.last_run_state, ChatRunStatus::Starting);
+    let assistant_message = detail
+        .messages
+        .iter()
+        .find(|message| message.id == "assistant-1")
+        .unwrap();
+    assert_eq!(assistant_message.status, ChatMessageStatus::Streaming);
+    assert_eq!(assistant_message.content_text, "");
 }
 
 #[tokio::test]

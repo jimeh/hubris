@@ -1592,19 +1592,17 @@ impl ChatService {
                             ChatMessageStatus::Completed
                         }
                     };
-                    let finalized_message = if let Some(message_id) = message_id.as_deref() {
-                        self.finalize_assistant_message(
+                    let assistant_message = message_id
+                        .as_deref()
+                        .map(|message_id| (message_id, final_text.as_str(), message_status));
+                    let (run, finalized_message) = self
+                        .finalize_run(
                             conversation_id,
-                            message_id,
-                            &final_text,
-                            message_status,
+                            &run_id,
+                            run_status,
+                            error_message.clone(),
+                            assistant_message,
                         )
-                        .await?
-                    } else {
-                        None
-                    };
-                    let run = self
-                        .finalize_run(conversation_id, &run_id, run_status, error_message.clone())
                         .await?;
                     if let Some(turn_id) = turn_id.as_deref() {
                         let turn = self
