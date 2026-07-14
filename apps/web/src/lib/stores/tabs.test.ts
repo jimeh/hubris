@@ -6,7 +6,9 @@ import type {
   BrowserTab,
   FileTab,
   GitDiffTab,
+  Tab,
   TerminalTab,
+  WorktreeTabLayoutState,
 } from "@/lib/types";
 import { useWorktreeStore } from "@/lib/stores/worktrees";
 import { useWorktreeFileManagerStore } from "@/lib/stores/worktreeFileManager";
@@ -82,6 +84,16 @@ class MockEventClient {
 }
 
 let mockEvents: MockEventClient;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
 
 vi.mock("@/lib/events", async () => {
   const actual =
@@ -190,6 +202,44 @@ function makeAgentChatTab(
   };
 }
 
+function makeSplitLayoutState(ratio: number): WorktreeTabLayoutState {
+  return {
+    layout: {
+      rootId: "split-root",
+      nodes: [
+        { type: "leaf", id: "leaf-a", paneId: "pane-1" },
+        { type: "leaf", id: "leaf-b", paneId: "pane-2" },
+        {
+          type: "split",
+          id: "split-root",
+          axis: "vertical",
+          ratio,
+          firstId: "leaf-a",
+          secondId: "leaf-b",
+        },
+      ],
+    },
+    tabs: [
+      makeTab({ id: "a", worktreeId: "w1", paneId: "pane-1" }),
+      makeTab({ id: "b", worktreeId: "w1", paneId: "pane-2" }),
+    ],
+  };
+}
+
+function makeSinglePaneLayoutState(
+  orderedIds: string[] = ["a", "b"],
+): WorktreeTabLayoutState {
+  return {
+    layout: {
+      rootId: "leaf-a",
+      nodes: [{ type: "leaf", id: "leaf-a", paneId: "pane-1" }],
+    },
+    tabs: orderedIds.map((id, index) =>
+      makeTab({ id, paneId: "pane-1", position: index + 1 }),
+    ),
+  };
+}
+
 function getStore() {
   resetTabStoreForTests();
   initializeTabStore();
@@ -294,9 +344,45 @@ describe("Tab store", () => {
     expect(selectTabsForPane(nextState, "pane-1")).toBe(paneTabs);
   });
 
+  it("persists the normalized terminal custom label", async () => {
+    const store = await getStore();
+    const tab = makeTab({ id: "terminal-1" });
+    mockUpdateTab.mockResolvedValue({ ...tab, customLabel: "build" });
+    mockEvents.emit("snapshot", { tabs: [tab] });
+
+    await store.useTabStore
+      .getState()
+      .setTerminalCustomLabel(tab.id, "  build  ");
+
+    expect(mockUpdateTab).toHaveBeenCalledWith(tab.id, {
+      customLabel: "build",
+    });
+    expect(store.tabsForWorktree("w1")[0]).toMatchObject({
+      customLabel: "build",
+    });
+  });
+
+  it("uses an empty label payload to reset the terminal label", async () => {
+    const store = await getStore();
+    const tab = makeTab({ id: "terminal-1", customLabel: "build" });
+    mockUpdateTab.mockResolvedValue({ ...tab, customLabel: null });
+    mockEvents.emit("snapshot", { tabs: [tab] });
+
+    await store.useTabStore.getState().setTerminalCustomLabel(tab.id, "   ");
+
+    expect(mockUpdateTab).toHaveBeenCalledWith(tab.id, { customLabel: "" });
+    expect(store.tabsForWorktree("w1")[0]).toMatchObject({
+      customLabel: null,
+    });
+  });
+
   it("reorder() resequences locally and calls API", async () => {
     const store = await getStore();
-    mockReorderTabs.mockResolvedValue(undefined);
+    mockReorderTabs.mockResolvedValue([
+      makeTab({ id: "c", position: 1, worktreeId: "w1" }),
+      makeTab({ id: "a", position: 2, worktreeId: "w1" }),
+      makeTab({ id: "b", position: 3, worktreeId: "w1" }),
+    ]);
 
     mockEvents.emit("snapshot", {
       tabs: [
@@ -447,6 +533,539 @@ describe("Tab store", () => {
         { paneId: "pane-2", tabIds: ["b"] },
       ],
     });
+  });
+
+  it("does not let an older layout failure roll back a newer write", async () => {
+    const store = await getStore();
+    const firstWrite = deferred<WorktreeTabLayoutState>();
+    const secondWrite = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout
+      .mockReturnValueOnce(firstWrite.promise)
+      .mockReturnValueOnce(secondWrite.promise);
+    const initial = makeSplitLayoutState(0.5);
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.6);
+    const firstPersist = store.useTabStore.getState().persistLayout("p1", "w1");
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.7);
+    const secondPersist = store.useTabStore
+      .getState()
+      .persistLayout("p1", "w1");
+
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+    firstWrite.reject(new Error("first write failed"));
+    await expect(firstPersist).rejects.toThrow("first write failed");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.7 }));
+
+    secondWrite.resolve(makeSplitLayoutState(0.7));
+    await secondPersist;
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.7 }));
+  });
+
+  it("rolls the latest failed layout write back to confirmed state", async () => {
+    const store = await getStore();
+    const firstWrite = deferred<WorktreeTabLayoutState>();
+    const secondWrite = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout
+      .mockReturnValueOnce(firstWrite.promise)
+      .mockReturnValueOnce(secondWrite.promise);
+    const initial = makeSplitLayoutState(0.5);
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.6);
+    const firstPersist = store.useTabStore.getState().persistLayout("p1", "w1");
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.7);
+    const secondPersist = store.useTabStore
+      .getState()
+      .persistLayout("p1", "w1");
+
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+    firstWrite.resolve(makeSplitLayoutState(0.6));
+    await firstPersist;
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.7 }));
+
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(2);
+    });
+    secondWrite.reject(new Error("second write failed"));
+    await expect(secondPersist).rejects.toThrow("second write failed");
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.6 }));
+  });
+
+  it("matches a delayed acknowledgement to its serialized write", async () => {
+    const store = await getStore();
+    const firstWrite = deferred<WorktreeTabLayoutState>();
+    const secondWrite = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout
+      .mockReturnValueOnce(firstWrite.promise)
+      .mockReturnValueOnce(secondWrite.promise);
+    const initial = makeSplitLayoutState(0.5);
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.6);
+    const firstPersist = store.useTabStore.getState().persistLayout("p1", "w1");
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.7);
+    const secondPersist = store.useTabStore
+      .getState()
+      .persistLayout("p1", "w1");
+
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+    firstWrite.resolve(makeSplitLayoutState(0.6));
+    await firstPersist;
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(2);
+    });
+
+    mockEvents.emit("worktree_tab_layout_updated", {
+      worktreeId: "w1",
+      state: makeSplitLayoutState(0.6),
+    });
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.7 }));
+
+    secondWrite.resolve(makeSplitLayoutState(0.7));
+    await secondPersist;
+    mockEvents.emit("worktree_tab_layout_updated", {
+      worktreeId: "w1",
+      state: makeSplitLayoutState(0.7),
+    });
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.7 }));
+  });
+
+  it("confirms a newer HTTP result after an older delayed acknowledgement", async () => {
+    const store = await getStore();
+    const firstWrite = deferred<WorktreeTabLayoutState>();
+    const secondWrite = deferred<WorktreeTabLayoutState>();
+    const thirdWrite = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout
+      .mockReturnValueOnce(firstWrite.promise)
+      .mockReturnValueOnce(secondWrite.promise)
+      .mockReturnValueOnce(thirdWrite.promise);
+    const initial = makeSplitLayoutState(0.5);
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.6);
+    const firstPersist = store.useTabStore.getState().persistLayout("p1", "w1");
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.7);
+    const secondPersist = store.useTabStore
+      .getState()
+      .persistLayout("p1", "w1");
+
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+    firstWrite.resolve(makeSplitLayoutState(0.6));
+    await firstPersist;
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(2);
+    });
+    mockEvents.emit("worktree_tab_layout_updated", {
+      worktreeId: "w1",
+      state: makeSplitLayoutState(0.6),
+    });
+
+    secondWrite.resolve(makeSplitLayoutState(0.7));
+    await secondPersist;
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.8);
+    const thirdPersist = store.useTabStore.getState().persistLayout("p1", "w1");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(3);
+    });
+    thirdWrite.reject(new Error("third write failed"));
+    await expect(thirdPersist).rejects.toThrow("third write failed");
+
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.7 }));
+    mockEvents.emit("worktree_tab_layout_updated", {
+      worktreeId: "w1",
+      state: makeSplitLayoutState(0.7),
+    });
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.7 }));
+  });
+
+  it("keeps authoritative reorder state ahead of an older HTTP response", async () => {
+    const store = await getStore();
+    const write = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout.mockReturnValue(write.promise);
+    const initial = makeSinglePaneLayoutState();
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    const persist = store.useTabStore.getState().persistLayout("p1", "w1");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+
+    mockEvents.emit("worktree_tab_layout_updated", {
+      worktreeId: "w1",
+      state: initial,
+    });
+    const reordered = makeSinglePaneLayoutState(["b", "a"]);
+    mockEvents.emit("tabs_reordered", {
+      sessionId: "default",
+      worktreeId: "w1",
+      tabs: reordered.tabs,
+    });
+    write.resolve(initial);
+    await persist;
+
+    expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
+      "b",
+      "a",
+    ]);
+  });
+
+  it("does not roll back a local reorder with an older layout failure", async () => {
+    const store = await getStore();
+    const write = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout.mockReturnValue(write.promise);
+    const initial = makeSinglePaneLayoutState();
+    mockReorderTabs.mockResolvedValue(
+      makeSinglePaneLayoutState(["b", "a"]).tabs,
+    );
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    const persist = store.useTabStore.getState().persistLayout("p1", "w1");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+
+    await store.useTabStore.getState().reorder("w1", "pane-1", ["b", "a"]);
+    write.reject(new Error("layout rejected"));
+    await expect(persist).rejects.toThrow("layout rejected");
+
+    expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
+      "b",
+      "a",
+    ]);
+  });
+
+  it("confirms each overlapping reorder from its own response", async () => {
+    const store = await getStore();
+    const layoutWrite = deferred<WorktreeTabLayoutState>();
+    const firstReorder = deferred<Tab[]>();
+    const secondReorder = deferred<Tab[]>();
+    mockUpdateWorktreeTabLayout.mockReturnValue(layoutWrite.promise);
+    mockReorderTabs
+      .mockReturnValueOnce(firstReorder.promise)
+      .mockReturnValueOnce(secondReorder.promise);
+    const initial = makeSinglePaneLayoutState();
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    const persist = store.useTabStore.getState().persistLayout("p1", "w1");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+    const first = store.useTabStore
+      .getState()
+      .reorder("w1", "pane-1", ["b", "a"]);
+    const second = store.useTabStore
+      .getState()
+      .reorder("w1", "pane-1", ["a", "b"]);
+
+    await vi.waitFor(() => {
+      expect(mockReorderTabs).toHaveBeenCalledTimes(1);
+    });
+    firstReorder.resolve(makeSinglePaneLayoutState(["b", "a"]).tabs);
+    await first;
+    await vi.waitFor(() => {
+      expect(mockReorderTabs).toHaveBeenCalledTimes(2);
+    });
+    secondReorder.reject(new Error("second reorder rejected"));
+    await expect(second).rejects.toThrow("second reorder rejected");
+    layoutWrite.reject(new Error("layout rejected"));
+    await expect(persist).rejects.toThrow("layout rejected");
+
+    expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
+      "b",
+      "a",
+    ]);
+  });
+
+  it("does not rebase another pane from an older reorder response", async () => {
+    const store = await getStore();
+    const layoutWrite = deferred<WorktreeTabLayoutState>();
+    const firstPaneReorder = deferred<Tab[]>();
+    const secondPaneReorder = deferred<Tab[]>();
+    mockUpdateWorktreeTabLayout.mockReturnValue(layoutWrite.promise);
+    mockReorderTabs
+      .mockReturnValueOnce(firstPaneReorder.promise)
+      .mockReturnValueOnce(secondPaneReorder.promise);
+    const initial = makeSplitLayoutState(0.5);
+    initial.tabs = [
+      makeTab({ id: "a", paneId: "pane-1", position: 1 }),
+      makeTab({ id: "c", paneId: "pane-1", position: 2 }),
+      makeTab({ id: "b", paneId: "pane-2", position: 1 }),
+      makeTab({ id: "d", paneId: "pane-2", position: 2 }),
+    ];
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    const persist = store.useTabStore.getState().persistLayout("p1", "w1");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+    const first = store.useTabStore
+      .getState()
+      .reorder("w1", "pane-1", ["c", "a"]);
+    const second = store.useTabStore
+      .getState()
+      .reorder("w1", "pane-2", ["d", "b"]);
+    await vi.waitFor(() => {
+      expect(mockReorderTabs).toHaveBeenCalledTimes(2);
+    });
+
+    secondPaneReorder.resolve([
+      makeTab({ id: "a", paneId: "pane-1", position: 1 }),
+      makeTab({ id: "c", paneId: "pane-1", position: 2 }),
+      makeTab({ id: "d", paneId: "pane-2", position: 1 }),
+      makeTab({ id: "b", paneId: "pane-2", position: 2 }),
+    ]);
+    await second;
+    firstPaneReorder.resolve([
+      makeTab({ id: "c", paneId: "pane-1", position: 1 }),
+      makeTab({ id: "a", paneId: "pane-1", position: 2 }),
+      makeTab({ id: "b", paneId: "pane-2", position: 1 }),
+      makeTab({ id: "d", paneId: "pane-2", position: 2 }),
+    ]);
+    await first;
+    layoutWrite.reject(new Error("layout rejected"));
+    await expect(persist).rejects.toThrow("layout rejected");
+
+    const tabs = store.tabsForWorktree("w1");
+    expect(
+      tabs.filter((tab) => tab.paneId === "pane-1").map((tab) => tab.id),
+    ).toEqual(["c", "a"]);
+    expect(
+      tabs.filter((tab) => tab.paneId === "pane-2").map((tab) => tab.id),
+    ).toEqual(["d", "b"]);
+  });
+
+  it("does not confirm a rejected reorder as the rollback baseline", async () => {
+    const store = await getStore();
+    const write = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout.mockReturnValue(write.promise);
+    mockReorderTabs.mockRejectedValue(new Error("reorder rejected"));
+    const initial = makeSinglePaneLayoutState();
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    const persist = store.useTabStore.getState().persistLayout("p1", "w1");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+
+    await expect(
+      store.useTabStore.getState().reorder("w1", "pane-1", ["b", "a"]),
+    ).rejects.toThrow("reorder rejected");
+    write.reject(new Error("layout rejected"));
+    await expect(persist).rejects.toThrow("layout rejected");
+
+    expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("does not confirm a pending pane move when a reorder lands", async () => {
+    const store = await getStore();
+    const write = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout.mockReturnValue(write.promise);
+    const initial = makeSplitLayoutState(0.5);
+    mockReorderTabs.mockResolvedValue([
+      makeTab({ id: "b", paneId: "pane-2", position: 1 }),
+      makeTab({ id: "a", paneId: "pane-2", position: 2 }),
+    ]);
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    const move = store.useTabStore
+      .getState()
+      .moveTab("p1", "w1", "a", "pane-2", "center");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+
+    await store.useTabStore.getState().reorder("w1", "pane-2", ["b", "a"]);
+    write.reject(new Error("move rejected"));
+    await expect(move).rejects.toThrow("move rejected");
+
+    expect(store.tabsForWorktree("w1")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "a", paneId: "pane-1" }),
+        expect.objectContaining({ id: "b", paneId: "pane-2" }),
+      ]),
+    );
+  });
+
+  it("rebases an equal snapshot before a lost response rolls back", async () => {
+    const store = await getStore();
+    const write = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout.mockReturnValue(write.promise);
+    const initial = makeSplitLayoutState(0.5);
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.7);
+    const persist = store.useTabStore.getState().persistLayout("p1", "w1");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+
+    const authoritative = makeSplitLayoutState(0.7);
+    mockEvents.emit("snapshot", {
+      tabs: authoritative.tabs,
+      tabLayouts: { w1: authoritative.layout },
+    });
+    write.reject(new Error("response lost"));
+    await expect(persist).rejects.toThrow("response lost");
+
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.7 }));
+  });
+
+  it("does not resurrect a tab closed while a layout write is pending", async () => {
+    const store = await getStore();
+    const write = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout.mockReturnValue(write.promise);
+    const initial = makeSplitLayoutState(0.5);
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.7);
+    const persist = store.useTabStore.getState().persistLayout("p1", "w1");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+
+    mockEvents.emit("tab_closed", { tabId: "b" });
+    write.reject(new Error("layout rejected"));
+    await expect(persist).rejects.toThrow("layout rejected");
+
+    expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual(["a"]);
+    expect(store.useTabStore.getState().layoutsByWorktree.w1).toEqual({
+      rootId: "leaf-a",
+      nodes: [{ type: "leaf", id: "leaf-a", paneId: "pane-1" }],
+    });
+  });
+
+  it("keeps a tab created while a layout write is pending", async () => {
+    const store = await getStore();
+    const write = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout.mockReturnValue(write.promise);
+    const initial = makeSplitLayoutState(0.5);
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.7);
+    const persist = store.useTabStore.getState().persistLayout("p1", "w1");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+
+    mockEvents.emit("tab_created", {
+      sessionId: "default",
+      tab: makeTab({ id: "c", paneId: "pane-1", position: 2 }),
+    });
+    write.reject(new Error("layout rejected"));
+    await expect(persist).rejects.toThrow("layout rejected");
+
+    expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
+      "a",
+      "c",
+      "b",
+    ]);
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.5 }));
+  });
+
+  it("keeps newer authoritative layout state after an older response", async () => {
+    const store = await getStore();
+    const write = deferred<WorktreeTabLayoutState>();
+    mockUpdateWorktreeTabLayout.mockReturnValue(write.promise);
+    const initial = makeSplitLayoutState(0.5);
+    mockEvents.emit("snapshot", {
+      tabs: initial.tabs,
+      tabLayouts: { w1: initial.layout },
+    });
+
+    store.useTabStore.getState().setSplitRatio("w1", "split-root", 0.6);
+    const persist = store.useTabStore.getState().persistLayout("p1", "w1");
+    await vi.waitFor(() => {
+      expect(mockUpdateWorktreeTabLayout).toHaveBeenCalledTimes(1);
+    });
+
+    mockEvents.emit("worktree_tab_layout_updated", {
+      worktreeId: "w1",
+      state: makeSplitLayoutState(0.6),
+    });
+    mockEvents.emit("worktree_tab_layout_updated", {
+      worktreeId: "w1",
+      state: makeSplitLayoutState(0.8),
+    });
+    write.resolve(makeSplitLayoutState(0.6));
+    await persist;
+
+    expect(
+      store.useTabStore.getState().layoutsByWorktree.w1.nodes,
+    ).toContainEqual(expect.objectContaining({ id: "split-root", ratio: 0.8 }));
   });
 
   it("splitPane creates the destination pane before creating the new tab", async () => {
@@ -699,6 +1318,24 @@ describe("Tab store", () => {
     expect(store.useTabStore.getState().activeTabByPane["pane-1"]).toBe("b");
   });
 
+  it("keeps a tab and its resources when deletion fails", async () => {
+    const store = await getStore();
+    const tab = makeFileTab({
+      id: "file-1",
+      path: "src/main.ts",
+      preview: false,
+    });
+    mockDeleteTab.mockRejectedValue(new Error("delete failed"));
+    mockEvents.emit("snapshot", { tabs: [tab] });
+
+    await expect(store.useTabStore.getState().close(tab.id)).rejects.toThrow(
+      "delete failed",
+    );
+
+    expect(store.tabsForWorktree("w1")).toEqual([tab]);
+    expect(mockScheduleDisposeTabModels).not.toHaveBeenCalled();
+  });
+
   it("snapshot hydrate prefers backend pane and tab MRU over stale local fallback", async () => {
     localStorage.setItem(
       "hubris-pane-mru-by-worktree",
@@ -834,6 +1471,70 @@ describe("Tab store", () => {
     }
   });
 
+  it("retries restore-state failures with the latest payload", async () => {
+    vi.useFakeTimers();
+    try {
+      useWorktreeStore.setState({
+        worktreesByProject: {
+          p1: [
+            {
+              id: "w1",
+              projectId: "p1",
+              name: "local",
+              branch: "main",
+              path: "/repo",
+              sourceRef: null,
+              uiMode: "hubris",
+              isLocal: true,
+              position: 1,
+            },
+          ],
+        },
+        projectErrors: {},
+        selectedWorktreeId: "w1",
+      });
+      const store = await getStore();
+      mockUpdateWorktreeRestoreState
+        .mockRejectedValueOnce(new Error("temporary failure"))
+        .mockResolvedValue(undefined);
+
+      mockEvents.emit("snapshot", {
+        tabs: [
+          makeTab({ id: "a", position: 1 }),
+          makeTab({ id: "b", position: 2 }),
+          makeTab({ id: "c", position: 3 }),
+        ],
+        worktreeRestoreState: {
+          w1: {
+            activeTabId: "a",
+            focusedPaneId: "pane-1",
+            paneMru: ["pane-1"],
+            tabMruByPane: { "pane-1": ["a", "b", "c"] },
+          },
+        },
+      });
+
+      store.useTabStore.getState().activate("b");
+      await vi.advanceTimersByTimeAsync(250);
+      expect(mockUpdateWorktreeRestoreState).toHaveBeenLastCalledWith(
+        "p1",
+        "w1",
+        expect.objectContaining({ activeTabId: "b" }),
+      );
+
+      store.useTabStore.getState().activate("c");
+      await vi.advanceTimersByTimeAsync(250);
+      expect(mockUpdateWorktreeRestoreState).toHaveBeenCalledTimes(2);
+      expect(mockUpdateWorktreeRestoreState).toHaveBeenLastCalledWith(
+        "p1",
+        "w1",
+        expect.objectContaining({ activeTabId: "c" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("openFile dedupes a raced tab_created event", async () => {
     const store = await getStore();
     const tab = makeFileTab({
@@ -861,8 +1562,9 @@ describe("Tab store", () => {
     ).toEqual(["file-1"]);
   });
 
-  it("preview replacement disposes Monaco models before removing the old tab", async () => {
+  it("only replaces a preview after its deletion is confirmed", async () => {
     const store = await getStore();
+    const deletion = deferred<void>();
     const previewTab = makeFileTab({
       id: "preview-1",
       worktreeId: "w1",
@@ -877,23 +1579,55 @@ describe("Tab store", () => {
       position: 2,
     });
     mockCreateTab.mockResolvedValue(nextTab);
-    mockDeleteTab.mockResolvedValue(undefined);
+    mockDeleteTab.mockReturnValue(deletion.promise);
 
     mockEvents.emit("snapshot", {
       tabs: [previewTab],
     });
 
-    await store.useTabStore.getState().openFile({
+    const opening = store.useTabStore.getState().openFile({
       worktreeId: "w1",
       path: "src/new.ts",
       preview: true,
     });
 
+    await vi.waitFor(() => {
+      expect(mockDeleteTab).toHaveBeenCalledWith(previewTab.id);
+    });
+    expect(mockScheduleDisposeTabModels).not.toHaveBeenCalled();
+    expect(mockCreateTab).not.toHaveBeenCalled();
+    expect(store.tabsForWorktree("w1")).toEqual([previewTab]);
+
+    deletion.resolve(undefined);
+    await opening;
     expect(mockScheduleDisposeTabModels).toHaveBeenCalledWith(previewTab);
-    expect(mockDeleteTab).toHaveBeenCalledWith(previewTab.id);
     expect(store.tabsForWorktree("w1").map((tab) => tab.id)).toEqual([
       nextTab.id,
     ]);
+  });
+
+  it("preserves a preview when its deletion fails", async () => {
+    const store = await getStore();
+    const previewTab = makeFileTab({
+      id: "preview-1",
+      worktreeId: "w1",
+      path: "src/old.ts",
+      preview: true,
+    });
+    mockDeleteTab.mockRejectedValue(new Error("delete failed"));
+    mockEvents.emit("snapshot", { tabs: [previewTab] });
+
+    await expect(
+      store.useTabStore.getState().openFile({
+        worktreeId: "w1",
+        path: "src/new.ts",
+        preview: true,
+      }),
+    ).rejects.toThrow("delete failed");
+
+    expect(store.tabsForWorktree("w1")).toEqual([previewTab]);
+    expect(mockCreateTab).not.toHaveBeenCalled();
+    expect(mockScheduleDisposeTabModels).not.toHaveBeenCalled();
   });
 
   it("openGitDiff dedupes commit diff tabs by commitId", async () => {
@@ -1231,6 +1965,26 @@ describe("Tab store", () => {
       historyIndex: 1,
     });
   });
+
+  it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects invalid browser history index %s",
+    async (historyIndex) => {
+      const store = await getStore();
+      const browserTab = makeBrowserTab({
+        id: "browser-invalid-history",
+        worktreeId: "w1",
+        url: "https://example.com/",
+      });
+      mockEvents.emit("snapshot", { tabs: [browserTab] });
+
+      await expect(
+        store.useTabStore
+          .getState()
+          .setBrowserState(browserTab.id, { historyIndex }),
+      ).rejects.toThrow("historyIndex must point at an entry in history.");
+      expect(mockUpdateTab).not.toHaveBeenCalled();
+    },
+  );
 
   it("destroys desktop browser views when browser tabs close", async () => {
     const store = await getStore();

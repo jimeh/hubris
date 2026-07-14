@@ -33,6 +33,13 @@
   directly to the rendered sidebar wrapper. Keep `isResizing` reactive, but
   avoid reintroducing a full React subscription to width or resize drags will
   rerender the app tree.
+- **Tab layout writes are serialized per worktree**: move, split, and ratio
+  mutations share generation ownership in the tabs store. Route layout SSE
+  through that ownership layer, and rebase confirmed tab membership before a
+  failed write rolls back so newer create/close events are preserved.
+- **Restore-state persistence retains the latest payload**: selection changes
+  debounce into one per-worktree record and retry non-404 failures with capped
+  backoff. Clear the record when the worktree disappears or the store resets.
 
 ## Settings Store
 

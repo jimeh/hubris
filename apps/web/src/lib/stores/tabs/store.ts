@@ -14,8 +14,10 @@ import {
 import { scheduleDisposeTabModels } from "@/lib/monacoLazy";
 import { setPaneSplitRatio, sortTabs } from "@/lib/tabLayout";
 import {
+  beginLayoutMutation,
   createLayoutActions,
-  submitLayoutChange,
+  rebaseConfirmedTabOrdering,
+  synchronizeLayoutChange,
 } from "@/lib/stores/tabs/layout-actions";
 import {
   addTabIfMissing,
@@ -36,7 +38,6 @@ import { initialSelection } from "@/lib/stores/tabs/persistence";
 import {
   activateLocal,
   focusPaneLocal,
-  nextStateAfterWorktreeLayout,
   removeFromState,
 } from "@/lib/stores/tabs/selection";
 import {
@@ -51,10 +52,12 @@ import type { BrowserTab, Tab } from "@/lib/types";
 // letting the later event upgrade the eventual tab from preview to pinned.
 const pendingGitDiffOpens = new Map<string, PendingGitDiffOpen>();
 const pendingAgentChatOpens = new Map<string, Promise<Tab>>();
+const reorderWriteTails = new Map<string, Promise<void>>();
 
 export function resetPendingTabOpens(): void {
   pendingGitDiffOpens.clear();
   pendingAgentChatOpens.clear();
+  reorderWriteTails.clear();
 }
 
 type PendingGitDiffOpen = {
@@ -74,12 +77,13 @@ async function replacePreviewIfNeeded(
     return;
   }
 
-  scheduleDisposeTabModels(previewTab);
-  useTabStore.setState((current) => removeFromState(current, previewTab.id));
-  try {
-    await deleteTab(previewTab.id);
-  } catch {
-    // Preview tab may already be gone.
+  await deleteTab(previewTab.id);
+  const currentPreview = selectAllTabs(useTabStore.getState()).find(
+    (tab) => tab.id === previewTab.id,
+  );
+  if (currentPreview) {
+    useTabStore.setState((current) => removeFromState(current, previewTab.id));
+    scheduleDisposeTabModels(currentPreview);
   }
 }
 
@@ -153,7 +157,7 @@ export const useTabStore = create<TabsState>((set, get) => {
       );
 
       try {
-        return await updateTab(id, { customLabel: customLabel });
+        return await updateTab(id, { customLabel: normalized });
       } catch {
         return { ...existing, customLabel: nextCustomLabel };
       }
@@ -460,7 +464,12 @@ export const useTabStore = create<TabsState>((set, get) => {
           )
         : existing.history;
       const nextHistoryIndex = updates.historyIndex ?? existing.historyIndex;
-      if (nextHistory.length === 0 || nextHistoryIndex >= nextHistory.length) {
+      if (
+        nextHistory.length === 0 ||
+        !Number.isInteger(nextHistoryIndex) ||
+        nextHistoryIndex < 0 ||
+        nextHistoryIndex >= nextHistory.length
+      ) {
         throw new Error("historyIndex must point at an entry in history.");
       }
       const nextLabel =
@@ -537,16 +546,16 @@ export const useTabStore = create<TabsState>((set, get) => {
         return;
       }
 
-      set((state) => removeFromState(state, id));
+      await deleteTab(id);
 
-      try {
-        await deleteTab(id);
-      } catch {
-        // Already gone.
+      const current = selectAllTabs(get()).find(
+        (candidate) => candidate.id === id,
+      );
+      if (current) {
+        set((state) => removeFromState(state, id));
+        disposeDesktopBrowserTab(current);
+        scheduleDisposeTabModels(current);
       }
-
-      disposeDesktopBrowserTab(closingTab);
-      scheduleDisposeTabModels(closingTab);
     },
     removeLocal(id) {
       const closingTab = selectAllTabs(get()).find(
@@ -569,27 +578,25 @@ export const useTabStore = create<TabsState>((set, get) => {
       set((state) => focusPaneLocal(state, worktreeId, paneId));
     },
     setSplitRatio(worktreeId, nodeId, ratio) {
-      let changed = false;
-      set((state) => {
-        const layout = state.layoutsByWorktree[worktreeId];
-        if (!layout) {
-          return state;
-        }
+      const state = get();
+      const layout = state.layoutsByWorktree[worktreeId];
+      if (!layout) {
+        return false;
+      }
 
-        const nextLayout = setPaneSplitRatio(layout, nodeId, ratio);
-        if (layoutEqual(layout, nextLayout)) {
-          return state;
-        }
-        changed = true;
+      const nextLayout = setPaneSplitRatio(layout, nodeId, ratio);
+      if (layoutEqual(layout, nextLayout)) {
+        return false;
+      }
 
-        return {
-          layoutsByWorktree: {
-            ...state.layoutsByWorktree,
-            [worktreeId]: nextLayout,
-          },
-        };
-      });
-      return changed;
+      beginLayoutMutation(state, worktreeId);
+      set((current) => ({
+        layoutsByWorktree: {
+          ...current.layoutsByWorktree,
+          [worktreeId]: nextLayout,
+        },
+      }));
+      return true;
     },
     async persistLayout(projectId, worktreeId) {
       const state = get();
@@ -598,14 +605,15 @@ export const useTabStore = create<TabsState>((set, get) => {
         return;
       }
 
-      const serverState = await submitLayoutChange(
+      await synchronizeLayoutChange(
         projectId,
         worktreeId,
-        layout,
-        tabsForWorktreeInternal(selectAllTabs(state), worktreeId),
-      );
-      set((current) =>
-        nextStateAfterWorktreeLayout(current, worktreeId, serverState),
+        {
+          layout,
+          tabs: tabsForWorktreeInternal(selectAllTabs(state), worktreeId),
+        },
+        set,
+        get,
       );
     },
     async reorder(worktreeId, paneId, orderedIds) {
@@ -624,7 +632,27 @@ export const useTabStore = create<TabsState>((set, get) => {
         ),
       );
 
-      await reorderTabs(worktreeId, paneId, orderedIds);
+      const key = `${worktreeId}:${paneId}`;
+      const previous = reorderWriteTails.get(key) ?? Promise.resolve();
+      const operation = previous.then(async () => {
+        const reorderedTabs = await reorderTabs(worktreeId, paneId, orderedIds);
+        rebaseConfirmedTabOrdering(
+          worktreeId,
+          reorderedTabs.filter((tab) => tab.paneId === paneId),
+        );
+      });
+      const tail = operation.then(
+        () => undefined,
+        () => undefined,
+      );
+      reorderWriteTails.set(key, tail);
+      try {
+        await operation;
+      } finally {
+        if (reorderWriteTails.get(key) === tail) {
+          reorderWriteTails.delete(key);
+        }
+      }
     },
     ...createLayoutActions(set, get),
   };

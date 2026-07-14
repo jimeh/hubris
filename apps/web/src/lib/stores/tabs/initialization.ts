@@ -2,6 +2,13 @@ import { updateTab } from "@/lib/api";
 import { getEventClient } from "@/lib/events";
 import { scheduleDisposeTabModels } from "@/lib/monacoLazy";
 import { sortTabs } from "@/lib/tabLayout";
+import {
+  applyWorktreeLayoutEvent,
+  rebaseConfirmedTabMembership,
+  rebaseConfirmedTabOrdering,
+  rebaseLayoutSynchronization,
+  resetLayoutSynchronization,
+} from "@/lib/stores/tabs/layout-actions";
 import { tabsEqual } from "@/lib/stores/tabs/labels";
 import {
   addTabIfMissing,
@@ -25,7 +32,6 @@ import {
   seedSelectionFromBackendRestore,
 } from "@/lib/stores/tabs/restore-state";
 import {
-  nextStateAfterWorktreeLayout,
   reconcileSelection,
   removeFromState,
 } from "@/lib/stores/tabs/selection";
@@ -127,6 +133,20 @@ export function initializeTabStore(): void {
           incomingTabs,
           incomingLayouts,
         );
+        const nextState = {
+          ...replaceTabs(state, incomingTabs),
+          layoutsByWorktree: incomingLayouts,
+          ...selection,
+        } as TabsState;
+        const worktreeIds = new Set([
+          ...Object.keys(state.layoutsByWorktree),
+          ...Object.keys(incomingLayouts),
+          ...selectAllTabs(state).map((tab) => tab.worktreeId),
+          ...incomingTabs.map((tab) => tab.worktreeId),
+        ]);
+        for (const worktreeId of worktreeIds) {
+          rebaseLayoutSynchronization(nextState, worktreeId);
+        }
 
         if (
           tabsEqual(selectAllTabs(state), incomingTabs) &&
@@ -155,11 +175,7 @@ export function initializeTabStore(): void {
           scheduleDisposeTabModels(tab);
         }
 
-        return {
-          ...replaceTabs(state, incomingTabs),
-          layoutsByWorktree: incomingLayouts,
-          ...selection,
-        };
+        return nextState;
       });
       hasHydratedBackendRestoreSelection = true;
     }),
@@ -173,10 +189,15 @@ export function initializeTabStore(): void {
           nextTabs,
           state.layoutsByWorktree,
         );
-        return {
+        const nextState = {
           ...replaceTabs(state, nextTabs),
           layoutsByWorktree: nextLayoutsByWorktree,
-        };
+        } as TabsState;
+        rebaseConfirmedTabMembership(
+          tab.worktreeId,
+          tabsForWorktreeInternal(nextTabs, tab.worktreeId),
+        );
+        return nextState;
       });
     }),
     events.on("tab_closed", ({ tabId }) => {
@@ -186,7 +207,18 @@ export function initializeTabStore(): void {
           disposeDesktopBrowserTab(closedTab);
           scheduleDisposeTabModels(closedTab);
         }
-        return removeFromState(state, tabId);
+        const update = removeFromState(state, tabId);
+        if (closedTab) {
+          const nextState = { ...state, ...update } as TabsState;
+          rebaseConfirmedTabMembership(
+            closedTab.worktreeId,
+            tabsForWorktreeInternal(
+              selectAllTabs(nextState),
+              closedTab.worktreeId,
+            ),
+          );
+        }
+        return update;
       });
     }),
     events.on("tab_updated", ({ tab }) => {
@@ -201,13 +233,14 @@ export function initializeTabStore(): void {
         ),
       );
     }),
-    events.on("tabs_reordered", ({ tabs }) => {
+    events.on("tabs_reordered", ({ worktreeId, tabs }) => {
       useTabStore.setState((state) => {
         const reorderedIds = new Set(tabs.map((tab) => tab.id));
         const nextTabs = sortTabs([
           ...selectAllTabs(state).filter((tab) => !reorderedIds.has(tab.id)),
           ...tabs,
         ]);
+        rebaseConfirmedTabOrdering(worktreeId, tabs);
         return replaceTabs(state, nextTabs);
       });
     }),
@@ -215,7 +248,7 @@ export function initializeTabStore(): void {
       "worktree_tab_layout_updated",
       ({ worktreeId, state: nextState }) => {
         useTabStore.setState((current) =>
-          nextStateAfterWorktreeLayout(current, worktreeId, nextState),
+          applyWorktreeLayoutEvent(current, worktreeId, nextState),
         );
       },
     ),
@@ -316,6 +349,7 @@ export function initializeTabStore(): void {
 export function resetTabStoreForTests(): void {
   clearNotificationDismissTimer();
   resetPendingTabOpens();
+  resetLayoutSynchronization();
   clearRestoreStatePersistTimers();
   for (const unsubscribe of eventUnsubscribers) {
     unsubscribe();
