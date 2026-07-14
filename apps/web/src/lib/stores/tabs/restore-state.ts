@@ -29,10 +29,63 @@ function projectIdForWorktree(worktreeId: string): string | null {
   return null;
 }
 
-const restoreStatePersistTimers = new Map<
-  string,
-  ReturnType<typeof setTimeout>
->();
+const RESTORE_STATE_DEBOUNCE_MS = 250;
+const RESTORE_STATE_MAX_RETRY_MS = 5_000;
+
+type RestoreStatePersist = {
+  attempt: number;
+  generation: number;
+  payload: WorktreeRestoreSelection;
+  projectId: string;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
+const restoreStatePersists = new Map<string, RestoreStatePersist>();
+
+function scheduleRestoreStateAttempt(
+  worktreeId: string,
+  persist: RestoreStatePersist,
+  delay: number,
+): void {
+  persist.timer = setTimeout(() => {
+    persist.timer = null;
+    const generation = persist.generation;
+    const payload = persist.payload;
+    const projectId = persist.projectId;
+    void updateWorktreeRestoreState(projectId, worktreeId, payload).then(
+      () => {
+        if (restoreStatePersists.get(worktreeId) !== persist) {
+          return;
+        }
+        if (persist.generation === generation) {
+          restoreStatePersists.delete(worktreeId);
+          return;
+        }
+        persist.attempt = 0;
+        scheduleRestoreStateAttempt(
+          worktreeId,
+          persist,
+          RESTORE_STATE_DEBOUNCE_MS,
+        );
+      },
+      () => {
+        if (restoreStatePersists.get(worktreeId) !== persist) {
+          return;
+        }
+        if (persist.generation !== generation) {
+          persist.attempt = 0;
+        } else {
+          persist.attempt += 1;
+        }
+        const retryDelay = Math.min(
+          RESTORE_STATE_DEBOUNCE_MS * 2 ** persist.attempt,
+          RESTORE_STATE_MAX_RETRY_MS,
+        );
+        scheduleRestoreStateAttempt(worktreeId, persist, retryDelay);
+      },
+    );
+  }, delay);
+}
 
 export function buildRestoreStatePayload(
   state: TabsState,
@@ -80,25 +133,42 @@ export function schedulePersistRestoreState(
 ): void {
   const projectId = projectIdForWorktree(worktreeId);
   if (!projectId) {
+    const pending = restoreStatePersists.get(worktreeId);
+    if (pending?.timer) {
+      clearTimeout(pending.timer);
+    }
+    restoreStatePersists.delete(worktreeId);
     return;
   }
 
   const payload = buildRestoreStatePayload(state, worktreeId);
 
-  const existingTimer = restoreStatePersistTimers.get(worktreeId);
-  if (existingTimer) {
-    clearTimeout(existingTimer);
+  const existing = restoreStatePersists.get(worktreeId);
+  if (existing) {
+    existing.projectId = projectId;
+    existing.payload = payload;
+    existing.generation += 1;
+    existing.attempt = 0;
+    if (existing.timer) {
+      clearTimeout(existing.timer);
+      scheduleRestoreStateAttempt(
+        worktreeId,
+        existing,
+        RESTORE_STATE_DEBOUNCE_MS,
+      );
+    }
+    return;
   }
 
-  restoreStatePersistTimers.set(
-    worktreeId,
-    setTimeout(() => {
-      restoreStatePersistTimers.delete(worktreeId);
-      void updateWorktreeRestoreState(projectId, worktreeId, payload).catch(
-        () => {},
-      );
-    }, 250),
-  );
+  const persist: RestoreStatePersist = {
+    attempt: 0,
+    generation: 1,
+    payload,
+    projectId,
+    timer: null,
+  };
+  restoreStatePersists.set(worktreeId, persist);
+  scheduleRestoreStateAttempt(worktreeId, persist, RESTORE_STATE_DEBOUNCE_MS);
 }
 
 export function restoreStateWorktreeIds(state: TabsState): string[] {
@@ -218,8 +288,10 @@ export function seedSelectionFromBackendRestore(
 }
 
 export function clearRestoreStatePersistTimers(): void {
-  for (const timer of restoreStatePersistTimers.values()) {
-    clearTimeout(timer);
+  for (const persist of restoreStatePersists.values()) {
+    if (persist.timer) {
+      clearTimeout(persist.timer);
+    }
   }
-  restoreStatePersistTimers.clear();
+  restoreStatePersists.clear();
 }
