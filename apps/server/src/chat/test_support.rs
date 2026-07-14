@@ -41,6 +41,20 @@ pub(super) fn test_conversation() -> ChatConversationSummary {
 }
 
 pub(super) async fn test_service() -> Arc<ChatService> {
+    test_service_with_app_server(Arc::new(|| {
+        Box::pin(async {
+            Err(ChatServiceError::new(
+                ChatErrorKind::Upstream,
+                "test app-server factory should not be used",
+            ))
+        })
+    }))
+    .await
+}
+
+pub(super) async fn test_service_with_app_server(
+    factory: CodexAppServerFactory,
+) -> Arc<ChatService> {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect("sqlite::memory:")
@@ -55,14 +69,7 @@ pub(super) async fn test_service() -> Arc<ChatService> {
         pool,
         events: Arc::new(crate::events::EventBus::new()),
         settings: Arc::new(settings),
-        app_server: Arc::new(CodexAppServerManager::new_for_tests(Arc::new(|| {
-            Box::pin(async {
-                Err(ChatServiceError::new(
-                    ChatErrorKind::Upstream,
-                    "test app-server factory should not be used",
-                ))
-            })
-        }))),
+        app_server: Arc::new(CodexAppServerManager::new_for_tests(factory)),
         runtimes: DashMap::new(),
         thread_to_conversation: DashMap::new(),
         turn_to_conversation: DashMap::new(),
@@ -174,6 +181,7 @@ pub(super) async fn start_test_run(
 pub(super) struct FakeCodexConnection {
     pub(super) requests: Arc<Mutex<Vec<(String, Value)>>>,
     pub(super) stream_events: broadcast::Sender<CodexStreamEvent>,
+    pub(super) response: Value,
 }
 
 impl FakeCodexConnection {
@@ -182,7 +190,13 @@ impl FakeCodexConnection {
         Self {
             requests,
             stream_events,
+            response: json!({}),
         }
+    }
+
+    pub(super) fn with_response(mut self, response: Value) -> Self {
+        self.response = response;
+        self
     }
 }
 
@@ -197,7 +211,7 @@ impl CodexAppServerConnection for FakeCodexConnection {
                 .lock()
                 .await
                 .push((method.to_string(), params));
-            Ok(json!({}))
+            Ok(self.response.clone())
         })
     }
 
