@@ -27,6 +27,11 @@ struct ShellEnvGuard {
     original: Option<OsString>,
 }
 
+struct HeartbeatTimingEnvGuard {
+    ping_interval: Option<OsString>,
+    stale_after: Option<OsString>,
+}
+
 impl ShellEnvGuard {
     fn set(value: &Path) -> Self {
         let original = std::env::var_os("SHELL");
@@ -43,6 +48,36 @@ impl Drop for ShellEnvGuard {
             match &self.original {
                 Some(value) => std::env::set_var("SHELL", value),
                 None => std::env::remove_var("SHELL"),
+            }
+        }
+    }
+}
+
+impl HeartbeatTimingEnvGuard {
+    fn install() -> Self {
+        let ping_interval = std::env::var_os("HUBRIS_TEST_TERMINAL_WS_PING_INTERVAL_MS");
+        let stale_after = std::env::var_os("HUBRIS_TEST_TERMINAL_WS_STALE_AFTER_MS");
+        unsafe {
+            std::env::set_var("HUBRIS_TEST_TERMINAL_WS_PING_INTERVAL_MS", "50");
+            std::env::set_var("HUBRIS_TEST_TERMINAL_WS_STALE_AFTER_MS", "2000");
+        }
+        Self {
+            ping_interval,
+            stale_after,
+        }
+    }
+}
+
+impl Drop for HeartbeatTimingEnvGuard {
+    fn drop(&mut self) {
+        unsafe {
+            match &self.ping_interval {
+                Some(value) => std::env::set_var("HUBRIS_TEST_TERMINAL_WS_PING_INTERVAL_MS", value),
+                None => std::env::remove_var("HUBRIS_TEST_TERMINAL_WS_PING_INTERVAL_MS"),
+            }
+            match &self.stale_after {
+                Some(value) => std::env::set_var("HUBRIS_TEST_TERMINAL_WS_STALE_AFTER_MS", value),
+                None => std::env::remove_var("HUBRIS_TEST_TERMINAL_WS_STALE_AFTER_MS"),
             }
         }
     }
@@ -432,9 +467,10 @@ async fn disconnecting_smallest_client_restores_next_visible_size() {
     );
 }
 
-#[tokio::test(flavor = "current_thread", start_paused = true)]
+#[tokio::test]
 async fn healthy_client_survives_periodic_server_pings() {
     let _lock = lock_terminal_test().await;
+    let _heartbeat_timing = HeartbeatTimingEnvGuard::install();
     let (base, tmp) = start_test_server().await;
     let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
@@ -448,12 +484,10 @@ async fn healthy_client_survives_periodic_server_pings() {
     let mut socket = connect_terminal(&base, tab_id).await;
     let _ = next_control_message(&mut socket).await;
 
-    tokio::time::advance(Duration::from_secs(15)).await;
     let first_ping = next_ping(&mut socket).await;
     assert_eq!(first_ping, b"hubris");
     socket.send(Message::Pong(first_ping.into())).await.unwrap();
 
-    tokio::time::advance(Duration::from_secs(15)).await;
     let second_ping = next_ping(&mut socket).await;
     assert_eq!(second_ping, b"hubris");
     socket
@@ -471,9 +505,10 @@ async fn healthy_client_survives_periodic_server_pings() {
     );
 }
 
-#[tokio::test(flavor = "current_thread", start_paused = true)]
+#[tokio::test]
 async fn stale_smallest_client_expires_and_restores_next_visible_size() {
     let _lock = lock_terminal_test().await;
+    let _heartbeat_timing = HeartbeatTimingEnvGuard::install();
     let (base, tmp) = start_test_server().await;
     let _shell_guard = install_quiet_shell(&tmp);
     let client = reqwest::Client::new();
@@ -496,12 +531,10 @@ async fn stale_smallest_client_expires_and_restores_next_visible_size() {
     let _ = next_control_message(&mut second).await;
 
     for _ in 0..2 {
-        tokio::time::advance(Duration::from_secs(15)).await;
         let ping = next_ping(&mut first).await;
         first.send(Message::Pong(ping.into())).await.unwrap();
     }
 
-    tokio::time::advance(Duration::from_secs(15)).await;
     assert_eq!(
         next_control_message_while_ponging(&mut first).await,
         ServerControlMessage::PtyResized {
