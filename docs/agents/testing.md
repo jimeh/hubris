@@ -53,3 +53,11 @@
 - **Rust integration tests should disable Git commit signing**: local/global Git
   config may enforce GPG signing and break ephemeral test-repo commits. In test
   helpers that run `git commit`, pass `-c commit.gpgsign=false`.
+- **Do not pause Tokio time in SQLx-backed socket tests**: SQLite startup waits
+  on a standard worker thread that Tokio cannot observe, while socket readiness
+  comes from the operating system. A paused current-thread runtime can
+  auto-advance past either one. Keep these tests on real time; terminal
+  heartbeat tests may use the debug-only
+  `HUBRIS_TEST_TERMINAL_WS_PING_INTERVAL_MS` and
+  `HUBRIS_TEST_TERMINAL_WS_STALE_AFTER_MS` overrides to stay fast. Debug dev
+  servers also honor these variables, so leave them unset outside tests.

@@ -19,6 +19,38 @@ use crate::state::AppState;
 const WS_PING_INTERVAL: Duration = Duration::from_secs(15);
 const WS_STALE_AFTER: Duration = Duration::from_secs(45);
 const WS_PING_PAYLOAD: &[u8] = b"hubris";
+const TEST_WS_PING_INTERVAL_MS: &str = "HUBRIS_TEST_TERMINAL_WS_PING_INTERVAL_MS";
+const TEST_WS_STALE_AFTER_MS: &str = "HUBRIS_TEST_TERMINAL_WS_STALE_AFTER_MS";
+
+#[derive(Clone, Copy)]
+struct WsHeartbeatTiming {
+    ping_interval: Duration,
+    stale_after: Duration,
+}
+
+fn ws_heartbeat_timing() -> WsHeartbeatTiming {
+    WsHeartbeatTiming {
+        ping_interval: debug_duration_override(TEST_WS_PING_INTERVAL_MS, WS_PING_INTERVAL),
+        stale_after: debug_duration_override(TEST_WS_STALE_AFTER_MS, WS_STALE_AFTER),
+    }
+}
+
+#[cfg(debug_assertions)]
+fn debug_duration_override(name: &str, default: Duration) -> Duration {
+    // Integration tests link the library without cfg(test), so the timing seam
+    // is intentionally available to all debug builds and inert in release builds.
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|millis| *millis > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(default)
+}
+
+#[cfg(not(debug_assertions))]
+fn debug_duration_override(_name: &str, default: Duration) -> Duration {
+    default
+}
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
@@ -145,10 +177,13 @@ async fn handle_attach(
     // Relay: broadcast -> WS (with close detection
     // and adaptive batching)
     let relay_tab = tab.clone();
+    let heartbeat_timing = ws_heartbeat_timing();
     let relay_handle = tokio::spawn(async move {
         let mut shutdown_tx = Some(shutdown_tx);
-        let mut ping_interval =
-            time::interval_at(Instant::now() + WS_PING_INTERVAL, WS_PING_INTERVAL);
+        let mut ping_interval = time::interval_at(
+            Instant::now() + heartbeat_timing.ping_interval,
+            heartbeat_timing.ping_interval,
+        );
         ping_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         let signal_shutdown = |shutdown_tx: &mut Option<oneshot::Sender<()>>| {
@@ -276,7 +311,7 @@ async fn handle_attach(
                     if relay_tab.attachment_is_stale(
                         attachment_id,
                         Instant::now(),
-                        WS_STALE_AFTER,
+                        heartbeat_timing.stale_after,
                     ) {
                         tracing::info!(
                             "expiring stale terminal attachment {} on tab {}",
