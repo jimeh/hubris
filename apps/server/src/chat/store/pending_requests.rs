@@ -1,5 +1,13 @@
 use super::*;
 
+/// Result of an attempted one-way transition to a terminal request state.
+pub(in crate::chat) struct PendingRequestTerminalUpdate {
+    /// Current persisted request state.
+    pub(in crate::chat) request: ChatPendingRequest,
+    /// Whether this call won and persisted the terminal transition.
+    pub(in crate::chat) transitioned: bool,
+}
+
 impl ChatService {
     pub(in crate::chat) async fn persist_provider_request(
         self: &Arc<Self>,
@@ -134,16 +142,17 @@ impl ChatService {
         decision: Option<&ChatPendingRequestDecision>,
         response: Option<&Value>,
         error_message: Option<&str>,
-    ) -> Result<Option<ChatPendingRequest>, ChatServiceError> {
+    ) -> Result<Option<PendingRequestTerminalUpdate>, ChatServiceError> {
         let now = now_ms() as i64;
         let response_json = response.map(compact_payload_json);
-        sqlx::query(
+        let result = sqlx::query(
             "
             UPDATE chat_pending_requests
             SET status = ?, decision = COALESCE(?, decision),
                 response_json = COALESCE(?, response_json),
                 error_message = ?, updated_at_ms = ?, resolved_at_ms = ?
             WHERE conversation_id = ? AND id = ?
+                AND status IN ('pending', 'resolving')
             ",
         )
         .bind(status.as_str())
@@ -159,11 +168,18 @@ impl ChatService {
         let request = self
             .get_pending_request_by_id(conversation_id, request_id)
             .await?;
-        if let Some(request) = request.as_ref() {
+        let Some(request) = request else {
+            return Ok(None);
+        };
+        let transitioned = result.rows_affected() == 1;
+        if transitioned {
             self.clear_pending_server_request(&request.provider_request_id);
             self.pending_server_responders.remove(&request.id);
         }
-        Ok(request)
+        Ok(Some(PendingRequestTerminalUpdate {
+            request,
+            transitioned,
+        }))
     }
 
     pub(in crate::chat) async fn mark_pending_requests_stale_for_conversation(
@@ -186,8 +202,9 @@ impl ChatService {
         .bind(conversation_id)
         .fetch_all(&self.pool)
         .await?;
+        let mut transitioned = false;
         for row in rows {
-            if let Some(request) = self
+            if let Some(update) = self
                 .update_pending_request_terminal(
                     conversation_id,
                     &row.id,
@@ -197,14 +214,18 @@ impl ChatService {
                     Some(reason),
                 )
                 .await?
+                && update.transitioned
             {
+                transitioned = true;
                 self.events.emit(EventKind::ChatPendingRequestUpdated {
                     session_id: request_session_id(self, conversation_id).await?,
-                    request,
+                    request: update.request,
                 });
             }
         }
-        let _ = self.emit_conversation_updated(conversation_id).await?;
+        if transitioned {
+            let _ = self.emit_conversation_updated(conversation_id).await?;
+        }
         Ok(())
     }
 
@@ -234,7 +255,7 @@ impl ChatService {
         };
         let status = parse_pending_request_status(&row.status);
         if status.is_attention()
-            && let Some(request) = self
+            && let Some(update) = self
                 .update_pending_request_terminal(
                     conversation_id,
                     &row.id,
@@ -244,10 +265,11 @@ impl ChatService {
                     None,
                 )
                 .await?
+            && update.transitioned
         {
             self.events.emit(EventKind::ChatPendingRequestResolved {
                 session_id: request_session_id(self, conversation_id).await?,
-                request,
+                request: update.request,
             });
             let _ = self.emit_conversation_updated(conversation_id).await?;
         }

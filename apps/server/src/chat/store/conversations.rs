@@ -85,14 +85,9 @@ impl ChatService {
         })?;
         self.events.emit(EventKind::ChatConversationCreated {
             session_id: conversation.session_id.clone(),
-            conversation,
+            conversation: conversation.clone(),
         });
-        self.get_conversation_summary(&id).await?.ok_or_else(|| {
-            ChatServiceError::new(
-                ChatErrorKind::Internal,
-                "created conversation missing from database",
-            )
-        })
+        Ok(conversation)
     }
 
     /// Fetch one persisted conversation summary.
@@ -965,7 +960,7 @@ impl ChatService {
         patch: ChatConversationSettingsPatch,
     ) -> Result<ChatConversationSummary, ChatServiceError> {
         let now = now_ms() as i64;
-        sqlx::query(
+        let result = sqlx::query(
             "
             UPDATE chat_conversations
             SET
@@ -975,7 +970,7 @@ impl ChatService {
                 updated_at_ms = ?,
                 last_activity_at_ms = ?,
                 revision = revision + 1
-            WHERE id = ?
+            WHERE id = ? AND archived_at_ms IS NULL
             ",
         )
         .bind(normalize_model_override(patch.selected_model))
@@ -994,6 +989,23 @@ impl ChatService {
         .bind(conversation_id)
         .execute(&self.pool)
         .await?;
+
+        if result.rows_affected() == 0 {
+            let conversation = self
+                .get_conversation_summary(conversation_id)
+                .await?
+                .ok_or_else(|| ChatServiceError::new(ChatErrorKind::NotFound, "chat not found"))?;
+            if conversation.archived_at.is_some() {
+                return Err(ChatServiceError::new(
+                    ChatErrorKind::Conflict,
+                    "chat is archived",
+                ));
+            }
+            return Err(ChatServiceError::new(
+                ChatErrorKind::Internal,
+                "chat settings update did not modify the conversation",
+            ));
+        }
 
         self.emit_conversation_updated(conversation_id)
             .await?

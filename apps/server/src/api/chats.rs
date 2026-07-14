@@ -317,6 +317,7 @@ pub async fn get_chat_activity(
     responses(
         (status = 200, description = "Updated conversation summary", body = ChatConversationSummary),
         (status = 404, description = "Conversation not found", body = ApiErrorResponse),
+        (status = 409, description = "Chat is archived", body = ApiErrorResponse),
     ),
 )]
 pub async fn patch_chat_settings(

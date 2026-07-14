@@ -2,6 +2,52 @@ use super::*;
 use crate::chat::test_support::*;
 
 #[tokio::test]
+async fn create_conversation_emits_the_returned_summary() {
+    let service = test_service().await;
+    let mut events = service.events.subscribe();
+
+    let returned = create_persisted_conversation(&service).await;
+    let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let EventKind::ChatConversationCreated { conversation, .. } = &event.kind else {
+        panic!("expected chat_conversation_created event");
+    };
+
+    assert_eq!(conversation, &returned);
+}
+
+#[tokio::test]
+async fn update_conversation_settings_preserves_not_found_errors() {
+    let service = test_service().await;
+
+    let error = service
+        .update_conversation_settings(
+            "missing",
+            ChatConversationSettingsPatch {
+                selected_model: None,
+                selected_effort: None,
+                selected_permission_mode: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error.kind, ChatErrorKind::NotFound));
+}
+
+#[test]
+fn compact_payload_json_truncates_unicode_at_a_char_boundary() {
+    let payload = Value::String("é".repeat(32_768));
+
+    let compacted = compact_payload_json(&payload);
+    let wrapper: Value = serde_json::from_str(&compacted).unwrap();
+
+    assert_eq!(wrapper["truncated"], true);
+}
+
+#[tokio::test]
 async fn conversation_branch_scope_archive_and_delete_round_trip() {
     let service = test_service().await;
     let conversation = create_persisted_conversation(&service).await;
@@ -176,6 +222,217 @@ async fn attach_turn_to_run_sets_provider_turn_on_turn_run_and_messages() {
             .iter()
             .all(|message| { message.provider_turn_id.as_deref() == Some("provider-turn-1") })
     );
+}
+
+#[tokio::test]
+async fn attach_turn_to_run_rolls_back_when_a_related_update_fails() {
+    let service = test_service().await;
+    let conversation = create_persisted_conversation(&service).await;
+    let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+    let (_, assistant_message_id, run_id, turn_id) =
+        start_test_run(&service, &conversation, &runtime).await;
+    sqlx::query(
+        "
+        CREATE TRIGGER reject_turn_attachment
+        BEFORE UPDATE OF provider_turn_id ON chat_turns
+        BEGIN
+            SELECT RAISE(ABORT, 'reject turn attachment');
+        END
+        ",
+    )
+    .execute(&service.pool)
+    .await
+    .unwrap();
+
+    let result = service
+        .attach_turn_to_run(
+            &conversation.id,
+            &run_id,
+            &turn_id,
+            &assistant_message_id,
+            Some("provider-turn-1"),
+        )
+        .await;
+    assert!(result.is_err());
+
+    let detail = service
+        .get_conversation_detail(&conversation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(detail.turns[0].provider_turn_id, None);
+    assert_eq!(detail.turns[0].status, ChatTurnStatus::Starting);
+    assert_eq!(detail.latest_run.as_ref().unwrap().provider_turn_id, None);
+    assert_eq!(detail.latest_run.unwrap().status, ChatRunStatus::Starting);
+    assert!(
+        detail
+            .messages
+            .iter()
+            .all(|message| message.provider_turn_id.is_none())
+    );
+}
+
+#[tokio::test]
+async fn pending_request_terminal_transition_does_not_overwrite_a_winner() {
+    let service = test_service().await;
+    let conversation = create_persisted_conversation(&service).await;
+    let runtime = insert_test_runtime(&service, &conversation.id, "thread-1", true, 1).await;
+    let request = service
+        .persist_provider_request(
+            &conversation.id,
+            &runtime,
+            PersistProviderRequest {
+                jsonrpc_id: json!(42),
+                method: "item/commandExecution/requestApproval".to_string(),
+                params: json!({ "command": "echo test" }),
+                route_hints: route_hints(Some("thread-1"), Some("turn-1"), Some("item-1"), None),
+                status: ChatPendingRequestStatus::Pending,
+                decision: None,
+                error_message: None,
+            },
+        )
+        .await
+        .unwrap();
+    let winner = service
+        .update_pending_request_terminal(
+            &conversation.id,
+            &request.id,
+            ChatPendingRequestStatus::Resolved,
+            Some(&ChatPendingRequestDecision::Accept),
+            Some(&json!({ "decision": "accept" })),
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(winner.transitioned);
+
+    let responder = PendingServerResponder {
+        jsonrpc_id: json!(42),
+        conversation_id: conversation.id.clone(),
+        provider_request_id: request.provider_request_id.clone(),
+        owner_generation: 1,
+    };
+    service
+        .pending_server_responders
+        .insert(request.id.clone(), responder.clone());
+    service
+        .pending_server_responders
+        .insert(request.provider_request_id.clone(), responder);
+
+    let loser = service
+        .update_pending_request_terminal(
+            &conversation.id,
+            &request.id,
+            ChatPendingRequestStatus::Stale,
+            None,
+            None,
+            Some("late stale transition"),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(!loser.transitioned);
+    assert_eq!(loser.request.status, ChatPendingRequestStatus::Resolved);
+    assert!(service.pending_server_responders.contains_key(&request.id));
+}
+
+#[tokio::test]
+async fn finalize_run_returns_the_targeted_run() {
+    let service = test_service().await;
+    let conversation = create_persisted_conversation(&service).await;
+    service
+        .persist_run_start(
+            &conversation,
+            "user-a",
+            "assistant-a",
+            "run-a",
+            "turn-a",
+            "first",
+        )
+        .await
+        .unwrap();
+    service
+        .persist_run_start(
+            &conversation,
+            "user-z",
+            "assistant-z",
+            "run-z",
+            "turn-z",
+            "second",
+        )
+        .await
+        .unwrap();
+
+    let (finalized, _) = service
+        .finalize_run(
+            &conversation.id,
+            "run-a",
+            ChatRunStatus::Completed,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(finalized.id, "run-a");
+}
+
+#[tokio::test]
+async fn finalize_run_rolls_back_when_a_related_update_fails() {
+    let service = test_service().await;
+    let conversation = create_persisted_conversation(&service).await;
+    service
+        .persist_run_start(
+            &conversation,
+            "user-1",
+            "assistant-1",
+            "run-1",
+            "turn-1",
+            "hello",
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        "
+        CREATE TRIGGER reject_conversation_finalization
+        BEFORE UPDATE OF last_run_state ON chat_conversations
+        BEGIN
+            SELECT RAISE(ABORT, 'reject conversation finalization');
+        END
+        ",
+    )
+    .execute(&service.pool)
+    .await
+    .unwrap();
+
+    let result = service
+        .finalize_run(
+            &conversation.id,
+            "run-1",
+            ChatRunStatus::Completed,
+            None,
+            Some(("assistant-1", "Done", ChatMessageStatus::Completed)),
+        )
+        .await;
+    assert!(result.is_err());
+
+    let detail = service
+        .get_conversation_detail(&conversation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(detail.latest_run.unwrap().status, ChatRunStatus::Starting);
+    assert_eq!(detail.turns[0].status, ChatTurnStatus::Starting);
+    assert_eq!(detail.conversation.last_run_state, ChatRunStatus::Starting);
+    let assistant_message = detail
+        .messages
+        .iter()
+        .find(|message| message.id == "assistant-1")
+        .unwrap();
+    assert_eq!(assistant_message.status, ChatMessageStatus::Streaming);
+    assert_eq!(assistant_message.content_text, "");
 }
 
 #[tokio::test]

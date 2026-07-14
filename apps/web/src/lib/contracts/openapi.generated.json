@@ -589,6 +589,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Chat is archived",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
           }
         }
       }

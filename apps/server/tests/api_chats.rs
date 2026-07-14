@@ -245,6 +245,45 @@ async fn update_chat_settings_persists_values() {
 }
 
 #[tokio::test]
+async fn archived_chat_rejects_settings_updates() {
+    let (base, _tmp) = start_test_server().await;
+    let client = reqwest::Client::new();
+    let repo = init_git_repo();
+    let project = create_project(&client, &base, repo.path()).await;
+    let project_id = project["id"].as_str().unwrap();
+    let worktrees = list_worktrees(&client, &base, project_id).await;
+    let chat = create_chat(&client, &base, worktrees[0]["id"].as_str().unwrap()).await;
+    client
+        .post(format!(
+            "{base}/api/chats/{}/archive?sessionId=default",
+            chat.conversation_id
+        ))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let response = client
+        .patch(format!(
+            "{base}/api/chats/{}/settings?sessionId=default",
+            chat.conversation_id
+        ))
+        .json(&serde_json::json!({
+            "selectedModel": "gpt-5.5-codex",
+            "selectedEffort": "high",
+            "selectedPermissionMode": "full_access",
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let error: Value = response.json().await.unwrap();
+    assert_eq!(error["message"], "chat is archived");
+}
+
+#[tokio::test]
 async fn archive_rejects_messages_and_unarchive_restores_settings_writes() {
     let (base, _tmp) = start_test_server().await;
     let client = reqwest::Client::new();

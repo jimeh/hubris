@@ -367,20 +367,15 @@ impl ChatService {
         run: &RunRow,
         reason: &str,
     ) -> Result<(), ChatServiceError> {
-        if let Some(message_id) = self.latest_assistant_message_id(conversation_id).await? {
-            self.finalize_assistant_message(
-                conversation_id,
-                &message_id,
-                "",
-                ChatMessageStatus::Interrupted,
-            )
-            .await?;
-        }
+        let message_id = self.latest_assistant_message_id(conversation_id).await?;
         self.finalize_run(
             conversation_id,
             &run.id,
             ChatRunStatus::Interrupted,
             Some(reason.to_string()),
+            message_id
+                .as_deref()
+                .map(|message_id| (message_id, "", ChatMessageStatus::Interrupted)),
         )
         .await?;
         let _ = self.emit_conversation_updated(conversation_id).await?;
@@ -522,17 +517,15 @@ impl ChatService {
                 ChatRunStatus::Starting | ChatRunStatus::Running => ChatMessageStatus::Streaming,
             };
             let final_text = extract_turn_text(&provider_turn).unwrap_or_default();
-            let message = self
-                .finalize_assistant_message(
-                    conversation_id,
-                    &turn.assistant_message_id,
-                    &final_text,
-                    message_status,
-                )
-                .await?;
-            if !self.run_is_terminal(conversation_id, &turn.run_id).await? {
-                let run = self
-                    .finalize_run(conversation_id, &turn.run_id, run_status, None)
+            let message = if !self.run_is_terminal(conversation_id, &turn.run_id).await? {
+                let (run, message) = self
+                    .finalize_run(
+                        conversation_id,
+                        &turn.run_id,
+                        run_status,
+                        None,
+                        Some((&turn.assistant_message_id, &final_text, message_status)),
+                    )
                     .await?;
                 if let Some(summary) = self.get_conversation_summary(conversation_id).await? {
                     self.events.emit(EventKind::ChatRunUpdated {
@@ -541,7 +534,16 @@ impl ChatService {
                         run,
                     });
                 }
-            }
+                message
+            } else {
+                self.finalize_assistant_message(
+                    conversation_id,
+                    &turn.assistant_message_id,
+                    &final_text,
+                    message_status,
+                )
+                .await?
+            };
             let finalized_turn = self
                 .finalize_turn(
                     conversation_id,
