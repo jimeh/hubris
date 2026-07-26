@@ -214,8 +214,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Must run through the workspace so it uses the Playwright pinned in
+      # bun.lock. `bun x playwright` from the repo root finds no local
+      # `playwright` bin (@playwright/test lives in apps/web/node_modules) and
+      # silently downloads the latest release from npm, installing browser
+      # builds the pinned version does not look for.
       - name: Install Playwright Chromium
-        run: bun x playwright install --with-deps chromium
+        run: bun run --filter hubris-web test:e2e:browsers:deps
 
       - name: Build web app
         run: bun run --filter hubris-web build
