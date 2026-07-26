@@ -18,7 +18,7 @@ description:
 
 ## Workflow
 
-```text
+```
 1. impact({target: "X", direction: "upstream"})  → Map all dependents
 2. query({search_query: "X"})                            → Find execution flows involving X
 3. context({name: "X"})                           → See all incoming/outgoing refs
@@ -31,7 +31,7 @@ description:
 
 ### Rename Symbol
 
-```text
+```
 - [ ] rename({symbol_name: "oldName", new_name: "newName", dry_run: true}) — preview all edits
 - [ ] Review graph edits (high confidence) and ast_search edits (review carefully)
 - [ ] If satisfied: rename({..., dry_run: false}) — apply edits
@@ -41,7 +41,7 @@ description:
 
 ### Extract Module
 
-```text
+```
 - [ ] context({name: target}) — see all incoming/outgoing refs
 - [ ] impact({target, direction: "upstream"}) — find all external callers
 - [ ] Define new module interface
@@ -52,7 +52,7 @@ description:
 
 ### Split Function/Service
 
-```text
+```
 - [ ] context({name: target}) — understand all callees
 - [ ] Group callees by responsibility
 - [ ] impact({target, direction: "upstream"}) — map callers to update
@@ -66,7 +66,7 @@ description:
 
 **rename** — automated multi-file rename:
 
-```text
+```
 rename({symbol_name: "validateUser", new_name: "authenticateUser", dry_run: true})
 → 12 edits across 8 files
 → 10 graph edits (high confidence), 2 ast_search edits (review)
@@ -75,7 +75,7 @@ rename({symbol_name: "validateUser", new_name: "authenticateUser", dry_run: true
 
 **impact** — map all dependents first:
 
-```text
+```
 impact({target: "validateUser", direction: "upstream"})
 → d=1: loginHandler, apiMiddleware, testUtils
 → Affected Processes: LoginFlow, TokenRefresh
@@ -83,7 +83,7 @@ impact({target: "validateUser", direction: "upstream"})
 
 **detect_changes** — verify your changes after refactoring:
 
-```text
+```
 detect_changes({scope: "all"})
 → Changed: 8 files, 12 symbols
 → Affected processes: LoginFlow, TokenRefresh
@@ -108,7 +108,7 @@ RETURN caller.name, caller.filePath ORDER BY caller.filePath
 
 ## Example: Rename `validateUser` to `authenticateUser`
 
-```text
+```
 1. rename({symbol_name: "validateUser", new_name: "authenticateUser", dry_run: true})
    → 12 edits: 10 graph (safe), 2 ast_search (review)
    → Files: validator.ts, login.ts, middleware.ts, config.json...

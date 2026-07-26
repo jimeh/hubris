@@ -18,7 +18,7 @@ description:
 
 ## Workflow
 
-```text
+```
 1. READ gitnexus://repos                          → Discover indexed repos
 2. READ gitnexus://repo/{name}/context             → Codebase overview, check staleness
 3. query({search_query: "<what you want to understand>"})  → Find related execution flows
@@ -31,7 +31,7 @@ description:
 
 ## Checklist
 
-```text
+```
 - [ ] READ gitnexus://repo/{name}/context
 - [ ] query for the concept you want to understand
 - [ ] Review returned processes (execution flows)
@@ -53,7 +53,7 @@ description:
 
 **query** — find execution flows related to a concept:
 
-```text
+```
 query({search_query: "payment processing"})
 → Processes: CheckoutFlow, RefundFlow, WebhookHandler
 → Symbols grouped by flow with file locations
@@ -61,7 +61,7 @@ query({search_query: "payment processing"})
 
 **context** — 360-degree view of a symbol:
 
-```text
+```
 context({name: "validateUser"})
 → Incoming calls: loginHandler, apiMiddleware
 → Outgoing calls: checkToken, getUserById
@@ -70,7 +70,7 @@ context({name: "validateUser"})
 
 ## Example: "How does payment processing work?"
 
-```text
+```
 1. READ gitnexus://repo/my-app/context       → 918 symbols, 45 processes
 2. query({search_query: "payment processing"})
    → CheckoutFlow: processPayment → validateCard → chargeStripe
