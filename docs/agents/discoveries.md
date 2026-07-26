@@ -223,3 +223,23 @@ but too specific for the root `AGENTS.md` map.
   hand-memoization stays load-bearing there. Re-evaluate after fixing those
   violations in the polish phase; the babel pass also slows vitest transforms
   noticeably.
+- Never run workspace CLIs through `bun x` from the repo root. The root
+  `package.json` declares no dependencies, so tools live in
+  `apps/web/node_modules` and only get a bin link in
+  `apps/web/node_modules/.bin` — `bun x <tool>` at the root finds nothing local
+  and silently downloads the latest release from npm instead. This broke the e2e
+  smoke lane (2026-07-26): `bun x playwright install chromium` fetched
+  Playwright 1.62.0 and installed browser build 1234, while the spec ran on the
+  pinned 1.61.0 and failed with
+  `Executable doesn't exist at .../chromium_headless_shell-1228`. It stays green
+  only while npm's latest happens to match the pin, so it breaks on a delay, not
+  on a commit. Route these through `bun run --filter hubris-web <script>`, which
+  puts the workspace's own `.bin` on `PATH`. `bun x prettier` in
+  `check:markdown`/`format:markdown` has the same latent skew.
+- The `.claude/skills/gitnexus/*/SKILL.md` files are generator output, rewritten
+  by `mise run gitnexus:analyze` (which is also why that task has to
+  `git checkout CLAUDE.md` afterwards). Their code-fence style flips between
+  gitnexus releases — bare fences originally, ` ```text ` from the 1.6.x bump in
+  `c7a3b27`, bare again in 1.6.9 — so do not hand-edit fences to satisfy a
+  linter's MD040; the next regeneration reverts it. The repo has no markdownlint
+  gate, only prettier, which ignores fence languages.
