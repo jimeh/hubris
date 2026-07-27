@@ -1,0 +1,12 @@
+[package]
+name = "hubris-release-helper"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+markdown = "1"
+
+[dev-dependencies]
+tempfile = "3"
