@@ -188,13 +188,24 @@ jobs:
 
       - name: Resolve release notes
         id: notes
+        shell: bash
         env:
           TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+
           if gh release view "${TAG}" --json isDraft \
             >/tmp/hubris-release.json 2>/dev/null; then
+            # Only an unpublished draft may be reused. A published release
+            # means this tag already shipped, and the later
+            # `gh release upload --clobber` would silently replace assets
+            # people may already have downloaded.
+            if [[ "$(jq -r '.isDraft' /tmp/hubris-release.json)" != "true" ]]; then
+              echo "::error::release ${TAG} is already published; refusing to overwrite its assets"
+              exit 1
+            fi
             echo "existing_release=true" >>"${GITHUB_OUTPUT}"
           else
             echo "existing_release=false" >>"${GITHUB_OUTPUT}"

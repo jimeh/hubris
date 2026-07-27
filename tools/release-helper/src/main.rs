@@ -157,6 +157,25 @@ fn resolve_version(
     github_ref_type: Option<&str>,
     github_ref_name: Option<&str>,
 ) -> Result<VersionInfo, BoxError> {
+    resolve_version_with(override_version, github_ref_type, github_ref_name, || {
+        git_output([
+            "describe", "--tags", "--dirty", "--always", "--match", "v[0-9]*",
+        ])
+        .or_else(|_| git_output(["rev-parse", "--short", "HEAD"]))
+    })
+}
+
+/// Resolve a release version against an injected Git description.
+///
+/// `describe` is only consulted for the non-tag fallback, and is a parameter so
+/// tests can exercise that branch without depending on the repository the test
+/// process happens to run in.
+fn resolve_version_with(
+    override_version: Option<&str>,
+    github_ref_type: Option<&str>,
+    github_ref_name: Option<&str>,
+    describe: impl FnOnce() -> Result<String, BoxError>,
+) -> Result<VersionInfo, BoxError> {
     if let Some(version) = override_version.filter(|value| !value.is_empty()) {
         let version = version.trim_start_matches('v').to_owned();
         return Ok(version_info(format!("v{version}"), version, false));
@@ -175,10 +194,7 @@ fn resolve_version(
         return Ok(version_info(format!("v{version}"), version, true));
     }
 
-    let describe = git_output([
-        "describe", "--tags", "--dirty", "--always", "--match", "v[0-9]*",
-    ])
-    .or_else(|_| git_output(["rev-parse", "--short", "HEAD"]))?;
+    let describe = describe()?;
     let version = describe.trim_start_matches('v').to_owned();
     let tag = format!("v{version}");
 
@@ -344,11 +360,17 @@ fn desktop_platform_arch(target: &str) -> Result<(&'static str, &'static str), B
     }
 }
 
-/// Locate the Electron bundle for a version, preferring its exact name.
+/// Locate the Electron bundle Forge built for exactly this release version.
 ///
 /// Electron Forge names bundles after the desktop `package.json` version,
-/// which release-please keeps in sync with the release tag. Preferring that
-/// exact name stops a stale bundle from an earlier build being published.
+/// which release-please keeps in sync with the release tag, so the exact
+/// name is required rather than preferred. Falling back to "whatever zip is
+/// in the directory" would relabel a wrong-version bundle as this release.
+/// Nothing is lost by being strict: `.mise/tasks/build-desktop-target`
+/// clears the output directory before building, and
+/// `scripts/verify-desktop-package.sh` already enforces a single artifact.
+/// A mismatch is therefore a real build/version bug, and the error names
+/// both the expected file and whatever was actually present.
 fn find_desktop_bundle(
     bundle_dir: &Path,
     platform: &str,
@@ -360,27 +382,38 @@ fn find_desktop_bundle(
         return Ok(expected);
     }
 
+    let found = list_desktop_bundles(bundle_dir)?;
+    if found.is_empty() {
+        return Err(format!("missing desktop bundle: {}", expected.display()).into());
+    }
+
+    Err(format!(
+        "missing desktop bundle: {}, found: {}",
+        expected.display(),
+        found.join(", ")
+    )
+    .into())
+}
+
+/// List the zip file names present in an Electron Forge output directory.
+fn list_desktop_bundles(bundle_dir: &Path) -> Result<Vec<String>, BoxError> {
     let mut bundles = Vec::new();
     if bundle_dir.is_dir() {
         for entry in fs::read_dir(bundle_dir)? {
             let path = entry?.path();
             if path.is_file() && path.extension() == Some(OsStr::new("zip")) {
-                bundles.push(path);
+                bundles.push(
+                    path.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
+                );
             }
         }
     }
     bundles.sort();
 
-    match bundles.len() {
-        0 => Err(format!("missing desktop bundle: {}", expected.display()).into()),
-        1 => Ok(bundles.remove(0)),
-        _ => Err(format!(
-            "ambiguous desktop bundles in {}, expected {}",
-            bundle_dir.display(),
-            expected.display()
-        )
-        .into()),
-    }
+    Ok(bundles)
 }
 
 /// Resolve a path relative to the project root unless it is already absolute.
@@ -649,11 +682,42 @@ mod tests {
 
     /// Git-derived non-tag runs use the full described version as their tag.
     #[test]
-    fn derived_non_tag_version_uses_full_version_as_tag() {
-        let version = resolve_version(None, None, None).unwrap();
+    fn derived_version_keeps_git_describe_detail() {
+        let version =
+            resolve_version_with(None, None, None, || Ok("v1.2.3-4-gabc1234".to_owned())).unwrap();
 
-        assert_eq!(version.tag, format!("v{}", version.version));
+        assert_eq!(version.version, "1.2.3-4-gabc1234");
+        assert_eq!(version.tag, "v1.2.3-4-gabc1234");
         assert!(!version.is_tag);
+    }
+
+    /// A dirty working tree keeps its describe suffix in the derived version.
+    #[test]
+    fn derived_version_preserves_dirty_suffix() {
+        let version =
+            resolve_version_with(None, None, None, || Ok("v1.2.3-dirty".to_owned())).unwrap();
+
+        assert_eq!(version.version, "1.2.3-dirty");
+        assert!(!version.is_tag);
+    }
+
+    /// With no tags at all, describe falls back to a bare short SHA.
+    #[test]
+    fn derived_version_falls_back_to_short_sha() {
+        let version = resolve_version_with(None, None, None, || Ok("abc1234".to_owned())).unwrap();
+
+        assert_eq!(version.version, "abc1234");
+        assert_eq!(version.tag, "vabc1234");
+        assert!(!version.is_tag);
+    }
+
+    /// A failing Git description propagates instead of inventing a version.
+    #[test]
+    fn derived_version_propagates_describe_failure() {
+        let error = resolve_version_with(None, None, None, || Err("git exploded".into()))
+            .expect_err("describe failure must not yield a version");
+
+        assert_eq!(error.to_string(), "git exploded");
     }
 
     /// Version metadata appends key-value pairs to GitHub output files.
@@ -679,6 +743,33 @@ mod tests {
         );
     }
 
+    /// Writing outputs must append, because `$GITHUB_OUTPUT` is one file shared
+    /// by every step in the job. Truncating it would erase earlier steps.
+    #[test]
+    fn preserves_existing_github_outputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("outputs");
+        fs::write(&output, "earlier_step=kept\n").unwrap();
+
+        write_version_outputs(
+            &VersionInfo {
+                tag: "v1.2.3".to_owned(),
+                version: "1.2.3".to_owned(),
+                safe_version: "1.2.3".to_owned(),
+                is_tag: true,
+            },
+            &output,
+        )
+        .unwrap();
+
+        let written = fs::read_to_string(&output).unwrap();
+        assert!(
+            written.starts_with("earlier_step=kept\n"),
+            "earlier step output was clobbered: {written:?}"
+        );
+        assert!(written.contains("tag=v1.2.3\n"));
+    }
+
     /// Packaging creates the raw binary and tar.gz assets for a target.
     #[test]
     fn packages_server_release_assets() {
@@ -694,10 +785,21 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            fs::read(dist_dir.join("hubris-server-x86_64-unknown-linux-gnu")).unwrap(),
-            b"binary"
-        );
+        let raw_asset = dist_dir.join("hubris-server-x86_64-unknown-linux-gnu");
+        assert_eq!(fs::read(&raw_asset).unwrap(), b"binary");
+
+        // The published binary has to stay runnable after download.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mode = fs::metadata(&raw_asset).unwrap().permissions().mode();
+            assert_ne!(
+                mode & 0o111,
+                0,
+                "packaged binary is not executable: mode {mode:o}"
+            );
+        }
 
         let entries = tar_entries(&dist_dir.join("hubris-server-x86_64-unknown-linux-gnu.tar.gz"));
         let prefix = "hubris-server-1.2.3-x86_64-unknown-linux-gnu";
@@ -776,10 +878,11 @@ mod tests {
         );
     }
 
-    /// A single unversioned bundle is still packaged for the release.
+    /// A leftover bundle beside the current one does not shadow it.
     #[test]
-    fn packages_desktop_bundle_from_single_fallback() {
-        let project = desktop_fixture("x64", "Hubris-darwin-x64.zip");
+    fn packages_desktop_bundle_alongside_stale_bundle() {
+        let project = desktop_fixture("x64", "Hubris-darwin-x64-1.2.3.zip");
+        add_desktop_bundle(&project, "x64", "Hubris-darwin-x64-1.2.2.zip", "stale");
         let dist_dir = project.path().join("release-dist");
 
         package_desktop_asset_in_project(project.path(), "x86_64-apple-darwin", "1.2.3", &dist_dir)
@@ -789,6 +892,34 @@ mod tests {
             fs::read_to_string(dist_dir.join("hubris-desktop-x86_64-apple-darwin.zip")).unwrap(),
             "bundle"
         );
+    }
+
+    /// A bundle built from a different version is never relabelled.
+    #[test]
+    fn rejects_wrong_version_desktop_bundle() {
+        let project = desktop_fixture("x64", "Hubris-darwin-x64-0.1.0.zip");
+        let dist_dir = project.path().join("release-dist");
+
+        let error = package_desktop_asset_in_project(
+            project.path(),
+            "x86_64-apple-darwin",
+            "0.0.2",
+            &dist_dir,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(
+            error,
+            format!(
+                "missing desktop bundle: {}, found: Hubris-darwin-x64-0.1.0.zip",
+                project
+                    .path()
+                    .join("dist/make/zip/darwin/x64/Hubris-darwin-x64-0.0.2.zip")
+                    .display()
+            )
+        );
+        assert!(!dist_dir.exists());
     }
 
     /// Desktop packaging fails when Electron Forge produced no bundle.
@@ -822,17 +953,11 @@ mod tests {
         assert!(!dist_dir.exists());
     }
 
-    /// Stale bundles alongside a new build are rejected, never guessed at.
+    /// The mismatch error lists every bundle present, so builds are debuggable.
     #[test]
-    fn rejects_ambiguous_desktop_bundles() {
+    fn desktop_bundle_error_lists_every_present_bundle() {
         let project = desktop_fixture("arm64", "Hubris-darwin-arm64-1.2.2.zip");
-        fs::write(
-            project
-                .path()
-                .join("dist/make/zip/darwin/arm64/Hubris-darwin-arm64-1.2.1.zip"),
-            "stale",
-        )
-        .unwrap();
+        add_desktop_bundle(&project, "arm64", "Hubris-darwin-arm64-1.2.1.zip", "stale");
         let dist_dir = project.path().join("release-dist");
 
         let error = package_desktop_asset_in_project(
@@ -845,7 +970,10 @@ mod tests {
         .to_string();
 
         assert!(
-            error.starts_with("ambiguous desktop bundles in"),
+            error.ends_with(
+                "found: Hubris-darwin-arm64-1.2.1.zip, \
+                 Hubris-darwin-arm64-1.2.2.zip"
+            ),
             "unexpected error: {error}"
         );
         assert!(!dist_dir.exists());
@@ -891,6 +1019,12 @@ mod tests {
         fs::write(bundle_dir.join(bundle), "bundle").unwrap();
 
         project
+    }
+
+    /// Add another zip to a desktop fixture's Forge output directory.
+    fn add_desktop_bundle(project: &tempfile::TempDir, arch: &str, bundle: &str, contents: &str) {
+        let bundle_dir = project.path().join(format!("dist/make/zip/darwin/{arch}"));
+        fs::write(bundle_dir.join(bundle), contents).unwrap();
     }
 
     /// List the entry names inside a packaged tar.gz archive.

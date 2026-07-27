@@ -29,6 +29,6 @@ edition = "2024"
 # root has to be a real package for releases to run at all.
 [package]
 name = "hubris-workspace"
-version = "0.0.1"
+version = "0.1.0"
 edition.workspace = true
 publish = false

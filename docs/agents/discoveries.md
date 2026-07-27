@@ -251,15 +251,24 @@ but too specific for the root `AGENTS.md` map.
   `jimeh/treeboot` solves it the same way with `treeboot-workspace`.
   **`[workspace] default-members` is load-bearing because of this**: a root
   package would otherwise become the sole default member, silently narrowing
-  bare `cargo test`, `cargo check`, `cargo clippy`, and
-  `cargo build --features embed-frontend` — all of which CI and mise run without
-  `--workspace` — down to the empty stub, leaving CI green while testing
-  nothing. Keep every real crate listed there, and verify with
+  bare `cargo test`, `cargo check`, and `cargo clippy` — which CI and mise run
+  without `--workspace` — down to the empty stub, leaving CI green while testing
+  nothing. (`cargo build --features embed-frontend` fails loudly instead, with
+  `the package 'hubris-workspace' does not contain this feature`, so it is not
+  part of the silent hazard.) Keep every real crate listed there, and verify
+  with
   `cargo metadata --format-version 1 --no-deps | jq '.workspace_default_members'`
   after touching the root manifest.
 - release-please bootstraps from an empty `{}` manifest, not a seeded one. An
   entry in `.github/.release-please-manifest.json` means "already released at
-  this version", so the next release bumps _past_ it; `initial-version` in
-  `.github/release-please-config.json` only applies when the package is absent
-  from the manifest. `{}` + `initial-version: 0.0.1` yields a first release of
-  `v0.0.1`; seeding `{".": "0.0.1"}` would instead yield `v0.0.2`/`v0.1.0`.
+  this version", so the next release would bump _past_ it rather than use it.
+- **`initial-version` does nothing under `release-type: rust`.** The base
+  strategy honours it, but `src/strategies/rust.ts` overrides
+  `initialReleaseVersion()` with a hardcoded `Version.parse('0.1.0')` and never
+  reads the field, so hubris' first release is `v0.1.0` no matter what the
+  config says. The config key is therefore deliberately absent — do not add it
+  back expecting it to work. To force a different first version you need a
+  `release-as` config entry or a `Release-As:` commit footer, both of which are
+  one-time bootstraps that must be removed afterwards. Generalise the lesson: a
+  release-please strategy subclass can silently ignore a documented top-level
+  config key, so verify against the strategy source rather than the docs.

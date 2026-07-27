@@ -6,8 +6,12 @@ on:
     branches: ["main"]
 
 concurrency:
+  # Not cancel-in-progress: this workflow creates draft releases and force-
+  # creates tags, so a cancel landing between those two side effects can leave
+  # a draft release with no tag (release.yml then never fires) or a tag with no
+  # release. Queueing is cheap; a half-applied release is not.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write

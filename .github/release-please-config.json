@@ -10,7 +10,6 @@
   "packages": {
     ".": {
       "package-name": "hubris",
-      "initial-version": "0.0.1",
       "extra-files": [
         {
           "type": "json",
