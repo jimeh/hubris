@@ -243,3 +243,23 @@ but too specific for the root `AGENTS.md` map.
   `c7a3b27`, bare again in 1.6.9 — so do not hand-edit fences to satisfy a
   linter's MD040; the next regeneration reverts it. The repo has no markdownlint
   gate, only prettier, which ignores fence languages.
+- The workspace root is a stub package (`hubris-workspace`, `src/lib.rs` with
+  only a doc comment) purely to satisfy release-please. Its Rust strategy
+  unconditionally applies the `CargoToml` updater to the workspace root, and
+  that updater throws `is not a package manifest (might be a cargo workspace)`
+  on a virtual manifest — so a virtual root makes every release-please run fail.
+  `jimeh/treeboot` solves it the same way with `treeboot-workspace`.
+  **`[workspace] default-members` is load-bearing because of this**: a root
+  package would otherwise become the sole default member, silently narrowing
+  bare `cargo test`, `cargo check`, `cargo clippy`, and
+  `cargo build --features embed-frontend` — all of which CI and mise run without
+  `--workspace` — down to the empty stub, leaving CI green while testing
+  nothing. Keep every real crate listed there, and verify with
+  `cargo metadata --format-version 1 --no-deps | jq '.workspace_default_members'`
+  after touching the root manifest.
+- release-please bootstraps from an empty `{}` manifest, not a seeded one. An
+  entry in `.github/.release-please-manifest.json` means "already released at
+  this version", so the next release bumps _past_ it; `initial-version` in
+  `.github/release-please-config.json` only applies when the package is absent
+  from the manifest. `{}` + `initial-version: 0.0.1` yields a first release of
+  `v0.0.1`; seeding `{".": "0.0.1"}` would instead yield `v0.0.2`/`v0.1.0`.

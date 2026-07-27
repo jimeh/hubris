@@ -5,7 +5,30 @@ members = [
   "crates/codex-ag-ui",
   "crates/hubris-git",
   "crates/hubris-pty",
+  "tools/release-helper",
+]
+# The root is a real package (see [package] below) purely so release-please can
+# update a root version, which makes it the sole default member unless we say
+# otherwise. Keep every real crate listed here so bare `cargo test`, `cargo
+# check`, `cargo clippy`, and `cargo build --features embed-frontend` keep
+# covering the whole workspace instead of silently narrowing to the stub.
+default-members = [
+  "apps/server",
+  "crates/codex-ag-ui",
+  "crates/hubris-git",
+  "crates/hubris-pty",
+  "tools/release-helper",
 ]
 
 [workspace.package]
 edition = "2024"
+
+# Stub root package. release-please's Rust strategy unconditionally applies its
+# CargoToml updater to the workspace root, and that updater throws on a virtual
+# manifest ("is not a package manifest (might be a cargo workspace)"), so the
+# root has to be a real package for releases to run at all.
+[package]
+name = "hubris-workspace"
+version = "0.0.1"
+edition.workspace = true
+publish = false
